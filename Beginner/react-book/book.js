@@ -41,8 +41,8 @@ const here = decodeURIComponent(location.pathname.split("/").pop() || "index.htm
 function buildSidebar() {
   const el = document.getElementById("sidebar");
   if (!el) return;
-  // Back to the course launcher (notes/index.html); outside <details> so it shows on phones too
-  let html = '<a class="all-courses" href="../../../index.html">← All courses</a>';
+  // Back to the course launcher (learning-courses/index.html); outside <details> so it shows on phones too
+  let html = '<a class="all-courses" href="../../index.html">← All courses</a>';
   html += '<details open><summary>Chapters</summary>';
   html += '<a class="book-title" href="index.html">⚛️ React Beginner Book</a>';
   for (const p of PARTS) {

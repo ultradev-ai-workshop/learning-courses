@@ -45,7 +45,7 @@
     ]}
   ];
   window.BOOK_PARTS = PARTS;
-  var COURSES_HOME = '../../../index.html';
+  var COURSES_HOME = '../../index.html';
 
   function currentFile() {
     var f = location.pathname.split('/').pop();
@@ -75,7 +75,7 @@
     var nav = document.getElementById('sidebar');
     if (!nav) return;
     var here = currentFile();
-    // Back to the course launcher (notes/index.html); outside <details> so it shows on phones too
+    // Back to the course launcher (learning-courses/index.html); outside <details> so it shows on phones too
     nav.appendChild(el('a', { href: COURSES_HOME, 'class': 'all-courses' }, '← All courses'));
     var det = el('details');
     det.appendChild(el('summary', null, '☰ Python Study Book — chapters'));
