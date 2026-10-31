@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🐍&lt;/text&gt;&lt;/svg&gt;">
+<title>Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Python 3.15 · following the official tutorial</div>
+<h1>🐍 Python Study Book</h1>
+<p class="lead">A beginner-friendly, chapter-by-chapter course through the whole <a href="https://docs.python.org/3/tutorial/index.html">official Python tutorial</a>, written for people who already program in Java or JavaScript and want to know Python properly.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 16 chapters follow the official tutorial's structure. Each chapter only uses ideas from earlier chapters (or says where an idea is explained).</li>
+  <li><strong>Type the examples.</strong> Every example was run with Python 3.15 and its output checked. <code>&gt;&gt;&gt;</code> blocks are for the REPL; file blocks are scripts. Use the <em>Copy</em> button.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10+ exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. Try first, then peek.</li>
+  <li><strong>Build the practice project.</strong> Exercises marked <em>playground</em> grow the <code>playground/</code> folder, step by step, into the Chapter 16 expense tracker. The finished version is in <code>playground/reference/</code>. Start with <a href="playground-howto.html">Using the Playground</a>.</li>
+  <li><strong>Watch for the ☕/🟨 boxes.</strong> They compare Python with Java and JavaScript, and point out the habits that cause bugs.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000, and scores you per chapter.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>Coming from Java or JavaScript, or rusty on the terminal?</strong> Start with <a href="appendix-fromjava.html">Appendix A: From Java &amp; JavaScript to Python</a> for a side-by-side map of the languages, and <a href="appendix-shell.html">Appendix B: Terminal, Paths &amp; Text Encoding</a> for the shell basics every Python program relies on.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Python 3.15 (<a href="01-setup.html#install">Chapter 1</a> shows how) and check it with <code>python3 --version</code>. Some examples (<code>match</code>, comprehension unpacking, <code>lazy import</code>, <code>frozendict</code>) won't run on older versions.</p>
+</div>
+
+<div id="cards"></div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Set up the playground folder, run and test your exercise files, and fix common problems.",
+  "01-setup.html": "Install 3.15, the REPL, running scripts, sys.argv, encoding, shebang.",
+  "02-basics.html": "Numbers, // and %, float surprises, strings, slicing, lists, first loops.",
+  "03-control.html": "if/elif, truthiness, for-each, range(), break/continue, loop else, pass.",
+  "04-match.html": "Structural pattern matching: literals, captures, sequences, dicts, classes, guards.",
+  "05-functions.html": "Defaults, the mutable-default trap, keyword args, / and *, *args, lambdas, hints.",
+  "06-lists.html": "List methods, stacks, deque queues, comprehensions, 3.15 unpacking, del.",
+  "07-collections.html": "Tuples, sets, dicts, frozendict, looping helpers, and/or, walrus, comparisons.",
+  "08-modules.html": "import forms, __main__, sys.path, __pycache__, packages, relative imports, lazy import.",
+  "09-io.html": "f-strings and format specs, str/repr, t-strings, files with with, JSON.",
+  "10-exceptions.html": "try/except/else/finally, raise, chaining, custom errors, ExceptionGroup, notes.",
+  "11-classes.html": "Scopes (LEGB), self, class vs instance vars, dunders, properties, inheritance, MRO, dataclasses.",
+  "12-iterators.html": "The iterator protocol, yield, generator expressions, lazy pipelines, itertools.",
+  "13-stdlib1.html": "os, pathlib, argparse, stderr, re, math, random, datetime, zlib, timeit, unittest.",
+  "14-stdlib2.html": "pprint, textwrap, Template, struct, threads, logging, weakref, heapq, Decimal, Enum.",
+  "15-venv.html": "venv, pip, requirements.txt, pyproject.toml, uv, and what to learn next.",
+  "16-project.html": "Build and test a complete CLI expense tracker using nearly every chapter.",
+  "appendix-fromjava.html": "Syntax, references, equality, truthiness, collections, classes and patterns mapped from Java/JS.",
+  "appendix-shell.html": "Shell, cwd, paths, env vars, PATH, streams, exit codes, bytes vs text, UTF-8.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🪝&lt;/text&gt;&lt;/svg&gt;">
+<title>14 · Custom Hooks · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 14 · Escape Hatches</p>
+<h1>Custom Hooks</h1>
+<p class="lead">When several components need the same stateful logic, package it into your own Hook: a function whose name starts with <code>use</code>.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>What a custom Hook is, and how to extract one</li>
+    <li>The naming rule, and why it matters</li>
+    <li>Custom Hooks share <strong>logic</strong>, not state</li>
+    <li>Passing values and event handlers to Hooks</li>
+    <li>When to write a custom Hook</li>
+  </ul>
+</div>
+
+<h2>The problem: duplicated logic</h2>
+<p>Two components both need to know whether the user is online:</p>
+<script type="text/plain" class="code">
+  function StatusBar() {
+    const [isOnline, setIsOnline] = useState(true);
+    useEffect(() => {
+      function handleOnline() { setIsOnline(true); }
+      function handleOffline() { setIsOnline(false); }
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }, []);
+    return <h1>{isOnline ? '✅ Online' : '❌ Disconnected'}</h1>;
+  }
+
+  function SaveButton() {
+    // ...the SAME 15 lines again 😩
+  }
+</script>
+
+<h2>Extracting a custom Hook</h2>
+<script type="text/plain" class="code" data-file="useOnlineStatus.js">
+  import { useState, useEffect } from 'react';
+
+  export function useOnlineStatus() {
+    const [isOnline, setIsOnline] = useState(true);
+    useEffect(() => {
+      function handleOnline() { setIsOnline(true); }
+      function handleOffline() { setIsOnline(false); }
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }, []);
+    return isOnline;
+  }
+</script>
+<script type="text/plain" class="code" data-file="App.jsx">
+  import { useOnlineStatus } from './useOnlineStatus.js';
+
+  function StatusBar() {
+    const isOnline = useOnlineStatus();
+    return <h1>{isOnline ? '✅ Online' : '❌ Disconnected'}</h1>;
+  }
+
+  function SaveButton() {
+    const isOnline = useOnlineStatus();
+    return (
+      <button disabled={!isOnline} onClick={() => console.log('✅ Saved')}>
+        {isOnline ? 'Save progress' : 'Reconnecting...'}
+      </button>
+    );
+  }
+</script>
+<p>The components are now short and say <strong>what</strong> they want ("am I online?") rather than <strong>how</strong> to find out.</p>
+
+<h2>The naming rule</h2>
+<ul>
+  <li><strong>Components</strong> start with a capital letter and return JSX: <code>StatusBar</code>.</li>
+  <li><strong>Hooks</strong> start with <code>use</code> + a capital letter, and can return anything: <code>useOnlineStatus</code>.</li>
+</ul>
+<p>The name <code>use…</code> tells you, and the linter, that the function <strong>calls other Hooks</strong>, so the Rules of Hooks apply: call it only at the top level of a component or another Hook.</p>
+<div class="callout pitfall">
+  <strong>Don't prefix plain functions with <code>use</code></strong>
+  If a function doesn't call any Hooks, it's just a normal function. Name it <code>getSorted()</code>, not <code>useSorted()</code>.
+</div>
+
+<h2>Hooks share logic, not state</h2>
+<p>This is the key point. Every call to a Hook is <strong>completely independent</strong>:</p>
+<script type="text/plain" class="code">
+  function useFormInput(initialValue) {
+    const [value, setValue] = useState(initialValue);
+    function handleChange(e) {
+      setValue(e.target.value);
+    }
+    return { value, onChange: handleChange };
+  }
+
+  export default function Form() {
+    const firstNameProps = useFormInput('Mary');   // its own state
+    const lastNameProps = useFormInput('Poppins'); // separate state
+
+    return (
+      <>
+        <label>First name: <input {...firstNameProps} /></label>
+        <label>Last name: <input {...lastNameProps} /></label>
+        <p>Good morning, {firstNameProps.value} {lastNameProps.value}.</p>
+      </>
+    );
+  }
+</script>
+<p>It's as if you'd written two <code>useState</code> calls yourself. To <em>share</em> state between components, you still lift it up or use context (Chapters 9 and 11).</p>
+
+<h2>Passing reactive values to Hooks</h2>
+<p>The code inside a custom Hook re-runs on every render of the component that uses it, so it always gets the latest props and state:</p>
+<script type="text/plain" class="code">
+  export function useChatRoom({ serverUrl, roomId }) {
+    useEffect(() => {
+      const connection = createConnection({ serverUrl, roomId });
+      connection.connect();
+      return () => connection.disconnect();
+    }, [serverUrl, roomId]);   // reconnects when either changes
+  }
+
+  function ChatRoom({ roomId }) {
+    const [serverUrl, setServerUrl] = useState('https://localhost:1234');
+    useChatRoom({ serverUrl, roomId });
+    // ...
+  }
+</script>
+
+<h2>A useful example: <code>useLocalStorage</code></h2>
+<script type="text/plain" class="code" data-file="useLocalStorage.js">
+  import { useState, useEffect } from 'react';
+
+  export function useLocalStorage(key, initialValue) {
+    const [value, setValue] = useState(() => {
+      try {
+        const saved = localStorage.getItem(key);
+        return saved !== null ? JSON.parse(saved) : initialValue;
+      } catch {
+        return initialValue;
+      }
+    });
+
+    useEffect(() => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // storage might be full or blocked; ignore
+      }
+    }, [key, value]);
+
+    return [value, setValue];   // same shape as useState!
+  }
+</script>
+<script type="text/plain" class="code">
+  const [todos, setTodos] = useLocalStorage('todos', []);   // survives a page refresh
+</script>
+<div class="callout note">
+  <strong>Lazy initial state</strong>
+  <code>useState(() =&gt; ...)</code> runs the function <strong>only on the first render</strong>. Use it when computing the initial value is expensive, like reading <code>localStorage</code>.
+</div>
+
+<h2>When should you write a custom Hook?</h2>
+<ul>
+  <li>When you notice the <strong>same Effect or state logic</strong> in several components.</li>
+  <li>When an Effect is complicated and a good name would make the component clearer: <code>useChatRoom(roomId)</code> is easier to read than 20 lines of Effect.</li>
+  <li>Keep Hooks <strong>focused</strong> on one concrete purpose. Avoid generic "lifecycle" Hooks like <code>useMount(fn)</code>, because they hide dependencies.</li>
+</ul>
+<div class="callout tip">
+  <strong>A bonus of custom Hooks</strong>
+  Wrapping Effects in Hooks makes it easier to switch later to a better built-in solution or library. You only change the inside of the Hook, not every component.
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: <code>useToggle</code></h3>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export function useToggle(initial = false) {
+    const [on, setOn] = useState(initial);
+    const toggle = () => setOn(o => !o);
+    return [on, toggle];
+  }
+
+  // usage
+  function Menu() {
+    const [open, toggleOpen] = useToggle();
+    return (
+      <>
+        <button onClick={toggleOpen}>☰</button>
+        {open && <nav>Home · About · Contact</nav>}
+      </>
+    );
+  }
+</script>
+
+<h3>Example 2: <code>useFetch</code></h3>
+<script type="text/plain" class="code" data-file="useFetch.js">
+  import { useEffect, useState } from 'react';
+
+  export function useFetch(url) {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      let ignore = false;
+      setLoading(true);
+      setError(null);
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(json => { if (!ignore) setData(json); })
+        .catch(err => { if (!ignore) setError(err); })
+        .finally(() => { if (!ignore) setLoading(false); });
+      return () => { ignore = true; };
+    }, [url]);
+
+    return { data, error, loading };
+  }
+</script>
+<script type="text/plain" class="code">
+  function Todo({ id }) {
+    const { data, error, loading } = useFetch(`https://jsonplaceholder.typicode.com/todos/${id}`);
+    if (loading) return <p>Loading…</p>;
+    if (error) return <p>Error: {error.message}</p>;
+    return <p>{data.completed ? '✅' : '⬜'} {data.title}</p>;
+  }
+</script>
+
+<h3>Example 3: <code>useDebouncedValue</code></h3>
+<script type="text/plain" class="code">
+  import { useEffect, useState } from 'react';
+
+  export function useDebouncedValue(value, delay = 500) {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+      const id = setTimeout(() => setDebounced(value), delay);
+      return () => clearTimeout(id);   // a new keystroke cancels the old timer
+    }, [value, delay]);
+    return debounced;
+  }
+
+  // usage: only search after the user pauses typing
+  const [text, setText] = useState('');
+  const query = useDebouncedValue(text, 400);
+  const { data } = useFetch(`/api/search?q=${query}`);
+</script>
+<p>Custom Hooks can be <strong>chained</strong>: the output of one Hook becomes the input of another.</p>
+
+<h3>Example 4: <code>useDocumentTitle</code></h3>
+<script type="text/plain" class="code">
+  export function useDocumentTitle(title) {
+    useEffect(() => {
+      const previous = document.title;
+      document.title = title;
+      return () => { document.title = previous; };   // restore on unmount
+    }, [title]);
+  }
+
+  function Inbox({ unread }) {
+    useDocumentTitle(unread > 0 ? `(${unread}) Inbox` : 'Inbox');
+    return <h1>Inbox</h1>;
+  }
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>A custom Hook is a function named <code>useSomething</code> that calls other Hooks.</li>
+    <li>It shares <strong>stateful logic</strong>. Each call has its <strong>own independent state</strong>.</li>
+    <li>It re-runs with the component, so it always sees the latest props and state.</li>
+    <li>Extract one when logic repeats, or when a name would make an Effect clearer.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. <code>useCounter</code></h3>
+  <p>Write <code>useCounter(initial)</code> that returns <code>{ count, increment, decrement, reset }</code>. Use it in two separate counters, and check that they're independent.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  function useCounter(initial = 0) {
+    const [count, setCount] = useState(initial);
+    return {
+      count,
+      increment: () => setCount(c => c + 1),
+      decrement: () => setCount(c => c - 1),
+      reset: () => setCount(initial),
+    };
+  }
+
+  function Counter({ label }) {
+    const { count, increment, decrement, reset } = useCounter(0);
+    return (
+      <p>
+        {label}: {count}
+        <button onClick={decrement}>−</button>
+        <button onClick={increment}>+</button>
+        <button onClick={reset}>Reset</button>
+      </p>
+    );
+  }
+
+  export default function App() {
+    return (<><Counter label="Apples" /><Counter label="Oranges" /></>);
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. <code>useWindowWidth</code></h3>
+  <p>Write a Hook that returns the current <code>window.innerWidth</code> and updates when the window is resized. Show "📱 Mobile" if it's under 600, and "🖥️ Desktop" otherwise.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState, useEffect } from 'react';
+
+  function useWindowWidth() {
+    const [width, setWidth] = useState(window.innerWidth);
+    useEffect(() => {
+      function handleResize() { setWidth(window.innerWidth); }
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }, []);
+    return width;
+  }
+
+  export default function Device() {
+    const width = useWindowWidth();
+    return <h1>{width < 600 ? '📱 Mobile' : '🖥️ Desktop'} ({width}px)</h1>;
+  }
+</script>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Hook or not? <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  function useFormatDate(d) { return d.toLocaleDateString(); }          // A
+  function useTimer() { const [t, setT] = useState(0); /* ... */ }      // B
+  function getUser() { const ctx = useContext(UserContext); return ctx; } // C
+</script>
+  <details class="solution"><summary>Show answer</summary>
+  <p><strong>A:</strong> it calls no Hooks, so it shouldn't start with <code>use</code>. Rename it to <code>formatDate</code>. <strong>B:</strong> a correct custom Hook. <strong>C:</strong> it calls a Hook, so it <em>must</em> be named <code>useUser</code>. Otherwise the linter can't check the Rules of Hooks.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Use <code>useToggle</code> <span class="lvl">🟢 easy</span></h3>
+  <p>Use <code>useToggle</code> (Example 1) three times in one component: dark mode, notifications and sound, each with its own checkbox.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Settings() {
+    const [dark, toggleDark] = useToggle();
+    const [notify, toggleNotify] = useToggle(true);
+    const [sound, toggleSound] = useToggle();
+    return (
+      <>
+        <label><input type="checkbox" checked={dark} onChange={toggleDark} /> Dark mode</label>
+        <label><input type="checkbox" checked={notify} onChange={toggleNotify} /> Notifications</label>
+        <label><input type="checkbox" checked={sound} onChange={toggleSound} /> Sound</label>
+      </>
+    );
+  }
+</script>
+  <p>Three calls give three independent states. Hooks share logic, not state.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. <code>useDocumentTitle</code> in your project <span class="lvl">🟢 easy</span></h3>
+  <p>In <code>sample-test-react</code>, use <code>useDocumentTitle</code> to show "Count: N" in the tab title, where N is your counter's value.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  // inside App, after const [count, setCount] = useState(0):
+  useDocumentTitle(`Count: ${count}`);
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. <code>useKeyPress</code> <span class="lvl">🟡 medium</span></h3>
+  <p>Write <code>useKeyPress(key, callback)</code>, which calls <code>callback</code> whenever <code>key</code> is pressed anywhere on the page. Use it to increment a counter with the "ArrowUp" key.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useEffect, useEffectEvent, useState } from 'react';
+
+  function useKeyPress(key, callback) {
+    const onKey = useEffectEvent(callback);   // always calls the latest callback
+    useEffect(() => {
+      function handle(e) {
+        if (e.key === key) onKey(e);
+      }
+      window.addEventListener('keydown', handle);
+      return () => window.removeEventListener('keydown', handle);
+    }, [key]);
+  }
+
+  export default function App() {
+    const [n, setN] = useState(0);
+    useKeyPress('ArrowUp', () => setN(n + 1));
+    return <h1>Press ↑: {n}</h1>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Use <code>useFetch</code> <span class="lvl">🟡 medium</span></h3>
+  <p>Using <code>useFetch</code> (Example 2), show the list of users from <code>https://jsonplaceholder.typicode.com/users</code>, and next to it, the details of the selected user from <code>/users/{id}</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function UserBrowser() {
+    const [selectedId, setSelectedId] = useState(1);
+    const list = useFetch('https://jsonplaceholder.typicode.com/users');
+    const detail = useFetch(`https://jsonplaceholder.typicode.com/users/${selectedId}`);
+
+    return (
+      <div style={{ display: 'flex', gap: 24 }}>
+        <ul>
+          {list.data?.map(u => (
+            <li key={u.id} onClick={() => setSelectedId(u.id)} style={{ cursor: 'pointer' }}>{u.name}</li>
+          ))}
+        </ul>
+        {detail.loading ? <p>Loading…</p> : detail.data && (
+          <div>
+            <h2>{detail.data.name}</h2>
+            <p>📧 {detail.data.email}</p>
+            <p>🏙️ {detail.data.address.city}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+</script>
+  <p><code>list.data?.map</code> uses <strong>optional chaining</strong>: if <code>data</code> is still <code>null</code>, the result is <code>undefined</code> instead of a crash.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Debounced search with Hooks <span class="lvl">🟡 medium</span></h3>
+  <p>Rebuild the debounced search from Chapter 12 using <code>useDebouncedValue</code>. Compare how much shorter the component is.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Search() {
+    const [text, setText] = useState('');
+    const query = useDebouncedValue(text, 500);
+    return (
+      <>
+        <input value={text} onChange={e => setText(e.target.value)} />
+        {query && <p>Searching for: {query}</p>}
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Persist your todo app <span class="lvl">🟡 medium</span></h3>
+  <p>Swap <code>useState</code> for <code>useLocalStorage('todos', [])</code> in your todo app from Chapter 8. Refresh the page: the todos should still be there.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  // before
+  const [todos, setTodos] = useState([]);
+  // after: the same API, now persistent
+  const [todos, setTodos] = useLocalStorage('todos', []);
+</script>
+  <p>Because the Hook returns the same <code>[value, setValue]</code> shape, nothing else in the component changes.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. <code>useCountdown</code> <span class="lvl">🔴 hard</span></h3>
+  <p>Move the countdown logic from Chapter 13 (Exercise 10) into <code>useCountdown(start)</code>, which returns <code>{ seconds, running, start, pause, reset }</code>. Then render two independent timers (10s and 30s) on one page.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useEffect, useState } from 'react';
+
+  function useCountdown(initial) {
+    const [seconds, setSeconds] = useState(initial);
+    const [running, setRunning] = useState(false);
+
+    useEffect(() => {
+      if (!running || seconds === 0) return;
+      const id = setInterval(() => setSeconds(s => s - 1), 1000);
+      return () => clearInterval(id);
+    }, [running, seconds]);
+
+    return {
+      seconds,
+      running,
+      start: () => setRunning(true),
+      pause: () => setRunning(false),
+      reset: () => { setRunning(false); setSeconds(initial); },
+    };
+  }
+
+  function Timer({ from }) {
+    const { seconds, running, start, pause, reset } = useCountdown(from);
+    return (
+      <div>
+        <h2>{seconds === 0 ? '⏰' : seconds}</h2>
+        <button onClick={start} disabled={running}>Start</button>
+        <button onClick={pause} disabled={!running}>Pause</button>
+        <button onClick={reset}>Reset</button>
+      </div>
+    );
+  }
+
+  export default function App() {
+    return (<><Timer from={10} /><Timer from={30} /></>);
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/reusing-logic-with-custom-hooks">Reusing Logic with Custom Hooks</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

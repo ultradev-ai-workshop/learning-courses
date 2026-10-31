@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📌&lt;/text&gt;&lt;/svg&gt;">
+<title>12 · Refs · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 12 · Escape Hatches</p>
+<h1>Refs</h1>
+<p class="lead">A ref is a "secret pocket" where a component keeps a value that <em>doesn't</em> affect what's on screen. Refs are also how you reach real DOM elements.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>How <code>useRef</code> works, and how it differs from state</li>
+    <li>When to use a ref, for example to store a timer ID</li>
+    <li>How to access DOM elements (focus, scroll)</li>
+    <li>How to pass a ref to your own component</li>
+  </ul>
+</div>
+
+<div class="callout note">
+  <strong>What's an "escape hatch"?</strong>
+  Most of the time React handles everything for you. Escape hatches are tools for stepping <em>outside</em> React: talking to the browser directly, or to other systems. Use them only when you need to, because most code shouldn't need them.
+</div>
+
+<h2>Adding a ref</h2>
+<script type="text/plain" class="code">
+  import { useRef } from 'react';
+
+  export default function Counter() {
+    const ref = useRef(0);   // initial value
+
+    function handleClick() {
+      ref.current = ref.current + 1;   // ✅ refs CAN be changed directly
+      alert('You clicked ' + ref.current + ' times!');
+    }
+
+    return <button onClick={handleClick}>Click me!</button>;
+  }
+</script>
+<p><code>useRef(0)</code> returns an object like <code>{ current: 0 }</code>. You can read and change <code>ref.current</code> freely. React keeps the same object between renders, but <strong>changing it does not cause a re-render</strong>.</p>
+
+<h2>Example: a stopwatch</h2>
+<p>A stopwatch needs both: the <strong>times</strong> are shown on screen (so they're state), but the <strong>interval ID</strong> is only needed to stop the timer (so it's a ref).</p>
+<script type="text/plain" class="code">
+  import { useState, useRef } from 'react';
+
+  export default function Stopwatch() {
+    const [startTime, setStartTime] = useState(null);
+    const [now, setNow] = useState(null);
+    const intervalRef = useRef(null);
+
+    function handleStart() {
+      setStartTime(Date.now());
+      setNow(Date.now());
+      clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(() => {
+        setNow(Date.now());
+      }, 10);
+    }
+
+    function handleStop() {
+      clearInterval(intervalRef.current);   // we need the ID that was saved earlier
+    }
+
+    let secondsPassed = 0;
+    if (startTime != null && now != null) {
+      secondsPassed = (now - startTime) / 1000;
+    }
+
+    return (
+      <>
+        <h1>Time passed: {secondsPassed.toFixed(3)}</h1>
+        <button onClick={handleStart}>Start</button>
+        <button onClick={handleStop}>Stop</button>
+      </>
+    );
+  }
+</script>
+
+<h2>Refs vs state</h2>
+<div class="table-wrap">
+<table>
+  <tr><th></th><th>Ref</th><th>State</th></tr>
+  <tr><td>Create with</td><td><code>useRef(initial)</code> → <code>{ current }</code></td><td><code>useState(initial)</code> → <code>[value, setValue]</code></td></tr>
+  <tr><td>Changing it re-renders?</td><td><strong>No</strong></td><td><strong>Yes</strong></td></tr>
+  <tr><td>Mutable?</td><td>Yes: <code>ref.current = x</code></td><td>No: use the setter</td></tr>
+  <tr><td>Read during rendering?</td><td>Avoid it</td><td>Yes, that's what it's for</td></tr>
+  <tr><td>Use for</td><td>Timer IDs, DOM elements, values that don't affect the screen</td><td>Anything shown on the screen</td></tr>
+</table>
+</div>
+<div class="callout tip"><strong>Rule of thumb</strong> If it's shown on screen, use <strong>state</strong>. If it's just remembered behind the scenes, use a <strong>ref</strong>.</div>
+<div class="callout pitfall">
+  <strong>Don't read or write <code>ref.current</code> during rendering</strong>
+  Use refs in <strong>event handlers</strong> and <strong>effects</strong>. Reading a ref while rendering makes your component unpredictable, because React doesn't know when it changes. The one exception is lazily setting it once: <code>if (!ref.current) ref.current = new Thing()</code>.
+</div>
+
+<h2>Manipulating the DOM with refs</h2>
+<p>React updates the DOM for you, but sometimes you need the real element: to <strong>focus</strong> an input, <strong>scroll</strong> to something, or <strong>measure</strong> its size.</p>
+
+<h3>Focusing an input</h3>
+<script type="text/plain" class="code">
+  import { useRef } from 'react';
+
+  export default function Form() {
+    const inputRef = useRef(null);
+
+    function handleClick() {
+      inputRef.current.focus();   // inputRef.current IS the real <input> element
+    }
+
+    return (
+      <>
+        <input ref={inputRef} />
+        <button onClick={handleClick}>Focus the input</button>
+      </>
+    );
+  }
+</script>
+<ol>
+  <li>Create the ref: <code>useRef(null)</code>.</li>
+  <li>Attach it: <code>&lt;input ref={inputRef} /&gt;</code>. React puts the DOM element into <code>inputRef.current</code> after the commit.</li>
+  <li>Use it in an event handler: <code>inputRef.current.focus()</code>.</li>
+</ol>
+
+<h3>Scrolling to an element</h3>
+<script type="text/plain" class="code">
+  const firstCatRef = useRef(null);
+
+  <button onClick={() => {
+    firstCatRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }}>Neo</button>
+
+  <img ref={firstCatRef} src="https://placecats.com/neo/300/200" alt="Neo" />
+</script>
+
+<h3>A ref to your own component</h3>
+<p>In React 19, <code>ref</code> is a normal prop for your own components. Pass it through to a DOM element:</p>
+<script type="text/plain" class="code">
+  function MyInput({ ref, ...props }) {
+    return <input ref={ref} {...props} />;
+  }
+
+  export default function Form() {
+    const inputRef = useRef(null);
+    return (
+      <>
+        <MyInput ref={inputRef} placeholder="Type here" />
+        <button onClick={() => inputRef.current.focus()}>Focus</button>
+      </>
+    );
+  }
+</script>
+<div class="callout note"><strong>Older code</strong> Before React 19 this needed <code>forwardRef(...)</code>. You'll still see it in older tutorials.</div>
+
+<div class="callout bad">
+  <strong>Don't change the parts of the DOM React manages</strong>
+  Focusing, scrolling and measuring are safe. Adding or removing elements that React rendered (for example <code>ref.current.remove()</code>) confuses React and can crash your app. To change what's shown, change <strong>state</strong>.
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: play and pause a video</h3>
+<script type="text/plain" class="code">
+  import { useRef, useState } from 'react';
+
+  export default function VideoPlayer() {
+    const videoRef = useRef(null);
+    const [isPlaying, setIsPlaying] = useState(false);   // shown in the button label, so it's state
+
+    function handleClick() {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+
+    return (
+      <>
+        <button onClick={handleClick}>{isPlaying ? '⏸ Pause' : '▶ Play'}</button>
+        <video
+          ref={videoRef}
+          width="250"
+          src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+        />
+      </>
+    );
+  }
+</script>
+
+<h3>Example 2: scroll a chat to the newest message</h3>
+<script type="text/plain" class="code">
+  import { useRef, useState } from 'react';
+  import { flushSync } from 'react-dom';
+
+  export default function Chat() {
+    const [messages, setMessages] = useState(['Hi!', 'How are you?']);
+    const [text, setText] = useState('');
+    const bottomRef = useRef(null);
+
+    function handleSend() {
+      flushSync(() => {                 // update the DOM right now...
+        setMessages([...messages, text]);
+        setText('');
+      });
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });   // ...so the new message exists
+    }
+
+    return (
+      <>
+        <div style={{ height: 120, overflowY: 'auto', border: '1px solid #ccc' }}>
+          {messages.map((m, i) => <p key={i}>{m}</p>)}
+          <div ref={bottomRef} />
+        </div>
+        <input value={text} onChange={e => setText(e.target.value)} />
+        <button onClick={handleSend}>Send</button>
+      </>
+    );
+  }
+</script>
+<p><code>flushSync</code> forces React to update the DOM <em>synchronously</em>, so the scroll happens after the new message is on the page. (The index key is fine here, because messages are only ever added at the end.)</p>
+
+<h3>Example 3: measuring an element</h3>
+<script type="text/plain" class="code">
+  export default function Measure() {
+    const boxRef = useRef(null);
+    function handleMeasure() {
+      const { width, height } = boxRef.current.getBoundingClientRect();
+      alert(`The box is ${Math.round(width)} × ${Math.round(height)} px`);
+    }
+    return (
+      <>
+        <div ref={boxRef} style={{ width: '60%', padding: 20, background: '#eef' }}>Measure me</div>
+        <button onClick={handleMeasure}>Measure</button>
+      </>
+    );
+  }
+</script>
+
+<h3>Example 4: remembering a value without re-rendering</h3>
+<script type="text/plain" class="code">
+  export default function Analytics() {
+    const clicksRef = useRef(0);   // not shown on screen → a ref is perfect
+    return (
+      <>
+        <button onClick={() => clicksRef.current++}>Click me (silently counted)</button>
+        <button onClick={() => alert(`Clicked ${clicksRef.current} times`)}>Report</button>
+      </>
+    );
+  }
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li><code>useRef(initial)</code> gives a <code>{ current }</code> box that survives re-renders and <strong>doesn't trigger them</strong>.</li>
+    <li>Use refs for timer IDs, DOM elements and other "behind the scenes" values. Use state for what's shown on screen.</li>
+    <li><code>&lt;input ref={myRef} /&gt;</code> gives you the real element in <code>myRef.current</code>.</li>
+    <li>Use refs in event handlers and effects, not during rendering.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Auto-focus on button click</h3>
+  <p>Make a search box with a "🔍 Search" button. Clicking the button focuses the input.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useRef } from 'react';
+
+  export default function SearchBox() {
+    const inputRef = useRef(null);
+    return (
+      <>
+        <button onClick={() => inputRef.current.focus()}>🔍 Search</button>
+        <input ref={inputRef} placeholder="Looking for something?" />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Why doesn't it update?</h3>
+<script type="text/plain" class="code">
+  const countRef = useRef(0);
+  return <button onClick={() => countRef.current++}>Clicked {countRef.current} times</button>;
+</script>
+  <details class="solution"><summary>Show answer</summary>
+  <p>Changing a ref doesn't re-render, so the text never updates. Because the count is <strong>shown on screen</strong>, it should be state: <code>const [count, setCount] = useState(0)</code>.</p>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Ref or state? <span class="lvl">🟢 easy</span></h3>
+  <p>For each item, choose ref or state: (a) the text in a search box, (b) a <code>setTimeout</code> ID, (c) whether a modal is open, (d) a DOM <code>&lt;canvas&gt;</code> element, (e) the number of times an API was called, used only for logging.</p>
+  <details class="solution"><summary>Show answer</summary>
+  <p>(a) state (shown) · (b) ref · (c) state (affects the UI) · (d) ref · (e) ref (not shown).</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Select all <span class="lvl">🟢 easy</span></h3>
+  <p>Make an input showing a share link, with a "Copy link" button that <strong>selects</strong> all the text in the input (<code>inputRef.current.select()</code>).</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function ShareLink() {
+    const inputRef = useRef(null);
+    return (
+      <>
+        <input ref={inputRef} defaultValue="https://example.com/invite/abc123" readOnly />
+        <button onClick={() => inputRef.current.select()}>Copy link</button>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Back to top <span class="lvl">🟢 easy</span></h3>
+  <p>Put a heading at the top of a long page (render 50 paragraphs), with a "Back to top" button at the bottom that smoothly scrolls to the heading.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function LongPage() {
+    const topRef = useRef(null);
+    return (
+      <>
+        <h1 ref={topRef}>Top</h1>
+        {Array.from({ length: 50 }, (_, i) => <p key={i}>Paragraph {i + 1}</p>)}
+        <button onClick={() => topRef.current.scrollIntoView({ behavior: 'smooth' })}>
+          Back to top
+        </button>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Focus the first empty field <span class="lvl">🟡 medium</span></h3>
+  <p>Make a form with name and email inputs. On submit, if a field is empty, prevent submission and <strong>focus</strong> the first empty field.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Signup() {
+    const nameRef = useRef(null);
+    const emailRef = useRef(null);
+
+    function handleSubmit(e) {
+      e.preventDefault();
+      if (!nameRef.current.value) return nameRef.current.focus();
+      if (!emailRef.current.value) return emailRef.current.focus();
+      alert('Submitted!');
+    }
+
+    return (
+      <form onSubmit={handleSubmit}>
+        <input ref={nameRef} placeholder="Name" />
+        <input ref={emailRef} placeholder="Email" />
+        <button>Sign up</button>
+      </form>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Your own input component with a ref <span class="lvl">🟡 medium</span></h3>
+  <p>Create <code>FancyInput</code> (with a label and border styling) that accepts a <code>ref</code> prop, so the parent can focus it.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function FancyInput({ label, ref }) {
+    return (
+      <label style={{ display: 'block' }}>
+        {label}
+        <input ref={ref} style={{ border: '2px solid #087ea4', borderRadius: 6, padding: 6 }} />
+      </label>
+    );
+  }
+
+  export default function App() {
+    const ref = useRef(null);
+    return (
+      <>
+        <FancyInput label="City" ref={ref} />
+        <button onClick={() => ref.current.focus()}>Focus city</button>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Stopwatch with laps <span class="lvl">🟡 medium</span></h3>
+  <p>Extend the stopwatch with a "Lap" button that records the current time in a <code>laps</code> array (state) and lists the laps below it. Add a "Reset" button too.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const [laps, setLaps] = useState([]);
+
+  function handleLap() {
+    setLaps([...laps, secondsPassed.toFixed(2)]);
+  }
+
+  function handleReset() {
+    clearInterval(intervalRef.current);
+    setStartTime(null);
+    setNow(null);
+    setLaps([]);
+  }
+
+  // JSX
+  <button onClick={handleLap}>Lap</button>
+  <button onClick={handleReset}>Reset</button>
+  <ol>{laps.map((t, i) => <li key={i}>{t}s</li>)}</ol>
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Double-click guard <span class="lvl">🟡 medium</span></h3>
+  <p>A "Pay" button must not fire twice if it's clicked quickly. Use a ref as a lock: ignore clicks that come within 2 seconds of the last accepted one.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function PayButton() {
+    const lockedRef = useRef(false);
+
+    function handleClick() {
+      if (lockedRef.current) return;
+      lockedRef.current = true;
+      alert('Payment sent!');
+      setTimeout(() => { lockedRef.current = false; }, 2000);
+    }
+
+    return <button onClick={handleClick}>Pay ₹500</button>;
+  }
+</script>
+  <p>A ref works well here: the lock doesn't need to show on screen, and it updates instantly (state would only update on the next render).</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. Debounced search <span class="lvl">🔴 hard</span></h3>
+  <p>As the user types, show "Searching for: X" only after they've <strong>stopped typing for 500ms</strong>. Store the timeout ID in a ref, and clear it on every keystroke.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useRef, useState } from 'react';
+
+  export default function DebouncedSearch() {
+    const [text, setText] = useState('');
+    const [query, setQuery] = useState('');
+    const timeoutRef = useRef(null);
+
+    function handleChange(e) {
+      const value = e.target.value;
+      setText(value);                          // update the input immediately
+      clearTimeout(timeoutRef.current);        // cancel the previous timer
+      timeoutRef.current = setTimeout(() => {
+        setQuery(value);                       // runs 500ms after the LAST keystroke
+      }, 500);
+    }
+
+    return (
+      <>
+        <input value={text} onChange={handleChange} placeholder="Search…" />
+        {query && <p>Searching for: {query}</p>}
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/referencing-values-with-refs">Referencing Values with Refs</a> · <a href="https://react.dev/learn/manipulating-the-dom-with-refs">Manipulating the DOM with Refs</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

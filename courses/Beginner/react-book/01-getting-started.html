@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚀&lt;/text&gt;&lt;/svg&gt;">
+<title>1 · Getting Started · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 1</p>
+<h1>Getting Started</h1>
+<p class="lead">What React is, why people use it, and how a React project is put together.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>What problem React solves</li>
+    <li>How to create a project with Vite</li>
+    <li>What each file in a new project does</li>
+    <li>Useful tools: React DevTools, Prettier, ESLint</li>
+  </ul>
+</div>
+
+<h2>What is React?</h2>
+<p><strong>React is a JavaScript library for building user interfaces</strong> (the buttons, lists and forms you see on a web page) out of small, reusable pieces called <strong>components</strong>.</p>
+<p>Think of a web page as a Lego model. Without React, you build the whole model by hand, and every time something changes you find the right brick and swap it yourself. With React, you describe <em>what the model should look like right now</em>, and React works out which bricks to change.</p>
+
+<h3>The old way vs the React way</h3>
+<p>Say you want a counter that goes up when a button is clicked. In plain JavaScript you tell the browser <strong>every step</strong> (this is called <em>imperative</em> code):</p>
+<script type="text/plain" class="code" data-file="plain JavaScript (imperative)">
+  let count = 0;
+  const button = document.querySelector("#btn");
+  const label = document.querySelector("#label");
+
+  button.addEventListener("click", () => {
+    count = count + 1;
+    label.textContent = "Count: " + count;   // you update the page by hand
+  });
+</script>
+<p>In React you describe <strong>what the screen should show</strong> for a given value, and React updates the page for you (this is called <em>declarative</em> code):</p>
+<script type="text/plain" class="code" data-file="React (declarative)">
+  function Counter() {
+    const [count, setCount] = useState(0);
+    return (
+      <button onClick={() => setCount(count + 1)}>
+        Count: {count}
+      </button>
+    );
+  }
+</script>
+<p>For one counter the difference is small. For an app with hundreds of moving parts, the React way stays much easier to reason about. The core idea is:</p>
+<div class="callout note"><strong>UI = f(data)</strong>The screen is the output of a function of your data. Change the data, and React redraws the screen to match.</div>
+
+<h2>What you need first</h2>
+<ul>
+  <li><strong>Basic HTML, CSS and JavaScript.</strong> You especially need functions, arrays, objects, arrow functions (<code>() =&gt; {}</code>), and <code>import</code>/<code>export</code>.</li>
+  <li><strong>Node.js</strong> installed. Check it in a terminal with <code>node -v</code>. Node runs the development tools; your React code itself runs in the browser.</li>
+  <li><strong>A code editor.</strong> VS Code is the most popular choice.</li>
+</ul>
+
+<h2>Creating a project</h2>
+<p>The official docs recommend two kinds of setup:</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Option</th><th>Good for</th><th>Examples</th></tr>
+  <tr><td><strong>A framework</strong></td><td>Real, full apps with routing (multiple pages), data loading and server rendering</td><td>Next.js, React Router</td></tr>
+  <tr><td><strong>A build tool</strong></td><td>Learning, small apps, or building from scratch</td><td>Vite (what your <code>sample-test-react</code> uses)</td></tr>
+</table>
+</div>
+<p>To learn React itself, Vite is perfect: it's small, fast and has no extra concepts. Create a project like this:</p>
+<script type="text/plain" class="code" data-file="terminal">
+  npm create vite@latest my-app -- --template react
+  cd my-app
+  npm install        # download React and the tools into node_modules/
+  npm run dev        # start the development server
+</script>
+<p>Open the URL it prints (usually <code>http://localhost:5173</code>). Now edit <code>src/App.jsx</code> and save: the browser updates instantly, without reloading the page. This is called <strong>HMR</strong> (Hot Module Replacement).</p>
+
+<h2>What's inside a new project</h2>
+<script type="text/plain" class="code" data-file="project structure">
+  my-app/
+  ├── index.html          ← the single HTML page; has <div id="root"></div>
+  ├── package.json        ← project name, scripts (dev/build) and dependencies
+  ├── node_modules/       ← downloaded packages (never edit, never commit)
+  ├── vite.config.js      ← Vite settings (enables the React plugin)
+  ├── public/             ← files served as-is (favicon, icons)
+  └── src/
+      ├── main.jsx        ← entry point: starts React
+      ├── App.jsx         ← your top-level component
+      ├── App.css         ← styles for App
+      ├── index.css       ← global styles
+      └── assets/         ← images you import in code
+</script>
+
+<h3>How the page actually starts</h3>
+<p><strong>Step 1.</strong> The browser loads <code>index.html</code>, which contains one empty box and a script tag:</p>
+<script type="text/plain" class="code" data-file="index.html">
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"><\/script>
+  </body>
+</script>
+<p><strong>Step 2.</strong> <code>main.jsx</code> runs. It tells React to take over that box and draw <code>&lt;App /&gt;</code> inside it:</p>
+<script type="text/plain" class="code" data-file="src/main.jsx">
+  import { StrictMode } from 'react'
+  import { createRoot } from 'react-dom/client'
+  import './index.css'
+  import App from './App.jsx'
+
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+</script>
+<p><strong>Step 3.</strong> React calls your <code>App</code> function, takes the UI it returns, and puts it into the real page.</p>
+
+<div class="callout note">
+  <strong>Two packages, two jobs</strong>
+  <code>react</code> knows about components, state and hooks. <code>react-dom</code> knows how to put them into a <strong>web page</strong> (the DOM). React Native uses the same <code>react</code> package to draw on phones instead.
+</div>
+
+<div class="callout tip">
+  <strong>What is <code>StrictMode</code>?</strong>
+  A development-only helper. It shows nothing on the page. It deliberately runs some of your code <strong>twice</strong> to catch mistakes early. If a <code>console.log</code> prints twice in development, this is why. It does not happen in the production build.
+</div>
+
+<h2>Useful scripts</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>npm run dev</code></td><td>Starts the dev server with instant updates. Use it while coding.</td></tr>
+  <tr><td><code>npm run build</code></td><td>Creates an optimised production version in <code>dist/</code>. It also shows errors that the dev server might hide.</td></tr>
+  <tr><td><code>npm run preview</code></td><td>Serves the built <code>dist/</code> folder locally so you can check it.</td></tr>
+  <tr><td><code>npm run lint</code></td><td>Checks your code for common mistakes.</td></tr>
+</table>
+</div>
+
+<h2>Tools worth installing</h2>
+<ul>
+  <li><strong>React Developer Tools</strong> (a browser extension for Chrome, Firefox or Edge). It adds a "Components" tab where you can see your component tree and each component's props and state live.</li>
+  <li><strong>Prettier</strong> (a VS Code extension). It formats your code automatically. Turn on "Format on Save".</li>
+  <li><strong>ESLint</strong> (or oxlint, which your project uses). It warns about bugs such as breaking the Rules of Hooks.</li>
+</ul>
+
+<div class="callout note">
+  <strong>A word about the React Compiler</strong>
+  The docs also describe the <em>React Compiler</em>, a build-time tool that automatically optimises your components. You don't need it to learn React. Write normal, clean React code, and the compiler can be added later.
+</div>
+
+<h2>Common beginner mistakes</h2>
+<div class="callout pitfall">
+  <ul>
+    <li><strong>Running <code>npm run dev</code> in the wrong folder</strong> → "Missing script: dev". Run <code>cd</code> into the folder that contains <code>package.json</code> first.</li>
+    <li><strong>Forgetting <code>npm install</code></strong> after cloning or creating a project → "vite: command not found".</li>
+    <li><strong>Opening <code>index.html</code> by double-clicking</strong> → a blank page. A React project must be opened through the dev server URL.</li>
+    <li><strong>Editing files in <code>node_modules</code></strong>. Your changes are lost on the next install. Only edit <code>src/</code>.</li>
+  </ul>
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: adding a new component, end to end</h3>
+<p>This is the everyday workflow: create a file, export a component, import it, use it.</p>
+<script type="text/plain" class="code" data-file="src/components/Greeting.jsx">
+  export default function Greeting() {
+    return <h2 className="greeting">Welcome to my first React app 👋</h2>;
+  }
+</script>
+<script type="text/plain" class="code" data-file="src/App.jsx">
+  import Greeting from './components/Greeting';
+  import './App.css';
+
+  export default function App() {
+    return (
+      <main>
+        <Greeting />
+        <p>Edit me and save to see HMR in action.</p>
+      </main>
+    );
+  }
+</script>
+<script type="text/plain" class="code" data-file="src/App.css">
+  .greeting {
+    color: rebeccapurple;
+    font-family: system-ui, sans-serif;
+  }
+</script>
+
+<h3>Example 2: importing an image</h3>
+<p>Put a file in <code>src/assets/</code> and import it. Vite gives you the image's URL:</p>
+<script type="text/plain" class="code">
+  import logo from './assets/react.svg';
+
+  export default function App() {
+    console.log(logo);   // something like "/src/assets/react.svg"
+    return <img src={logo} alt="React logo" width={80} />;
+  }
+</script>
+<p>Files in <code>public/</code> are <strong>not</strong> imported. You refer to them by absolute path: <code>&lt;img src="/vite.svg" /&gt;</code>.</p>
+
+<h3>Example 3: reading the error overlay</h3>
+<p>If you make a syntax mistake, Vite shows a red overlay in the browser:</p>
+<script type="text/plain" class="code" data-lang="error overlay">
+  [plugin:vite:react-babel] /src/App.jsx: Unterminated JSX contents. (8:10)
+     6 |       <h1>Hello
+     7 |     </main>
+  >  8 |   );
+       |    ^
+</script>
+<p>Read it in this order: <strong>file</strong> (<code>App.jsx</code>) → <strong>line:column</strong> (8:10) → <strong>message</strong> ("Unterminated JSX contents" = a tag isn't closed). Here <code>&lt;h1&gt;</code> is missing <code>&lt;/h1&gt;</code>.</p>
+
+<h3>Example 4: <code>console.log</code> is your friend</h3>
+<script type="text/plain" class="code">
+  export default function App() {
+    console.log('App rendered at', new Date().toLocaleTimeString());
+    return <h1>Open the browser console (F12 → Console)</h1>;
+  }
+</script>
+<p>You'll see the log <strong>twice</strong> in development, because of StrictMode. Logging is the easiest way to see <em>when</em> your components run.</p>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>React builds UIs out of <strong>components</strong>, and you describe <em>what</em> to show, not <em>how</em> to change the page.</li>
+    <li>Create a learning project with <code>npm create vite@latest</code>. For full apps, the docs recommend a framework.</li>
+    <li><code>index.html</code> → <code>main.jsx</code> → <code>App.jsx</code> is how every Vite React app starts.</li>
+    <li><code>react</code> = components and hooks; <code>react-dom</code> = putting them on a web page.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Change the first screen</h3>
+  <p>In your project, replace everything inside <code>App</code>'s <code>return (...)</code> with a single heading that says "Hello, React!". Save and watch the browser update.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="src/App.jsx">
+  function App() {
+    return <h1>Hello, React!</h1>
+  }
+
+  export default App
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Find the root</h3>
+  <p>Open the browser DevTools (F12) → <strong>Elements</strong> tab. Find <code>&lt;div id="root"&gt;</code>. What's inside it? Now open the <strong>Components</strong> tab (React DevTools) and compare.</p>
+  <details class="solution"><summary>Show answer</summary>
+    <p>The Elements tab shows the <strong>real HTML</strong> React produced (<code>&lt;h1&gt;</code>, <code>&lt;div&gt;</code>…). The Components tab shows <strong>your components</strong> (<code>App</code>, and any others). React turns the second into the first.</p>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. A new component file <span class="lvl">🟢 easy</span></h3>
+  <p>Create <code>src/components/Footer.jsx</code> that returns <code>&lt;footer&gt;Made by &lt;your name&gt;&lt;/footer&gt;</code>, and render it at the bottom of <code>App</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  // src/components/Footer.jsx
+  export default function Footer() {
+    return <footer>Made by Shashank</footer>;
+  }
+
+  // src/App.jsx
+  import Footer from './components/Footer';
+
+  export default function App() {
+    return (
+      <>
+        <h1>Hello, React!</h1>
+        <Footer />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Show an imported image <span class="lvl">🟢 easy</span></h3>
+  <p>Import <code>src/assets/react.svg</code> and show it at 120px wide under your heading.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import reactLogo from './assets/react.svg';
+
+  export default function App() {
+    return (
+      <>
+        <h1>Hello, React!</h1>
+        <img src={reactLogo} alt="React logo" width={120} />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Global styles <span class="lvl">🟢 easy</span></h3>
+  <p>Make the whole page use a light grey background and the <code>Georgia</code> font. Which CSS file should you change?</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p><code>src/index.css</code> is imported in <code>main.jsx</code>, so it applies to the whole page:</p>
+<script type="text/plain" class="code">
+  body {
+    background: #f2f2f2;
+    font-family: Georgia, serif;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Change the browser tab title <span class="lvl">🟢 easy</span></h3>
+  <p>The tab says "Vite + React" (or similar). Change it to "My React Playground".</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p>Edit the <code>&lt;title&gt;</code> tag in <code>index.html</code> at the project root: <code>&lt;title&gt;My React Playground&lt;/title&gt;</code>.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Break it on purpose <span class="lvl">🟡 medium</span></h3>
+  <p>Make each of these mistakes one at a time, save, and read the error. Then undo it.</p>
+  <ol>
+    <li>Delete a closing <code>&lt;/h1&gt;</code>.</li>
+    <li>Rename <code>App</code> to <code>app</code> in <code>main.jsx</code> only.</li>
+    <li>Import a file that doesn't exist: <code>import X from './Nope'</code>.</li>
+  </ol>
+  <details class="solution"><summary>Show what you should see</summary>
+  <ol>
+    <li>"Unterminated JSX contents" or "Expected corresponding JSX closing tag".</li>
+    <li>"app is not defined", or a blank page with a console error.</li>
+    <li>"Failed to resolve import './Nope'".</li>
+  </ol>
+  <p>Learning to recognise these messages will save you hours.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Build for production <span class="lvl">🟡 medium</span></h3>
+  <p>Run <code>npm run build</code>, then look inside the <code>dist/</code> folder. What files are there? Then run <code>npm run preview</code> and open the URL.</p>
+  <details class="solution"><summary>Show answer</summary>
+  <p><code>dist/index.html</code> plus <code>dist/assets/</code> with one bundled <code>.js</code> file, one <code>.css</code> file and your images, each with a hash in its name (like <code>index-CENbLOPi.js</code>). This is everything a web server needs. Vite has combined and minified all your files.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Explore with React DevTools <span class="lvl">🟡 medium</span></h3>
+  <p>Install React Developer Tools. In your <code>sample-test-react</code> app, find the <code>Profile</code> component in the <strong>Components</strong> tab. What props does it have? Can you edit a prop in DevTools and see the page change?</p>
+  <details class="solution"><summary>Show answer</summary>
+  <p>Select <code>Profile</code> → the right panel shows <code>props: { name: "..." }</code>. Double-click the value to edit it. The page updates immediately, which is great for experimenting.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. A fresh playground project <span class="lvl">🔴 hard</span></h3>
+  <p>Without looking at this chapter, create a brand-new Vite React project called <code>playground</code>, clean out the starter code, and render a page with your name, a photo and a short bio.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  npm create vite@latest playground -- --template react
+  cd playground
+  npm install
+  npm run dev
+</script>
+<script type="text/plain" class="code" data-file="src/App.jsx">
+  export default function App() {
+    return (
+      <main style={{ maxWidth: 600, margin: '40px auto', fontFamily: 'system-ui' }}>
+        <h1>Shashank Singh</h1>
+        <img src="https://react.dev/images/docs/scientists/MK3eW3As.jpg" alt="profile" width={150} />
+        <p>I'm learning React, one chapter at a time.</p>
+      </main>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn">Quick Start</a> · <a href="https://react.dev/learn/installation">Installation</a> · <a href="https://react.dev/learn/creating-a-react-app">Creating a React App</a> · <a href="https://react.dev/learn/react-developer-tools">React Developer Tools</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📋&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Lists & Comprehensions · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Data Structures</div>
+<h1>Lists &amp; Comprehensions</h1>
+<p class="lead">Every list method you need, lists as stacks and queues, the one-line power of comprehensions, and the new 3.15 unpacking syntax.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The list methods, and which ones change the list in place.</li>
+  <li>Using lists as stacks, and <code>collections.deque</code> as a queue.</li>
+  <li>List comprehensions, with filters and nested loops.</li>
+  <li><code>*</code> unpacking in list displays and, new in 3.15, inside comprehensions.</li>
+  <li>The <code>del</code> statement, and the "list of lists" copying trap.</li>
+</ul>
+</div>
+
+<h2 id="methods">List methods</h2>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>What it does</th><th>Returns</th></tr>
+<tr><td><code>lst.append(x)</code></td><td>add <code>x</code> to the end</td><td><code>None</code></td></tr>
+<tr><td><code>lst.extend(iterable)</code></td><td>add every item of <code>iterable</code> to the end</td><td><code>None</code></td></tr>
+<tr><td><code>lst.insert(i, x)</code></td><td>insert <code>x</code> before index <code>i</code></td><td><code>None</code></td></tr>
+<tr><td><code>lst.remove(x)</code></td><td>remove the <strong>first</strong> item equal to <code>x</code> (<code>ValueError</code> if absent)</td><td><code>None</code></td></tr>
+<tr><td><code>lst.pop([i])</code></td><td>remove and <strong>return</strong> the item at <code>i</code> (default: the last)</td><td>the item</td></tr>
+<tr><td><code>lst.clear()</code></td><td>remove everything</td><td><code>None</code></td></tr>
+<tr><td><code>lst.index(x[, start[, end]])</code></td><td>position of the first <code>x</code> (<code>ValueError</code> if absent)</td><td>an int</td></tr>
+<tr><td><code>lst.count(x)</code></td><td>how many times <code>x</code> appears</td><td>an int</td></tr>
+<tr><td><code>lst.sort(*, key=None, reverse=False)</code></td><td>sort in place</td><td><code>None</code></td></tr>
+<tr><td><code>lst.reverse()</code></td><td>reverse in place</td><td><code>None</code></td></tr>
+<tr><td><code>lst.copy()</code></td><td>a shallow copy (same as <code>lst[:]</code>)</td><td>a new list</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> fruits = ['orange', 'apple', 'pear', 'banana', 'kiwi', 'apple', 'banana']
+>>> fruits.count('apple')
+2
+>>> fruits.count('tangerine')
+0
+>>> fruits.index('banana')
+3
+>>> fruits.index('banana', 4)  # find the next banana, starting at position 4
+6
+>>> fruits.reverse()
+>>> fruits
+['banana', 'apple', 'kiwi', 'banana', 'pear', 'apple', 'orange']
+>>> fruits.append('grape')
+>>> fruits
+['banana', 'apple', 'kiwi', 'banana', 'pear', 'apple', 'orange', 'grape']
+>>> fruits.sort()
+>>> fruits
+['apple', 'apple', 'banana', 'banana', 'grape', 'kiwi', 'orange', 'pear']
+>>> fruits.pop()
+'pear'
+</script>
+
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: in-place methods return <code>None</code>.</strong> Methods that change the list (<code>sort</code>, <code>reverse</code>, <code>append</code>, …) return <code>None</code>, not the list. This is a deliberate design rule in Python: "a method that mutates returns nothing".</p>
+</div>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Wrong</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> nums = [3, 1, 2]
+>>> nums = nums.sort()
+>>> print(nums)
+None
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Right</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> nums = [3, 1, 2]
+>>> nums.sort()               # change in place, or…
+>>> nums
+[1, 2, 3]
+>>> sorted([3, 1, 2])         # …get a NEW sorted list
+[1, 2, 3]
+</script>
+</div>
+</div>
+
+<h3>append vs extend</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> a = [1, 2]
+>>> a.append([3, 4])     # adds ONE item (a list)
+>>> a
+[1, 2, [3, 4]]
+>>> b = [1, 2]
+>>> b.extend([3, 4])     # adds each item
+>>> b
+[1, 2, 3, 4]
+>>> b += [5]             # += on a list works like extend
+>>> b
+[1, 2, 3, 4, 5]
+</script>
+
+<h3>Sorting with key and reverse</h3>
+<p><code>key</code> is a function that is applied to each item to get the value to sort by. The sort is <strong>stable</strong>: items with equal keys keep their original order.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> words = ["banana", "Apple", "cherry", "date"]
+>>> sorted(words)                    # uppercase letters sort before lowercase
+['Apple', 'banana', 'cherry', 'date']
+>>> sorted(words, key=str.lower)     # case-insensitive
+['Apple', 'banana', 'cherry', 'date']
+>>> sorted(words, key=len)           # by length; stable for ties
+['date', 'Apple', 'banana', 'cherry']
+>>> sorted(words, key=len, reverse=True)
+['banana', 'cherry', 'Apple', 'date']
+</script>
+<p>Not all values can be compared with each other. <code>[None, 'hello', 10]</code> cannot be sorted, because an integer can't be compared with a string:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> sorted([10, 'hello'])
+Traceback (most recent call last):
+  ...
+TypeError: '<' not supported between instances of 'str' and 'int'
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>key=</code> replaces writing a <code>Comparator</code>. Python asks "what do I sort by?" instead of "how do I compare two items?". 🟨 <strong>JS:</strong> unlike <code>Array.prototype.sort()</code>, Python sorts numbers numerically by default, so <code>[10, 9, 1]</code> becomes <code>[1, 9, 10]</code>.</p>
+</div>
+
+<h2 id="stack">Lists as stacks</h2>
+<p>A <strong>stack</strong> is "last in, first out" (LIFO), like a pile of plates. <code>append()</code> pushes and <code>pop()</code> pops. Both are fast.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> stack = [3, 4, 5]
+>>> stack.append(6)
+>>> stack.append(7)
+>>> stack.pop()
+7
+>>> stack.pop()
+6
+>>> stack
+[3, 4, 5]
+</script>
+
+<h2 id="queue">Lists as queues? Use deque</h2>
+<p>A <strong>queue</strong> is "first in, first out" (FIFO), like a line at a shop. A list <em>can</em> do it, but <code>pop(0)</code> and <code>insert(0, x)</code> are slow: every other item has to shift over by one. Use <code>collections.deque</code> (a "double-ended queue"), which is fast at both ends.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from collections import deque
+>>> queue = deque(["Eric", "John", "Michael"])
+>>> queue.append("Terry")       # Terry arrives
+>>> queue.append("Graham")      # Graham arrives
+>>> queue.popleft()             # the first to arrive now leaves
+'Eric'
+>>> queue.popleft()
+'John'
+>>> queue
+deque(['Michael', 'Terry', 'Graham'])
+</script>
+<div class="table-wrap"><table>
+<tr><th>Need</th><th>Use</th></tr>
+<tr><td>Stack (LIFO)</td><td><code>list</code> with <code>append</code> / <code>pop</code></td></tr>
+<tr><td>Queue (FIFO)</td><td><code>deque</code> with <code>append</code> / <code>popleft</code></td></tr>
+<tr><td>Keep only the last N items</td><td><code>deque(maxlen=N)</code></td></tr>
+<tr><td>Always get the smallest item first</td><td><code>heapq</code> (Chapter 14)</td></tr>
+</table></div>
+
+<h2 id="comprehensions">List comprehensions</h2>
+<p>A <strong>list comprehension</strong> builds a new list from an iterable in one readable expression. The shape is <code>[expression for item in iterable if condition]</code>.</p>
+<p>Read it like English: "give me <em>x squared</em>, <em>for each x</em> in range(10)".</p>
+<div class="compare">
+<div>
+<p><strong>Loop version</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+squares = []
+for x in range(10):
+    squares.append(x ** 2)
+print(squares)
+</script>
+</div>
+<div>
+<p><strong>Comprehension</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+squares = [x ** 2 for x in range(10)]
+print(squares)
+# [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+</script>
+</div>
+</div>
+<p>Unlike the loop, the comprehension doesn't leave a leftover <code>x</code> variable behind afterwards.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> vec = [-4, -2, 0, 2, 4]
+>>> [x * 2 for x in vec]               # transform
+[-8, -4, 0, 4, 8]
+>>> [x for x in vec if x >= 0]         # filter
+[0, 2, 4]
+>>> [abs(x) for x in vec]              # call a function on each
+[4, 2, 0, 2, 4]
+>>> freshfruit = ['  banana', '  loganberry ', 'passion fruit  ']
+>>> [weapon.strip() for weapon in freshfruit]
+['banana', 'loganberry', 'passion fruit']
+>>> [(x, x ** 2) for x in range(4)]    # tuples need parentheses
+[(0, 0), (1, 1), (2, 4), (3, 9)]
+>>> [x if x > 0 else 0 for x in vec]   # if/else BEFORE "for" = choose a value
+[0, 0, 0, 2, 4]
+</script>
+<div class="tip">
+<p>💡 <strong>Where does the <code>if</code> go?</strong> A <em>filter</em> goes at the end: <code>[x for x in xs if x &gt; 0]</code>, which drops items. A <em>conditional expression</em> goes at the start: <code>[x if x &gt; 0 else 0 for x in xs]</code>, which keeps every item and picks a value for each.</p>
+</div>
+<h3>Several <code>for</code> clauses</h3>
+<p>Several <code>for</code>s in one comprehension work like nested loops, written in the <strong>same order</strong> you would nest them:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> [(x, y) for x in [1, 2, 3] for y in [3, 1, 4] if x != y]
+[(1, 3), (1, 4), (2, 3), (2, 1), (2, 4), (3, 1), (3, 4)]
+>>> combs = []                       # the same thing as loops:
+>>> for x in [1, 2, 3]:
+...     for y in [3, 1, 4]:
+...         if x != y:
+...             combs.append((x, y))
+...
+>>> len(combs)
+7
+</script>
+<div class="java">
+<p>☕ <strong>Java / 🟨 JS:</strong> a comprehension replaces <code>stream().filter().map().collect()</code> or <code>xs.filter(...).map(...)</code>. <code>map()</code> and <code>filter()</code> also exist in Python, but they return lazy iterators, and comprehensions are usually considered clearer.</p>
+</div>
+
+<h2 id="nested">Nested list comprehensions</h2>
+<p>The first expression of a comprehension can itself be a comprehension. A classic use is transposing a matrix (swapping its rows and columns):</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> matrix = [
+...     [1, 2, 3, 4],
+...     [5, 6, 7, 8],
+...     [9, 10, 11, 12],
+... ]
+>>> [[row[i] for row in matrix] for i in range(4)]
+[[1, 5, 9], [2, 6, 10], [3, 7, 11], [4, 8, 12]]
+>>> list(zip(*matrix))               # the built-in way (zip: Chapter 7)
+[(1, 5, 9), (2, 6, 10), (3, 7, 11), (4, 8, 12)]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Readability first:</strong> if a comprehension needs more than two <code>for</code>s or a long condition, write a normal loop. Clever one-liners are hard to debug.</p>
+</div>
+
+<h2 id="unpacking">Unpacking in lists and comprehensions</h2>
+<p>Inside a list display, <code>*expr</code> spreads the items of <code>expr</code> into the new list, like JS's spread <code>...x</code>.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> x = [1, 2, 3]
+>>> [0, *x, 4, 5, 6]
+[0, 1, 2, 3, 4, 5, 6]
+>>> [*"ab", *range(2)]
+['a', 'b', 0, 1]
+>>> n = 1
+>>> [0, *n]
+Traceback (most recent call last):
+  ...
+TypeError: Value after * must be an iterable, not int
+</script>
+<div class="note">
+<p>📝 <strong>New in 3.15 (PEP 798):</strong> <code>*</code> also works <em>inside a comprehension</em>, which makes flattening a list of lists a one-liner.</p>
+</div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> x = [[1, 2, 3], [4, 5, 6], [], [7], [8, 9]]
+>>> [*element for element in x]
+[1, 2, 3, 4, 5, 6, 7, 8, 9]
+>>> x = [[1, 2, 3], 'cat', {'spam': 'eggs'}]      # works for any iterables
+>>> [*element for element in x]
+[1, 2, 3, 'c', 'a', 't', 'spam']
+</script>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> before 3.15 you flattened with a double <code>for</code>, <code>[item for sub in x for item in sub]</code>, or with <code>itertools.chain.from_iterable(x)</code>. Both still work.</p>
+</div>
+<p>Star unpacking also works on the left side of an assignment:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> first, *middle, last = [10, 20, 30, 40]
+>>> first, middle, last
+(10, [20, 30], 40)
+</script>
+
+<h2 id="del">The del statement</h2>
+<p><code>del</code> removes items by <strong>index or slice</strong> (unlike <code>pop</code>, it returns nothing). It can also delete a whole variable name.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> a = [-1, 1, 66.25, 333, 333, 1234.5]
+>>> del a[0]
+>>> a
+[1, 66.25, 333, 333, 1234.5]
+>>> del a[2:4]
+>>> a
+[1, 66.25, 1234.5]
+>>> del a[:]
+>>> a
+[]
+>>> del a
+>>> a
+Traceback (most recent call last):
+  ...
+NameError: name 'a' is not defined
+</script>
+<div class="table-wrap"><table>
+<tr><th>To remove…</th><th>Use</th></tr>
+<tr><td>by value (the first match)</td><td><code>lst.remove(value)</code></td></tr>
+<tr><td>by index, and you want the item back</td><td><code>lst.pop(i)</code></td></tr>
+<tr><td>by index or slice, without the item back</td><td><code>del lst[i]</code> / <code>del lst[i:j]</code></td></tr>
+<tr><td>everything matching a condition</td><td>a comprehension: <code>[x for x in lst if keep(x)]</code></td></tr>
+</table></div>
+
+<h2 id="copy-trap">The list-of-lists trap</h2>
+<p><code>[x] * 3</code> repeats the <strong>same object</strong> three times. With a list inside, all three "rows" are one and the same list.</p>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Three names for one row</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> grid = [[0] * 3] * 3
+>>> grid[0][0] = 9
+>>> grid
+[[9, 0, 0], [9, 0, 0], [9, 0, 0]]
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>A new row each time</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> grid = [[0] * 3 for _ in range(3)]
+>>> grid[0][0] = 9
+>>> grid
+[[9, 0, 0], [0, 0, 0], [0, 0, 0]]
+</script>
+</div>
+</div>
+<p>The same thing happens with copies: <code>lst.copy()</code> and <code>lst[:]</code> are <strong>shallow</strong>. They copy the outer list, but the inner lists are still shared. Use <code>copy.deepcopy()</code> for a full copy of nested data.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Cleaning a column of user input</h3>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> raw = [" 12.5", "abc", "7 ", "", "40.0"]
+>>> amounts = [float(s) for s in raw if s.strip().replace(".", "", 1).isdigit()]
+>>> amounts
+[12.5, 7.0, 40.0]
+</script>
+<h3>2. An undo stack</h3>
+<script type="text/plain" class="code" data-file="undo.py">
+expenses = []
+undo = []
+
+def add(amount):
+    expenses.append(amount)
+    undo.append(("add", amount))
+
+def undo_last():
+    if undo:
+        action, amount = undo.pop()       # LIFO: the most recent action
+        if action == "add":
+            expenses.remove(amount)
+
+add(10); add(25); add(5)
+undo_last()
+print(expenses)   # [10, 25]
+</script>
+<h3>3. The last 3 messages with <code>deque(maxlen=…)</code></h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from collections import deque
+>>> recent = deque(maxlen=3)
+>>> for msg in ["a", "b", "c", "d", "e"]:
+...     recent.append(msg)
+...
+>>> list(recent)
+['c', 'd', 'e']
+</script>
+<h3>4. Top-N expenses</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> expenses = [("food", 12.5), ("rent", 900.0), ("books", 25.0), ("fun", 60.0)]
+>>> top2 = sorted(expenses, key=lambda e: e[1], reverse=True)[:2]
+>>> [name for name, _ in top2]
+['rent', 'fun']
+</script>
+<h3>5. Flattening receipts from several days (3.15)</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> days = {"mon": [4.5, 12.0], "tue": [], "wed": [7.25]}
+>>> all_amounts = [*amounts for amounts in days.values()]
+>>> all_amounts, sum(all_amounts)
+([4.5, 12.0, 7.25], 23.75)
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Mutating methods (<code>sort</code>, <code>append</code>, <code>reverse</code>…) return <code>None</code>. <code>sorted()</code> returns a new list. Sort with <code>key=</code> and <code>reverse=</code>.</li>
+  <li>Use a list as a stack (<code>append</code>/<code>pop</code>), and use <code>deque</code> for queues (<code>popleft</code>).</li>
+  <li><code>[expr for x in xs if cond]</code>: a filter goes at the end, a conditional value goes at the start, and several <code>for</code>s nest left to right.</li>
+  <li><code>[0, *xs]</code> spreads; <code>[*sub for sub in xss]</code> flattens (3.15); <code>first, *rest = xs</code> unpacks.</li>
+  <li><code>del lst[i:j]</code> removes by position. <code>[[0]*3]*3</code> shares rows; use a comprehension instead.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>After <code>a = [1, 2, 3]; a.insert(1, 9); a.pop(); a.append(4)</code>, what is <code>a</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[1, 9, 2, 4]</code>. The insert gives <code>[1, 9, 2, 3]</code>, <code>pop()</code> removes the last item (3), and <code>append</code> adds 4.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a comprehension that gives the lengths of <code>["spam", "eggs", "ham"]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+words = ["spam", "eggs", "ham"]
+print([len(w) for w in words])   # [4, 4, 3]
+</script>
+<p>The expression part (<code>len(w)</code>) is applied to every item.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This prints <code>None</code>. Fix it so it prints the sorted list.</p>
+<script type="text/plain" class="code" data-lang="python">
+prices = [30, 10, 20]
+print(prices.sort())
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+prices = [30, 10, 20]
+print(sorted(prices))   # [10, 20, 30]
+</script>
+<p><code>list.sort()</code> sorts in place and returns <code>None</code>. <code>sorted()</code> returns a new list.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What are <code>a</code> and <code>b</code> after <code>a = [1]; a.append([2, 3])</code> and <code>b = [1]; b.extend("23")</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>a == [1, [2, 3]]</code> and <code>b == [1, '2', '3']</code>. <code>append</code> adds one object. <code>extend</code> loops over its argument, and a string is iterated character by character.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Turn this loop into a single comprehension.</p>
+<script type="text/plain" class="code" data-lang="python">
+result = []
+for n in range(20):
+    if n % 3 == 0:
+        result.append(n * n)
+print(result)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+result = [n * n for n in range(20) if n % 3 == 0]
+print(result)   # [0, 9, 36, 81, 144, 225, 324]
+</script>
+<p>The <code>if</code> filter goes at the end, and the transformation at the start.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>[(a, b) for a in "xy" for b in range(2)]</code> produce?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[('x', 0), ('x', 1), ('y', 0), ('y', 1)]</code>. The first <code>for</code> is the outer loop.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Simulate a printer queue with <code>deque</code>: jobs <code>"a.pdf"</code>, <code>"b.pdf"</code> and <code>"c.pdf"</code> arrive. Print one job, then <code>"d.pdf"</code> arrives, then print everything that remains in order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from collections import deque
+
+jobs = deque(["a.pdf", "b.pdf", "c.pdf"])
+print("printing", jobs.popleft())
+jobs.append("d.pdf")
+while jobs:
+    print("printing", jobs.popleft())
+# a.pdf, b.pdf, c.pdf, d.pdf
+</script>
+<p>First in, first out: <code>append</code> at the right, <code>popleft</code> from the left. Both are O(1), meaning constant time no matter how long the queue is.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/clean.py</code>. Given <code>lines = ["food,12.5", "bad line", "rent,900", "fun,abc", "books,25"]</code>, use comprehensions to build a list of <code>(category, amount)</code> tuples, keeping only lines that have exactly one comma and a numeric amount.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/clean.py">
+lines = ["food,12.5", "bad line", "rent,900", "fun,abc", "books,25"]
+
+def is_number(text):
+    return text.replace(".", "", 1).isdigit()
+
+pairs = [line.split(",") for line in lines if line.count(",") == 1]
+expenses = [(cat, float(amt)) for cat, amt in pairs if is_number(amt)]
+print(expenses)   # [('food', 12.5), ('rent', 900.0), ('books', 25.0)]
+</script>
+<p>Two small comprehensions, one that splits and one that validates and converts, read better than one giant one. Chapter 10 shows the <code>try/except</code> way to validate numbers.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why do these give different results? <code>[[]] * 2</code> versus <code>[[] for _ in range(2)]</code>, after appending <code>1</code> to the first inner list.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> a = [[]] * 2
+>>> a[0].append(1)
+>>> a
+[[1], [1]]
+>>> b = [[] for _ in range(2)]
+>>> b[0].append(1)
+>>> b
+[[1], []]
+</script>
+<p><code>*</code> copies <em>references</em>, so <code>a</code> holds one empty list twice. The comprehension runs <code>[]</code> on every pass and creates a new list each time.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What is <code>m</code>?</p>
+<script type="text/plain" class="code" data-lang="python">
+m = [[r * 3 + c for c in range(3)] for r in range(2)]
+m = [*row for row in m if sum(row) > 3]
+print(m)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>The first line builds <code>[[0, 1, 2], [3, 4, 5]]</code>. Only the second row has a sum greater than 3 (12), so the flattening comprehension gives <code>[3, 4, 5]</code>. (This needs Python 3.15 for the <code>*row</code> part.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 11 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/ledger.py</code>: a tiny in-memory ledger with <code>add(cat, amount)</code>, <code>undo()</code>, <code>top(n)</code> (the n largest as tuples) and <code>by_category(cat)</code> (the amounts for one category). Use a list for the data and a list as an undo stack.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/ledger.py">
+ledger = []        # list of (category, amount)
+history = []       # undo stack: each entry is the index that was added
+
+def add(cat, amount):
+    ledger.append((cat, amount))
+    history.append(len(ledger) - 1)
+
+def undo():
+    if history:
+        del ledger[history.pop()]
+
+def top(n):
+    return sorted(ledger, key=lambda e: e[1], reverse=True)[:n]
+
+def by_category(cat):
+    return [amount for c, amount in ledger if c == cat]
+
+add("food", 12.5); add("rent", 900); add("food", 7.5); add("fun", 60)
+undo()                         # removes ("fun", 60)
+print(top(2))                  # [('rent', 900), ('food', 12.5)]
+print(by_category("food"))     # [12.5, 7.5]
+</script>
+<p>It combines a stack (<code>append</code>/<code>pop</code>), <code>del</code> by index, <code>sorted</code> with a key, slicing and a filtering comprehension.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/datastructures.html#more-on-lists">5.1 More on Lists</a> (stacks, queues, comprehensions, unpacking)</li>
+  <li><a href="https://docs.python.org/3/tutorial/datastructures.html#the-del-statement">5.2 The del statement</a></li>
+  <li><a href="https://docs.python.org/3/howto/sorting.html">Sorting Techniques (HOWTO)</a></li>
+  <li><a href="https://docs.python.org/3/library/collections.html#collections.deque">collections.deque</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

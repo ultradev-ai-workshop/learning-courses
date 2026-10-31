@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📦&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Modules & Packages · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Modules, I/O &amp; Errors</div>
+<h1>Modules &amp; Packages</h1>
+<p class="lead">Split code across files, import it in several ways, make a file that works both as a library and as a script, and group modules into packages.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a module is, and the different forms of <code>import</code>.</li>
+  <li>The <code>if __name__ == "__main__":</code> idiom.</li>
+  <li>Where Python looks for modules (<code>sys.path</code>), and what <code>__pycache__</code> is.</li>
+  <li>Packages, <code>__init__.py</code>, relative imports, and <code>__all__</code>.</li>
+  <li>New in 3.15: <code>lazy import</code> for faster start-up.</li>
+</ul>
+</div>
+
+<h2 id="modules">What is a module?</h2>
+<p>A <strong>module</strong> is simply a <code>.py</code> file. Its name is the file name without <code>.py</code>. Everything defined at the top level of the file (functions, classes, variables) becomes an attribute of the module.</p>
+<p>Analogy: a module is a toolbox with a label on it. <code>import fibo</code> brings the whole box onto your desk, and you take tools out with <code>fibo.fib</code>.</p>
+<script type="text/plain" class="code" data-file="fibo.py" data-save>
+# Fibonacci numbers module
+
+def fib(n):
+    """Write the Fibonacci series up to n."""
+    a, b = 0, 1
+    while a < n:
+        print(a, end=' ')
+        a, b = b, a + b
+    print()
+
+def fib2(n):
+    """Return the Fibonacci series up to n."""
+    result = []
+    a, b = 0, 1
+    while a < n:
+        result.append(a)
+        a, b = b, a + b
+    return result
+</script>
+<p>Start the REPL in the same folder and import it:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import fibo
+>>> fibo.fib(1000)
+0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987
+>>> fibo.fib2(100)
+[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+>>> fibo.__name__
+'fibo'
+</script>
+<p>Each module has its own <strong>namespace</strong> (its own set of names). A variable called <code>total</code> inside <code>fibo</code> never clashes with your <code>total</code>. Inside a module, <code>__name__</code> holds the module's name.</p>
+
+<h3>Forms of import</h3>
+<div class="table-wrap"><table>
+<tr><th>Statement</th><th>What you can then write</th><th>Notes</th></tr>
+<tr><td><code>import fibo</code></td><td><code>fibo.fib(10)</code></td><td>the clearest; you always see where a name comes from</td></tr>
+<tr><td><code>import fibo as fb</code></td><td><code>fb.fib(10)</code></td><td>a short alias, e.g. <code>import numpy as np</code></td></tr>
+<tr><td><code>from fibo import fib, fib2</code></td><td><code>fib(10)</code></td><td>copies just those names into your namespace</td></tr>
+<tr><td><code>from fibo import fib as fibonacci</code></td><td><code>fibonacci(10)</code></td><td>renames on import</td></tr>
+<tr><td><code>from fibo import *</code></td><td><code>fib(10)</code>, <code>fib2(10)</code></td><td>imports all public names (no leading <code>_</code>); <strong>avoid in real code</strong></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from fibo import fib as fibonacci
+>>> fibonacci(50)
+0 1 1 2 3 5 8 13 21 34
+</script>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Star import hides where names come from</strong></p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+from os import *
+from fibo import *
+open("x.txt")     # whose open? builtins' or os's?
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Explicit is better than implicit</strong></p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+import os
+from fibo import fib
+open("x.txt")     # clearly the built-in
+</script>
+</div>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>import</code> in Python <em>runs</em> the module's code the first time (like a static initialiser). There is no classpath: Python searches a list of folders (see <code>sys.path</code> below). 🟨 <strong>JS:</strong> <code>from fibo import fib</code> is like <code>import { fib } from './fibo.js'</code>. Python has no <code>export</code> keyword: every top-level name is importable.</p>
+</div>
+<p>A module's top-level code runs <strong>only once</strong> per process, the first time it is imported. Later imports reuse the cached module object stored in <code>sys.modules</code>. When you edit a module during a REPL session, either restart the REPL or use <code>importlib.reload(fibo)</code>.</p>
+
+<h2 id="main">Executing modules as scripts</h2>
+<p>When you run a file directly (<code>python3 fibo.py</code>), its <code>__name__</code> is set to <code>"__main__"</code> instead of <code>"fibo"</code>. So you can add code that runs <strong>only when the file is run as a script</strong>, and not when it is imported:</p>
+<script type="text/plain" class="code" data-file="fibo.py" data-save>
+# Fibonacci numbers module
+
+def fib(n):
+    """Write the Fibonacci series up to n."""
+    a, b = 0, 1
+    while a < n:
+        print(a, end=' ')
+        a, b = b, a + b
+    print()
+
+if __name__ == "__main__":
+    import sys
+    fib(int(sys.argv[1]))
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 fibo.py 50
+0 1 1 2 3 5 8 13 21 34
+$ python3 -c "import fibo; print('imported quietly')"
+imported quietly
+</script>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> the usual layout is to put the work in a <code>main()</code> function and call it from the guard. Then tests can import the file without side effects, and the file still works as a command.</p>
+</div>
+<script type="text/plain" class="code" data-file="tool_layout.py">
+def main():
+    print("doing the work")
+
+if __name__ == "__main__":     # True only when run directly
+    main()
+</script>
+
+<h2 id="path">The module search path</h2>
+<p>When you <code>import spam</code>, Python first checks for a built-in module with that name. Then it searches the folders listed in <code>sys.path</code>, in order:</p>
+<ol>
+  <li>The folder containing the script you ran (or the current folder in the REPL).</li>
+  <li>The folders in the <code>PYTHONPATH</code> environment variable, if it is set.</li>
+  <li>The installation defaults: the standard library, then <code>site-packages</code> (where <code>pip</code> installs packages).</li>
+</ol>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import sys
+>>> type(sys.path)
+<class 'list'>
+>>> any("site-packages" in p for p in sys.path)
+True
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>The shadowing pitfall.</strong> The script's own folder comes <em>first</em>. If you name your file <code>random.py</code>, <code>json.py</code> or <code>email.py</code>, then <code>import random</code> loads <em>your</em> file instead of the standard library's, and you get confusing errors like <code>AttributeError: module 'random' has no attribute 'randint'</code>. Never name your files after standard modules.</p>
+</div>
+
+<h2 id="pycache">"Compiled" Python files</h2>
+<p>To speed up loading, Python caches a compiled version of each imported module in a <code>__pycache__</code> folder, with names like <code>fibo.cpython-315.pyc</code>. The <code>.pyc</code> file holds <strong>bytecode</strong>: a lower-level form of your code that the interpreter runs.</p>
+<ul>
+  <li>Python checks the source file's modification time and recompiles automatically when the file changes. You never manage these files yourself.</li>
+  <li>A <code>.pyc</code> file loads faster, but it doesn't <em>run</em> any faster.</li>
+  <li>The script you run directly is not cached; only imported modules are.</li>
+  <li>Add <code>__pycache__/</code> to <code>.gitignore</code>.</li>
+</ul>
+<div class="note">
+<p>📝 <strong>Changed in 3.15:</strong> the old <code>module.__cached__</code> attribute is no longer set. Use <code>module.__spec__.cached</code> if you ever need the <code>.pyc</code> path.</p>
+</div>
+
+<h2 id="standard">Standard modules and dir()</h2>
+<p>Python ships with a large <strong>standard library</strong> of modules (Chapters 13–14). Some, like <code>sys</code>, are built into the interpreter itself.</p>
+<p>The built-in <code>dir()</code> lists the names a module defines. With no argument, it lists the names you have defined in the current scope.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> [name for name in dir(fibo) if not name.startswith("_")]
+['fib', 'fib2']
+>>> import builtins
+>>> "len" in dir(builtins)        # built-in functions live in the builtins module
+True
+</script>
+<p>Notice <code>fib2</code> is still listed, even though the second version of <code>fibo.py</code> removed it. This REPL session imported the <em>first</em> version, and a module is loaded only once. Even <code>importlib.reload()</code> re-runs the file into the <em>same</em> module object, so old names stay behind. When in doubt, restart the REPL.</p>
+
+<h2 id="packages">Packages</h2>
+<p>A <strong>package</strong> is a folder of modules, which gives you dotted names like <code>sound.effects.echo</code>. Mark a folder as a package by putting an <code>__init__.py</code> file in it. The file can be empty; its code runs when the package is first imported.</p>
+<script type="text/plain" class="code" data-lang="text">
+sound/                          Top-level package
+      __init__.py               Initialize the sound package
+      formats/                  Subpackage for file format conversions
+              __init__.py
+              wavread.py
+              wavwrite.py
+              ...
+      effects/                  Subpackage for sound effects
+              __init__.py
+              echo.py
+              surround.py
+              ...
+</script>
+<p>The three ways to import from it:</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+import sound.effects.echo                    # use the full name:
+sound.effects.echo.echofilter(input, output, delay=0.7)
+
+from sound.effects import echo               # use the module name:
+echo.echofilter(input, output, delay=0.7)
+
+from sound.effects.echo import echofilter    # use the function directly:
+echofilter(input, output, delay=0.7)
+</script>
+<h3>A real, runnable package</h3>
+<p>Here is a tiny <code>shop</code> package that you can create and run:</p>
+<script type="text/plain" class="code" data-file="shop/__init__.py" data-save>
+"""A tiny shop package."""
+from .pricing import with_vat       # re-export, so users can write shop.with_vat
+
+__all__ = ["with_vat"]              # what "from shop import *" gives you
+</script>
+<script type="text/plain" class="code" data-file="shop/pricing.py" data-save>
+VAT = 0.20
+
+def with_vat(net):
+    return round(net * (1 + VAT), 2)
+</script>
+<script type="text/plain" class="code" data-file="shop/cart.py" data-save>
+from .pricing import with_vat       # relative import: "pricing in MY package"
+
+def total(prices):
+    return with_vat(sum(prices))
+
+if __name__ == "__main__":
+    print("cart total:", total([10, 5.5]))
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m shop.cart
+cart total: 18.6
+$ python3 -c "import shop; print(shop.with_vat(100))"
+120.0
+</script>
+<ul>
+  <li><strong>Relative imports</strong> start with a dot: <code>from . import x</code> (this package) or <code>from ..sub import y</code> (the parent package). They only work <em>inside</em> a package.</li>
+  <li>Run a module that lives in a package with <code>python3 -m shop.cart</code>, from the folder that <em>contains</em> <code>shop/</code>. Running <code>python3 shop/cart.py</code> directly fails, because the file then isn't part of any package, so the relative import has nothing to be relative to.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 shop/cart.py
+Traceback (most recent call last):
+  ...
+ImportError: attempted relative import with no known parent package
+</script>
+<h3><code>__all__</code> and <code>import *</code> from a package</h3>
+<p><code>from package import *</code> does <strong>not</strong> scan the folder for submodules. It imports exactly the names listed in the package's <code>__all__</code>. Without <code>__all__</code>, it only imports the names already defined in <code>__init__.py</code>. Inside a plain module, <code>__all__</code> limits what <code>import *</code> exports in the same way.</p>
+<div class="note">
+<p>📝 <strong>Namespace packages:</strong> a folder <em>without</em> <code>__init__.py</code> can still be imported, as a "namespace package", which is used for splitting one package across several locations. Beginners should always add <code>__init__.py</code>; it avoids surprises.</p>
+</div>
+
+<h2 id="lazy">Lazy imports (new in 3.15)</h2>
+<p>Large programs import many modules at start-up, even ones that are rarely used, and that slows down command-line tools. <a href="https://peps.python.org/pep-0810/">PEP 810</a> adds the soft keyword <code>lazy</code>. A lazy import binds the name immediately, but <strong>loads the module only the first time the name is used</strong>.</p>
+<script type="text/plain" class="code" data-file="lazy_demo.py">
+import sys
+lazy import json                   # nothing loaded yet
+lazy from pathlib import Path
+
+print("json loaded?", "json" in sys.modules)        # False
+data = json.loads('{"amount": 12.5}')               # first use: json loads now
+print("json loaded?", "json" in sys.modules)        # True
+print(data["amount"], Path("a/b.txt").suffix)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+json loaded? False
+json loaded? True
+12.5 .txt
+</script>
+<ul>
+  <li><code>lazy</code> is only allowed at the module's top level. Inside a function it is a <code>SyntaxError</code> (an import inside a function is already lazy).</li>
+  <li><code>lazy from module import *</code> is not allowed.</li>
+  <li>It is a <em>soft</em> keyword, so old code that uses <code>lazy</code> as a variable name still works.</li>
+  <li>Errors from a lazy import (such as a missing module) appear at first use, not at the import line.</li>
+</ul>
+<div class="older">
+<p>📝 <strong>Older pattern you'll still see:</strong> before 3.15, people delayed imports by putting the <code>import</code> statement inside the function that needed it. That still works and is still fine for one-off cases.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A config module shared by other files</h3>
+<script type="text/plain" class="code" data-file="settings.py" data-save>
+CURRENCY = "EUR"
+BUDGET = {"food": 300, "fun": 100}
+</script>
+<script type="text/plain" class="code" data-file="check.py" data-save>
+import settings
+
+def over(category, spent):
+    return spent > settings.BUDGET.get(category, 0)
+
+if __name__ == "__main__":
+    print(settings.CURRENCY, over("food", 350), over("fun", 20))
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 check.py
+EUR True False
+</script>
+<h3>2. Which file did a module come from?</h3>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> import json
+>>> json.__file__.endswith("__init__.py")     # json is a package
+True
+>>> import sys
+>>> "sys" in sys.builtin_module_names        # compiled into the interpreter: no file
+True
+</script>
+<h3>3. Aliasing a long module name</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import datetime as dt
+>>> dt.date(2026, 10, 30).isoformat()
+'2026-10-30'
+</script>
+<h3>4. Choosing an implementation at import time</h3>
+<script type="text/plain" class="code" data-file="fast_json.py">
+try:
+    import orjson as json_impl          # a faster third-party library, if installed
+except ImportError:
+    import json as json_impl            # fall back to the standard library
+print(json_impl.__name__)
+</script>
+<p>(<code>try</code>/<code>except</code> is covered in Chapter 10.)</p>
+<h3>5. A package's public API through <code>__init__.py</code></h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from shop import *
+>>> with_vat(50)
+60.0
+>>> "pricing" in dir()           # __all__ only exported with_vat
+False
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A module is a <code>.py</code> file. Prefer <code>import module</code> or <code>from module import name</code>, and avoid <code>import *</code>.</li>
+  <li>A module's code runs once, at its first import. <code>if __name__ == "__main__":</code> guards script-only code.</li>
+  <li><code>sys.path</code> starts with the script's folder, so don't name files after standard modules.</li>
+  <li>A package is a folder with <code>__init__.py</code>. Inside it, use relative imports (<code>from . import x</code>), and run its modules with <code>python3 -m pkg.mod</code>.</li>
+  <li><code>lazy import x</code> (3.15) delays loading until first use, and only works at the top level.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/mathx.py</code> with a function <code>square(n)</code>. In <code>playground/use_mathx.py</code>, import it in two different ways and print <code>square(7)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/mathx.py">
+def square(n):
+    return n * n
+</script>
+<script type="text/plain" class="code" data-file="playground/use_mathx.py" data-norun>
+import mathx
+from mathx import square
+
+print(mathx.square(7), square(7))   # 49 49
+</script>
+<p>Run <code>python3 use_mathx.py</code> from inside <code>playground/</code>. The script's own folder is the first entry in <code>sys.path</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p><code>greet.py</code> contains <code>print("loading greet")</code> and nothing else. What does <code>import greet; import greet</code> print?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>loading greet</code>, only once. The second import finds the module already in <code>sys.modules</code> and doesn't run it again.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Your file is called <code>random.py</code> and does <code>import random; print(random.randint(1, 6))</code>. It fails with <code>AttributeError</code>. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>import random</code> finds <em>your</em> <code>random.py</code> first, because the script's folder comes first in <code>sys.path</code>. Your file doesn't define <code>randint</code>. Rename the file and delete the <code>__pycache__</code> entry for it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>Running <code>tests.py</code>, which does <code>import calc</code>, prints a large demo every time. Fix <code>calc.py</code>.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+# calc.py
+def add(a, b):
+    return a + b
+
+print("DEMO:", add(2, 3))
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+# calc.py
+def add(a, b):
+    return a + b
+
+if __name__ == "__main__":
+    print("DEMO:", add(2, 3))
+</script>
+<p>When the file is imported, <code>__name__</code> is <code>"calc"</code>, so the demo is skipped.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>Given the <code>shop</code> package above, which of these work from the folder containing <code>shop/</code>? (a) <code>python3 -m shop.cart</code> (b) <code>python3 shop/cart.py</code> (c) <code>python3 -c "from shop.cart import total; print(total([1]))"</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) and (c) work. (c) prints <code>1.2</code>. (b) fails with <code>ImportError: attempted relative import with no known parent package</code>, because running a file by its path makes it <code>__main__</code> with no package around it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Replace the star imports with explicit imports: <code>from math import *</code> and <code>from statistics import *</code>, where the code uses <code>sqrt</code>, <code>pi</code> and <code>mean</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from math import sqrt, pi
+from statistics import mean
+
+print(round(sqrt(2) * pi, 3), mean([1, 2, 3]))   # 4.443 2
+</script>
+<p>Readers (and linters) can now see where each name comes from. It also avoids accidental clashes: both modules have names that could overlap.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Turn <code>playground/money.py</code> (Chapter 5) into a script <em>and</em> a module: importing it should print nothing, and <code>python3 money.py 1234</code> should print <code>€12.34</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/money.py">
+import sys
+
+def format_money(cents, /, *, currency="€"):
+    sign = "-" if cents < 0 else ""
+    whole, rest = divmod(abs(cents), 100)
+    return f"{sign}{currency}{whole}.{rest:02d}"
+
+def main(argv):
+    for arg in argv[1:]:
+        print(format_money(int(arg)))
+
+if __name__ == "__main__":
+    main(sys.argv)
+</script>
+<p>Passing <code>argv</code> into <code>main</code> makes the function easy to test: you can call <code>main(["x", "5"])</code> from a test.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why is <code>lazy import json</code> inside a function a <code>SyntaxError</code>? What would you write instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A plain <code>import</code> inside a function already runs only when the function is called, so it is lazy already. The <code>lazy</code> keyword exists to delay <em>top-level</em> imports, which normally run at start-up. Inside a function, just write <code>import json</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p><code>pkg/__init__.py</code> contains <code>print("init")</code> and <code>from .a import x</code>. <code>pkg/a.py</code> contains <code>print("a")</code> and <code>x = 1</code>. <code>pkg/b.py</code> contains <code>print("b")</code>. What does <code>python3 -c "import pkg.b"</code> print?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>init</code>, <code>a</code>, <code>b</code>, in that order. Importing <code>pkg.b</code> first imports <code>pkg</code>, which runs <code>__init__.py</code>, and that imports <code>a</code>. Then <code>b</code> runs.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create a package <code>playground/tracker/</code> with <code>__init__.py</code>, <code>models.py</code> (a function <code>make_expense(amount, category)</code> that returns a dict), <code>report.py</code> (a function <code>total(expenses)</code>) and <code>__main__.py</code>, so that <code>python3 -m tracker</code> (run from <code>playground/</code>) prints a small demo total. Re-export both functions in <code>__init__.py</code> and set <code>__all__</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="tracker/models.py" data-save>
+def make_expense(amount, category="misc"):
+    return {"amount": float(amount), "category": category}
+</script>
+<script type="text/plain" class="code" data-file="tracker/report.py" data-save>
+def total(expenses):
+    return sum(e["amount"] for e in expenses)
+</script>
+<script type="text/plain" class="code" data-file="tracker/__init__.py" data-save>
+from .models import make_expense
+from .report import total
+
+__all__ = ["make_expense", "total"]
+</script>
+<script type="text/plain" class="code" data-file="tracker/__main__.py" data-save>
+from . import make_expense, total
+
+demo = [make_expense(12.5, "food"), make_expense(7.5, "food"), make_expense(60, "fun")]
+print("demo total:", total(demo))
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m tracker
+demo total: 80.0
+</script>
+<p>A package's <code>__main__.py</code> is what <code>python3 -m package</code> runs. Chapter 16 grows this package into the full project.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/modules.html">6. Modules</a> (scripts, search path, compiled files, standard modules, dir(), packages)</li>
+  <li><a href="https://peps.python.org/pep-0810/">PEP 810: Explicit lazy imports</a></li>
+  <li><a href="https://docs.python.org/3/reference/import.html">Language reference: the import system</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

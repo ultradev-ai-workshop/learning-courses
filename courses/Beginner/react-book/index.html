@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚛️&lt;/text&gt;&lt;/svg&gt;">
+<title>React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">A chapter-by-chapter course</p>
+<h1>⚛️ React Beginner Book</h1>
+<p class="lead">Learn React from zero, in plain language, following the structure of the official <a href="https://react.dev/learn">react.dev/learn</a> docs. Every chapter has small examples you can type into your own project.</p>
+
+<div class="goals">
+  <strong>How to use this book</strong>
+  <ul>
+    <li>Read the chapters <strong>in order</strong>. Each one builds on the one before. If your JavaScript is rusty, start with <a href="appendix-js-refresher.html">Appendix A: JavaScript Refresher</a>.</li>
+    <li><strong>Type the examples yourself</strong> in <code>sample-test-react/src/App.jsx</code> (run <code>npm run dev</code>). Typing beats copy-pasting for learning.</li>
+    <li>Each chapter has a <strong>"More examples"</strong> section and <strong>10 exercises</strong> (150 in total), labelled 🟢 easy, 🟡 medium or 🔴 hard. Try each one before you open its solution.</li>
+    <li>Each chapter ends with links to the matching official docs pages for deeper reading.</li>
+  </ul>
+</div>
+
+<h2>Part 1 · Start here</h2>
+<div class="cards">
+  <a class="card" href="01-getting-started.html"><span class="n">CHAPTER 1</span><h3>Getting Started</h3><p>What React is, creating a project with Vite, and how the files fit together.</p></a>
+</div>
+
+<h2>Part 2 · Describing the UI</h2>
+<div class="cards">
+  <a class="card" href="02-components-and-jsx.html"><span class="n">CHAPTER 2</span><h3>Components &amp; JSX</h3><p>Your first component, import/export, JSX rules, and curly braces.</p></a>
+  <a class="card" href="03-props.html"><span class="n">CHAPTER 3</span><h3>Props</h3><p>Passing data from parent to child, defaults, and children.</p></a>
+  <a class="card" href="04-conditions-and-lists.html"><span class="n">CHAPTER 4</span><h3>Conditions &amp; Lists</h3><p>Showing UI only sometimes, and rendering arrays with <code>map</code> and <code>key</code>.</p></a>
+  <a class="card" href="05-pure-components-ui-tree.html"><span class="n">CHAPTER 5</span><h3>Pure Components &amp; the UI Tree</h3><p>Why components must be like math formulas, and how React sees your app.</p></a>
+</div>
+
+<h2>Part 3 · Adding Interactivity</h2>
+<div class="cards">
+  <a class="card" href="06-events.html"><span class="n">CHAPTER 6</span><h3>Responding to Events</h3><p>Click handlers, passing handlers as props, and event bubbling.</p></a>
+  <a class="card" href="07-state.html"><span class="n">CHAPTER 7</span><h3>State &amp; Rendering</h3><p><code>useState</code>, render &amp; commit, snapshots, and queued updates.</p></a>
+  <a class="card" href="08-objects-and-arrays-in-state.html"><span class="n">CHAPTER 8</span><h3>Objects &amp; Arrays in State</h3><p>Updating without mutating, using spread and array methods.</p></a>
+</div>
+
+<h2>Part 4 · Managing State</h2>
+<div class="cards">
+  <a class="card" href="09-structuring-and-sharing-state.html"><span class="n">CHAPTER 9</span><h3>Structuring &amp; Sharing State</h3><p>Thinking in states, avoiding redundant state, and lifting state up.</p></a>
+  <a class="card" href="10-preserving-state-and-reducers.html"><span class="n">CHAPTER 10</span><h3>Preserving State &amp; Reducers</h3><p>When React keeps or resets state, and moving logic into <code>useReducer</code>.</p></a>
+  <a class="card" href="11-context.html"><span class="n">CHAPTER 11</span><h3>Context</h3><p>Passing data deeply without prop drilling, and combining context with a reducer.</p></a>
+</div>
+
+<h2>Part 5 · Escape Hatches</h2>
+<div class="cards">
+  <a class="card" href="12-refs.html"><span class="n">CHAPTER 12</span><h3>Refs</h3><p>Remembering values without re-rendering, and reaching real DOM elements.</p></a>
+  <a class="card" href="13-effects.html"><span class="n">CHAPTER 13</span><h3>Effects</h3><p>Syncing with the outside world, cleanup, dependencies, and when <em>not</em> to use effects.</p></a>
+  <a class="card" href="14-custom-hooks.html"><span class="n">CHAPTER 14</span><h3>Custom Hooks</h3><p>Packaging reusable logic into your own <code>useSomething</code> functions.</p></a>
+</div>
+
+<h2>Part 6 · Putting it together</h2>
+<div class="cards">
+  <a class="card" href="15-thinking-in-react.html"><span class="n">CHAPTER 15</span><h3>Thinking in React (Project)</h3><p>Build a searchable product table step by step, the React way.</p></a>
+</div>
+
+<h2>Appendix &amp; Assessment</h2>
+<div class="cards">
+  <a class="card" href="appendix-js-refresher.html"><span class="n">APPENDIX A</span><h3>JavaScript Refresher</h3><p>Destructuring, spread, map/filter/reduce, <code>?.</code> and <code>??</code>, modules, async/await: the ES6+ features React uses everywhere.</p></a>
+  <a class="card" href="assessment.html"><span class="n">FINAL ASSESSMENT</span><h3>Test Your Knowledge</h3><p>50 random questions from a pool of 1000, across every chapter. Multi-select answers, a score, and a per-chapter breakdown.</p></a>
+</div>
+
+<div class="callout note">
+  <strong>Also see</strong>
+  Your earlier notes, <a href="../chapter-1-react-basics.html">Chapter 1: React Basics</a>, summarise the concepts you used in <code>sample-test-react</code> before starting this book.
+</div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

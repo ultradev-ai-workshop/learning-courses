@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏛️&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Classes · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Object-Oriented Python</div>
+<h1>Classes</h1>
+<p class="lead">How Python finds names (scopes), how classes and instances really work, what <code>self</code> is, plus inheritance, "private" names and dataclasses, explained for someone who knows Java's OOP.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Names vs objects, namespaces, and the LEGB scope rule, with <code>global</code> and <code>nonlocal</code>.</li>
+  <li>Defining classes, <code>__init__</code>, <code>self</code>, and bound methods.</li>
+  <li>Class variables vs instance variables, and the shared-mutable trap.</li>
+  <li>Inheritance, <code>super()</code>, multiple inheritance and the MRO.</li>
+  <li>Name mangling (<code>__x</code>), special methods like <code>__repr__</code>, properties, and <code>@dataclass</code>.</li>
+</ul>
+</div>
+
+<h2 id="names">A word about names and objects</h2>
+<p>Objects have identity, and several names can be bound to the same object. This is called <strong>aliasing</strong>. It doesn't matter for immutable objects (numbers, strings, tuples), but it matters a lot for mutable ones. You saw it with lists in Chapter 2; it is the same for your own objects.</p>
+<p>The upside: passing an object to a function is cheap, because only a reference is passed. And if the function modifies the object, the caller sees the change.</p>
+
+<h2 id="scopes">Scopes and namespaces</h2>
+<p>A <strong>namespace</strong> is a mapping from names to objects. Examples are the built-in names (<code>len</code>, <code>print</code>), a module's global names, and a function call's local names. Names in different namespaces never clash: <code>fibo.total</code> and <code>report.total</code> can coexist.</p>
+<p>A <strong>scope</strong> is a region of code where a namespace is directly reachable. When Python looks up a bare name, it searches in the <strong>LEGB</strong> order:</p>
+<div class="table-wrap"><table>
+<tr><th>Letter</th><th>Scope</th><th>Example</th></tr>
+<tr><td><strong>L</strong>ocal</td><td>the current function</td><td>a variable assigned inside the function</td></tr>
+<tr><td><strong>E</strong>nclosing</td><td>any outer functions (for nested functions)</td><td><code>rate</code> in <code>make_tax</code> from Chapter 5</td></tr>
+<tr><td><strong>G</strong>lobal</td><td>the module's top level</td><td>constants and functions defined in the file</td></tr>
+<tr><td><strong>B</strong>uilt-in</td><td>Python's built-ins</td><td><code>len</code>, <code>print</code>, <code>ValueError</code></td></tr>
+</table></div>
+<p>The key rule: <strong>assigning to a name inside a function makes it local to that function</strong>, unless you declare it <code>global</code> (module level) or <code>nonlocal</code> (the enclosing function).</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def scope_test():
+...     def do_local():
+...         spam = "local spam"
+...
+...     def do_nonlocal():
+...         nonlocal spam
+...         spam = "nonlocal spam"
+...
+...     def do_global():
+...         global spam
+...         spam = "global spam"
+...
+...     spam = "test spam"
+...     do_local()
+...     print("After local assignment:", spam)
+...     do_nonlocal()
+...     print("After nonlocal assignment:", spam)
+...     do_global()
+...     print("After global assignment:", spam)
+...
+>>> scope_test()
+After local assignment: test spam
+After nonlocal assignment: nonlocal spam
+After global assignment: nonlocal spam
+>>> print("In global scope:", spam)
+In global scope: global spam
+</script>
+<ul>
+  <li><code>do_local</code> creates its own local <code>spam</code>, so the outer one is untouched.</li>
+  <li><code>do_nonlocal</code> rebinds <code>scope_test</code>'s <code>spam</code>.</li>
+  <li><code>do_global</code> rebinds the module-level <code>spam</code>. <code>scope_test</code>'s local <code>spam</code> is unchanged, which is why the third line still shows <code>nonlocal spam</code>.</li>
+</ul>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>UnboundLocalError</strong></p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> count = 0
+>>> def bump():
+...     count += 1     # assignment makes count local
+...
+>>> bump()
+Traceback (most recent call last):
+  ...
+UnboundLocalError: cannot access local variable 'count' where it is not associated with a value
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Return the new value instead</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> count = 0
+>>> def bump(n):
+...     return n + 1
+...
+>>> count = bump(count)
+>>> count
+1
+</script>
+</div>
+</div>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> <code>global</code> works, but it makes code harder to test. Prefer passing values in and returning them, or keep the state in an object, which is what classes are for.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / 🟨 JS:</strong> <code>if</code>, <code>for</code> and <code>while</code> blocks do <strong>not</strong> create a new scope in Python. A variable assigned inside a loop is still visible after it. Only functions, classes, modules and comprehensions create scopes.</p>
+</div>
+
+<h2 id="first-look">A first look at classes</h2>
+<p>A class is a blueprint for objects. Here is a minimal class, then a useful one:</p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> class MyClass:
+...     """A simple example class"""
+...     i = 12345
+...
+...     def f(self):
+...         return 'hello world'
+...
+>>> MyClass.i               # attribute reference on the class object
+12345
+>>> x = MyClass()           # instantiation: call the class like a function (no "new")
+>>> x.f()
+'hello world'
+</script>
+<script type="text/plain" class="code" data-file="expense.py">
+class Expense:
+    """One expense in the tracker."""
+
+    def __init__(self, amount, category="misc"):   # the initialiser (like a constructor)
+        self.amount = amount                         # instance attributes are created
+        self.category = category                     # by assigning to self.<name>
+
+    def with_tax(self, rate=0.2):                    # a method: first parameter is self
+        return round(self.amount * (1 + rate), 2)
+
+lunch = Expense(12.5, "food")        # Python calls Expense.__init__(lunch, 12.5, "food")
+print(lunch.amount, lunch.category, lunch.with_tax())   # 12.5 food 15.0
+</script>
+<h3>What is <code>self</code>?</h3>
+<p><code>self</code> is the instance the method was called on. Python passes it <strong>automatically</strong>: <code>lunch.with_tax()</code> is shorthand for <code>Expense.with_tax(lunch)</code>. It is Java's <code>this</code>, except that Python makes it an explicit first parameter. The name <code>self</code> is only a convention, but always use it.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> x.f()                  # these two calls are the same
+'hello world'
+>>> MyClass.f(x)
+'hello world'
+>>> xf = x.f               # a "bound method": remembers its instance
+>>> xf()
+'hello world'
+</script>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Forgetting self</strong></p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+class Counter:
+    def __init__(self):
+        count = 0          # just a local variable!
+    def inc(self):
+        count += 1         # UnboundLocalError
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Store state on self</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+class Counter:
+    def __init__(self):
+        self.count = 0
+    def inc(self):
+        self.count += 1
+
+c = Counter(); c.inc(); c.inc()
+print(c.count)   # 2
+</script>
+</div>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> there is no field declaration list. Attributes come into existence when they are assigned, normally in <code>__init__</code>. You can even add attributes to an instance later (<code>lunch.note = "x"</code>), though good style keeps them all in <code>__init__</code>. There is no method overloading and no <code>new</code> keyword.</p>
+</div>
+
+<h2 id="class-vs-instance">Class and instance variables</h2>
+<p><strong>Instance variables</strong> (<code>self.name = …</code>) belong to one object. <strong>Class variables</strong> (assigned in the class body) are shared by all instances, like Java <code>static</code> fields. When you read <code>obj.attr</code>, Python looks on the instance first, then on the class.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> class Dog:
+...     kind = 'canine'          # class variable shared by all instances
+...     def __init__(self, name):
+...         self.name = name     # instance variable unique to each instance
+...
+>>> d = Dog('Fido')
+>>> e = Dog('Buddy')
+>>> d.kind, e.kind
+('canine', 'canine')
+>>> d.name, e.name
+('Fido', 'Buddy')
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>The shared-mutable trap:</strong> a <em>mutable</em> class variable, such as a list, is shared by every instance. This is the same bug as the mutable default argument in Chapter 5.</p>
+</div>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>One list for all dogs</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> class Dog:
+...     tricks = []
+...     def __init__(self, name):
+...         self.name = name
+...     def add_trick(self, trick):
+...         self.tricks.append(trick)
+...
+>>> d = Dog('Fido'); e = Dog('Buddy')
+>>> d.add_trick('roll over')
+>>> e.add_trick('play dead')
+>>> d.tricks
+['roll over', 'play dead']
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Create it in __init__</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> class Dog:
+...     def __init__(self, name):
+...         self.name = name
+...         self.tricks = []
+...     def add_trick(self, trick):
+...         self.tricks.append(trick)
+...
+>>> d = Dog('Fido'); e = Dog('Buddy')
+>>> d.add_trick('roll over')
+>>> e.add_trick('play dead')
+>>> d.tricks
+['roll over']
+</script>
+</div>
+</div>
+<p>Assigning through an instance (<code>d.kind = "wolf"</code>) creates an <em>instance</em> attribute that hides the class one for that instance only. The class value is unchanged.</p>
+
+<h2 id="special-methods">Special ("dunder") methods</h2>
+<p>Methods with double underscores on both sides, called <em>dunder</em> methods (like <code>__init__</code>), let your objects work with Python's built-in syntax. The three you'll write most often:</p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> class Money:
+...     def __init__(self, cents):
+...         self.cents = cents
+...     def __repr__(self):                    # for developers: repr(), the REPL, lists
+...         return f"Money({self.cents})"
+...     def __str__(self):                     # for users: print(), str(), f-strings
+...         return f"€{self.cents / 100:.2f}"
+...     def __eq__(self, other):               # ==  (default compares identity!)
+...         return isinstance(other, Money) and self.cents == other.cents
+...     def __add__(self, other):              # +
+...         return Money(self.cents + other.cents)
+...
+>>> a = Money(1250)
+>>> a
+Money(1250)
+>>> print(a)
+€12.50
+>>> a + Money(50) == Money(1300)
+True
+>>> [Money(1), Money(2)]
+[Money(1), Money(2)]
+</script>
+<div class="table-wrap"><table>
+<tr><th>Java habit</th><th>Python special method</th></tr>
+<tr><td><code>toString()</code></td><td><code>__str__</code> (and <code>__repr__</code>)</td></tr>
+<tr><td><code>equals()</code> / <code>hashCode()</code></td><td><code>__eq__</code> / <code>__hash__</code></td></tr>
+<tr><td><code>compareTo()</code></td><td><code>__lt__</code> (and the others, or use <code>functools.total_ordering</code>)</td></tr>
+<tr><td><code>size()</code>, <code>get(i)</code></td><td><code>__len__</code> for <code>len(obj)</code>, <code>__getitem__</code> for <code>obj[i]</code></td></tr>
+<tr><td><code>Iterable</code></td><td><code>__iter__</code> (Chapter 12)</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> if you define <code>__eq__</code> but not <code>__hash__</code>, Python sets <code>__hash__</code> to <code>None</code>, and your objects can no longer go into sets or be dict keys. Dataclasses (below) can handle this for you with <code>frozen=True</code>.</p>
+</div>
+
+<h2 id="properties">Properties, class methods and static methods</h2>
+<p>Python doesn't use getters and setters by default: just use plain attributes. If you later need logic, such as validation, turn the attribute into a <strong>property</strong>. Callers keep writing <code>obj.amount</code>, unchanged.</p>
+<script type="text/plain" class="code" data-file="property.py">
+class Expense:
+    def __init__(self, amount):
+        self.amount = amount              # goes through the setter below
+
+    @property
+    def amount(self):                     # read: e.amount
+        return self._amount
+
+    @amount.setter
+    def amount(self, value):              # write: e.amount = value
+        if value <= 0:
+            raise ValueError("amount must be positive")
+        self._amount = value
+
+    @classmethod
+    def from_text(cls, text):             # an alternative constructor; receives the class
+        return cls(float(text))
+
+    @staticmethod
+    def is_valid_category(name):          # just a function that lives in the class
+        return name.isalpha()
+
+e = Expense.from_text("12.5")
+print(e.amount, Expense.is_valid_category("food"))   # 12.5 True
+try:
+    e.amount = -3
+except ValueError as err:
+    print("rejected:", err)
+</script>
+<p>(<code>@property</code> is a <em>decorator</em>: a function that wraps the function defined on the next line. You'll use decorators like this long before you need to write your own.)</p>
+
+<h2 id="inheritance">Inheritance</h2>
+<p>Put the base class in parentheses. A derived class inherits everything from it, and can <strong>override</strong> methods. <code>super()</code> calls the parent's version.</p>
+<script type="text/plain" class="code" data-file="inherit.py">
+class Expense:
+    def __init__(self, amount, category):
+        self.amount = amount
+        self.category = category
+
+    def describe(self):
+        return f"{self.category}: {self.amount:.2f}"
+
+class RecurringExpense(Expense):                  # inherits from Expense
+    def __init__(self, amount, category, every="month"):
+        super().__init__(amount, category)        # run the parent's __init__
+        self.every = every
+
+    def describe(self):                           # override
+        return super().describe() + f" (every {self.every})"
+
+    def yearly(self):
+        return self.amount * {"week": 52, "month": 12}[self.every]
+
+rent = RecurringExpense(900, "rent")
+print(rent.describe())                        # rent: 900.00 (every month)
+print(rent.yearly())                          # 10800
+print(isinstance(rent, Expense))              # True: a RecurringExpense IS-A Expense
+print(issubclass(RecurringExpense, Expense))  # True
+print(isinstance(Expense(1, "x"), RecurringExpense))   # False
+</script>
+<ul>
+  <li>Every class ultimately inherits from <code>object</code>.</li>
+  <li>All methods are "virtual": <code>self.describe()</code> inside a base method calls the <em>subclass</em> override.</li>
+  <li>Use <code>isinstance(obj, Cls)</code> for type checks, not <code>type(obj) == Cls</code>, so that subclasses are accepted too.</li>
+</ul>
+
+<h3>Multiple inheritance and the MRO</h3>
+<p>A class can have several bases: <code>class C(A, B):</code>. Python looks up attributes using the <strong>Method Resolution Order (MRO)</strong>, which is roughly: the class itself, then its bases left to right, with each class appearing only once and always before its parents.</p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> class Base:
+...     def hello(self): return "Base"
+...
+>>> class Left(Base):
+...     def hello(self): return "Left → " + super().hello()
+...
+>>> class Right(Base):
+...     def hello(self): return "Right → " + super().hello()
+...
+>>> class Child(Left, Right):
+...     pass
+...
+>>> [c.__name__ for c in Child.__mro__]
+['Child', 'Left', 'Right', 'Base', 'object']
+>>> Child().hello()
+'Left → Right → Base'
+</script>
+<p>Notice that <code>super()</code> in <code>Left</code> called <code>Right</code>, not <code>Base</code>. <code>super()</code> means "the next class in the MRO of the actual object". In practice, multiple inheritance is mostly used for small <strong>mixins</strong>: classes that add one feature, like <code>JsonMixin</code> or <code>ReprMixin</code>.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> there are no interfaces. Python relies on <strong>duck typing</strong> ("if it walks like a duck…"): any object with the right methods works. For formal contracts, there are <code>abc.ABC</code> abstract base classes and <code>typing.Protocol</code> (Appendix A).</p>
+</div>
+
+<h2 id="private">Private variables</h2>
+<p>Python has no <code>private</code> keyword. Instead, there are conventions:</p>
+<ul>
+  <li><code>_name</code> (one underscore): "internal, please don't touch". Nothing enforces it, but everyone respects it, and tools warn about it.</li>
+  <li><code>__name</code> (two underscores, at most one trailing): <strong>name mangling</strong>. Python renames it to <code>_ClassName__name</code>, so that subclasses don't clash with it by accident. It is meant to avoid accidents, not to provide security.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> class Mapping:
+...     def __init__(self, iterable):
+...         self.items_list = []
+...         self.__update(iterable)
+...
+...     def update(self, iterable):
+...         for item in iterable:
+...             self.items_list.append(item)
+...
+...     __update = update   # private copy of the original update() method
+...
+>>> class MappingSubclass(Mapping):
+...     def update(self, keys, values):      # new signature for update()...
+...         for item in zip(keys, values):   # ...doesn't break __init__
+...             self.items_list.append(item)
+...
+>>> m = MappingSubclass([1, 2])
+>>> m.items_list
+[1, 2]
+>>> hasattr(m, "_Mapping__update")          # the mangled name
+True
+</script>
+
+<h2 id="dataclasses">Odds and ends: dataclasses</h2>
+<p>Many classes are just a bundle of named fields. <code>@dataclass</code> generates <code>__init__</code>, <code>__repr__</code> and <code>__eq__</code> from type-annotated fields, like Java's <code>record</code>.</p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> from dataclasses import dataclass, field
+>>> @dataclass
+... class Employee:
+...     name: str
+...     dept: str
+...     salary: int
+...
+>>> john = Employee('john', 'computer lab', 1000)
+>>> john
+Employee(name='john', dept='computer lab', salary=1000)
+>>> john.dept
+'computer lab'
+>>> john == Employee('john', 'computer lab', 1000)
+True
+>>> @dataclass(frozen=True, order=True)      # immutable, hashable, sortable
+... class Point:
+...     x: int
+...     y: int = 0                            # a default value
+...
+>>> sorted({Point(2, 1), Point(1, 5), Point(1)})
+[Point(x=1, y=0), Point(x=1, y=5), Point(x=2, y=1)]
+>>> @dataclass
+... class Basket:
+...     items: list = field(default_factory=list)   # a fresh list per instance
+...
+>>> Basket().items is Basket().items
+False
+</script>
+<div class="tip">
+<p>💡 <strong>When to use what:</strong> use a <code>dict</code> for loose, JSON-like data; a <code>tuple</code> or <code>namedtuple</code> for small fixed records; a <code>@dataclass</code> for named records with defaults; and a regular class when there is real behaviour or invariants to protect.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A bank account with validation</h3>
+<script type="text/plain" class="code" data-file="account.py">
+class InsufficientFunds(Exception):
+    pass
+
+class Account:
+    interest = 0.02                                # class variable
+
+    def __init__(self, owner, balance=0):
+        self.owner = owner
+        self._balance = balance                    # internal by convention
+
+    @property
+    def balance(self):                             # read-only: no setter
+        return self._balance
+
+    def deposit(self, amount):
+        if amount <= 0:
+            raise ValueError("deposit must be positive")
+        self._balance += amount
+        return self                                # allows chaining
+
+    def withdraw(self, amount):
+        if amount > self._balance:
+            raise InsufficientFunds(f"{self.owner} has only {self._balance}")
+        self._balance -= amount
+        return self
+
+    def __repr__(self):
+        return f"Account({self.owner!r}, {self._balance})"
+
+acc = Account("Ana").deposit(100).withdraw(30)
+print(acc, acc.balance)                            # Account('Ana', 70) 70
+</script>
+<h3>2. A container class with len() and indexing</h3>
+<script type="text/plain" class="code" data-file="ledger_class.py">
+class Ledger:
+    def __init__(self):
+        self._items = []
+    def add(self, category, amount):
+        self._items.append((category, amount))
+    def __len__(self):
+        return len(self._items)
+    def __getitem__(self, index):          # also makes `for x in ledger` work
+        return self._items[index]
+    def total(self, category=None):
+        return sum(a for c, a in self._items if category in (None, c))
+
+led = Ledger()
+led.add("food", 12.5); led.add("rent", 900); led.add("food", 7.5)
+print(len(led), led[0], led.total(), led.total("food"))   # 3 ('food', 12.5) 920.0 20.0
+print([c for c, _ in led])                                # ['food', 'rent', 'food']
+</script>
+<h3>3. Polymorphism without interfaces</h3>
+<script type="text/plain" class="code" data-file="shapes_oop.py">
+import math
+
+class Circle:
+    def __init__(self, r): self.r = r
+    def area(self): return math.pi * self.r ** 2
+
+class Square:
+    def __init__(self, s): self.s = s
+    def area(self): return self.s ** 2
+
+for shape in [Circle(1), Square(3)]:       # no common base class needed
+    print(type(shape).__name__, round(shape.area(), 2))
+</script>
+<h3>4. A frozen dataclass as a dict key</h3>
+<script type="text/plain" class="code" data-file="frozen_key.py">
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Month:
+    year: int
+    month: int
+
+spend = {Month(2026, 9): 410.0, Month(2026, 10): 520.5}
+print(spend[Month(2026, 10)])            # 520.5: equal objects have equal hashes
+</script>
+<h3>5. Counting instances with a class variable</h3>
+<script type="text/plain" class="code" data-file="counter_cls.py">
+class Ticket:
+    issued = 0                        # shared by all tickets
+
+    def __init__(self):
+        Ticket.issued += 1            # assign via the CLASS, not self
+        self.number = Ticket.issued
+
+a, b, c = Ticket(), Ticket(), Ticket()
+print(c.number, Ticket.issued)        # 3 3
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Names are looked up in LEGB order. Assigning inside a function makes a name local; <code>global</code> and <code>nonlocal</code> override that.</li>
+  <li><code>class C:</code> plus <code>__init__(self, …)</code>. <code>obj.m()</code> means <code>C.m(obj)</code>. State lives on <code>self</code>.</li>
+  <li>Class variables are shared, so never use a mutable one for per-object data.</li>
+  <li><code>class Sub(Base):</code> with <code>super()</code> and <code>isinstance()</code>. Multiple inheritance follows the MRO.</li>
+  <li><code>_x</code> means internal and <code>__x</code> is mangled. Add <code>__repr__</code>/<code>__eq__</code>, use <code>@property</code> for computed or validated attributes, and <code>@dataclass</code> for records.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a class <code>Rectangle</code> with <code>width</code> and <code>height</code> and the methods <code>area()</code> and <code>perimeter()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+    def area(self):
+        return self.width * self.height
+    def perimeter(self):
+        return 2 * (self.width + self.height)
+
+r = Rectangle(3, 4)
+print(r.area(), r.perimeter())   # 12 14
+</script>
+<p>Every method takes <code>self</code> first and reads the attributes through it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This raises <code>TypeError: greet() takes 0 positional arguments but 1 was given</code>. Fix it.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+class Greeter:
+    def greet():
+        return "hi"
+
+Greeter().greet()
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class Greeter:
+    def greet(self):
+        return "hi"
+
+print(Greeter().greet())
+</script>
+<p>Calling <code>obj.greet()</code> passes <code>obj</code> as the first argument, so the method must accept it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-lang="python">
+class A:
+    x = 1
+a, b = A(), A()
+a.x = 5
+A.x = 10
+print(a.x, b.x, A.x)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>5 10 10</code>. <code>a.x = 5</code> created an instance attribute on <code>a</code>, which hides the class attribute. <code>b</code> has no instance attribute of its own, so it sees the class's current value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Add a <code>__repr__</code> to the <code>Rectangle</code> from Exercise 1, so that <code>Rectangle(3, 4)</code> shows as <code>Rectangle(width=3, height=4)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class Rectangle:
+    def __init__(self, width, height):
+        self.width, self.height = width, height
+    def __repr__(self):
+        return f"Rectangle(width={self.width}, height={self.height})"
+
+print([Rectangle(3, 4)])   # [Rectangle(width=3, height=4)]
+</script>
+<p>Containers show their items with <code>repr()</code>, so <code>__repr__</code> is the one that matters for debugging. (Or just use <code>@dataclass</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-lang="python">
+x = "global"
+def outer():
+    x = "enclosing"
+    def inner():
+        print(x)
+    x = "changed"
+    inner()
+outer()
+print(x)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>changed</code> then <code>global</code>. <code>inner</code> looks up <code>x</code> in the enclosing scope <em>when it runs</em>, and by then it is <code>"changed"</code>. The module-level <code>x</code> is never touched.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite with <code>@dataclass</code>:</p>
+<script type="text/plain" class="code" data-lang="python">
+class Item:
+    def __init__(self, name, price, qty=1):
+        self.name = name
+        self.price = price
+        self.qty = qty
+    def __repr__(self):
+        return f"Item(name={self.name!r}, price={self.price!r}, qty={self.qty!r})"
+    def __eq__(self, other):
+        return (self.name, self.price, self.qty) == (other.name, other.price, other.qty)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from dataclasses import dataclass
+
+@dataclass
+class Item:
+    name: str
+    price: float
+    qty: int = 1
+
+print(Item("tea", 2.5), Item("tea", 2.5) == Item("tea", 2.5, 1))
+# Item(name='tea', price=2.5, qty=1) True
+</script>
+<p>The dataclass generates the same three methods from the annotated fields.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>In <code>playground/models.py</code>, create a dataclass <code>Expense(amount: float, category: str, note: str = "")</code>. In <code>__post_init__</code>, reject amounts ≤ 0 and lower-case the category. Add a <code>to_dict()</code> method and a <code>from_dict()</code> classmethod for JSON storage.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/models.py">
+from dataclasses import dataclass, asdict
+
+@dataclass
+class Expense:
+    amount: float
+    category: str
+    note: str = ""
+
+    def __post_init__(self):                 # runs right after the generated __init__
+        if self.amount <= 0:
+            raise ValueError(f"amount must be positive, got {self.amount}")
+        self.category = self.category.strip().lower()
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
+e = Expense(12.5, " Food ", "lunch")
+print(e, Expense.from_dict(e.to_dict()) == e)
+</script>
+<p><code>__post_init__</code> is the dataclass hook for validation. <code>cls(**data)</code> unpacks the dict into keyword arguments (Chapter 5).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>A teammate writes <code>getAmount()</code> and <code>setAmount()</code> methods for every field "like in Java". Why is that unnecessary in Python?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In Python you can start with a plain attribute (<code>e.amount</code>) and later swap in a <code>@property</code> without changing any caller. Java needs getters up front because changing a field to a method later breaks every caller. Python doesn't have that problem.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What is the MRO of <code>D</code>, and what does <code>D().who()</code> return?</p>
+<script type="text/plain" class="code" data-lang="python">
+class A:
+    def who(self): return "A"
+class B(A):
+    def who(self): return "B" + super().who()
+class C(A):
+    def who(self): return "C" + super().who()
+class D(C, B):
+    def who(self): return "D" + super().who()
+print([k.__name__ for k in D.__mro__], D().who())
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>['D', 'C', 'B', 'A', 'object'] DCBA</code>. The bases are taken left to right (<code>C</code> before <code>B</code>), and <code>A</code> comes after both of its subclasses. Each <code>super()</code> moves to the next class in <em>D's</em> MRO.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">fix the bug</span></h3>
+<p>Instances of this class can't be put in a set: <code>TypeError: unhashable type: 'Tag'</code>. Why? Give two fixes.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+class Tag:
+    def __init__(self, name): self.name = name
+    def __eq__(self, other): return self.name == other.name
+{Tag("a"), Tag("a")}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from dataclasses import dataclass
+
+class Tag:
+    def __init__(self, name): self.name = name
+    def __eq__(self, other): return isinstance(other, Tag) and self.name == other.name
+    def __hash__(self): return hash(self.name)      # fix 1: define a matching hash
+
+@dataclass(frozen=True)
+class Tag2:                                         # fix 2: a frozen dataclass
+    name: str
+
+print(len({Tag("a"), Tag("a")}), len({Tag2("a"), Tag2("a")}))   # 1 1
+</script>
+<p>Defining <code>__eq__</code> sets <code>__hash__</code> to <code>None</code>, because equal objects must have equal hashes and Python can't guess one. Only hash values that never change, which is why <code>frozen=True</code> helps.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 11 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>In <code>playground/budget_oop.py</code>, build a <code>Budget</code> class. It holds a limit per category and a list of <code>Expense</code> dataclass objects. Give it <code>add(expense)</code>, which raises <code>OverBudgetError</code> (a custom exception) if adding the expense would exceed its category's limit; a <code>remaining(category)</code> method; <code>__len__</code>; and a <code>__repr__</code>. Add a subclass <code>SoftBudget</code> that only prints a warning instead of raising.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/budget_oop.py">
+from dataclasses import dataclass
+
+@dataclass
+class Expense:
+    amount: float
+    category: str
+
+class OverBudgetError(Exception):
+    pass
+
+class Budget:
+    def __init__(self, limits):
+        self.limits = dict(limits)         # copy, so the caller's dict isn't shared
+        self.expenses = []
+
+    def spent(self, category):
+        return sum(e.amount for e in self.expenses if e.category == category)
+
+    def remaining(self, category):
+        return self.limits.get(category, 0) - self.spent(category)
+
+    def _over(self, expense):
+        return expense.amount > self.remaining(expense.category)
+
+    def add(self, expense):
+        if self._over(expense):
+            raise OverBudgetError(f"{expense.category}: only {self.remaining(expense.category)} left")
+        self.expenses.append(expense)
+
+    def __len__(self):
+        return len(self.expenses)
+
+    def __repr__(self):
+        return f"{type(self).__name__}({len(self)} expenses, limits={self.limits})"
+
+class SoftBudget(Budget):
+    def add(self, expense):
+        if self._over(expense):
+            print(f"warning: {expense.category} goes over budget")
+        self.expenses.append(expense)      # always accept
+
+hard = Budget({"food": 50})
+hard.add(Expense(30, "food"))
+try:
+    hard.add(Expense(30, "food"))
+except OverBudgetError as err:
+    print("refused:", err)
+
+soft = SoftBudget({"food": 50})
+soft.add(Expense(30, "food")); soft.add(Expense(30, "food"))
+print(hard, soft, soft.remaining("food"))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+refused: food: only 20 left
+warning: food goes over budget
+Budget(1 expenses, limits={'food': 50}) SoftBudget(2 expenses, limits={'food': 50}) -10
+</script>
+<p>The subclass overrides one method and reuses everything else. <code>type(self).__name__</code> makes <code>__repr__</code> correct for subclasses without changing it.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/classes.html">9. Classes</a> (9.1–9.7: names, scopes, classes, inheritance, private variables, odds and ends)</li>
+  <li><a href="https://docs.python.org/3/library/dataclasses.html">dataclasses</a></li>
+  <li><a href="https://docs.python.org/3/reference/datamodel.html#special-method-names">Data model: special method names</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚙️&lt;/text&gt;&lt;/svg&gt;">
+<title>5. Functions in Depth · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Control Flow &amp; Functions</div>
+<h1>Functions in Depth</h1>
+<p class="lead">Python functions are flexible: default values, keyword arguments, any number of arguments, and markers that control <em>how</em> callers may pass them.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to define functions, return values, and write docstrings.</li>
+  <li>Default argument values, and the mutable-default trap.</li>
+  <li>Keyword arguments, and the <code>/</code> and <code>*</code> parameter markers.</li>
+  <li><code>*args</code>, <code>**kwargs</code>, and unpacking with <code>*</code> and <code>**</code> at the call site.</li>
+  <li>Lambdas, type annotations, and the PEP 8 coding style.</li>
+</ul>
+</div>
+
+<h2 id="defining">Defining functions</h2>
+<p><code>def</code> creates a function. The body is indented. A <strong>docstring</strong> (a string on the first line) documents what the function does.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def fib(n):
+...     """Print the Fibonacci series below n."""
+...     a, b = 0, 1
+...     while a < n:
+...         print(a, end=' ')
+...         a, b = b, a + b
+...     print()
+...
+>>> fib(100)
+0 1 1 2 3 5 8 13 21 34 55 89
+</script>
+<p>Words to know:</p>
+<ul>
+  <li>A <strong>parameter</strong> is the name in the definition (<code>n</code>). An <strong>argument</strong> is the value you pass in the call (<code>100</code>).</li>
+  <li>Variables assigned inside a function are <strong>local</strong>: they only exist during the call. To assign to a module-level variable from inside a function, you must declare it <code>global</code> (Chapter 11 explains scopes).</li>
+  <li>Arguments are passed by <strong>object reference</strong>. The function gets the same object, not a copy. If you change a list that was passed in, the caller sees the change.</li>
+</ul>
+
+<h3>Returning values</h3>
+<p><code>return value</code> sends a result back. A function without a <code>return</code>, or with a bare <code>return</code>, returns <code>None</code>, Python's "no value" object.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def fib2(n):
+...     """Return a list containing the Fibonacci series up to n."""
+...     result = []
+...     a, b = 0, 1
+...     while a < n:
+...         result.append(a)
+...         a, b = b, a + b
+...     return result
+...
+>>> fib2(100)
+[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+>>> print(fib(0))      # fib() has no return, so its result is None
+<BLANKLINE>
+None
+</script>
+<p>(The empty line is what <code>fib(0)</code> prints by itself: its loop never runs, so only the final <code>print()</code> does.)</p>
+<p>Functions are <strong>objects</strong>. You can assign them to other names, store them in lists, and pass them to other functions:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> f = fib2
+>>> f(10)
+[0, 1, 1, 2, 3, 5, 8]
+>>> fib2.__doc__
+'Return a list containing the Fibonacci series up to n.'
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> there is no overloading. A second <code>def</code> with the same name simply replaces the first. Default arguments and <code>*args</code> cover what overloading does in Java. 🟨 <strong>JS:</strong> calling with too few or too many arguments is an <em>error</em> in Python (<code>TypeError</code>), not a silent <code>undefined</code>.</p>
+</div>
+
+<h2 id="defaults">Default argument values</h2>
+<p>A parameter can have a default, so callers may leave it out.</p>
+<script type="text/plain" class="code" data-file="ask_ok.py">
+def add_expense(amount, category="misc", note=""):
+    print(f"{amount:.2f} | {category} | {note}")
+
+add_expense(12.5)                         # 12.50 | misc |
+add_expense(12.5, "food")                 # 12.50 | food |
+add_expense(12.5, "food", "lunch")        # 12.50 | food | lunch
+</script>
+<p>Default values are evaluated <strong>once</strong>, when the <code>def</code> line runs, not on each call:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> i = 5
+>>> def f(arg=i):
+...     print(arg)
+...
+>>> i = 6
+>>> f()
+5
+</script>
+
+<div class="pitfall">
+<p>⚠️ <strong>The mutable-default trap.</strong> Because the default is created only once, a mutable default (a list or dict) is <strong>shared between all calls</strong>.</p>
+</div>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Shared list grows forever</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def f(a, L=[]):
+...     L.append(a)
+...     return L
+...
+>>> f(1)
+[1]
+>>> f(2)
+[1, 2]
+>>> f(3)
+[1, 2, 3]
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Use <code>None</code> and create a fresh list</strong></p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def f(a, L=None):
+...     if L is None:
+...         L = []
+...     L.append(a)
+...     return L
+...
+>>> f(1)
+[1]
+>>> f(2)
+[2]
+</script>
+</div>
+</div>
+<p><code>is None</code> checks whether something <em>is</em> the <code>None</code> object. That is the standard way to test for <code>None</code> (Appendix A explains <code>is</code> vs <code>==</code>).</p>
+
+<h2 id="keywords">Keyword arguments</h2>
+<p>Callers can name arguments: <code>name=value</code>. Keyword arguments can come in any order, but they must come <strong>after</strong> all positional ones.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def parrot(voltage, state='a stiff', action='voom', type='Norwegian Blue'):
+...     print("-- This parrot wouldn't", action, end=' ')
+...     print("if you put", voltage, "volts through it.")
+...     print("-- Lovely plumage, the", type)
+...     print("-- It's", state, "!")
+...
+>>> parrot(1000)
+-- This parrot wouldn't voom if you put 1000 volts through it.
+-- Lovely plumage, the Norwegian Blue
+-- It's a stiff !
+>>> parrot(action='VOOOOOM', voltage=1000000)
+-- This parrot wouldn't VOOOOOM if you put 1000000 volts through it.
+-- Lovely plumage, the Norwegian Blue
+-- It's a stiff !
+</script>
+<p>Invalid calls:</p>
+<div class="table-wrap"><table>
+<tr><th>Call</th><th>Error</th></tr>
+<tr><td><code>parrot()</code></td><td>required argument <code>voltage</code> missing</td></tr>
+<tr><td><code>parrot(voltage=5.0, 'dead')</code></td><td>positional argument after a keyword argument (a <code>SyntaxError</code>)</td></tr>
+<tr><td><code>parrot(110, voltage=220)</code></td><td>got multiple values for <code>voltage</code></td></tr>
+<tr><td><code>parrot(actor='John Cleese')</code></td><td>unexpected keyword argument <code>actor</code></td></tr>
+</table></div>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> keyword arguments make calls self-documenting. <code>resize(img, 200, 100, True)</code> is a puzzle. <code>resize(img, width=200, height=100, keep_ratio=True)</code> explains itself.</p>
+</div>
+
+<h2 id="special">Special parameters: <code>/</code> and <code>*</code></h2>
+<p>By default, any parameter can be passed either by position or by keyword. Two markers in the parameter list restrict that:</p>
+<script type="text/plain" class="code" data-lang="text">
+def f(pos1, pos2, /, pos_or_kwd, *, kwd1, kwd2):
+      -----------    ----------     ----------
+        |             |                  |
+        |        Positional or keyword   |
+        |                                - Keyword only
+         -- Positional only
+</script>
+<ul>
+  <li>Everything <strong>before <code>/</code></strong> is <strong>positional-only</strong>: callers cannot use its name.</li>
+  <li>Everything <strong>after <code>*</code></strong> is <strong>keyword-only</strong>: callers must use its name.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def combined_example(pos_only, /, standard, *, kwd_only):
+...     print(pos_only, standard, kwd_only)
+...
+>>> combined_example(1, 2, kwd_only=3)
+1 2 3
+>>> combined_example(1, standard=2, kwd_only=3)
+1 2 3
+>>> combined_example(1, 2, 3)
+Traceback (most recent call last):
+  ...
+TypeError: combined_example() takes 2 positional arguments but 3 were given
+>>> combined_example(pos_only=1, standard=2, kwd_only=3)
+Traceback (most recent call last):
+  ...
+TypeError: combined_example() got some positional-only arguments passed as keyword arguments: 'pos_only'
+</script>
+<div class="table-wrap"><table>
+<tr><th>Use…</th><th>When…</th></tr>
+<tr><td>positional-only (<code>/</code>)</td><td>the name has no meaning for callers, or you may want to rename it later (<code>len(obj)</code>, <code>abs(x)</code>)</td></tr>
+<tr><td>keyword-only (<code>*</code>)</td><td>the meaning would be unclear without a name, especially boolean flags (<code>sorted(xs, reverse=True)</code>)</td></tr>
+<tr><td>neither</td><td>most everyday functions</td></tr>
+</table></div>
+<p>Positional-only parameters also let a function accept <code>**kwargs</code> containing a key with the same name:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def foo(name, /, **kwds):
+...     return 'name' in kwds
+...
+>>> foo(1, **{'name': 2})
+True
+</script>
+
+<h2 id="args">Arbitrary argument lists: <code>*args</code> and <code>**kwargs</code></h2>
+<ul>
+  <li><code>*args</code> collects any <strong>extra positional</strong> arguments into a <strong>tuple</strong>.</li>
+  <li><code>**kwargs</code> collects any <strong>extra keyword</strong> arguments into a <strong>dict</strong>.</li>
+</ul>
+<p>The names <code>args</code> and <code>kwargs</code> are only a convention. The stars are what matter.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def cheeseshop(kind, *arguments, **keywords):
+...     print("-- Do you have any", kind, "?")
+...     for arg in arguments:
+...         print(arg)
+...     print("-" * 20)
+...     for kw in keywords:
+...         print(kw, ":", keywords[kw])
+...
+>>> cheeseshop("Limburger", "It's very runny, sir.",
+...            shopkeeper="Michael Palin", sketch="Cheese Shop Sketch")
+-- Do you have any Limburger ?
+It's very runny, sir.
+--------------------
+shopkeeper : Michael Palin
+sketch : Cheese Shop Sketch
+</script>
+<p>Parameters after <code>*args</code> are automatically keyword-only:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def concat(*args, sep="/"):
+...     return sep.join(args)
+...
+>>> concat("earth", "mars", "venus")
+'earth/mars/venus'
+>>> concat("earth", "mars", "venus", sep=".")
+'earth.mars.venus'
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>*args</code> is like varargs, <code>String... args</code>. 🟨 <strong>JS:</strong> it is like rest parameters, <code>...args</code>. <code>**kwargs</code> has no direct Java equivalent; in JS you would pass an options object.</p>
+</div>
+
+<h2 id="unpacking">Unpacking argument lists</h2>
+<p>The opposite direction: you already have a list or a dict, and you want to spread it into separate arguments. Use <code>*</code> for sequences and <code>**</code> for dicts at the <strong>call site</strong>.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> list(range(3, 6))
+[3, 4, 5]
+>>> args = [3, 6]
+>>> list(range(*args))            # same as range(3, 6)
+[3, 4, 5]
+>>> def show(amount, category, note):
+...     print(amount, category, note)
+...
+>>> d = {"amount": 9.5, "category": "food", "note": "pizza"}
+>>> show(**d)                     # same as show(amount=9.5, category="food", note="pizza")
+9.5 food pizza
+</script>
+
+<h2 id="lambda">Lambda expressions</h2>
+<p>A <strong>lambda</strong> is a tiny anonymous function written as one expression: <code>lambda params: expression</code>. It is mostly used where a short function is passed as an argument, like a sort key.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> pairs = [(1, 'one'), (2, 'two'), (3, 'three'), (4, 'four')]
+>>> pairs.sort(key=lambda pair: pair[1])     # sort by the word
+>>> pairs
+[(4, 'four'), (1, 'one'), (3, 'three'), (2, 'two')]
+>>> def make_incrementor(n):
+...     return lambda x: x + n                  # remembers n (a closure)
+...
+>>> f = make_incrementor(42)
+>>> f(0), f(1)
+(42, 43)
+</script>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Don't name a lambda</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+square = lambda x: x * x
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Use def for named functions</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+def square(x):
+    return x * x
+</script>
+</div>
+</div>
+<p>A <code>def</code> function gets a real name in tracebacks and can have a docstring. The PEP 8 style guide says not to assign lambdas to names.</p>
+<div class="java">
+<p>☕ <strong>Java / 🟨 JS:</strong> like <code>x -&gt; x + n</code> or <code>x =&gt; x + n</code>, but the body must be a <em>single expression</em>: no statements and no blocks.</p>
+</div>
+
+<h2 id="docstrings">Documentation strings</h2>
+<p>The conventions are: the first line is a short summary that starts with a capital letter and ends with a period. If there is more, leave a blank line and then the details.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def my_function():
+...     """Do nothing, but document it.
+...
+...     No, really, it doesn't do anything.
+...     """
+...     pass
+...
+>>> print(my_function.__doc__)
+Do nothing, but document it.
+<BLANKLINE>
+    No, really, it doesn't do anything.
+<BLANKLINE>
+</script>
+<p><code>help(my_function)</code> shows the docstring with the indentation cleaned up.</p>
+
+<h2 id="annotations">Function annotations (type hints)</h2>
+<p>You can add optional <strong>type hints</strong> to parameters (<code>name: type</code>) and to the return value (<code>-&gt; type</code>). Python itself <strong>does not check them</strong> at run time. Editors and tools like <code>mypy</code> or <code>pyright</code> use them to catch mistakes before you run the code.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def f(ham: str, eggs: str = 'eggs') -> str:
+...     return ham + ' and ' + eggs
+...
+>>> f.__annotations__
+{'ham': <class 'str'>, 'eggs': <class 'str'>, 'return': <class 'str'>}
+>>> f('spam')
+'spam and eggs'
+>>> def double(x: int) -> int:
+...     return x * 2
+...
+>>> double("ab")         # hints are not enforced: a str works fine
+'abab'
+</script>
+<p>Common hints: <code>int</code>, <code>float</code>, <code>str</code>, <code>bool</code>, <code>list[str]</code>, <code>dict[str, float]</code>, <code>tuple[int, int]</code>, <code>int | None</code> ("an int or None").</p>
+<div class="note">
+<p>📝 <strong>Changed in 3.14:</strong> annotations are now evaluated <em>lazily</em> (PEP 649), only when something asks for them. So a hint can name a class that is defined further down the file, without the quotes older code needed (<code>-&gt; "Node"</code>). You'll still see those quotes, and <code>from __future__ import annotations</code>, in older code.</p>
+</div>
+
+<h2 id="style">Intermezzo: coding style (PEP 8)</h2>
+<p>Python has an official style guide, <a href="https://peps.python.org/pep-0008/">PEP 8</a>. Most projects follow it, and tools like <code>ruff</code> and <code>black</code> apply it for you. The key points:</p>
+<ul>
+  <li>Indent with <strong>4 spaces</strong>, never tabs.</li>
+  <li>Keep lines to 79 characters (many teams allow 88–100).</li>
+  <li>Use blank lines to separate functions and classes (two blank lines at the top level).</li>
+  <li>Put comments on their own line when possible. Use docstrings.</li>
+  <li>Put spaces around operators and after commas: <code>a = f(1, 2) + g(3, 4)</code>.</li>
+  <li>Name things <code>snake_case</code> for functions and variables, <code>CamelCase</code> for classes, and <code>UPPER_CASE</code> for constants. Always call the first method parameter <code>self</code> (Chapter 11).</li>
+  <li>Use UTF-8, and plain ASCII identifiers in code that is shared internationally.</li>
+</ul>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Java habits</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+def calculateTotal(expenseList):
+    totalAmount=0
+    for e in expenseList: totalAmount+=e
+    return totalAmount
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>PEP 8</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+def calculate_total(expenses):
+    total = 0
+    for amount in expenses:
+        total += amount
+    return total
+</script>
+</div>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A flexible logger</h3>
+<script type="text/plain" class="code" data-file="log.py">
+def log(*messages, level="INFO", sep=" "):
+    print(f"[{level}]", sep.join(str(m) for m in messages))
+
+log("Saved", 3, "expenses")                 # [INFO] Saved 3 expenses
+log("Disk almost full", level="WARN")       # [WARN] Disk almost full
+</script>
+<h3>2. Forwarding arguments with *args and **kwargs</h3>
+<script type="text/plain" class="code" data-file="forward.py">
+def add_expense(amount, category="misc", *, note=""):
+    return {"amount": amount, "category": category, "note": note}
+
+def add_and_report(*args, **kwargs):
+    expense = add_expense(*args, **kwargs)   # pass everything through untouched
+    print("added:", expense)
+    return expense
+
+add_and_report(12.5, "food", note="lunch")
+</script>
+<h3>3. Sorting expenses with a key function</h3>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> expenses = [("food", 12.5), ("rent", 900.0), ("books", 25.0)]
+>>> sorted(expenses, key=lambda e: e[1], reverse=True)
+[('rent', 900.0), ('books', 25.0), ('food', 12.5)]
+>>> sorted(expenses, key=lambda e: e[0])
+[('books', 25.0), ('food', 12.5), ('rent', 900.0)]
+</script>
+<h3>4. Functions that make functions</h3>
+<script type="text/plain" class="code" data-file="factory.py">
+def make_tax(rate):
+    def apply(amount):
+        return round(amount * (1 + rate), 2)
+    return apply
+
+vat_de = make_tax(0.19)
+vat_fr = make_tax(0.20)
+print(vat_de(100), vat_fr(100))   # 119.0 120.0
+</script>
+<h3>5. A typed, documented helper</h3>
+<script type="text/plain" class="code" data-file="typed.py">
+def split_bill(total_cents: int, people: int, /, *, tip_percent: float = 0) -> list[int]:
+    """Split a bill into near-equal integer shares that add up exactly."""
+    total = round(total_cents * (1 + tip_percent / 100))
+    share, extra = divmod(total, people)          # divmod gives (quotient, remainder)
+    return [share + 1 if i < extra else share for i in range(people)]
+
+print(split_bill(1000, 3))                   # [334, 333, 333]
+print(split_bill(1000, 3, tip_percent=10))   # [367, 367, 366]
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>def name(params):</code> plus an indented body. Without <code>return</code>, a function returns <code>None</code>. Functions are objects.</li>
+  <li>Defaults are evaluated once. Never use a mutable default; use <code>None</code> and create the object inside.</li>
+  <li>Keyword arguments come after positional ones. <code>/</code> marks positional-only parameters and <code>*</code> marks keyword-only ones.</li>
+  <li><code>*args</code> is a tuple of extras and <code>**kwargs</code> is a dict of extras. At the call site, <code>*</code> and <code>**</code> unpack.</li>
+  <li>A lambda is a one-expression function, ideal for <code>key=</code>. Annotations are hints, not checks. Follow PEP 8.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write <code>area(width, height=None)</code>. If <code>height</code> is missing, compute the area of a square.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def area(width, height=None):
+    if height is None:
+        height = width
+    return width * height
+
+print(area(3), area(3, 4))   # 9 12
+</script>
+<p><code>None</code> is the usual "not given" marker, tested with <code>is None</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>print(greet("Ana"))</code> print?</p>
+<script type="text/plain" class="code" data-lang="python">
+def greet(name):
+    print("Hi", name)
+
+print(greet("Ana"))
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Two lines: <code>Hi Ana</code>, then <code>None</code>. <code>greet</code> prints but returns nothing, so the outer <code>print</code> shows <code>None</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Which of these calls are valid for <code>def f(a, b=2, *, c=3):</code>? <code>f(1)</code>, <code>f(1, 2, 3)</code>, <code>f(1, c=5)</code>, <code>f(a=1, b=1)</code>, <code>f(b=1)</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>Valid: <code>f(1)</code>, <code>f(1, c=5)</code>, <code>f(a=1, b=1)</code>. <code>f(1, 2, 3)</code> fails because <code>c</code> is keyword-only. <code>f(b=1)</code> fails because the required <code>a</code> is missing.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Make this PEP 8 compliant: <code>def GetTotal( Items ):return sum(Items)</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def get_total(items):
+    return sum(items)
+</script>
+<p>Use a snake_case name, no spaces inside the parentheses, and put the body on its own indented line.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>Every new cart contains the items of previous carts. Fix it.</p>
+<script type="text/plain" class="code" data-lang="python">
+def new_cart(item, cart=[]):
+    cart.append(item)
+    return cart
+
+print(new_cart("apple"))   # ['apple']
+print(new_cart("pear"))    # ['apple', 'pear']  ← bug
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def new_cart(item, cart=None):
+    if cart is None:
+        cart = []          # a fresh list on every call
+    cart.append(item)
+    return cart
+
+print(new_cart("apple"))   # ['apple']
+print(new_cart("pear"))    # ['pear']
+</script>
+<p>The default list is created once, when <code>def</code> runs, and then shared by every call that relies on it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-lang="python">
+def info(first, *rest, **opts):
+    print(first, rest, opts)
+
+info(1, 2, 3, x=4)
+info("a")
+info(*[5, 6], **{"y": 7})
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+1 (2, 3) {'x': 4}
+a () {}
+5 (6,) {'y': 7}
+</script>
+<p><code>rest</code> is always a tuple, possibly empty. <code>(6,)</code> is a one-item tuple; the comma is what makes it a tuple.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>average(*numbers)</code> that returns the mean, or <code>0</code> when it is called with no arguments.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def average(*numbers):
+    if not numbers:
+        return 0
+    return sum(numbers) / len(numbers)
+
+print(average(2, 4, 9), average())   # 5.0 0
+</script>
+<p><code>numbers</code> is a tuple, so <code>sum</code>, <code>len</code> and truthiness all work on it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/money.py</code> with <code>format_money(cents, /, *, currency="€")</code>. It returns strings like <code>"€12.05"</code> and <code>"-€3.50"</code>. Make <code>currency</code> keyword-only and <code>cents</code> positional-only.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/money.py">
+def format_money(cents, /, *, currency="€"):
+    """Format an integer number of cents, e.g. 1205 -> '€12.05'."""
+    sign = "-" if cents < 0 else ""
+    whole, rest = divmod(abs(cents), 100)
+    return f"{sign}{currency}{whole}.{rest:02d}"
+
+print(format_money(1205))                  # €12.05
+print(format_money(-350))                  # -€3.50
+print(format_money(99, currency="$"))      # $0.99
+</script>
+<p>Using <code>abs()</code> before <code>divmod</code> avoids the floor-division surprise with negatives (Chapter 2). <code>:02d</code> pads the cents to two digits (Chapter 9).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print, and why?</p>
+<script type="text/plain" class="code" data-lang="python">
+funcs = []
+for i in range(3):
+    funcs.append(lambda: i)
+print([f() for f in funcs])
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[2, 2, 2]</code>. Each lambda looks up <code>i</code> <em>when it is called</em>, and by then the loop has finished with <code>i == 2</code>. To capture the current value, use a default argument, which is evaluated at definition time: <code>lambda i=i: i</code> gives <code>[0, 1, 2]</code>. JS behaves the same way with <code>var</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>def f(**kwargs, *args):</code> fail, while <code>def f(a, /, b, *args, c, **kwargs):</code> is valid? Write down the rule for the order of parameters.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The order must be: positional-only → <code>/</code> → normal → <code>*args</code> (or a bare <code>*</code>) → keyword-only → <code>**kwargs</code>. <code>**kwargs</code> must always be last, because it collects whatever is left. Putting <code>*args</code> after it is a <code>SyntaxError</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 11 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/report.py</code> with <code>summarize(*expenses, by="category", top=None)</code>. Each expense is a tuple <code>(category, amount)</code>. Return a list of <code>(category, total)</code> sorted by total, highest first, keeping only the first <code>top</code> items if <code>top</code> is given. Use a helper function and a lambda.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/report.py">
+def _totals(expenses):
+    totals = {}
+    for category, amount in expenses:
+        totals[category] = totals.get(category, 0) + amount
+    return totals
+
+def summarize(*expenses, by="category", top=None):
+    """Return [(category, total), ...] sorted by total, descending."""
+    if by != "category":
+        raise ValueError("only 'category' is supported")
+    items = sorted(_totals(expenses).items(), key=lambda kv: kv[1], reverse=True)
+    return items[:top] if top is not None else items
+
+data = [("food", 12.5), ("rent", 900), ("food", 7.5), ("books", 25)]
+print(summarize(*data))          # [('rent', 900), ('books', 25), ('food', 20.0)]
+print(summarize(*data, top=1))   # [('rent', 900)]
+</script>
+<p>This uses <code>*args</code> collection and unpacking, keyword-only options, a <code>None</code> default and a lambda key. Dictionaries (<code>.get</code>, <code>.items</code>) are covered properly in Chapter 7. The leading underscore in <code>_totals</code> means "internal helper".</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/controlflow.html#defining-functions">4.8 Defining Functions</a></li>
+  <li><a href="https://docs.python.org/3/tutorial/controlflow.html#more-on-defining-functions">4.9 More on Defining Functions</a></li>
+  <li><a href="https://docs.python.org/3/tutorial/controlflow.html#intermezzo-coding-style">4.10 Intermezzo: Coding Style</a></li>
+  <li><a href="https://peps.python.org/pep-0008/">PEP 8: Style Guide for Python Code</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
