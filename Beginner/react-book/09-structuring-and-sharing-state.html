@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏗️&lt;/text&gt;&lt;/svg&gt;">
+<title>9 · Structuring &amp; Sharing State · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 9 · Managing State</p>
+<h1>Structuring &amp; Sharing State</h1>
+<p class="lead">As apps grow, <em>how</em> you organise state matters more than anything else. Good structure prevents most bugs.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>How to think in <strong>states</strong> instead of step-by-step instructions</li>
+    <li>Five principles for choosing your state structure</li>
+    <li>How to <strong>lift state up</strong> to share it between components</li>
+    <li>Controlled vs uncontrolled components</li>
+  </ul>
+</div>
+
+<h2>Reacting to input with state</h2>
+<p>With plain JavaScript you write <em>instructions</em>: "disable the button, show the spinner, hide the form…". In React you describe the <strong>different visual states</strong> your UI can be in, and switch between them by changing state.</p>
+<p>Think of a quiz form. Work through it in five steps:</p>
+
+<h3>Step 1: list the visual states</h3>
+<ul>
+  <li><strong>empty</strong>: the form has a disabled Submit button</li>
+  <li><strong>typing</strong>: the form has an enabled Submit button</li>
+  <li><strong>submitting</strong>: everything is disabled and a spinner shows</li>
+  <li><strong>success</strong>: a "Thank you!" message replaces the form</li>
+  <li><strong>error</strong>: like typing, plus an error message</li>
+</ul>
+<h3>Step 2: what triggers the changes?</h3>
+<p><strong>Human inputs</strong> (typing, clicking Submit) and <strong>computer inputs</strong> (the network response arrives, success or failure).</p>
+<h3>Step 3: represent it with as little state as possible</h3>
+<script type="text/plain" class="code">
+  const [answer, setAnswer] = useState('');
+  const [error, setError] = useState(null);
+  const [status, setStatus] = useState('typing');   // 'typing' | 'submitting' | 'success'
+</script>
+<p>Instead of several booleans (<code>isTyping</code>, <code>isSubmitting</code>, <code>isSuccess</code>…) that could contradict each other, <strong>one <code>status</code></strong> can only ever be one value at a time.</p>
+<h3>Step 4: render each state</h3>
+<script type="text/plain" class="code">
+  export default function Form() {
+    const [answer, setAnswer] = useState('');
+    const [error, setError] = useState(null);
+    const [status, setStatus] = useState('typing');
+
+    if (status === 'success') {
+      return <h1>That's right!</h1>;
+    }
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      setStatus('submitting');
+      try {
+        await submitForm(answer);
+        setStatus('success');
+      } catch (err) {
+        setStatus('typing');
+        setError(err);
+      }
+    }
+
+    return (
+      <form onSubmit={handleSubmit}>
+        <h2>City quiz</h2>
+        <p>In which city is there a billboard that turns air into drinkable water?</p>
+        <textarea
+          value={answer}
+          onChange={e => setAnswer(e.target.value)}
+          disabled={status === 'submitting'}
+        />
+        <button disabled={answer.length === 0 || status === 'submitting'}>Submit</button>
+        {error !== null && <p className="error">{error.message}</p>}
+      </form>
+    );
+  }
+</script>
+<h3>Step 5: connect the event handlers</h3>
+<p>That's what <code>handleSubmit</code> and <code>onChange</code> do above. Notice there's no "disable the button" code anywhere. The button is disabled <em>because of</em> the state.</p>
+
+<h2>Five principles for structuring state</h2>
+
+<h3>1. Group related state</h3>
+<p>If two values always change together, put them in one object:</p>
+<script type="text/plain" class="code">
+  const [x, setX] = useState(0);         // 🟡 always updated together...
+  const [y, setY] = useState(0);
+
+  const [position, setPosition] = useState({ x: 0, y: 0 });   // ✅ one piece of state
+</script>
+
+<h3>2. Avoid contradictions</h3>
+<script type="text/plain" class="code">
+  const [isSending, setIsSending] = useState(false);   // 🔴 both could be true by mistake
+  const [isSent, setIsSent] = useState(false);
+
+  const [status, setStatus] = useState('typing');     // ✅ 'typing' | 'sending' | 'sent'
+  const isSending = status === 'sending';              // you can still derive booleans
+</script>
+
+<h3>3. Avoid redundant state: calculate during render</h3>
+<p>If you can compute a value from props or other state, <strong>don't store it</strong>:</p>
+<script type="text/plain" class="code">
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [fullName, setFullName] = useState('');   // 🔴 redundant: easy to forget to update
+
+  const fullName = firstName + ' ' + lastName;    // ✅ just calculate it
+</script>
+<div class="callout pitfall">
+  <strong>Don't copy props into state</strong>
+<script type="text/plain" class="code">
+  function Message({ messageColor }) {
+    const [color, setColor] = useState(messageColor);   // 🔴 won't update if the prop changes
+    const color = messageColor;                         // ✅ just use the prop
+  }
+</script>
+  The only reason to copy a prop is to deliberately ignore later changes. Name it to make that clear: <code>initialColor</code>.
+</div>
+
+<h3>4. Avoid duplication: store IDs, not copies</h3>
+<script type="text/plain" class="code">
+  const [items, setItems] = useState(initialItems);
+  const [selectedItem, setSelectedItem] = useState(items[0]);   // 🔴 a copy that goes stale when the item is edited
+
+  const [selectedId, setSelectedId] = useState(0);              // ✅ store only the ID
+  const selectedItem = items.find(item => item.id === selectedId);
+</script>
+
+<h3>5. Avoid deep nesting</h3>
+<p>Deeply nested state is painful to update (remember all the copying in Chapter 8). Consider a <strong>flat</strong> structure, where items reference each other by ID, like database tables.</p>
+
+<div class="callout tip">
+  <strong>The goal</strong>
+  Make state <strong>as simple as possible, but no simpler</strong>. Store the minimum, and calculate everything else.
+</div>
+
+<h2>Sharing state between components: lifting state up</h2>
+<p>Sometimes two components need the same data. Example: an accordion where <strong>only one panel</strong> can be open at a time.</p>
+
+<h3>Before: each panel has its own state</h3>
+<script type="text/plain" class="code">
+  function Panel({ title, children }) {
+    const [isActive, setIsActive] = useState(false);   // each panel decides alone
+    return (
+      <section>
+        <h3>{title}</h3>
+        {isActive ? <p>{children}</p> : <button onClick={() => setIsActive(true)}>Show</button>}
+      </section>
+    );
+  }
+</script>
+<p>The panels can't coordinate, so both can be open at once.</p>
+
+<h3>After: move the state up to the common parent</h3>
+<p>There are three steps:</p>
+<ol>
+  <li><strong>Remove</strong> the state from the children.</li>
+  <li><strong>Pass</strong> the data down from the parent as props.</li>
+  <li><strong>Add</strong> the state to the parent, and pass down event handlers so the children can ask for changes.</li>
+</ol>
+<script type="text/plain" class="code">
+  export default function Accordion() {
+    const [activeIndex, setActiveIndex] = useState(0);   // ✅ lives in the parent
+    return (
+      <>
+        <h2>Almaty, Kazakhstan</h2>
+        <Panel title="About" isActive={activeIndex === 0} onShow={() => setActiveIndex(0)}>
+          With a population of about 2 million, Almaty is Kazakhstan's largest city.
+        </Panel>
+        <Panel title="Etymology" isActive={activeIndex === 1} onShow={() => setActiveIndex(1)}>
+          The name comes from the Kazakh word for "apple".
+        </Panel>
+      </>
+    );
+  }
+
+  function Panel({ title, children, isActive, onShow }) {
+    return (
+      <section>
+        <h3>{title}</h3>
+        {isActive ? <p>{children}</p> : <button onClick={onShow}>Show</button>}
+      </section>
+    );
+  }
+</script>
+<script type="text/plain" class="code" data-lang="data flow">
+  Accordion  (state: activeIndex)
+     │  isActive ↓      ↑ onShow()
+     ├── Panel "About"
+     └── Panel "Etymology"
+</script>
+<p>Data flows <strong>down</strong> as props, and requests to change it flow <strong>up</strong> through event handler props. This is the pattern you'll use most in React.</p>
+
+<h3>Controlled vs uncontrolled</h3>
+<ul>
+  <li>An <strong>uncontrolled</strong> component keeps its own local state. It's easy to use, but the parent can't influence it.</li>
+  <li>A <strong>controlled</strong> component gets its important data from props. It's more flexible, because the parent is in charge.</li>
+</ul>
+<p>After lifting the state up, <code>Panel</code> is <em>controlled</em> by <code>Accordion</code>.</p>
+
+<div class="callout note">
+  <strong>A single source of truth</strong>
+  Every piece of state should <strong>live in exactly one component</strong>. To decide which one, find the closest common parent of all the components that need it.
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: search, storing the query only</h3>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  const ALL_CITIES = ['Mumbai', 'Delhi', 'Bengaluru', 'Pune', 'Chennai', 'Kolkata'];
+
+  export default function CitySearch() {
+    const [query, setQuery] = useState('');
+    // ✅ derived: never out of sync, no extra state
+    const results = ALL_CITIES.filter(c => c.toLowerCase().includes(query.toLowerCase()));
+
+    return (
+      <>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search cities" />
+        <p>{results.length} result(s)</p>
+        <ul>{results.map(c => <li key={c}>{c}</li>)}</ul>
+      </>
+    );
+  }
+</script>
+
+<h3>Example 2: tabs with lifted state</h3>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  function TabButton({ label, isActive, onSelect }) {
+    return (
+      <button onClick={onSelect} style={{ fontWeight: isActive ? 'bold' : 'normal' }}>
+        {label}
+      </button>
+    );
+  }
+
+  export default function Tabs() {
+    const [tab, setTab] = useState('about');
+    return (
+      <>
+        <TabButton label="About" isActive={tab === 'about'} onSelect={() => setTab('about')} />
+        <TabButton label="Posts" isActive={tab === 'posts'} onSelect={() => setTab('posts')} />
+        <TabButton label="Contact" isActive={tab === 'contact'} onSelect={() => setTab('contact')} />
+        <hr />
+        {tab === 'about' && <p>Welcome to my profile!</p>}
+        {tab === 'posts' && <p>Here are my posts.</p>}
+        {tab === 'contact' && <p>Email me at hi@example.com</p>}
+      </>
+    );
+  }
+</script>
+
+<h3>Example 3: temperature converter (two inputs, one source of truth)</h3>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function Converter() {
+    const [celsius, setCelsius] = useState(25);          // the only state
+    const fahrenheit = Math.round(celsius * 9 / 5 + 32);  // derived
+
+    return (
+      <>
+        <label>°C <input type="number" value={celsius}
+          onChange={e => setCelsius(Number(e.target.value))} /></label>
+        <label>°F <input type="number" value={fahrenheit}
+          onChange={e => setCelsius(Math.round((Number(e.target.value) - 32) * 5 / 9))} /></label>
+      </>
+    );
+  }
+</script>
+<p>Both inputs show the <strong>same</strong> piece of state, converted. Editing either one updates <code>celsius</code>.</p>
+
+<h3>Example 4: a selected item stored by ID</h3>
+<script type="text/plain" class="code">
+  const [letters, setLetters] = useState(initialLetters);
+  const [selectedId, setSelectedId] = useState(null);
+  const selected = letters.find(l => l.id === selectedId);   // always the latest version
+
+  // even after editing a letter's subject, "selected" shows the new subject
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>Think in <strong>visual states</strong>, and prefer one <code>status</code> over many booleans.</li>
+    <li>Group related state, avoid contradictions, <strong>don't store what you can calculate</strong>, store IDs instead of copies, and keep it flat.</li>
+    <li>To share state, <strong>lift it up</strong> to the closest common parent and pass it down with props and handlers.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Synced inputs</h3>
+  <p>Render two <code>&lt;Input label="First" /&gt;</code> and <code>&lt;Input label="Second" /&gt;</code> components so that typing in either updates <strong>both</strong>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function SyncedInputs() {
+    const [text, setText] = useState('');
+    return (
+      <>
+        <Input label="First" value={text} onChange={setText} />
+        <Input label="Second" value={text} onChange={setText} />
+      </>
+    );
+  }
+
+  function Input({ label, value, onChange }) {
+    return (
+      <label>
+        {label} <input value={value} onChange={e => onChange(e.target.value)} />
+      </label>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Remove the redundant state</h3>
+<script type="text/plain" class="code">
+  const [items, setItems] = useState(initialItems);
+  const [total, setTotal] = useState(0);   // updated with setTotal everywhere items change...
+</script>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const [items, setItems] = useState(initialItems);
+  const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);   // ✅ derived
+</script>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Spot the unnecessary state <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  const [items, setItems] = useState([]);
+  const [count, setCount] = useState(0);
+  const [isEmpty, setIsEmpty] = useState(true);
+  const [query, setQuery] = useState('');
+  const [filtered, setFiltered] = useState([]);
+</script>
+  <p>Which of these should <strong>not</strong> be state?</p>
+  <details class="solution"><summary>Show answer</summary>
+  <p><code>count</code> (= <code>items.length</code>), <code>isEmpty</code> (= <code>items.length === 0</code>) and <code>filtered</code> (= items filtered by query) can all be calculated. Keep only <code>items</code> and <code>query</code>.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Booleans → status <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState(false);
+  const [isDone, setIsDone] = useState(false);
+</script>
+  <p>Rewrite it with one state variable.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const [status, setStatus] = useState('idle');   // 'idle' | 'loading' | 'error' | 'done'
+  const isLoading = status === 'loading';
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. FAQ accordion <span class="lvl">🟢 easy</span></h3>
+  <p>Render 3 FAQ items where only one answer is open at a time. Clicking an open question closes it.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  const faqs = [
+    { id: 1, q: 'What is React?', a: 'A library for building UIs.' },
+    { id: 2, q: 'Is it free?', a: 'Yes, it is open source.' },
+    { id: 3, q: 'Who maintains it?', a: 'Meta and the community.' },
+  ];
+
+  export default function FAQ() {
+    const [openId, setOpenId] = useState(null);
+    return faqs.map(f => (
+      <div key={f.id}>
+        <h3 onClick={() => setOpenId(openId === f.id ? null : f.id)} style={{ cursor: 'pointer' }}>
+          {openId === f.id ? '▼' : '▶'} {f.q}
+        </h3>
+        {openId === f.id && <p>{f.a}</p>}
+      </div>
+    ));
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Lift the search box <span class="lvl">🟡 medium</span></h3>
+  <p>Split Example 1 into <code>SearchBox({ query, onQueryChange })</code> and <code>ResultList({ results })</code>, with the state in the parent <code>CitySearch</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function SearchBox({ query, onQueryChange }) {
+    return <input value={query} onChange={e => onQueryChange(e.target.value)} />;
+  }
+
+  function ResultList({ results }) {
+    return <ul>{results.map(c => <li key={c}>{c}</li>)}</ul>;
+  }
+
+  export default function CitySearch() {
+    const [query, setQuery] = useState('');
+    const results = ALL_CITIES.filter(c => c.toLowerCase().includes(query.toLowerCase()));
+    return (
+      <>
+        <SearchBox query={query} onQueryChange={setQuery} />
+        <ResultList results={results} />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. km ↔ miles <span class="lvl">🟡 medium</span></h3>
+  <p>Like the temperature converter: two inputs, kilometres and miles (1 km = 0.621371 mi), with only <strong>one</strong> piece of state.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Distance() {
+    const [km, setKm] = useState(10);
+    const miles = +(km * 0.621371).toFixed(2);
+    return (
+      <>
+        <input type="number" value={km} onChange={e => setKm(Number(e.target.value))} /> km
+        <input type="number" value={miles}
+          onChange={e => setKm(+(Number(e.target.value) / 0.621371).toFixed(2))} /> mi
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Select and edit <span class="lvl">🟡 medium</span></h3>
+  <p>Show a list of notes on the left. Clicking one selects it (stored by <strong>ID</strong>) and shows a textarea on the right to edit its text. The list should update live as you type.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Notes() {
+    const [notes, setNotes] = useState([
+      { id: 1, text: 'Buy milk' },
+      { id: 2, text: 'Call mom' },
+    ]);
+    const [selectedId, setSelectedId] = useState(1);
+    const selected = notes.find(n => n.id === selectedId);
+
+    function handleEdit(text) {
+      setNotes(notes.map(n => (n.id === selectedId ? { ...n, text } : n)));
+    }
+
+    return (
+      <div style={{ display: 'flex', gap: 16 }}>
+        <ul>
+          {notes.map(n => (
+            <li key={n.id} onClick={() => setSelectedId(n.id)}
+                style={{ fontWeight: n.id === selectedId ? 'bold' : 'normal' }}>
+              {n.text}
+            </li>
+          ))}
+        </ul>
+        {selected && <textarea value={selected.text} onChange={e => handleEdit(e.target.value)} />}
+      </div>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. A fake "send" with status <span class="lvl">🟡 medium</span></h3>
+  <p>Make a message form with a <code>status</code> of <code>'typing'</code>, <code>'sending'</code> or <code>'sent'</code>. On submit, set it to <code>'sending'</code>, then use <code>setTimeout</code> to set it to <code>'sent'</code> after 1.5 seconds. Disable the input and button while sending, and show "✅ Sent!" at the end.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  export default function Message() {
+    const [text, setText] = useState('');
+    const [status, setStatus] = useState('typing');
+
+    if (status === 'sent') return <h2>✅ Sent!</h2>;
+
+    function handleSubmit(e) {
+      e.preventDefault();
+      setStatus('sending');
+      setTimeout(() => setStatus('sent'), 1500);
+    }
+
+    const sending = status === 'sending';
+    return (
+      <form onSubmit={handleSubmit}>
+        <input value={text} onChange={e => setText(e.target.value)} disabled={sending} />
+        <button disabled={sending || !text}>{sending ? 'Sending…' : 'Send'}</button>
+      </form>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. Shopping list + summary <span class="lvl">🔴 hard</span></h3>
+  <p>Build three sibling components, <code>AddItemForm</code>, <code>ItemList</code> and <code>Summary</code> ("3 items, 2 bought"). Ticking an item in <code>ItemList</code> must update <code>Summary</code>. Decide where the state lives, and pass down the data and handlers.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function ShoppingApp() {
+    const [items, setItems] = useState([]);   // lives in the common parent
+
+    function addItem(name) {
+      setItems([...items, { id: crypto.randomUUID(), name, bought: false }]);
+    }
+    function toggleItem(id) {
+      setItems(items.map(i => (i.id === id ? { ...i, bought: !i.bought } : i)));
+    }
+
+    return (
+      <>
+        <AddItemForm onAdd={addItem} />
+        <ItemList items={items} onToggle={toggleItem} />
+        <Summary items={items} />
+      </>
+    );
+  }
+
+  function AddItemForm({ onAdd }) {
+    const [name, setName] = useState('');   // local: only this form cares
+    return (
+      <form onSubmit={e => { e.preventDefault(); if (name) { onAdd(name); setName(''); } }}>
+        <input value={name} onChange={e => setName(e.target.value)} />
+        <button>Add</button>
+      </form>
+    );
+  }
+
+  function ItemList({ items, onToggle }) {
+    return (
+      <ul>
+        {items.map(i => (
+          <li key={i.id}>
+            <label>
+              <input type="checkbox" checked={i.bought} onChange={() => onToggle(i.id)} />
+              {i.name}
+            </label>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function Summary({ items }) {
+    const bought = items.filter(i => i.bought).length;
+    return <p>{items.length} items, {bought} bought</p>;
+  }
+</script>
+  <p>Notice the draft text in <code>AddItemForm</code> stays <strong>local</strong>. Only lift state that other components actually need.</p>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/reacting-to-input-with-state">Reacting to Input with State</a> · <a href="https://react.dev/learn/choosing-the-state-structure">Choosing the State Structure</a> · <a href="https://react.dev/learn/sharing-state-between-components">Sharing State Between Components</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

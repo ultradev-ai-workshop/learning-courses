@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📜&lt;/text&gt;&lt;/svg&gt;">
+<title>Appendix A · JavaScript Refresher · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Appendix A</p>
+<h1>JavaScript Refresher</h1>
+<p class="lead">The modern JavaScript (ES6+) features that React code uses constantly, with a quick example and a check question for each.</p>
+
+<div class="goals">
+  <strong>Covered here</strong>
+  <ul>
+    <li><code>let</code> / <code>const</code>, arrow functions, template literals</li>
+    <li>Destructuring, spread &amp; rest, shorthand and computed properties</li>
+    <li>Array methods: <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code>, <code>some</code>/<code>every</code>, and which ones mutate</li>
+    <li>Ternary, <code>&amp;&amp;</code>, <code>||</code>, <code>??</code>, optional chaining <code>?.</code>, truthy/falsy</li>
+    <li>Modules, Promises with <code>async</code>/<code>await</code>, closures, and reference equality</li>
+  </ul>
+</div>
+
+<div class="callout tip">
+  <strong>How to use this appendix</strong>
+  Read it <em>before</em> Chapter 2 if your JavaScript is rusty, or come back whenever React code looks confusing. Usually it's one of these features. Try each <strong>Quick check</strong> before opening the answer. You can run any example in the browser console (F12 → Console).
+</div>
+
+<!-- 1 -->
+<h2>1. <code>let</code> and <code>const</code></h2>
+<p>Use <code>const</code> for values you won't reassign (most of them), and <code>let</code> for values you will. Avoid the old <code>var</code>, which has confusing scoping rules.</p>
+<script type="text/plain" class="code">
+  const name = 'Asha';
+  name = 'Ben';            // ❌ TypeError: Assignment to constant variable
+
+  let count = 0;
+  count = count + 1;       // ✅ let can be reassigned
+
+  const todos = [];
+  todos.push('Learn React');   // ✅ allowed! const stops REASSIGNMENT, not changes inside
+</script>
+<p><strong>In React:</strong> <code>const [count, setCount] = useState(0)</code>. You never reassign <code>count</code>; you call the setter.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>Does <code>const user = { age: 30 }; user.age = 31;</code> throw an error?</p>
+  <details class="solution"><summary>Show answer</summary><p>No. The variable still points to the same object, and only a property inside it changed. (In React <em>state</em> you still shouldn't do this. See Chapter 8.)</p></details>
+</div>
+
+<!-- 2 -->
+<h2>2. Arrow functions</h2>
+<p>A shorter way to write functions, and the most common style in React code.</p>
+<script type="text/plain" class="code">
+  // classic function
+  function double(x) {
+    return x * 2;
+  }
+
+  // arrow function with a body
+  const double2 = (x) => {
+    return x * 2;
+  };
+
+  // arrow function with an IMPLICIT return (no braces, no "return")
+  const double3 = x => x * 2;
+
+  // returning an object needs parentheses
+  const makeUser = name => ({ name, active: true });
+</script>
+<p><strong>In React:</strong> <code>onClick={() =&gt; setOpen(true)}</code> and <code>items.map(item =&gt; &lt;li&gt;{item}&lt;/li&gt;)</code>.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What does <code>const f = () =&gt; { value: 1 }; f()</code> return?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>undefined</code>. The braces are read as a function <em>body</em> (with a label called "value"), not an object. Write <code>() =&gt; ({ value: 1 })</code>.</p></details>
+</div>
+
+<!-- 3 -->
+<h2>3. Template literals</h2>
+<p>Strings in backticks can contain <code>${expression}</code> and span several lines.</p>
+<script type="text/plain" class="code">
+  const name = 'Asha';
+  const items = 3;
+
+  const msg = `Hi ${name}, you have ${items} item${items === 1 ? '' : 's'}.`;
+  // "Hi Asha, you have 3 items."
+
+  const url = `https://api.example.com/users/${userId}/posts`;
+</script>
+<p><strong>In React:</strong> <code>className={`card ${isActive ? 'active' : ''}`}</code> and building image URLs.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What is <code>`${2 + 3} apples`</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>"5 apples"</code>: the expression is evaluated first.</p></details>
+</div>
+
+<!-- 4 -->
+<h2>4. Destructuring</h2>
+<h3>Objects: pull properties out by name</h3>
+<script type="text/plain" class="code">
+  const user = { name: 'Asha', age: 28, city: 'Pune' };
+
+  const { name, age } = user;            // name = 'Asha', age = 28
+  const { city: town } = user;           // rename: town = 'Pune'
+  const { country = 'India' } = user;    // default when missing: 'India'
+</script>
+<h3>Arrays: pull items out by position</h3>
+<script type="text/plain" class="code">
+  const colors = ['red', 'green', 'blue'];
+
+  const [first, second] = colors;    // 'red', 'green'
+  const [, , third] = colors;        // skip items: 'blue'
+</script>
+<h3>In function parameters</h3>
+<script type="text/plain" class="code">
+  function greet({ name, age = 18 }) {
+    return `${name} is ${age}`;
+  }
+  greet({ name: 'Ben' });   // "Ben is 18"
+</script>
+<p><strong>In React:</strong> every component's props, <code>function Avatar({ person, size })</code>, and every Hook, <code>const [value, setValue] = useState()</code>.</p>
+<div class="callout pitfall"><strong>Defaults only apply to <code>undefined</code></strong> <code>const { size = 10 } = { size: null }</code> gives <code>null</code>, not 10. The same applies to <code>0</code> and <code>''</code>: the default is not used.</div>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>After <code>const [a, b = 5] = [1];</code>, what are <code>a</code> and <code>b</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>a = 1</code> and <code>b = 5</code>. There is no second item, so the default is used.</p></details>
+</div>
+
+<!-- 5 -->
+<h2>5. Spread <code>...</code> and rest <code>...</code></h2>
+<p>The same three dots do two opposite jobs. <strong>Spread</strong> expands items out, and <strong>rest</strong> collects them in.</p>
+<script type="text/plain" class="code">
+  // SPREAD: expand into a new array or object
+  const a = [1, 2];
+  const b = [...a, 3];                    // [1, 2, 3]  (a is unchanged)
+
+  const person = { name: 'Asha', age: 28 };
+  const older = { ...person, age: 29 };   // { name: 'Asha', age: 29 }
+  // later keys win: age 29 overrides age 28
+
+  // REST: collect the remaining items
+  const [head, ...tail] = [1, 2, 3, 4];   // head = 1, tail = [2, 3, 4]
+  const { name, ...others } = person;     // others = { age: 28 }
+  function sum(...nums) {                 // nums is an array of all the arguments
+    return nums.reduce((t, n) => t + n, 0);
+  }
+</script>
+<p><strong>In React:</strong> updating state without mutation, <code>setTodos([...todos, newTodo])</code> and <code>setForm({ ...form, email })</code>, and forwarding props with <code>&lt;Child {...props} /&gt;</code>.</p>
+<div class="callout pitfall"><strong>Spread is shallow</strong> <code>{ ...person }</code> copies only the top level. Nested objects are still shared with the original.</div>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What is <code>{ ...{ a: 1, b: 2 }, ...{ b: 3 } }</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>{ a: 1, b: 3 }</code>. The later <code>b</code> wins.</p></details>
+</div>
+
+<!-- 6 -->
+<h2>6. Shorthand and computed properties</h2>
+<script type="text/plain" class="code">
+  const name = 'Asha';
+  const age = 28;
+
+  const user = { name, age };            // shorthand for { name: name, age: age }
+
+  const field = 'email';
+  const update = { [field]: 'a@b.com' }; // computed key: { email: 'a@b.com' }
+</script>
+<p><strong>In React:</strong> one change handler for many inputs: <code>setForm({ ...form, [e.target.name]: e.target.value })</code>.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>If <code>const key = 'color'</code>, what is <code>{ [key + 'Name']: 'red' }</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>{ colorName: 'red' }</code>. Any expression can go in the brackets.</p></details>
+</div>
+
+<!-- 7 -->
+<h2>7. Array methods you'll use every day</h2>
+<script type="text/plain" class="code">
+  const nums = [1, 2, 3, 4, 5];
+
+  nums.map(n => n * 10);            // [10, 20, 30, 40, 50]  transform every item
+  nums.filter(n => n % 2 === 0);    // [2, 4]                keep the items that pass
+  nums.reduce((sum, n) => sum + n, 0); // 15                 combine into one value
+  nums.find(n => n > 2);            // 3                     first match (or undefined)
+  nums.findIndex(n => n > 2);       // 2                     index of the first match (or -1)
+  nums.some(n => n > 4);            // true                  at least one passes?
+  nums.every(n => n > 0);           // true                  all pass?
+  nums.includes(3);                 // true                  contains the value?
+  nums.slice(1, 3);                 // [2, 3]                copy part (end not included)
+  nums.join(', ');                  // "1, 2, 3, 4, 5"
+</script>
+<h3>Mutating vs non-mutating</h3>
+<div class="table-wrap">
+<table>
+  <tr><th>🔴 Changes the original</th><th>✅ Returns something new</th></tr>
+  <tr><td><code>push</code>, <code>pop</code>, <code>shift</code>, <code>unshift</code>, <code>splice</code>, <code>sort</code>, <code>reverse</code>, <code>fill</code></td>
+      <td><code>map</code>, <code>filter</code>, <code>slice</code>, <code>concat</code>, <code>toSorted</code>, <code>toReversed</code>, <code>toSpliced</code>, <code>with</code></td></tr>
+</table>
+</div>
+<p><strong>In React:</strong> <code>map</code> renders lists, <code>filter</code> removes items from state, <code>find</code> gets the selected item, and <code>reduce</code> calculates totals. Never use the mutating ones on state.</p>
+<div class="callout pitfall"><strong>Sorting numbers</strong> <code>[10, 9, 1].toSorted()</code> gives <code>[1, 10, 9]</code>, because the default sort compares items as strings. Use <code>toSorted((a, b) =&gt; a - b)</code>.</div>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What does <code>[3, 8, 1].map(n =&gt; n &gt; 2)</code> return?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>[true, true, false]</code>. map keeps the length and replaces each item with what the function returns. (To <em>keep</em> only some items, use <code>filter</code>.)</p></details>
+</div>
+
+<!-- 8 -->
+<h2>8. Conditional expressions: <code>? :</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>??</code></h2>
+<script type="text/plain" class="code">
+  const age = 20;
+  age >= 18 ? 'adult' : 'minor';   // 'adult'        ternary: if/else as an expression
+
+  true && 'shown';                 // 'shown'        && returns the right side if the left is truthy
+  0 && 'shown';                    // 0              ...otherwise the left side!
+
+  '' || 'default';                 // 'default'      || falls back on ANY falsy value
+  0 || 10;                         // 10
+
+  0 ?? 10;                         // 0              ?? falls back ONLY on null/undefined
+  null ?? 10;                      // 10
+</script>
+<p><strong>In React:</strong> <code>{isLoggedIn ? &lt;Logout /&gt; : &lt;Login /&gt;}</code>, <code>{error &amp;&amp; &lt;p&gt;{error}&lt;/p&gt;}</code>, and <code>{user.nickname ?? user.name}</code>.</p>
+<div class="callout pitfall"><strong>The "0" bug</strong> <code>{count &amp;&amp; &lt;Badge /&gt;}</code> shows <strong>0</strong> when count is 0. Write <code>{count &gt; 0 &amp;&amp; &lt;Badge /&gt;}</code>.</div>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>A user's volume setting is <code>0</code>. Which gives the right result: <code>volume || 50</code> or <code>volume ?? 50</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>volume ?? 50</code> gives 0, which is correct. <code>||</code> treats 0 as falsy and wrongly returns 50.</p></details>
+</div>
+
+<!-- 9 -->
+<h2>9. Optional chaining <code>?.</code></h2>
+<script type="text/plain" class="code">
+  const user = { profile: null };
+
+  user.profile.city;          // ❌ TypeError: Cannot read properties of null
+  user.profile?.city;         // ✅ undefined
+  user.profile?.city ?? 'Unknown';   // 'Unknown'
+
+  data?.items?.map(i => i.name);     // safe even when data hasn't loaded yet
+  onSave?.();                        // call only if onSave was passed
+</script>
+<p><strong>In React:</strong> rendering data that loads later, <code>{data?.title}</code>, and optional callback props.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What is <code>undefined?.length</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p><code>undefined</code>, with no error.</p></details>
+</div>
+
+<!-- 10 -->
+<h2>10. Truthy and falsy</h2>
+<p>In conditions, every value acts as either true or false. The <strong>falsy</strong> values are:</p>
+<script type="text/plain" class="code">
+  false   0   -0   0n   ''   null   undefined   NaN
+</script>
+<p><strong>Everything else is truthy</strong>, including <code>'0'</code>, <code>'false'</code>, <code>[]</code>, <code>{}</code> and <code>-1</code>.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>Does <code>if ([]) { ... }</code> run its block?</p>
+  <details class="solution"><summary>Show answer</summary><p>Yes, an empty array is truthy. To check for emptiness, use <code>items.length &gt; 0</code>.</p></details>
+</div>
+
+<!-- 11 -->
+<h2>11. Modules: <code>import</code> and <code>export</code></h2>
+<script type="text/plain" class="code" data-file="math.js">
+  export const PI = 3.14;                       // named export
+  export function area(r) { return PI * r * r; } // named export
+  export default function add(a, b) {           // default export (one per file)
+    return a + b;
+  }
+</script>
+<script type="text/plain" class="code" data-file="App.jsx">
+  import add, { PI, area } from './math.js';     // default + named
+  import { area as circleArea } from './math.js'; // rename
+  import * as math from './math.js';             // everything: math.PI, math.area
+</script>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>The file exports <code>export function Card()</code>. Does <code>import Card from './Card'</code> work?</p>
+  <details class="solution"><summary>Show answer</summary><p>No. That's a <em>named</em> export, so use <code>import { Card } from './Card'</code>.</p></details>
+</div>
+
+<!-- 12 -->
+<h2>12. Promises, <code>async</code> / <code>await</code> and <code>fetch</code></h2>
+<p>A <strong>Promise</strong> is a value that arrives later. <code>await</code> pauses an <code>async</code> function until the value arrives, without freezing the page.</p>
+<script type="text/plain" class="code">
+  // with .then()
+  fetch('https://jsonplaceholder.typicode.com/users/1')
+    .then(res => res.json())
+    .then(user => console.log(user.name))
+    .catch(err => console.error(err));
+
+  // the same with async/await
+  async function loadUser() {
+    try {
+      const res = await fetch('https://jsonplaceholder.typicode.com/users/1');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const user = await res.json();
+      console.log(user.name);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+</script>
+<p><strong>In React:</strong> fetching data inside Effects or event handlers (Chapter 13).</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>What does <code>const data = fetch(url)</code> (without <code>await</code>) put in <code>data</code>?</p>
+  <details class="solution"><summary>Show answer</summary><p>A <strong>Promise</strong>, not the data. You need <code>await</code> (or <code>.then</code>) twice: once for the response and once for <code>res.json()</code>.</p></details>
+</div>
+
+<!-- 13 -->
+<h2>13. Closures</h2>
+<p>A function <strong>remembers the variables</strong> from the place where it was created, even after that place has finished running.</p>
+<script type="text/plain" class="code">
+  function makeCounter() {
+    let count = 0;
+    return () => {
+      count++;
+      return count;
+    };
+  }
+  const next = makeCounter();
+  next(); // 1
+  next(); // 2   (count lives on inside the closure)
+</script>
+<p><strong>In React:</strong> every event handler is a closure over the props and state of <em>its</em> render. That's why <code>setTimeout(() =&gt; alert(count), 3000)</code> shows the old value (the "state as a snapshot" idea in Chapter 7).</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>Each button in <code>items.map(item =&gt; &lt;button onClick={() =&gt; remove(item.id)}&gt;)</code> removes the right item. Why?</p>
+  <details class="solution"><summary>Show answer</summary><p>Each arrow function is a closure that remembers <em>its own</em> <code>item</code> from that iteration of the map.</p></details>
+</div>
+
+<!-- 14 -->
+<h2>14. Reference equality</h2>
+<p>Primitives (numbers, strings, booleans) compare by <strong>value</strong>. Objects and arrays compare by <strong>reference</strong>, meaning "is it the very same object?"</p>
+<script type="text/plain" class="code">
+  5 === 5;                    // true
+  'hi' === 'hi';              // true
+  [1, 2] === [1, 2];          // false: two different arrays
+  { a: 1 } === { a: 1 };      // false
+
+  const a = { x: 1 };
+  const b = a;                // b points to the SAME object
+  b.x = 2;
+  console.log(a.x);           // 2!
+  a === b;                    // true
+
+  const c = { ...a };         // a NEW object
+  a === c;                    // false
+</script>
+<p><strong>In React:</strong> this is exactly why you must create <em>new</em> objects and arrays when updating state. React checks <code>oldState === newState</code> (strictly, <code>Object.is</code>) to decide whether anything changed.</p>
+<div class="exercise">
+  <h3>Quick check</h3>
+  <p>You do <code>items.push(x); setItems(items);</code>. Why might React not re-render?</p>
+  <details class="solution"><summary>Show answer</summary><p>It's the <em>same</em> array reference, so React sees "no change". Use <code>setItems([...items, x])</code>.</p></details>
+</div>
+
+<div class="recap">
+  <h3>Recap: the React connection</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>JS feature</th><th>Where you see it in React</th></tr>
+    <tr><td>Destructuring</td><td>Props <code>({ name })</code> and Hooks <code>[x, setX]</code></td></tr>
+    <tr><td>Spread</td><td>Immutable updates: <code>{ ...obj }</code>, <code>[...arr]</code></td></tr>
+    <tr><td><code>map</code> / <code>filter</code></td><td>Rendering lists and removing items</td></tr>
+    <tr><td>Arrow functions</td><td>Event handlers and callbacks</td></tr>
+    <tr><td><code>? :</code> / <code>&amp;&amp;</code> / <code>??</code></td><td>Conditional rendering</td></tr>
+    <tr><td>Template literals</td><td>Dynamic class names and URLs</td></tr>
+    <tr><td>Modules</td><td>Splitting components into files</td></tr>
+    <tr><td>async/await</td><td>Fetching data</td></tr>
+    <tr><td>Closures</td><td>Handlers seeing "their" render's state</td></tr>
+    <tr><td>Reference equality</td><td>Why state must be replaced, not mutated</td></tr>
+  </table>
+  </div>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Destructure a response <span class="lvl">🟢 easy</span></h3>
+  <p>From <code>const res = { data: { user: { name: 'Asha', role: 'admin' } }, status: 200 }</code>, get <code>name</code>, <code>role</code> and <code>status</code> into variables in one statement.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const { data: { user: { name, role } }, status } = res;
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Prices with tax <span class="lvl">🟢 easy</span></h3>
+  <p>Turn <code>[100, 250, 40]</code> into <code>['₹118', '₹295', '₹47.2']</code> (18% tax) using <code>map</code> and a template literal.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const prices = [100, 250, 40];
+  const withTax = prices.map(p => `₹${+(p * 1.18).toFixed(2)}`);
+</script>
+  <p><code>+(...).toFixed(2)</code> rounds to 2 decimal places, then turns the result back into a number, which drops trailing zeros.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>3. Adults only <span class="lvl">🟢 easy</span></h3>
+  <p>From an array of <code>{ name, age }</code>, get just the <strong>names</strong> of people aged 18 or over.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const adults = people.filter(p => p.age >= 18).map(p => p.name);
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Cart total <span class="lvl">🟢 easy</span></h3>
+  <p>Calculate the total of <code>[{ price: 50, qty: 2 }, { price: 30, qty: 1 }]</code> with <code>reduce</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);   // 130
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Update without mutating <span class="lvl">🟡 medium</span></h3>
+  <p>Given <code>const user = { name: 'Asha', settings: { theme: 'light', lang: 'en' } }</code>, create a NEW object with <code>theme: 'dark'</code>. The original must stay unchanged.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const updated = {
+    ...user,
+    settings: { ...user.settings, theme: 'dark' },
+  };
+  console.log(user.settings.theme);    // 'light' (unchanged)
+  console.log(updated.settings.theme); // 'dark'
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Safe access with defaults <span class="lvl">🟡 medium</span></h3>
+  <p>Write <code>getCity(user)</code>, which returns the user's city, or <code>'Unknown'</code> if <code>user</code>, <code>user.address</code> or the city is missing. Use one line.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const getCity = user => user?.address?.city ?? 'Unknown';
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Group by category <span class="lvl">🟡 medium</span></h3>
+  <p>Turn <code>[{ name: 'Apple', cat: 'fruit' }, { name: 'Peas', cat: 'veg' }, { name: 'Kiwi', cat: 'fruit' }]</code> into <code>{ fruit: ['Apple', 'Kiwi'], veg: ['Peas'] }</code> with <code>reduce</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const grouped = items.reduce((groups, item) => ({
+    ...groups,
+    [item.cat]: [...(groups[item.cat] ?? []), item.name],
+  }), {});
+</script>
+  <p>Modern browsers also have <code>Object.groupBy(items, i =&gt; i.cat)</code>, which gives arrays of the whole objects.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Fetch and show <span class="lvl">🟡 medium</span></h3>
+  <p>Write an <code>async</code> function that fetches <code>https://jsonplaceholder.typicode.com/todos?_limit=5</code> and returns just the titles of the <strong>completed</strong> todos.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  async function completedTitles() {
+    const res = await fetch('https://jsonplaceholder.typicode.com/todos?_limit=5');
+    const todos = await res.json();
+    return todos.filter(t => t.completed).map(t => t.title);
+  }
+
+  completedTitles().then(console.log);
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Spot the mutations <span class="lvl">🟡 medium</span></h3>
+  <p>Which lines change the original <code>list</code>?</p>
+<script type="text/plain" class="code">
+  const a = list.map(x => x);        // 1
+  const b = list.sort();             // 2
+  const c = [...list].reverse();     // 3
+  const d = list.splice(0, 1);       // 4
+  const e = list.toSorted();         // 5
+</script>
+  <details class="solution"><summary>Show answer</summary><p>Lines <strong>2</strong> (sort) and <strong>4</strong> (splice). Line 3 reverses a <em>copy</em>.</p></details>
+</div>
+<div class="exercise">
+  <h3>10. Build a tiny "useState" <span class="lvl">🔴 hard</span></h3>
+  <p>Using closures, write <code>createState(initial)</code>, which returns <code>[get, set]</code>. <code>get()</code> returns the current value, and <code>set(v)</code> updates it and logs "re-render with v". (This is a toy model of how React keeps state outside your function.)</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function createState(initial) {
+    let value = initial;                 // lives in the closure
+    const get = () => value;
+    const set = next => {
+      value = typeof next === 'function' ? next(value) : next;   // supports updaters too
+      console.log('re-render with', value);
+    };
+    return [get, set];
+  }
+
+  const [count, setCount] = createState(0);
+  setCount(5);              // re-render with 5
+  setCount(c => c + 1);     // re-render with 6
+  console.log(count());     // 6
+</script>
+  </details>
+</div>
+
+<div class="callout note">
+  <strong>Ready to test yourself?</strong>
+  The <a href="assessment.html">Final Assessment</a> includes a large set of JavaScript questions alongside the React ones.
+</div>
+
+<p class="docs-links">📖 Further reading: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide">MDN JavaScript Guide</a> · <a href="https://react.dev/learn/javascript-in-jsx-with-curly-braces">JavaScript in JSX</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

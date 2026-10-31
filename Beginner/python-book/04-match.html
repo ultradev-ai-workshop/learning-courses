@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Pattern Matching with match · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Control Flow &amp; Functions</div>
+<h1>Pattern Matching with <code>match</code></h1>
+<p class="lead"><code>match</code> looks like a <code>switch</code>, but it does much more: it checks the <em>shape</em> of data and pulls values out of it in one step.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Literal patterns, the wildcard <code>_</code>, and <code>|</code> alternatives.</li>
+  <li>Capture patterns, and the famous "bare name captures everything" pitfall.</li>
+  <li>Sequence patterns like <code>[x, y]</code> and <code>["add", *rest]</code>.</li>
+  <li>Mapping patterns for dictionaries and class patterns for objects.</li>
+  <li>Guards (<code>if</code> in a case) and <code>as</code> bindings.</li>
+</ul>
+</div>
+
+<h2 id="basics">The basic form</h2>
+<p>A <code>match</code> statement takes a value (the <strong>subject</strong>) and compares it against <code>case</code> patterns, top to bottom. The <strong>first</strong> pattern that fits runs its block, and then the whole <code>match</code> ends. There is no fall-through and no <code>break</code>.</p>
+<script type="text/plain" class="code" data-file="http_error.py">
+def http_error(status):
+    match status:
+        case 400:
+            return "Bad request"
+        case 404:
+            return "Not found"
+        case 418:
+            return "I'm a teapot"
+        case _:                       # _ is the wildcard: matches anything
+            return "Something's wrong with the internet"
+
+print(http_error(404))   # Not found
+print(http_error(500))   # Something's wrong with the internet
+</script>
+<ul>
+  <li><code>case 404:</code> is a <strong>literal pattern</strong>. It matches if <code>status == 404</code>.</li>
+  <li><code>case _:</code> is the <strong>wildcard</strong>. It always matches, so it acts as the "default".</li>
+  <li>If no case matches and there is no wildcard, nothing happens. That is not an error.</li>
+</ul>
+<p>(<code>def</code> defines a function. Chapter 5 covers functions in detail; here they just give each example a name.)</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> this resembles Java 21's pattern-matching <code>switch</code> with record patterns, more than the old C-style <code>switch</code>. 🟨 <strong>JS:</strong> there is no direct equivalent; it is like a <code>switch</code> combined with destructuring.</p>
+</div>
+
+<h3>Several values in one case: <code>|</code></h3>
+<script type="text/plain" class="code" data-lang="python">
+def kind(status):
+    match status:
+        case 401 | 403 | 404:        # | means "or" inside a pattern
+            return "client problem"
+        case 500 | 502 | 503:
+            return "server problem"
+        case _:
+            return "other"
+
+print(kind(403), "/", kind(502))     # client problem / server problem
+</script>
+
+<h2 id="capture">Capture patterns</h2>
+<p>A <strong>bare name</strong> in a pattern does not compare anything. It <strong>captures</strong>: it matches any value and stores it in that variable. The power comes from mixing literals and captures inside a structure, like this tuple:</p>
+<script type="text/plain" class="code" data-file="point.py">
+def where(point):
+    match point:
+        case (0, 0):
+            return "Origin"
+        case (0, y):                 # x must be 0; y captures the 2nd item
+            return f"Y={y}"
+        case (x, 0):
+            return f"X={x}"
+        case (x, y):
+            return f"X={x}, Y={y}"
+        case _:
+            raise ValueError("Not a point")
+
+print(where((0, 0)))    # Origin
+print(where((0, 7)))    # Y=7
+print(where((3, 4)))    # X=3, Y=4
+</script>
+<p>(<code>f"Y={y}"</code> is an <em>f-string</em>: it puts the value of <code>y</code> inside the text. Chapter 9 covers them fully.)</p>
+<p>Think of <code>(0, y)</code> as a stencil: "a two-item sequence whose first item is 0. Whatever the second item is, call it <code>y</code>." It is like unpacking assignment, <code>(x, y) = point</code>, but with checks built in.</p>
+
+<div class="pitfall">
+<p>⚠️ <strong>The #1 pitfall: a bare name never compares.</strong> Writing a constant's name as a pattern doesn't check against the constant. It <em>captures</em> into a variable with that name, so it matches everything.</p>
+</div>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Wrong: captures, matches anything</strong></p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+QUIT = "q"
+match command:
+    case QUIT:          # SyntaxError: name capture 'QUIT'
+        stop()          # makes remaining patterns unreachable
+    case _:
+        run(command)
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Right: dotted names compare</strong></p>
+<script type="text/plain" class="code" data-lang="python">
+class Keys:
+    QUIT = "q"
+
+command = "x"
+match command:
+    case Keys.QUIT:     # a dotted name = a value to compare
+        print("bye")
+    case _:
+        print("running", command)
+</script>
+</div>
+</div>
+<p>Python catches the obvious case above as a <code>SyntaxError</code>, but only when another case follows. Names with a dot (<code>Keys.QUIT</code>, <code>Color.RED</code>) are treated as <strong>value patterns</strong> and compared with <code>==</code>. Enums (Chapter 14) are the usual source of dotted constants.</p>
+
+<h2 id="sequences">Sequence patterns</h2>
+<p>List and tuple patterns match any <strong>sequence</strong> (a list, a tuple, a range…) of the right length. A starred name <code>*rest</code> soaks up any number of remaining items, just like in unpacking.</p>
+<script type="text/plain" class="code" data-file="commands.py">
+def run(command):
+    match command.split():           # "add 12.5 food" -> ["add", "12.5", "food"]
+        case ["quit"] | ["exit"]:
+            return "bye"
+        case ["list"]:
+            return "listing all expenses"
+        case ["add", amount, category]:
+            return f"adding {amount} to {category}"
+        case ["add", *_]:
+            return "usage: add AMOUNT CATEGORY"
+        case ["delete", *ids] if ids:          # a guard (see below)
+            return f"deleting {len(ids)} expense(s)"
+        case []:
+            return "please type a command"
+        case [unknown, *_]:
+            return f"unknown command: {unknown}"
+
+for line in ["add 12.5 food", "add 12.5", "delete 3 4", "list", "", "fly"]:
+    print(repr(line), "->", run(line))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+'add 12.5 food' -> adding 12.5 to food
+'add 12.5' -> usage: add AMOUNT CATEGORY
+'delete 3 4' -> deleting 2 expense(s)
+'list' -> listing all expenses
+'' -> please type a command
+'fly' -> unknown command: fly
+</script>
+<div class="note">
+<p>📝 <strong>Note:</strong> strings, bytes and bytearrays are <em>not</em> treated as sequences by <code>match</code>. <code>case [a, b]:</code> will not match the string <code>"hi"</code>. This stops many surprises.</p>
+</div>
+
+<h2 id="guards">Guards</h2>
+<p>A <strong>guard</strong> is an <code>if</code> after the pattern. The case only wins if the pattern fits <em>and</em> the guard is true. If the guard is false, matching moves on to the next case.</p>
+<script type="text/plain" class="code" data-lang="python">
+def describe(point):
+    match point:
+        case (x, y) if x == y:
+            return f"on the diagonal at {x}"
+        case (x, y) if x < 0 or y < 0:
+            return "has a negative coordinate"
+        case (x, y):
+            return f"plain point {x},{y}"
+
+print(describe((2, 2)))    # on the diagonal at 2
+print(describe((-1, 5)))   # has a negative coordinate
+print(describe((1, 5)))    # plain point 1,5
+</script>
+
+<h2 id="mappings">Mapping patterns (dictionaries)</h2>
+<p>A pattern written with <code>{ }</code> matches a <strong>dictionary</strong> (Chapter 7) that has <em>at least</em> those keys. Extra keys are ignored. <code>**rest</code> collects them if you want them. This is ideal for JSON-like data.</p>
+<script type="text/plain" class="code" data-file="events.py">
+def handle(event):
+    match event:
+        case {"type": "expense", "amount": amount, "category": cat}:
+            return f"spent {amount} on {cat}"
+        case {"type": "income", "amount": amount}:
+            return f"earned {amount}"
+        case {"type": other}:
+            return f"ignored event {other!r}"
+        case _:
+            return "not an event"
+
+print(handle({"type": "expense", "amount": 9.5, "category": "food", "id": 7}))
+print(handle({"type": "income", "amount": 2000}))
+print(handle({"type": "refund"}))
+print(handle(["type", "expense"]))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+spent 9.5 on food
+earned 2000
+ignored event 'refund'
+not an event
+</script>
+
+<h2 id="classes">Class patterns</h2>
+<p>You can match objects by their class (Chapter 11) and check or capture their attributes. <code>Point(x=0, y=y)</code> means "an instance of <code>Point</code> whose <code>x</code> equals 0; capture its <code>y</code>".</p>
+<script type="text/plain" class="code" data-file="shapes.py">
+from dataclasses import dataclass     # a quick way to make a simple class (Chapter 11)
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+def where_is(point):
+    match point:
+        case Point(x=0, y=0):
+            return "Origin"
+        case Point(x=0, y=y):
+            return f"Y={y}"
+        case Point(x=x, y=0):
+            return f"X={x}"
+        case Point():                  # any Point at all
+            return "Somewhere else"
+        case _:
+            return "Not a point"
+
+print(where_is(Point(0, 5)))   # Y=5
+print(where_is(Point(3, 3)))   # Somewhere else
+print(where_is("hello"))       # Not a point
+</script>
+<p>Dataclasses also allow <strong>positional</strong> class patterns, because they set a special attribute called <code>__match_args__</code>. So <code>case Point(0, y):</code> works too. Built-in types work the same way: <code>case int(n):</code>, <code>case str(s):</code>.</p>
+<script type="text/plain" class="code" data-lang="python">
+def double(value):
+    match value:
+        case int(n) | float(n):       # n is bound in both alternatives
+            return n * 2
+        case str(s):
+            return s + s
+        case list(items):
+            return items + items
+    return None
+
+print(double(4), double(2.5), double("ab"), double([1]))   # 8 5.0 abab [1, 1]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>case int:</code> (no parentheses) is a <em>capture</em> named <code>int</code>. It matches everything and hides the built-in name. Always write <code>case int():</code> to check the type.</p>
+</div>
+
+<h2 id="as">Naming a sub-pattern with <code>as</code></h2>
+<p><code>pattern as name</code> matches the pattern and also stores what it matched under <code>name</code>. It is useful with alternatives.</p>
+<script type="text/plain" class="code" data-lang="python">
+def move(command):
+    match command.split():
+        case ["go", ("north" | "south" | "east" | "west") as direction]:
+            return f"walking {direction}"
+        case ["go", _]:
+            return "you can't go that way"
+
+print(move("go north"))   # walking north
+print(move("go up"))      # you can't go that way
+</script>
+
+<h2 id="cheatsheet">Pattern cheat sheet</h2>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Matches</th><th>Binds</th></tr>
+<tr><td><code>404</code>, <code>"add"</code>, <code>None</code>, <code>True</code></td><td>equal value (<code>None/True/False</code> by identity)</td><td>—</td></tr>
+<tr><td><code>Color.RED</code></td><td>equal to that dotted constant</td><td>—</td></tr>
+<tr><td><code>name</code></td><td>anything</td><td><code>name</code></td></tr>
+<tr><td><code>_</code></td><td>anything</td><td>nothing</td></tr>
+<tr><td><code>[a, b]</code> / <code>(a, b)</code></td><td>a sequence of exactly 2 items (not a str)</td><td><code>a</code>, <code>b</code></td></tr>
+<tr><td><code>[first, *rest]</code></td><td>a sequence of 1 or more items</td><td><code>first</code>, <code>rest</code> (a list)</td></tr>
+<tr><td><code>{"k": v}</code></td><td>a mapping with at least key <code>"k"</code></td><td><code>v</code></td></tr>
+<tr><td><code>Point(x=0)</code></td><td>an instance of <code>Point</code> with <code>.x == 0</code></td><td>—</td></tr>
+<tr><td><code>p1 | p2</code></td><td>either pattern</td><td>the same names in both</td></tr>
+<tr><td><code>p as n</code></td><td>pattern <code>p</code></td><td><code>n</code> = the matched value</td></tr>
+<tr><td><code>p if cond</code></td><td>pattern <code>p</code> and <code>cond</code> true</td><td>as in <code>p</code></td></tr>
+</table></div>
+<div class="tip">
+<p>💡 <strong>When to use which:</strong> for simple value checks (<code>x &gt; 10</code>, ranges, booleans) use <code>if/elif</code>. Use <code>match</code> when you check <em>structure</em> and unpack at the same time: commands, parsed JSON, tokens, or tree nodes.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A tiny calculator</h3>
+<script type="text/plain" class="code" data-file="calc.py">
+def calc(expr):
+    match expr.split():
+        case [a, "+", b]:
+            return float(a) + float(b)
+        case [a, "-", b]:
+            return float(a) - float(b)
+        case [a, ("*" | "x"), b]:
+            return float(a) * float(b)
+        case [a, "/", "0"]:
+            return "cannot divide by zero"
+        case [a, "/", b]:
+            return float(a) / float(b)
+        case _:
+            return "format: A op B"
+
+for e in ["2 + 3", "6 x 7", "1 / 0", "9 / 3", "hello"]:
+    print(e, "=", calc(e))
+</script>
+<h3>2. Validating a config dictionary</h3>
+<script type="text/plain" class="code" data-file="config.py">
+def check(cfg):
+    match cfg:
+        case {"currency": str(cur), "budget": int(b) | float(b)} if b > 0:
+            return f"ok: {b} {cur}"
+        case {"currency": _, "budget": _}:
+            return "budget must be a positive number"
+        case _:
+            return "missing currency or budget"
+
+print(check({"currency": "EUR", "budget": 500}))
+print(check({"currency": "EUR", "budget": -1}))
+print(check({"budget": 10}))
+</script>
+<h3>3. Summing a nested list recursively</h3>
+<script type="text/plain" class="code" data-file="deep_sum.py">
+def deep_sum(data):
+    match data:
+        case []:
+            return 0
+        case [first, *rest]:
+            return deep_sum(first) + deep_sum(rest)
+        case int() | float():
+            return data
+        case _:
+            return 0          # ignore anything else
+
+print(deep_sum([1, [2, 3], [[4]], "x", 5.5]))   # 15.5
+</script>
+<h3>4. Expense records as tuples</h3>
+<script type="text/plain" class="code" data-file="records.py">
+records = [("food", 12.5), ("travel", 300.0, "flight"), ("books",), ("fun", -3)]
+for rec in records:
+    match rec:
+        case (cat, amount) if amount < 0:
+            print(cat, ": negative amount!")
+        case (cat, amount):
+            print(cat, ":", amount)
+        case (cat, amount, note):
+            print(cat, ":", amount, "-", note)
+        case _:
+            print("bad record", rec)
+</script>
+<h3>5. Matching shapes from a list of dicts</h3>
+<p>(The last line uses a <em>list comprehension</em>, a one-line loop that builds a list, covered in Chapter 6.)</p>
+<script type="text/plain" class="code" data-file="area.py">
+import math
+
+def area(shape):
+    match shape:
+        case {"kind": "circle", "r": r}:
+            return math.pi * r ** 2
+        case {"kind": "rect", "w": w, "h": h}:
+            return w * h
+        case {"kind": "square", "side": s}:
+            return s * s
+    return 0
+
+shapes = [{"kind": "rect", "w": 2, "h": 3}, {"kind": "square", "side": 4}, {"kind": "circle", "r": 1}]
+print([round(area(s), 2) for s in shapes])   # [6, 16, 3.14]
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>match subject:</code> tries each <code>case</code> in order. The first match wins, with no fall-through. <code>case _:</code> is the default.</li>
+  <li>Literals compare. Bare names <strong>capture</strong> (they never compare!). Dotted names compare.</li>
+  <li><code>[a, *rest]</code> matches sequences (not strings), and <code>{"k": v}</code> matches dicts that have at least those keys.</li>
+  <li><code>Cls(attr=pattern)</code> checks the type and its attributes. Write <code>int()</code>, not <code>int</code>.</li>
+  <li><code>|</code> gives alternatives, <code>as</code> names a sub-match, and <code>if</code> adds a guard.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write <code>day_type(day)</code> using <code>match</code>: <code>"sat"</code> or <code>"sun"</code> gives <code>"weekend"</code>, any other string gives <code>"weekday"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def day_type(day):
+    match day:
+        case "sat" | "sun":
+            return "weekend"
+        case _:
+            return "weekday"
+
+print(day_type("sun"), day_type("tue"))   # weekend weekday
+</script>
+<p><code>|</code> joins two literal patterns, and <code>_</code> covers everything else.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>f([1, 2, 3])</code> return?</p>
+<script type="text/plain" class="code" data-lang="python">
+def f(x):
+    match x:
+        case [a]:
+            return "one"
+        case [a, b]:
+            return "two"
+        case [a, *rest]:
+            return f"first={a}, rest={rest}"
+
+print(f([1, 2, 3]))
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>first=1, rest=[2, 3]</code>. The first two patterns need exactly 1 or exactly 2 items. <code>*rest</code> always captures a <strong>list</strong>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>case [a, b]:</code> not match the string <code>"hi"</code>, even though a string is a sequence of characters?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Sequence patterns deliberately exclude <code>str</code>, <code>bytes</code> and <code>bytearray</code>. Otherwise a command like <code>"go"</code> would accidentally match a two-item pattern. Use <code>case str(s):</code> or split the string first.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This always prints <code>"stop!"</code>. Why? Fix it.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+STOP = "s"
+key = "x"
+match key:
+    case STOP:
+        print("stop!")
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+key = "x"
+match key:
+    case "s":            # a literal compares
+        print("stop!")
+    case _:
+        print("not stop")
+</script>
+<p><code>case STOP:</code> is a capture pattern: it assigns <code>key</code> to a new variable <code>STOP</code> and always matches. Use a literal, or a dotted name such as <code>Keys.STOP</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What are the outputs for <code>g({"a": 1})</code>, <code>g({"a": 1, "b": 2})</code> and <code>g({"b": 2})</code>?</p>
+<script type="text/plain" class="code" data-lang="python">
+def g(d):
+    match d:
+        case {"a": 1, **rest}:
+            return f"a=1 plus {rest}"
+        case {"b": b}:
+            return f"b={b}"
+        case _:
+            return "nothing"
+
+print(g({"a": 1}), "|", g({"a": 1, "b": 2}), "|", g({"b": 2}))
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>a=1 plus {} | a=1 plus {'b': 2} | b=2</code>. Mapping patterns allow extra keys, and <code>**rest</code> collects them. The second dict matches the first case, so the second case is never tried.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite this <code>if</code> chain with <code>match</code> and sequence patterns.</p>
+<script type="text/plain" class="code" data-lang="python">
+def parse(parts):
+    if len(parts) == 2 and parts[0] == "rm":
+        return "remove " + parts[1]
+    elif len(parts) >= 1 and parts[0] == "ls":
+        return "list " + str(parts[1:])
+    else:
+        return "?"
+
+print(parse(["rm", "a.txt"]), parse(["ls", "-l", "/"]), parse([]))
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def parse(parts):
+    match parts:
+        case ["rm", name]:
+            return "remove " + name
+        case ["ls", *args]:
+            return "list " + str(args)
+        case _:
+            return "?"
+
+print(parse(["rm", "a.txt"]), parse(["ls", "-l", "/"]), parse([]))
+</script>
+<p>Each pattern checks the length and the literal in one go, and names the parts at the same time.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>classify(n)</code> that returns <code>"zero"</code>, <code>"negative"</code>, <code>"small"</code> (1–9) or <code>"big"</code> using one <code>match</code> with guards.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def classify(n):
+    match n:
+        case 0:
+            return "zero"
+        case x if x < 0:
+            return "negative"
+        case x if x < 10:
+            return "small"
+        case _:
+            return "big"
+
+print([classify(v) for v in (0, -4, 7, 99)])   # ['zero', 'negative', 'small', 'big']
+</script>
+<p>A capture plus a guard tests a condition on the value. For pure numeric ranges like this, <code>if/elif</code> is just as clear.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/commands.py</code> with a function <code>handle(line)</code> for the expense tracker. Support <code>add AMOUNT CATEGORY</code>, <code>add AMOUNT</code> (category defaults to <code>"misc"</code>), <code>total</code>, and <code>quit</code>. It returns a description string. Test it with a list of sample lines.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/commands.py">
+def handle(line):
+    match line.split():
+        case ["add", amount, category]:
+            return f"add {float(amount)} to {category}"
+        case ["add", amount]:
+            return f"add {float(amount)} to misc"
+        case ["total"]:
+            return "show total"
+        case ["quit" | "q"]:
+            return "quit"
+        case _:
+            return f"unknown: {line!r}"
+
+for line in ["add 4.5 food", "add 10", "total", "q", "fly away"]:
+    print(handle(line))
+</script>
+<p>Cases are tried in order, so the three-word <code>add</code> comes before the two-word one. Their lengths differ anyway, so here the order isn't critical.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-lang="python">
+for item in [(1, 2), [1, 2], (1, 2, 3), "12", {"x": 1}]:
+    match item:
+        case (a, b):
+            print("pair", a, b)
+        case [a, *_]:
+            print("starts with", a)
+        case {"x": x}:
+            print("x is", x)
+        case _:
+            print("other", item)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+pair 1 2
+pair 1 2
+starts with 1
+other 12
+x is 1
+</script>
+<p><code>(a, b)</code> and <code>[a, b]</code> are the <em>same</em> pattern: both match any 2-item sequence, list or tuple. The string is not a sequence for matching purposes, so it falls through to <code>_</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project</span></h3>
+<p>Write <code>evaluate(tree)</code> for a tiny expression language stored as nested tuples: <code>("num", 5)</code>, <code>("add", left, right)</code>, <code>("mul", left, right)</code> and <code>("neg", x)</code>. <code>evaluate(("add", ("num", 2), ("mul", ("num", 3), ("neg", ("num", 4)))))</code> should return <code>-10</code>. Raise <code>ValueError</code> for anything unknown.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def evaluate(tree):
+    match tree:
+        case ("num", int(n) | float(n)):
+            return n
+        case ("add", left, right):
+            return evaluate(left) + evaluate(right)
+        case ("mul", left, right):
+            return evaluate(left) * evaluate(right)
+        case ("neg", x):
+            return -evaluate(x)
+        case _:
+            raise ValueError(f"bad node: {tree!r}")
+
+expr = ("add", ("num", 2), ("mul", ("num", 3), ("neg", ("num", 4))))
+print(evaluate(expr))   # 2 + 3 * -4 = -10
+</script>
+<p>Each case recognises one node shape and unpacks its children in the same step. This is exactly the job <code>match</code> was designed for: walking tree-shaped data.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/controlflow.html#match-statements">4.7 match Statements</a></li>
+  <li><a href="https://peps.python.org/pep-0636/">PEP 636: Structural Pattern Matching tutorial</a></li>
+  <li><a href="https://docs.python.org/3/reference/compound_stmts.html#the-match-statement">Language reference: the match statement</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

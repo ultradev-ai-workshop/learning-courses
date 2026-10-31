@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎁&lt;/text&gt;&lt;/svg&gt;">
+<title>3 · Props · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 3 · Describing the UI</p>
+<h1>Props</h1>
+<p class="lead">Props are how a parent component passes information to its children, just like arguments to a function.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>How to pass props to a component</li>
+    <li>How to read props, with destructuring</li>
+    <li>How to set default values</li>
+    <li>How to pass JSX as <code>children</code></li>
+    <li>Why props are read-only</li>
+  </ul>
+</div>
+
+<h2>What are props?</h2>
+<p>You already use props with HTML tags. In <code>&lt;img src="..." alt="..." /&gt;</code>, <code>src</code> and <code>alt</code> are information you <em>pass into</em> the image. Your own components can take props too, and any JavaScript value can be a prop: strings, numbers, objects, arrays, even functions.</p>
+
+<h2>Step 1: pass props to the child</h2>
+<script type="text/plain" class="code" data-file="App.jsx">
+  export default function Profile() {
+    return (
+      <Avatar
+        person={{ name: 'Lin Lanying', imageId: '1bX5QH6' }}
+        size={100}
+      />
+    );
+  }
+</script>
+<p>The rule from Chapter 2 applies: strings go in quotes (<code>name="Lin"</code>), and everything else goes in braces (<code>size={100}</code>, <code>person={{ ... }}</code>).</p>
+
+<h2>Step 2: read props inside the child</h2>
+<p>React collects all the props into <strong>one object</strong> and passes it as the component's <strong>first argument</strong>:</p>
+<script type="text/plain" class="code">
+  // What React does behind the scenes:
+  Avatar({ person: { name: 'Lin Lanying', imageId: '1bX5QH6' }, size: 100 })
+</script>
+<p>So you can read them like this:</p>
+<script type="text/plain" class="code">
+  function Avatar(props) {
+    const person = props.person;
+    const size = props.size;
+    // ...
+  }
+</script>
+<p>Most React code uses <strong>destructuring</strong> instead, which pulls the props out by name directly in the parameter list:</p>
+<script type="text/plain" class="code" data-file="Avatar.jsx">
+  function Avatar({ person, size }) {
+    return (
+      <img
+        className="avatar"
+        src={'https://react.dev/images/docs/scientists/' + person.imageId + 's.jpg'}
+        alt={person.name}
+        width={size}
+        height={size}
+      />
+    );
+  }
+</script>
+<div class="callout pitfall">
+  <strong>Don't forget the braces</strong>
+  <code>function Avatar({ person, size })</code> ✅ destructures the props object.<br>
+  <code>function Avatar(person, size)</code> ❌ is wrong: <code>person</code> would be the whole props object, and <code>size</code> would be <code>undefined</code>.
+</div>
+
+<h3>Reuse: same component, different props</h3>
+<script type="text/plain" class="code">
+  export default function Profile() {
+    return (
+      <div>
+        <Avatar size={100} person={{ name: 'Katsuko Saruhashi', imageId: 'YfeOqp2' }} />
+        <Avatar size={80}  person={{ name: 'Aklilu Lemma',      imageId: 'OKS67lh' }} />
+        <Avatar size={50}  person={{ name: 'Lin Lanying',       imageId: '1bX5QH6' }} />
+      </div>
+    );
+  }
+</script>
+<p>Think of a component as a <strong>template</strong> and props as the <strong>blanks you fill in</strong>. You can change <code>Avatar</code> without touching <code>Profile</code>, and the other way round.</p>
+
+<h2>Default values</h2>
+<p>If a prop might not be passed, give it a default with <code>=</code> in the destructuring:</p>
+<script type="text/plain" class="code">
+  function Avatar({ person, size = 100 }) {
+    // ...
+  }
+
+  <Avatar person={...} />            // size is 100
+  <Avatar person={...} size={40} />  // size is 40
+</script>
+<p>The default is used when the prop is <strong>missing</strong> or <code>undefined</code>. It is <em>not</em> used when you pass <code>null</code> or <code>0</code>.</p>
+
+<h2>Forwarding props with spread</h2>
+<p>Sometimes a component just passes everything along to a child. The <strong>spread</strong> syntax <code>{...props}</code> forwards them all:</p>
+<script type="text/plain" class="code">
+  function Profile(props) {
+    return (
+      <div className="card">
+        <Avatar {...props} />
+      </div>
+    );
+  }
+</script>
+<p>Use this sparingly. If you spread props everywhere, it becomes hard to see which component receives what.</p>
+
+<h2>Passing JSX as <code>children</code></h2>
+<p>With HTML you can put tags <em>inside</em> other tags: <code>&lt;div&gt;&lt;img /&gt;&lt;/div&gt;</code>. Your components can do the same. Whatever you put between the opening and closing tags arrives as a special prop called <strong><code>children</code></strong>:</p>
+<script type="text/plain" class="code" data-file="App.jsx">
+  function Card({ children }) {
+    return (
+      <div className="card">
+        {children}
+      </div>
+    );
+  }
+
+  export default function Profile() {
+    return (
+      <Card>
+        <h1>Photo</h1>
+        <Avatar size={100} person={{ name: 'Katsuko Saruhashi', imageId: 'YfeOqp2' }} />
+      </Card>
+    );
+  }
+</script>
+<p>Think of <code>Card</code> as a picture frame: it doesn't need to know what's inside, it just draws the border around it. Panels, modals, layouts and grids are commonly built this way.</p>
+
+<h2>Props are read-only</h2>
+<p>A component <strong>receives</strong> props but must <strong>never change</strong> them:</p>
+<script type="text/plain" class="code">
+  function Avatar({ size }) {
+    size = size * 2;   // 🔴 don't do this: props belong to the parent
+    // ...
+  }
+</script>
+<p>Props can still change over time: the parent can re-render with <em>different</em> props, and the child then shows the new values. But it's always the <strong>parent</strong> that changes them. If a component needs its own changing data (for example, in response to a click), that's <strong>state</strong>, covered in Chapter 7.</p>
+
+<div class="callout note">
+  <strong>Data flows one way</strong>
+  Parent → child, through props. A child can't reach up and change its parent's data directly. You'll learn the proper way (passing a function as a prop) in Chapter 6.
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: a button with "variants"</h3>
+<script type="text/plain" class="code">
+  function Button({ variant = 'primary', size = 'medium', children }) {
+    const colors = {
+      primary: { background: '#087ea4', color: 'white' },
+      danger: { background: '#dc2626', color: 'white' },
+      ghost: { background: 'transparent', color: '#087ea4', border: '1px solid #087ea4' },
+    };
+    const padding = size === 'small' ? '4px 8px' : '8px 16px';
+
+    return (
+      <button style={{ ...colors[variant], padding, borderRadius: 6, border: 'none' }}>
+        {children}
+      </button>
+    );
+  }
+
+  export default function App() {
+    return (
+      <>
+        <Button>Save</Button>
+        <Button variant="danger">Delete</Button>
+        <Button variant="ghost" size="small">Cancel</Button>
+      </>
+    );
+  }
+</script>
+<p>One component, many looks. Props with good defaults make components pleasant to use.</p>
+
+<h3>Example 2: any value can be a prop</h3>
+<script type="text/plain" class="code">
+  <UserCard
+    name="Ada"                        // string
+    age={36}                          // number
+    isAdmin={true}                    // boolean (you can also write just: isAdmin)
+    skills={['math', 'poetry']}       // array
+    address={{ city: 'London' }}      // object
+    onSelect={() => alert('hi')}      // function
+    avatar={<img src="ada.png" />}    // JSX
+  />
+
+  function UserCard({ name, age, isAdmin, skills, address, onSelect, avatar }) {
+    return (
+      <div onClick={onSelect}>
+        {avatar}
+        <h3>{name} ({age}) {isAdmin && '⭐'}</h3>
+        <p>Skills: {skills.join(', ')}</p>
+        <p>Lives in {address.city}</p>
+      </div>
+    );
+  }
+</script>
+
+<h3>Example 3: a layout built with <code>children</code></h3>
+<script type="text/plain" class="code">
+  function PageLayout({ title, children }) {
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto' }}>
+        <header><h1>{title}</h1></header>
+        <main>{children}</main>
+        <footer>© My Site</footer>
+      </div>
+    );
+  }
+
+  export default function AboutPage() {
+    return (
+      <PageLayout title="About us">
+        <p>We build things with React.</p>
+        <p>Founded in 2026.</p>
+      </PageLayout>
+    );
+  }
+</script>
+
+<h3>Example 4: computing from props</h3>
+<script type="text/plain" class="code">
+  function Temperature({ celsius }) {
+    const fahrenheit = celsius * 9 / 5 + 32;          // calculate, don't store
+    const feeling = celsius > 25 ? '🥵 hot' : celsius < 10 ? '🥶 cold' : '😊 nice';
+    return <p>{celsius}°C = {fahrenheit}°F, {feeling}</p>;
+  }
+
+  <Temperature celsius={30} />   // 30°C = 86°F, 🥵 hot
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>Pass props like HTML attributes: <code>&lt;Avatar person={p} size={100} /&gt;</code>.</li>
+    <li>Read them with destructuring: <code>function Avatar({ person, size })</code>.</li>
+    <li>Defaults: <code>{ size = 100 }</code>. Forward everything: <code>{...props}</code>.</li>
+    <li>Nested JSX arrives as <code>children</code>.</li>
+    <li>Props are <strong>read-only snapshots</strong>. Use state for data that changes.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Extract a component</h3>
+  <p>The code below repeats itself. Create a <code>Scientist</code> component that takes <code>name</code>, <code>imageId</code> and <code>discovery</code> props, and use it twice.</p>
+<script type="text/plain" class="code">
+  export default function Gallery() {
+    return (
+      <div>
+        <section>
+          <h2>Maria Skłodowska-Curie</h2>
+          <img src="https://react.dev/images/docs/scientists/szV5sdGs.jpg" alt="Maria Skłodowska-Curie" />
+          <p>Discovered polonium</p>
+        </section>
+        <section>
+          <h2>Katsuko Saruhashi</h2>
+          <img src="https://react.dev/images/docs/scientists/YfeOqp2s.jpg" alt="Katsuko Saruhashi" />
+          <p>Created a method for measuring carbon dioxide in seawater</p>
+        </section>
+      </div>
+    );
+  }
+</script>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Scientist({ name, imageId, discovery }) {
+    return (
+      <section>
+        <h2>{name}</h2>
+        <img src={`https://react.dev/images/docs/scientists/${imageId}s.jpg`} alt={name} />
+        <p>{discovery}</p>
+      </section>
+    );
+  }
+
+  export default function Gallery() {
+    return (
+      <div>
+        <Scientist name="Maria Skłodowska-Curie" imageId="szV5sdG" discovery="Discovered polonium" />
+        <Scientist name="Katsuko Saruhashi" imageId="YfeOqp2"
+          discovery="Created a method for measuring carbon dioxide in seawater" />
+      </div>
+    );
+  }
+</script>
+  <p>The backticks <code>`...${imageId}...`</code> are a JavaScript <strong>template string</strong>, an easy way to build text from variables.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. A frame with children</h3>
+  <p>Create a <code>Panel</code> component that takes a <code>title</code> prop and <code>children</code>, and draws a bordered box with the title on top. Use it to wrap a paragraph.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Panel({ title, children }) {
+    return (
+      <section style={{ border: '1px solid #ccc', borderRadius: 8, padding: 16 }}>
+        <h2>{title}</h2>
+        {children}
+      </section>
+    );
+  }
+
+  export default function App() {
+    return (
+      <Panel title="About">
+        <p>With a population of about 6 million, Almaty is Kazakhstan's largest city.</p>
+      </Panel>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Greeting with a default <span class="lvl">🟢 easy</span></h3>
+  <p>Make <code>&lt;Greeting name="Asha" /&gt;</code> show "Hello, Asha!", and <code>&lt;Greeting /&gt;</code> show "Hello, Guest!".</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Greeting({ name = 'Guest' }) {
+    return <h2>Hello, {name}!</h2>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Badge <span class="lvl">🟢 easy</span></h3>
+  <p>Create <code>&lt;Badge label="New" color="green" /&gt;</code>, which renders a small rounded pill with white text on the given background colour.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Badge({ label, color = 'gray' }) {
+    return (
+      <span style={{ background: color, color: 'white', padding: '2px 10px', borderRadius: 999, fontSize: 12 }}>
+        {label}
+      </span>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Fix the props bug <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  function Card(title, body) {
+    return <div><h3>{title}</h3><p>{body}</p></div>;
+  }
+  <Card title="Hi" body="There" />   // shows nothing useful. Why?
+</script>
+  <details class="solution"><summary>Show solution</summary>
+  <p>Props arrive as <strong>one object</strong>. Without braces, <code>title</code> is the whole props object and <code>body</code> is <code>undefined</code>. Fix: <code>function Card({ title, body })</code>.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Product card <span class="lvl">🟢 easy</span></h3>
+  <p>Create <code>ProductCard</code>, which takes one <code>product</code> prop (<code>{ name, price, imageUrl }</code>) and shows the image, the name, and the price formatted like "₹ 499".</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function ProductCard({ product }) {
+    return (
+      <div className="card">
+        <img src={product.imageUrl} alt={product.name} width={120} />
+        <h3>{product.name}</h3>
+        <p>₹ {product.price}</p>
+      </div>
+    );
+  }
+
+  <ProductCard product={{ name: 'Mug', price: 499, imageUrl: '/mug.png' }} />
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Star rating <span class="lvl">🟡 medium</span></h3>
+  <p>Make <code>&lt;Rating value={3} /&gt;</code> show "★★★☆☆". Use a <code>max</code> prop with a default of 5. Hint: <code>'★'.repeat(n)</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Rating({ value, max = 5 }) {
+    return (
+      <span aria-label={`${value} out of ${max} stars`}>
+        {'★'.repeat(value)}{'☆'.repeat(max - value)}
+      </span>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Alert box with children <span class="lvl">🟡 medium</span></h3>
+  <p>Create <code>&lt;Alert type="warning"&gt;...&lt;/Alert&gt;</code>. The type (<code>info</code>, <code>warning</code> or <code>error</code>) picks the border colour and an icon (ℹ️ ⚠️ ❌), and <code>children</code> is the message.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  const STYLES = {
+    info:    { icon: 'ℹ️', color: '#087ea4' },
+    warning: { icon: '⚠️', color: '#e5a00d' },
+    error:   { icon: '❌', color: '#dc2626' },
+  };
+
+  function Alert({ type = 'info', children }) {
+    const { icon, color } = STYLES[type];
+    return (
+      <div style={{ borderLeft: `4px solid ${color}`, padding: '8px 12px', margin: '8px 0' }}>
+        {icon} {children}
+      </div>
+    );
+  }
+
+  <Alert type="warning">Your session expires in <b>5 minutes</b>.</Alert>
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Passing a function prop <span class="lvl">🟡 medium</span></h3>
+  <p>Create <code>Greeter</code>, which takes a <code>format</code> function prop and a <code>name</code>, and shows <code>format(name)</code>. Render it twice: once with a function that shouts (<code>n =&gt; n.toUpperCase() + '!!!'</code>), and once with a function that whispers.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Greeter({ name, format }) {
+    return <p>{format(name)}</p>;
+  }
+
+  export default function App() {
+    return (
+      <>
+        <Greeter name="Asha" format={n => n.toUpperCase() + '!!!'} />
+        <Greeter name="Asha" format={n => '(psst… ' + n.toLowerCase() + ')'} />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. Smart image size <span class="lvl">🔴 hard</span></h3>
+  <p>The react.dev images come in two sizes: a suffix of <code>s</code> (small) or <code>b</code> (big), e.g. <code>.../YfeOqp2s.jpg</code>. Write a helper <code>getImageUrl(imageId, size)</code> that picks <code>'b'</code> when <code>size &gt; 90</code> and <code>'s'</code> otherwise, and use it in an <code>Avatar({ person, size })</code> component. Render avatars at sizes 40, 70 and 120.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function getImageUrl(imageId, size) {
+    const suffix = size > 90 ? 'b' : 's';
+    return `https://react.dev/images/docs/scientists/${imageId}${suffix}.jpg`;
+  }
+
+  function Avatar({ person, size = 100 }) {
+    return (
+      <img
+        src={getImageUrl(person.imageId, size)}
+        alt={person.name}
+        width={size}
+        height={size}
+        style={{ borderRadius: '50%' }}
+      />
+    );
+  }
+
+  export default function App() {
+    const katsuko = { name: 'Katsuko Saruhashi', imageId: 'YfeOqp2' };
+    return (
+      <>
+        <Avatar person={katsuko} size={40} />
+        <Avatar person={katsuko} size={70} />
+        <Avatar person={katsuko} size={120} />
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/passing-props-to-a-component">Passing Props to a Component</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

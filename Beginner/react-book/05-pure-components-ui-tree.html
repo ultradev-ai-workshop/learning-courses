@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌳&lt;/text&gt;&lt;/svg&gt;">
+<title>5 · Pure Components &amp; the UI Tree · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 5 · Describing the UI</p>
+<h1>Pure Components &amp; the UI Tree</h1>
+<p class="lead">One rule keeps React apps predictable: components must be "pure". Then you'll see how React views your app as a tree.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>What "pure" means, and why React needs it</li>
+    <li>How to spot and fix impure components</li>
+    <li>Where side effects belong instead</li>
+    <li>The render tree and the module dependency tree</li>
+  </ul>
+</div>
+
+<h2>What is a pure function?</h2>
+<p>In maths, a formula like <code>y = 2x</code> always gives the same answer for the same input: if <code>x = 3</code>, then <code>y</code> is <em>always</em> 6. A <strong>pure function</strong> works the same way. It has two properties:</p>
+<ol>
+  <li><strong>Same inputs → same output.</strong> Given the same props, a component always returns the same JSX.</li>
+  <li><strong>It minds its own business.</strong> It doesn't change anything that existed before it was called: no outside variables, no objects passed in.</li>
+</ol>
+<script type="text/plain" class="code">
+  // ✅ pure: depends only on its input
+  function double(number) {
+    return 2 * number;
+  }
+
+  // ✅ a pure component: same drinkers → same recipe
+  function Recipe({ drinkers }) {
+    return (
+      <ol>
+        <li>Boil {drinkers} cups of water.</li>
+        <li>Add {drinkers} spoons of tea and {0.5 * drinkers} spoons of spice.</li>
+        <li>Add {0.5 * drinkers} cups of milk to boil and sugar to taste.</li>
+      </ol>
+    );
+  }
+</script>
+<p>Think of a component as a <strong>recipe</strong>: if you follow it and don't add new ingredients halfway, you get the same dish every time.</p>
+
+<h2>An impure component (and the bug it causes)</h2>
+<script type="text/plain" class="code">
+  let guest = 0;   // a variable OUTSIDE the component
+
+  function Cup() {
+    guest = guest + 1;            // 🔴 changes something outside: impure!
+    return <h2>Tea cup for guest #{guest}</h2>;
+  }
+
+  export default function TeaSet() {
+    return (
+      <>
+        <Cup />
+        <Cup />
+        <Cup />
+      </>
+    );
+  }
+</script>
+<p>You might expect guests #1, #2 and #3. But React can call components <strong>any number of times</strong> and in any order. In development, StrictMode calls each one twice, so you'd see #2, #4, #6. Calling <code>Cup</code> gives a different result every time, so it's unpredictable.</p>
+<p><strong>The fix:</strong> pass the data in as a prop.</p>
+<script type="text/plain" class="code">
+  function Cup({ guest }) {
+    return <h2>Tea cup for guest #{guest}</h2>;   // ✅ depends only on props
+  }
+
+  export default function TeaSet() {
+    return (
+      <>
+        <Cup guest={1} />
+        <Cup guest={2} />
+        <Cup guest={3} />
+      </>
+    );
+  }
+</script>
+
+<div class="callout tip">
+  <strong>How StrictMode helps</strong>
+  In development, React calls each component function <strong>twice</strong>. A pure component gives the same result both times, so you won't notice anything. An impure one misbehaves, which reveals the bug early. That's why your <code>console.log</code>s sometimes print twice.
+</div>
+
+<h2>Local mutation is fine</h2>
+<p>Changing a variable <strong>you created during this render</strong> is perfectly OK. Nobody outside can see it:</p>
+<script type="text/plain" class="code">
+  export default function TeaGathering() {
+    const cups = [];                     // created fresh on every render
+    for (let i = 1; i <= 12; i++) {
+      cups.push(<Cup key={i} guest={i} />);   // ✅ mutating our own local array
+    }
+    return cups;
+  }
+</script>
+<p>The problem is only changing things that existed <em>before</em> the render: outside variables, props, state, or other components' data.</p>
+
+<h2>Where side effects go</h2>
+<p>Changing the screen, starting an animation, fetching data, writing to <code>localStorage</code>: these are <strong>side effects</strong>, things that happen "on the side" rather than during rendering. Apps need them, of course. They just don't belong in the component body.</p>
+<ul>
+  <li><strong>First choice: event handlers.</strong> Code that runs when the user clicks, types or submits (Chapter 6). Event handlers don't run during rendering, so they don't need to be pure.</li>
+  <li><strong>Last resort: Effects.</strong> <code>useEffect</code> runs code <em>after</em> rendering (Chapter 13).</li>
+</ul>
+<div class="callout note">
+  <strong>Rules of thumb for the component body</strong>
+  <ul>
+    <li>Don't change props, state or outside variables.</li>
+    <li>Don't call <code>fetch</code>, <code>setTimeout</code> or <code>document.title = ...</code> directly in the body.</li>
+    <li>Just <strong>calculate</strong> and <strong>return JSX</strong>.</li>
+  </ul>
+</div>
+
+<h3>Why purity matters</h3>
+<ul>
+  <li>Components can run anywhere, including on a server, and give the same output.</li>
+  <li>React can <strong>skip</strong> re-rendering components whose inputs didn't change. That's safe only because they're pure.</li>
+  <li>React can pause and restart rendering when something more urgent happens.</li>
+  <li>The React Compiler relies on purity to optimise your code automatically.</li>
+</ul>
+
+<h2>Your UI as a tree</h2>
+<p>React, like the browser, models UI as a <strong>tree</strong>: things that contain other things. Seeing this tree helps you understand how data flows, where state lives, and what re-renders.</p>
+
+<h3>The render tree</h3>
+<p>Given this app:</p>
+<script type="text/plain" class="code">
+  export default function App() {
+    return (
+      <>
+        <FancyText title text="Get Inspired App" />
+        <InspirationGenerator>
+          <Copyright year={2004} />
+        </InspirationGenerator>
+      </>
+    );
+  }
+</script>
+<p>React builds this <strong>render tree</strong>, which shows which component rendered which:</p>
+<script type="text/plain" class="code" data-lang="text">
+  App                       ← root component
+  ├── FancyText
+  └── InspirationGenerator
+      ├── FancyText  or  Color     ← only one, chosen by a condition
+      └── Copyright                ← leaf component
+</script>
+<ul>
+  <li><strong>Root</strong>: the first component (<code>App</code>).</li>
+  <li><strong>Top-level components</strong> sit near the root. They affect everything below them and usually hold shared state.</li>
+  <li><strong>Leaf components</strong> have no children. They re-render often and are usually simple.</li>
+  <li>With <strong>conditional rendering</strong>, the tree can differ from one render to the next.</li>
+</ul>
+<p>The tree contains only <strong>components</strong>. HTML tags like <code>&lt;div&gt;</code> are left out because they're just the output.</p>
+
+<h3>The module dependency tree</h3>
+<p>A second, different tree shows <strong>which file imports which</strong>:</p>
+<script type="text/plain" class="code" data-lang="text">
+  App.jsx
+  ├── FancyText.jsx
+  ├── InspirationGenerator.jsx
+  │   ├── FancyText.jsx
+  │   ├── Color.jsx
+  │   └── inspirations.js      ← a data file, not a component
+  └── Copyright.jsx
+</script>
+<p>Build tools such as Vite use this tree to <strong>bundle</strong> your code into the files the browser downloads. A big dependency tree means a big download, so be careful about importing heavy libraries everywhere.</p>
+
+<h2>More examples</h2>
+
+<h3>Example 1: mutating a prop object (impure) vs deriving (pure)</h3>
+<script type="text/plain" class="code">
+  // 🔴 changes the parent's object!
+  function Header({ user }) {
+    user.name = user.name.toUpperCase();
+    return <h1>{user.name}</h1>;
+  }
+
+  // ✅ calculate a new value, leave the prop alone
+  function Header({ user }) {
+    const displayName = user.name.toUpperCase();
+    return <h1>{displayName}</h1>;
+  }
+</script>
+
+<h3>Example 2: <code>sort()</code> is a hidden mutation</h3>
+<script type="text/plain" class="code">
+  // 🔴 .sort() rearranges the ORIGINAL array the parent passed in
+  function SortedList({ items }) {
+    const sorted = items.sort();
+    return <ul>{sorted.map(i => <li key={i}>{i}</li>)}</ul>;
+  }
+
+  // ✅ toSorted() (or [...items].sort()) returns a new array
+  function SortedList({ items }) {
+    const sorted = items.toSorted();
+    return <ul>{sorted.map(i => <li key={i}>{i}</li>)}</ul>;
+  }
+</script>
+<p>Watch out for array methods that change the original: <code>sort</code>, <code>reverse</code>, <code>push</code>, <code>pop</code>, <code>splice</code>, <code>shift</code>, <code>unshift</code>.</p>
+
+<h3>Example 3: touching the page during render</h3>
+<script type="text/plain" class="code">
+  // 🔴 side effect during rendering
+  function Inbox({ unread }) {
+    document.title = `(${unread}) Inbox`;
+    return <h1>Inbox</h1>;
+  }
+
+  // ✅ do it in an event handler (or, as a last resort, an Effect: Chapter 13)
+  function Inbox({ unread, onOpen }) {
+    function handleOpen() {
+      document.title = `(${unread}) Inbox`;
+      onOpen();
+    }
+    return <button onClick={handleOpen}>Open inbox</button>;
+  }
+</script>
+
+<h3>Example 4: pure helpers make components simpler</h3>
+<script type="text/plain" class="code">
+  // pure helper functions: same input → same output, easy to test
+  function calculateTotal(items) {
+    return items.reduce((sum, item) => sum + item.price * item.qty, 0);
+  }
+  function formatRupees(amount) {
+    return '₹' + amount.toLocaleString('en-IN');
+  }
+
+  function CartSummary({ items }) {
+    return <p>Total: {formatRupees(calculateTotal(items))}</p>;
+  }
+</script>
+
+<h3>Example 5: how conditions change the render tree</h3>
+<script type="text/plain" class="code">
+  function App({ isLoggedIn }) {
+    return (
+      <Layout>
+        {isLoggedIn ? <Dashboard /> : <LoginForm />}
+      </Layout>
+    );
+  }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+  isLoggedIn = false          isLoggedIn = true
+  App                         App
+  └── Layout                  └── Layout
+      └── LoginForm               └── Dashboard
+</script>
+<p>Same code, but a different tree on each render. That matters a lot for state (Chapter 10).</p>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>A pure component returns the <strong>same JSX for the same props</strong> and doesn't change anything that existed before it ran.</li>
+    <li>Creating and changing <strong>local</strong> variables during render is fine.</li>
+    <li>Side effects go in <strong>event handlers</strong> first, and in <code>useEffect</code> only as a last resort.</li>
+    <li>StrictMode double-calls components in development to catch impurity.</li>
+    <li>The <strong>render tree</strong> shows who renders whom. The <strong>dependency tree</strong> shows who imports whom.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Find the impurity</h3>
+<script type="text/plain" class="code">
+  export default function StoryTray({ stories }) {
+    stories.push({ id: 'create', label: 'Create Story' });
+    return (
+      <ul>
+        {stories.map(story => <li key={story.id}>{story.label}</li>)}
+      </ul>
+    );
+  }
+</script>
+  <p>Why does "Create Story" appear more and more times? Fix it.</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p><code>stories</code> is a <strong>prop</strong>, an array owned by the parent. <code>push</code> changes that array on every render, so items pile up. Copy it first, so you only change your own local array:</p>
+<script type="text/plain" class="code">
+  export default function StoryTray({ stories }) {
+    const items = [...stories, { id: 'create', label: 'Create Story' }];   // ✅ new array
+    return (
+      <ul>
+        {items.map(story => <li key={story.id}>{story.label}</li>)}
+      </ul>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Draw your tree</h3>
+  <p>Open React DevTools → <strong>Components</strong> in your <code>sample-test-react</code> app. Draw its render tree on paper. Which components are leaves?</p>
+  <details class="solution"><summary>Show answer</summary>
+  <p>Roughly <code>App → Gallery → Profile ×3</code>, and <code>App → TodoList</code> when the pop-up is open. <code>Profile</code> and <code>TodoList</code> are leaves because they render no components of their own.</p>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Pure or not? <span class="lvl">🟢 easy</span></h3>
+  <p>For each component, say whether it's pure.</p>
+<script type="text/plain" class="code">
+  // A
+  function A({ x }) { return <p>{x * 2}</p>; }
+
+  // B
+  let calls = 0;
+  function B() { calls++; return <p>{calls}</p>; }
+
+  // C
+  function C({ list }) { const copy = [...list]; copy.push('x'); return <p>{copy.length}</p>; }
+
+  // D
+  function D({ list }) { list.push('x'); return <p>{list.length}</p>; }
+</script>
+  <details class="solution"><summary>Show answer</summary>
+  <p><strong>A:</strong> pure. <strong>B:</strong> impure (it changes an outside variable). <strong>C:</strong> pure (it changes only its own local copy). <strong>D:</strong> impure (it mutates a prop).</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Fix the sorted list <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  function TopScores({ scores }) {
+    scores.sort((a, b) => b - a);
+    return <ol>{scores.slice(0, 3).map(s => <li key={s}>{s}</li>)}</ol>;
+  }
+</script>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function TopScores({ scores }) {
+    const sorted = scores.toSorted((a, b) => b - a);   // ✅ new array
+    return <ol>{sorted.slice(0, 3).map(s => <li key={s}>{s}</li>)}</ol>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Fix the render counter <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  let id = 0;
+  function Ticket({ name }) {
+    id = id + 1;
+    return <p>Ticket #{id} for {name}</p>;
+  }
+</script>
+  <details class="solution"><summary>Show solution</summary>
+  <p>Pass the number in as a prop from the parent: <code>function Ticket({ id, name })</code>, then render <code>&lt;Ticket id={1} name="Asha" /&gt;</code>, or <code>tickets.map((t, i) =&gt; &lt;Ticket key={t.id} id={i + 1} name={t.name} /&gt;)</code>.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Don't change the person <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  function Profile({ person }) {
+    if (!person.nickname) person.nickname = person.name.split(' ')[0];
+    return <h2>{person.nickname}</h2>;
+  }
+</script>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function Profile({ person }) {
+    const nickname = person.nickname || person.name.split(' ')[0];
+    return <h2>{nickname}</h2>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Move the side effect <span class="lvl">🟡 medium</span></h3>
+<script type="text/plain" class="code">
+  function SaveButton({ data }) {
+    localStorage.setItem('draft', JSON.stringify(data));
+    return <button>Save</button>;
+  }
+</script>
+  <p>What's wrong, and how do you fix it?</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p>It writes to storage <em>every time it renders</em>, even without a click. Move it into the click handler:</p>
+<script type="text/plain" class="code">
+  function SaveButton({ data }) {
+    function handleClick() {
+      localStorage.setItem('draft', JSON.stringify(data));
+    }
+    return <button onClick={handleClick}>Save</button>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Extract pure helpers <span class="lvl">🟡 medium</span></h3>
+  <p>Write two pure functions: <code>getInitials('Hedy Lamarr')</code> → <code>"HL"</code>, and <code>pluralize(count, word)</code> → <code>"1 item"</code> / <code>"3 items"</code>. Use both in a component that shows "HL has 3 items".</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function getInitials(name) {
+    return name.split(' ').map(part => part[0]).join('').toUpperCase();
+  }
+
+  function pluralize(count, word) {
+    return `${count} ${word}${count === 1 ? '' : 's'}`;
+  }
+
+  export default function Summary({ name, count }) {
+    return <p>{getInitials(name)} has {pluralize(count, 'item')}</p>;
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Draw the render tree <span class="lvl">🟡 medium</span></h3>
+<script type="text/plain" class="code">
+  function App() {
+    return (
+      <Page>
+        <Header />
+        {user ? <UserMenu user={user} /> : <LoginButton />}
+        <ProductList products={products} />   {/* renders <ProductItem /> for each product */}
+      </Page>
+    );
+  }
+</script>
+  <p>Draw the tree for when <code>user</code> is <code>null</code> and there are 2 products. Which components are leaves?</p>
+  <details class="solution"><summary>Show answer</summary>
+<script type="text/plain" class="code" data-lang="text">
+  App
+  └── Page
+      ├── Header
+      ├── LoginButton
+      └── ProductList
+          ├── ProductItem
+          └── ProductItem
+</script>
+  <p>Leaves (assuming they render no components of their own): <code>Header</code>, <code>LoginButton</code> and both <code>ProductItem</code>s.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. Your project's dependency tree <span class="lvl">🔴 hard</span></h3>
+  <p>For your <code>sample-test-react</code> app, list every file and what it imports, starting from <code>main.jsx</code>. Draw it as a tree. Which file would you split first if the bundle got too big?</p>
+  <details class="solution"><summary>Show example answer</summary>
+<script type="text/plain" class="code" data-lang="text">
+  main.jsx
+  ├── react, react-dom/client
+  ├── index.css
+  └── App.jsx
+      ├── react (useState)
+      ├── App.css
+      ├── assets/hero.png, react.svg, vite.svg
+      └── components/Common.jsx (Profile)
+</script>
+  <p><code>App.jsx</code> holds most of the components (Gallery, TodoList…), so moving each into its own file under <code>components/</code> is the natural first split.</p>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/keeping-components-pure">Keeping Components Pure</a> · <a href="https://react.dev/learn/understanding-your-ui-as-a-tree">Your UI as a Tree</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

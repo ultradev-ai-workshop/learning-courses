@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔄&lt;/text&gt;&lt;/svg&gt;">
+<title>10 · Preserving State &amp; Reducers · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 10 · Managing State</p>
+<h1>Preserving State &amp; Reducers</h1>
+<p class="lead">When does React keep state, and when does it throw it away? And how do you tidy up complicated update logic?</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>Why state is tied to a component's <strong>position in the tree</strong></li>
+    <li>When React keeps or resets state</li>
+    <li>How to force a reset with <code>key</code></li>
+    <li>How to move update logic into a <strong>reducer</strong> with <code>useReducer</code></li>
+  </ul>
+</div>
+
+<h2>Part A · Preserving and resetting state</h2>
+
+<h3>State lives at a position in the tree</h3>
+<p>You might think state lives "inside" a component. Actually <strong>React holds it</strong>, and attaches it to the component's <strong>position in the UI tree</strong>.</p>
+<script type="text/plain" class="code">
+  export default function App() {
+    return (
+      <div>
+        <Counter />   {/* position 1: has its own count */}
+        <Counter />   {/* position 2: has its own count */}
+      </div>
+    );
+  }
+</script>
+<p>Each <code>&lt;Counter /&gt;</code> is at a different position, so each has separate state. If you stop rendering a component, React <strong>destroys its state</strong>. Render it again later, and it starts fresh.</p>
+
+<h3>Same component at the same position → state is kept</h3>
+<script type="text/plain" class="code">
+  {isFancy ? <Counter isFancy={true} /> : <Counter isFancy={false} />}
+</script>
+<p>Toggling <code>isFancy</code> does <strong>not</strong> reset the count. Either way it's a <code>Counter</code> in the same spot, so React treats it as the same component with new props.</p>
+<div class="callout note"><strong>What matters</strong> React cares about the position in the <strong>returned JSX tree</strong>, not where the code sits in your function.</div>
+
+<h3>Different component at the same position → state is reset</h3>
+<script type="text/plain" class="code">
+  {isPaused ? <p>See you later!</p> : <Counter />}
+</script>
+<p>Switching from <code>Counter</code> to <code>&lt;p&gt;</code> removes the <code>Counter</code> and its state. The same happens if the <strong>parent element</strong> changes type (for example <code>&lt;div&gt;</code> → <code>&lt;section&gt;</code>): the whole subtree is reset.</p>
+
+<div class="callout bad">
+  <strong>❌ This is why you never define components inside components</strong>
+<script type="text/plain" class="code">
+  export default function MyComponent() {
+    const [counter, setCounter] = useState(0);
+
+    function MyTextField() {          // 🔴 a NEW function on every render
+      const [text, setText] = useState('');
+      return <input value={text} onChange={e => setText(e.target.value)} />;
+    }
+
+    return <MyTextField />;
+  }
+</script>
+  Every render creates a <em>different</em> <code>MyTextField</code> function. React sees a different component at that position and resets its state, so the input loses its text every time the parent re-renders.
+</div>
+
+<h3>Resetting state on purpose with <code>key</code></h3>
+<p>Sometimes you <em>want</em> a reset. Example: a chat app where the draft message should clear when you switch contacts.</p>
+<script type="text/plain" class="code">
+  <Chat key={contact.id} contact={contact} />
+</script>
+<p>A <code>key</code> tells React "this is a <em>different</em> chat when the key changes". When <code>contact.id</code> changes, React throws away the old <code>Chat</code> (including its draft) and makes a fresh one.</p>
+<script type="text/plain" class="code">
+  // Two players' scores that should NOT share state:
+  {isPlayerA
+    ? <Counter key="Taylor" person="Taylor" />
+    : <Counter key="Sarah" person="Sarah" />}
+</script>
+
+<h2>Part B · Extracting state logic into a reducer</h2>
+<p>When a component has many event handlers that all update the same state in different ways, the logic gets scattered. A <strong>reducer</strong> gathers it all into <strong>one function</strong>, outside the component.</p>
+
+<h3>Before: logic spread across handlers</h3>
+<script type="text/plain" class="code">
+  function handleAddTask(text) {
+    setTasks([...tasks, { id: nextId++, text, done: false }]);
+  }
+  function handleChangeTask(task) {
+    setTasks(tasks.map(t => (t.id === task.id ? task : t)));
+  }
+  function handleDeleteTask(taskId) {
+    setTasks(tasks.filter(t => t.id !== taskId));
+  }
+</script>
+
+<h3>Step 1: handlers dispatch actions</h3>
+<p>Instead of saying <em>how</em> to update the state, handlers describe <em>what the user just did</em>, as an <strong>action</strong> object:</p>
+<script type="text/plain" class="code">
+  function handleAddTask(text) {
+    dispatch({ type: 'added', id: nextId++, text: text });
+  }
+  function handleChangeTask(task) {
+    dispatch({ type: 'changed', task: task });
+  }
+  function handleDeleteTask(taskId) {
+    dispatch({ type: 'deleted', id: taskId });
+  }
+</script>
+
+<h3>Step 2: write the reducer function</h3>
+<p>A reducer takes the <strong>current state</strong> and an <strong>action</strong>, and returns the <strong>next state</strong>:</p>
+<script type="text/plain" class="code" data-file="tasksReducer.js">
+  export default function tasksReducer(tasks, action) {
+    switch (action.type) {
+      case 'added': {
+        return [...tasks, { id: action.id, text: action.text, done: false }];
+      }
+      case 'changed': {
+        return tasks.map(t => (t.id === action.task.id ? action.task : t));
+      }
+      case 'deleted': {
+        return tasks.filter(t => t.id !== action.id);
+      }
+      default: {
+        throw Error('Unknown action: ' + action.type);
+      }
+    }
+  }
+</script>
+
+<h3>Step 3: use it in your component</h3>
+<script type="text/plain" class="code">
+  import { useReducer } from 'react';
+  import tasksReducer from './tasksReducer.js';
+
+  export default function TaskApp() {
+    const [tasks, dispatch] = useReducer(tasksReducer, initialTasks);
+    //     ↑ state  ↑ send actions    ↑ reducer      ↑ initial state
+    // ...
+  }
+</script>
+
+<div class="callout note">
+  <strong>Why is it called a "reducer"?</strong>
+  It's named after the array method <code>reduce()</code>, which takes "the result so far + the next item" and returns the new result. A React reducer takes "the state so far + the next action" and returns the new state.
+</div>
+
+<h3><code>useState</code> vs <code>useReducer</code></h3>
+<div class="table-wrap">
+<table>
+  <tr><th></th><th><code>useState</code></th><th><code>useReducer</code></th></tr>
+  <tr><td>Code size</td><td>Less code for simple state</td><td>More code up front</td></tr>
+  <tr><td>Readability</td><td>Great for simple updates</td><td>Better when there are many kinds of update</td></tr>
+  <tr><td>Debugging</td><td>Harder to see <em>why</em> state changed</td><td>Log each action in one place</td></tr>
+  <tr><td>Testing</td><td>Tied to the component</td><td>The reducer is a plain function, easy to test</td></tr>
+</table>
+</div>
+
+<div class="callout pitfall">
+  <strong>Rules for reducers</strong>
+  <ul>
+    <li>They must be <strong>pure</strong>: no fetches, timers or mutations. Just calculate the next state.</li>
+    <li>Each action should describe <strong>one user interaction</strong> (<code>'reset_form'</code>), even if it changes several fields.</li>
+  </ul>
+</div>
+
+<h2>More examples</h2>
+
+<h3>Example 1: hiding vs removing</h3>
+<script type="text/plain" class="code">
+  // Removing: the Counter is unmounted, so its count is LOST
+  {showCounter && <Counter />}
+
+  // Hiding with CSS: the Counter stays mounted, so its count is KEPT
+  <div style={{ display: showCounter ? 'block' : 'none' }}>
+    <Counter />
+  </div>
+</script>
+<p>Choose deliberately: removing gives a fresh start, while hiding keeps whatever the user entered.</p>
+
+<h3>Example 2: the same position, so state is shared by accident</h3>
+<script type="text/plain" class="code">
+  export default function Scoreboard() {
+    const [isPlayerA, setIsPlayerA] = useState(true);
+    return (
+      <>
+        {isPlayerA ? <Counter person="Taylor" /> : <Counter person="Sarah" />}
+        <button onClick={() => setIsPlayerA(!isPlayerA)}>Next player!</button>
+      </>
+    );
+  }
+  // 🔴 Sarah "inherits" Taylor's score: same component, same position.
+  // ✅ Fix: give them different keys: <Counter key="Taylor" .../> and <Counter key="Sarah" .../>
+</script>
+
+<h3>Example 3: a reducer for a form</h3>
+<script type="text/plain" class="code">
+  import { useReducer } from 'react';
+
+  const initialForm = { name: '', email: '', agree: false };
+
+  function formReducer(form, action) {
+    switch (action.type) {
+      case 'field_changed':
+        return { ...form, [action.field]: action.value };
+      case 'reset':
+        return initialForm;
+      default:
+        throw Error('Unknown action: ' + action.type);
+    }
+  }
+
+  export default function Signup() {
+    const [form, dispatch] = useReducer(formReducer, initialForm);
+
+    function handleChange(e) {
+      const { name, value, type, checked } = e.target;
+      dispatch({ type: 'field_changed', field: name, value: type === 'checkbox' ? checked : value });
+    }
+
+    return (
+      <form>
+        <input name="name" value={form.name} onChange={handleChange} />
+        <input name="email" value={form.email} onChange={handleChange} />
+        <label><input name="agree" type="checkbox" checked={form.agree} onChange={handleChange} /> I agree</label>
+        <button type="button" onClick={() => dispatch({ type: 'reset' })}>Reset</button>
+      </form>
+    );
+  }
+</script>
+
+<h3>Example 4: logging every action (easy debugging)</h3>
+<script type="text/plain" class="code">
+  function tasksReducer(tasks, action) {
+    console.log('action:', action, 'before:', tasks);
+    switch (action.type) {
+      // ...
+    }
+  }
+</script>
+
+<h3>Example 5: testing a reducer without React</h3>
+<script type="text/plain" class="code">
+  // reducers are plain functions, so you can check them directly
+  const after = tasksReducer([], { type: 'added', id: 1, text: 'Learn reducers' });
+  console.assert(after.length === 1, 'should add one task');
+  console.assert(after[0].done === false, 'new tasks are not done');
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>React keeps state as long as the <strong>same component</strong> is rendered at the <strong>same position</strong>.</li>
+    <li>A different component type at that position, or a removed component, means the <strong>state is reset</strong>.</li>
+    <li>Change the <code>key</code> to force a reset. Never define components inside other components.</li>
+    <li><code>useReducer(reducer, initial)</code> moves update logic into one pure function. Handlers <code>dispatch</code> actions that describe what happened.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. Reset the form</h3>
+  <p>A <code>ContactForm</code> keeps a <code>message</code> draft in its own state. When the user picks a different contact, the old draft stays. Fix it with one small change in the parent.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  <ContactForm key={selectedContact.id} contact={selectedContact} />
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Counter with a reducer</h3>
+  <p>Rewrite a counter (+, −, reset) using <code>useReducer</code> with actions <code>increment</code>, <code>decrement</code> and <code>reset</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useReducer } from 'react';
+
+  function counterReducer(count, action) {
+    switch (action.type) {
+      case 'increment': return count + 1;
+      case 'decrement': return count - 1;
+      case 'reset':     return 0;
+      default: throw Error('Unknown action: ' + action.type);
+    }
+  }
+
+  export default function Counter() {
+    const [count, dispatch] = useReducer(counterReducer, 0);
+    return (
+      <>
+        <h1>{count}</h1>
+        <button onClick={() => dispatch({ type: 'decrement' })}>−</button>
+        <button onClick={() => dispatch({ type: 'increment' })}>+</button>
+        <button onClick={() => dispatch({ type: 'reset' })}>Reset</button>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. Predict the reset <span class="lvl">🟢 easy</span></h3>
+  <p>For each case, does the <code>Counter</code>'s count survive when <code>flag</code> toggles?</p>
+<script type="text/plain" class="code">
+  // A
+  {flag ? <Counter color="red" /> : <Counter color="blue" />}
+  // B
+  {flag ? <Counter /> : <p>Paused</p>}
+  // C
+  {flag ? <div><Counter /></div> : <section><Counter /></section>}
+  // D
+  {flag ? <Counter key="a" /> : <Counter key="b" />}
+</script>
+  <details class="solution"><summary>Show answer</summary>
+  <p><strong>A:</strong> kept (same component, same position). <strong>B:</strong> reset (the Counter is removed). <strong>C:</strong> reset (the parent type changed from div to section). <strong>D:</strong> reset (different keys).</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Keep the draft while hidden <span class="lvl">🟢 easy</span></h3>
+  <p>A "Hide editor" button removes an editor with <code>{show &amp;&amp; &lt;Editor /&gt;}</code>, and the text is lost each time. Change it so the text survives.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  <div style={{ display: show ? 'block' : 'none' }}>
+    <Editor />
+  </div>
+</script>
+  <p>Alternatively, lift the text state up into the parent, so it doesn't matter whether <code>Editor</code> is mounted.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Fix the disappearing text <span class="lvl">🟢 easy</span></h3>
+<script type="text/plain" class="code">
+  export default function App() {
+    const [count, setCount] = useState(0);
+    function NameInput() {
+      const [name, setName] = useState('');
+      return <input value={name} onChange={e => setName(e.target.value)} />;
+    }
+    return (
+      <>
+        <NameInput />
+        <button onClick={() => setCount(count + 1)}>Clicked {count}</button>
+      </>
+    );
+  }
+</script>
+  <p>Typing works, but clicking the button erases the text. Why? Fix it.</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p><code>NameInput</code> is defined <em>inside</em> <code>App</code>, so every render creates a new component type and resets its state. Move it to the top level:</p>
+<script type="text/plain" class="code">
+  function NameInput() {
+    const [name, setName] = useState('');
+    return <input value={name} onChange={e => setName(e.target.value)} />;
+  }
+
+  export default function App() {
+    const [count, setCount] = useState(0);
+    return (
+      <>
+        <NameInput />
+        <button onClick={() => setCount(count + 1)}>Clicked {count}</button>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Separate drafts per contact <span class="lvl">🟡 medium</span></h3>
+  <p>In a chat app, you want to <strong>keep</strong> a separate draft for each contact, so switching back shows what you typed earlier. A <code>key</code> alone resets the draft. How would you keep them?</p>
+  <details class="solution"><summary>Show solution</summary>
+  <p>Lift the drafts up into an object keyed by contact ID:</p>
+<script type="text/plain" class="code">
+  const [drafts, setDrafts] = useState({});   // { [contactId]: text }
+
+  <Chat
+    contact={contact}
+    draft={drafts[contact.id] ?? ''}
+    onDraftChange={text => setDrafts({ ...drafts, [contact.id]: text })}
+  />
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Light switch reducer <span class="lvl">🟢 easy</span></h3>
+  <p>Write <code>lightReducer(state, action)</code> for <code>{ on: false, brightness: 50 }</code>, with the actions <code>toggled</code>, <code>brighter</code> (+10, max 100) and <code>dimmer</code> (−10, min 0).</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function lightReducer(state, action) {
+    switch (action.type) {
+      case 'toggled':
+        return { ...state, on: !state.on };
+      case 'brighter':
+        return { ...state, brightness: Math.min(100, state.brightness + 10) };
+      case 'dimmer':
+        return { ...state, brightness: Math.max(0, state.brightness - 10) };
+      default:
+        throw Error('Unknown action: ' + action.type);
+    }
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Todo reducer <span class="lvl">🟡 medium</span></h3>
+  <p>Convert your todo app from Chapter 8 to <code>useReducer</code>, with the actions <code>added</code>, <code>toggled</code>, <code>deleted</code> and <code>cleared_completed</code>.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function todosReducer(todos, action) {
+    switch (action.type) {
+      case 'added':
+        return [...todos, { id: action.id, text: action.text, done: false }];
+      case 'toggled':
+        return todos.map(t => (t.id === action.id ? { ...t, done: !t.done } : t));
+      case 'deleted':
+        return todos.filter(t => t.id !== action.id);
+      case 'cleared_completed':
+        return todos.filter(t => !t.done);
+      default:
+        throw Error('Unknown action: ' + action.type);
+    }
+  }
+
+  // in the component:
+  const [todos, dispatch] = useReducer(todosReducer, []);
+  dispatch({ type: 'added', id: crypto.randomUUID(), text });
+</script>
+  <p>Note that the ID is generated in the <strong>handler</strong>, not in the reducer, because reducers must be pure.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Test your reducer <span class="lvl">🟡 medium</span></h3>
+  <p>Write three <code>console.assert</code> checks for <code>todosReducer</code>: adding, toggling, and clearing the completed todos.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  let s = todosReducer([], { type: 'added', id: 1, text: 'A' });
+  console.assert(s.length === 1 && s[0].done === false, 'add');
+
+  s = todosReducer(s, { type: 'toggled', id: 1 });
+  console.assert(s[0].done === true, 'toggle');
+
+  s = todosReducer(s, { type: 'cleared_completed' });
+  console.assert(s.length === 0, 'clear completed');
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. Cart reducer <span class="lvl">🔴 hard</span></h3>
+  <p>Write <code>cartReducer</code> with these actions: <code>added</code> (if the product is already in the cart, increase its qty), <code>removed</code>, <code>quantity_changed</code> (remove the item if qty ≤ 0) and <code>cleared</code>. Show the total price as a <strong>derived</strong> value in the component.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function cartReducer(cart, action) {
+    switch (action.type) {
+      case 'added': {
+        const existing = cart.find(i => i.id === action.product.id);
+        if (existing) {
+          return cart.map(i => (i.id === action.product.id ? { ...i, qty: i.qty + 1 } : i));
+        }
+        return [...cart, { ...action.product, qty: 1 }];
+      }
+      case 'removed':
+        return cart.filter(i => i.id !== action.id);
+      case 'quantity_changed':
+        return cart
+          .map(i => (i.id === action.id ? { ...i, qty: action.qty } : i))
+          .filter(i => i.qty > 0);
+      case 'cleared':
+        return [];
+      default:
+        throw Error('Unknown action: ' + action.type);
+    }
+  }
+
+  function Cart() {
+    const [cart, dispatch] = useReducer(cartReducer, []);
+    const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);   // derived
+    // ...
+    return <p>Total: ₹{total}</p>;
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/preserving-and-resetting-state">Preserving and Resetting State</a> · <a href="https://react.dev/learn/extracting-state-logic-into-a-reducer">Extracting State Logic into a Reducer</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

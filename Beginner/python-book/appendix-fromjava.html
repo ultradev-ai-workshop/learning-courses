@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;☕&lt;/text&gt;&lt;/svg&gt;">
+<title>A. From Java & JavaScript to Python · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A · Refresher</div>
+<h1>From Java &amp; JavaScript to Python</h1>
+<p class="lead">You already know how to program. This appendix maps what you know from Java and JavaScript onto Python, and flags the habits that cause bugs. Read it first, or come back whenever something feels "almost but not quite" familiar.</p>
+
+<div class="learn">
+<h2>You will refresh</h2>
+<ul>
+  <li>Syntax, typing and the "everything is a reference" object model.</li>
+  <li>Equality, <code>None</code>, truthiness and numbers: the four biggest sources of surprises.</li>
+  <li>Collections, loops, functions and classes, side by side.</li>
+  <li>Interfaces vs duck typing, and exceptions without <code>throws</code>.</li>
+  <li>Classic design patterns, done the Pythonic way.</li>
+</ul>
+</div>
+
+<h2 id="syntax">1. Syntax at a glance</h2>
+<p>Python uses indentation instead of braces, newlines instead of semicolons, and words instead of symbols for logic.</p>
+<div class="table-wrap"><table>
+<tr><th>Java / JS</th><th>Python</th></tr>
+<tr><td><code>{ … }</code> blocks</td><td><code>:</code> plus 4-space indentation</td></tr>
+<tr><td><code>// comment</code>, <code>/* */</code></td><td><code># comment</code>; docstrings <code>"""…"""</code></td></tr>
+<tr><td><code>&amp;&amp; || !</code></td><td><code>and or not</code></td></tr>
+<tr><td><code>true false null</code> / <code>undefined</code></td><td><code>True False None</code></td></tr>
+<tr><td><code>else if</code></td><td><code>elif</code></td></tr>
+<tr><td><code>x++</code></td><td><code>x += 1</code></td></tr>
+<tr><td><code>cond ? a : b</code></td><td><code>a if cond else b</code></td></tr>
+<tr><td><code>camelCase</code> methods</td><td><code>snake_case</code> (PEP 8)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="python">
+def describe(n):
+    if n > 0 and not n % 2:
+        return "positive even"
+    elif n > 0:
+        return "positive odd"
+    return "zero or negative"
+
+print(describe(4), "|", describe(3), "|", describe(-1))
+</script>
+<p><strong>In Python:</strong> Chapter 1 (indentation) and Chapter 3 (<code>if/elif</code>, the conditional expression).</p>
+<details class="check"><summary>Quick check: how do you write <code>x = flag ? 1 : 0</code>?</summary>
+<p><code>x = 1 if flag else 0</code></p>
+</details>
+
+<h2 id="typing">2. Dynamic typing (with optional hints)</h2>
+<p>In Java, a <em>variable</em> has a type. In Python, only <em>objects</em> have types; a variable is just a name that can point to anything. Type hints exist, but Python doesn't check them at run time. Tools like mypy do. Unlike JS, Python is <strong>strongly</strong> typed: it never converts types silently.</p>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> x = 5
+>>> x = "five"            # fine: the name now points to a str
+>>> def add(a: int, b: int) -> int:
+...     return a + b
+...
+>>> add("a", "b")         # hints are not enforced
+'ab'
+>>> "1" + 1               # no silent coercion (JS would give "11")
+Traceback (most recent call last):
+  ...
+TypeError: can only concatenate str (not "int") to str
+</script>
+<p><strong>In Python:</strong> Chapter 5 (annotations), Chapter 1 (the <code>TypeError</code>).</p>
+<details class="check"><summary>Quick check: what does <code>int("7") + 1</code> give?</summary>
+<p><code>8</code>. You convert explicitly with <code>int()</code>, <code>float()</code> or <code>str()</code>.</p>
+</details>
+
+<h2 id="objects">3. Everything is an object; variables are references</h2>
+<p>Python has no primitives: <code>3</code>, <code>True</code> and functions are all objects. Every variable holds a <em>reference</em>, and assignment never copies. It is exactly how Java object references and JS object variables behave, just applied to everything. Mutability is what decides whether sharing matters.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> a = [1, 2]
+>>> b = a              # same list
+>>> b.append(3)
+>>> a
+[1, 2, 3]
+>>> def reset(items):
+...     items.clear()  # mutates the caller's object
+...     items = [99]   # rebinding a local name has no effect outside
+...
+>>> reset(a)
+>>> a
+[]
+</script>
+<div class="table-wrap"><table>
+<tr><th>Immutable (safe to share)</th><th>Mutable (shared changes are visible)</th></tr>
+<tr><td><code>int float bool str tuple frozenset frozendict bytes None</code></td><td><code>list dict set bytearray</code>, most user objects</td></tr>
+</table></div>
+<p><strong>In Python:</strong> Chapter 2 (aliasing), Chapter 5 (passing by object reference), Chapter 11 (names and objects).</p>
+<details class="check"><summary>Quick check: after <code>t = (1, [2]); t[1].append(3)</code>, what is <code>t</code>?</summary>
+<p><code>(1, [2, 3])</code>. The tuple is immutable, but the list inside it is not.</p>
+</details>
+
+<h2 id="equality">4. Equality and identity: <code>==</code>, <code>is</code>, <code>None</code></h2>
+<p>Python's <code>==</code> compares <strong>values</strong>, so it is Java's <code>.equals()</code>, and you can use it on strings. <code>is</code> compares <strong>identity</strong> (the same object), which is Java's <code>==</code> on references. Use <code>is</code> only for singletons like <code>None</code>. There is one "nothing" value, <code>None</code>; there is no <code>undefined</code>.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> a = [1, 2]; b = [1, 2]
+>>> a == b, a is b
+(True, False)
+>>> name = "".join(["An", "a"])
+>>> name == "Ana"           # always use == for strings
+True
+>>> value = None
+>>> value is None           # the idiom for None checks
+True
+</script>
+<div class="pitfall">
+<p>⚠️ <code>x is 5</code> or <code>s is "abc"</code> might seem to work, because of interning, but it is unreliable, and Python warns: <code>SyntaxWarning: "is" with 'int' literal</code>.</p>
+</div>
+<p><strong>In Python:</strong> Chapter 7 (more on conditions), Chapter 11 (<code>__eq__</code>).</p>
+<details class="check"><summary>Quick check: which do you write, <code>if x == None</code> or <code>if x is None</code>?</summary>
+<p><code>if x is None</code>. It is faster and can't be fooled by a custom <code>__eq__</code>.</p>
+</details>
+
+<h2 id="truthiness">5. Truthiness, Python vs JavaScript</h2>
+<p>Both languages have "falsy" values, but the lists differ. In Python, <strong>empty containers are false</strong>, which JS doesn't do for <code>[]</code> and <code>{}</code>.</p>
+<div class="table-wrap"><table>
+<tr><th>Value</th><th>JS</th><th>Python</th></tr>
+<tr><td><code>[]</code> / <code>{}</code></td><td>truthy</td><td><strong>false</strong></td></tr>
+<tr><td><code>""</code>, <code>0</code></td><td>falsy</td><td>false</td></tr>
+<tr><td><code>"0"</code>, <code>"false"</code></td><td>truthy</td><td>true</td></tr>
+<tr><td><code>NaN</code></td><td>falsy</td><td><code>float("nan")</code> is <strong>true</strong></td></tr>
+<tr><td><code>null</code> / <code>None</code></td><td>falsy</td><td>false</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> [bool(v) for v in ([], {}, "", 0, "0", [0], None, float("nan"))]
+[False, False, False, False, True, True, False, True]
+</script>
+<p><strong>In Python:</strong> Chapter 3 (truthiness), Chapter 7 (<code>and</code>/<code>or</code> return operands).</p>
+<details class="check"><summary>Quick check: what is <code>[] or "default"</code>?</summary>
+<p><code>'default'</code>. The empty list is false, so <code>or</code> returns its second operand.</p>
+</details>
+
+<h2 id="numbers">6. Numbers</h2>
+<p><code>int</code> has unlimited size (no overflow), <code>/</code> always returns a float, and <code>//</code> floors toward minus infinity. Floats are IEEE-754 doubles, like Java's <code>double</code> and JS's <code>number</code>.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> 2 ** 64
+18446744073709551616
+>>> 7 / 2, 7 // 2, -7 // 2, -7 % 2
+(3.5, 3, -4, 1)
+>>> 0.1 + 0.2
+0.30000000000000004
+</script>
+<p><strong>In Python:</strong> Chapter 2 (numbers and floats), Chapter 14 (<code>Decimal</code>).</p>
+<details class="check"><summary>Quick check: Java's <code>-7 / 2</code> is <code>-3</code>. How do you get <code>-3</code> in Python?</summary>
+<p><code>int(-7 / 2)</code>, which truncates toward zero. <code>-7 // 2</code> gives <code>-4</code>.</p>
+</details>
+
+<h2 id="strings">7. Strings</h2>
+<p>Strings are immutable Unicode, as in Java. There is no <code>char</code> type (a character is a 1-length <code>str</code>), and no <code>StringBuilder</code>: collect parts in a list and <code>"".join()</code> them. Template literals become f-strings.</p>
+<div class="table-wrap"><table>
+<tr><th>Java / JS</th><th>Python</th></tr>
+<tr><td><code>`Hi ${name}`</code> / <code>String.format</code></td><td><code>f"Hi {name}"</code></td></tr>
+<tr><td><code>s.length()</code> / <code>s.length</code></td><td><code>len(s)</code></td></tr>
+<tr><td><code>s.substring(1, 3)</code> / <code>s.slice(1, 3)</code></td><td><code>s[1:3]</code></td></tr>
+<tr><td><code>s.contains("x")</code> / <code>s.includes("x")</code></td><td><code>"x" in s</code></td></tr>
+<tr><td><code>String.join(",", list)</code> / <code>arr.join(",")</code></td><td><code>",".join(items)</code></td></tr>
+<tr><td><code>s.trim()</code></td><td><code>s.strip()</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> parts = []
+>>> for n in range(3):
+...     parts.append(f"item{n}")
+...
+>>> ",".join(parts)
+'item0,item1,item2'
+</script>
+<p><strong>In Python:</strong> Chapter 2 (text), Chapter 9 (f-strings).</p>
+<details class="check"><summary>Quick check: how do you get the last 3 characters of <code>s</code>?</summary>
+<p><code>s[-3:]</code></p>
+</details>
+
+<h2 id="collections">8. Collections</h2>
+<div class="table-wrap"><table>
+<tr><th>Java</th><th>JavaScript</th><th>Python</th></tr>
+<tr><td><code>ArrayList</code></td><td><code>Array</code></td><td><code>list</code> <code>[1, 2]</code></td></tr>
+<tr><td><code>HashMap</code> / <code>LinkedHashMap</code></td><td><code>Object</code> / <code>Map</code></td><td><code>dict</code> <code>{"k": 1}</code> (keeps insertion order)</td></tr>
+<tr><td><code>HashSet</code></td><td><code>Set</code></td><td><code>set</code> <code>{1, 2}</code></td></tr>
+<tr><td><code>record</code> / small arrays</td><td>small arrays</td><td><code>tuple</code> <code>(1, "a")</code>, <code>namedtuple</code>, <code>@dataclass</code></td></tr>
+<tr><td><code>ArrayDeque</code></td><td>—</td><td><code>collections.deque</code></td></tr>
+<tr><td><code>PriorityQueue</code></td><td>—</td><td><code>heapq</code></td></tr>
+<tr><td><code>stream().filter().map()</code></td><td><code>.filter().map()</code></td><td>comprehensions <code>[f(x) for x in xs if p(x)]</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> prices = {"tea": 2.5, "cake": 3.0}
+>>> prices.get("coffee", 0)            # Java: getOrDefault
+0
+>>> [name.upper() for name, p in prices.items() if p > 2.6]
+['CAKE']
+</script>
+<p><strong>In Python:</strong> Chapters 6 and 7.</p>
+<details class="check"><summary>Quick check: what happens with <code>prices["coffee"]</code>?</summary>
+<p><code>KeyError</code>: a missing key raises; it doesn't return null. Use <code>.get()</code> for a default.</p>
+</details>
+
+<h2 id="loops">9. Loops</h2>
+<p>There is no C-style <code>for (;;)</code>. <code>for</code> always iterates over items, and you ask for indexes with <code>enumerate()</code>. <code>while</code> is the same as in Java. Loops can have an <code>else</code> that runs when no <code>break</code> happened.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> for i, name in enumerate(["Ana", "Ben"], start=1):
+...     print(i, name)
+...
+1 Ana
+2 Ben
+>>> for i in range(10, 0, -3):      # for (int i = 10; i > 0; i -= 3)
+...     print(i, end=" ")
+...
+10 7 4 1
+</script>
+<p><strong>In Python:</strong> Chapter 3, and Chapter 7 (looping techniques).</p>
+<details class="check"><summary>Quick check: how do you loop over two lists in parallel?</summary>
+<p><code>for a, b in zip(xs, ys):</code> (add <code>strict=True</code> to catch lists of different lengths).</p>
+</details>
+
+<h2 id="functions">10. Functions</h2>
+<p>Functions are first-class objects, like in JS. There is no overloading: use default values, keyword arguments, <code>*args</code> and <code>**kwargs</code> instead. Lambdas can only contain a single expression. Closures capture variables, not values.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def greet(name, greeting="Hello", *, shout=False):
+...     msg = f"{greeting}, {name}!"
+...     return msg.upper() if shout else msg
+...
+>>> greet("Ana"), greet("Ben", "Hi", shout=True)
+('Hello, Ana!', 'HI, BEN!')
+>>> sorted(["bb", "a", "ccc"], key=len)      # Comparator → key function
+['a', 'bb', 'ccc']
+</script>
+<p><strong>In Python:</strong> Chapter 5.</p>
+<details class="check"><summary>Quick check: why is <code>def f(items=[])</code> dangerous?</summary>
+<p>The default list is created once and shared between calls. Use <code>None</code> and create the list inside the function.</p>
+</details>
+
+<h2 id="classes">11. Classes</h2>
+<p><code>this</code> becomes an explicit <code>self</code> parameter. The constructor is <code>__init__</code>, and there is no <code>new</code>. There are no access modifiers: <code>_name</code> means "internal" by convention. <code>static</code> becomes a class variable, <code>@classmethod</code> or <code>@staticmethod</code>. Getters and setters become plain attributes, or a <code>@property</code> if you need logic later.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> class Account:
+...     count = 0                         # static field
+...     def __init__(self, owner):        # constructor
+...         self.owner = owner            # field created by assignment
+...         self._balance = 0             # "private" by convention
+...         Account.count += 1
+...     @property
+...     def balance(self):                # getter without get…()
+...         return self._balance
+...     def __repr__(self):               # toString()
+...         return f"Account({self.owner!r})"
+...
+>>> acc = Account("Ana")
+>>> acc, acc.balance, Account.count
+(Account('Ana'), 0, 1)
+</script>
+<p><strong>In Python:</strong> Chapter 11.</p>
+<details class="check"><summary>Quick check: what is the Python version of Java's <code>record Point(int x, int y)</code>?</summary>
+<p><code>@dataclass(frozen=True) class Point: x: int; y: int</code></p>
+</details>
+
+<h2 id="interfaces">12. Interfaces → duck typing, ABCs and Protocols</h2>
+<p>Python cares whether an object has the right methods, not what it declares itself to be. That is <strong>duck typing</strong>. When you want a formal contract, use an abstract base class (<code>abc.ABC</code>), which errors if you instantiate an incomplete subclass, or a <code>typing.Protocol</code>, which is structural and checked only by type checkers, like TypeScript interfaces.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from abc import ABC, abstractmethod
+>>> class Exporter(ABC):
+...     @abstractmethod
+...     def export(self, rows): ...
+...
+>>> class CsvExporter(Exporter):
+...     def export(self, rows):
+...         return "\n".join(",".join(map(str, r)) for r in rows)
+...
+>>> CsvExporter().export([(1, "a"), (2, "b")])
+'1,a\n2,b'
+>>> Exporter()
+Traceback (most recent call last):
+  ...
+TypeError: Can't instantiate abstract class Exporter without an implementation for abstract method 'export'
+</script>
+<p><strong>In Python:</strong> Chapter 11 (polymorphism without interfaces), Chapter 12 (the iterator protocol is duck typing).</p>
+<details class="check"><summary>Quick check: what makes an object usable in a <code>for</code> loop?</summary>
+<p>An <code>__iter__</code> method (or <code>__getitem__</code>). No interface declaration is needed: that is duck typing.</p>
+</details>
+
+<h2 id="exceptions">13. Exceptions</h2>
+<p><code>try/catch/finally</code> becomes <code>try/except/finally</code>, plus an <code>else</code> clause. <code>throw</code> becomes <code>raise</code>. There are no checked exceptions and no <code>throws</code> clause. The Python style is EAFP: try the operation and handle the failure, instead of checking every condition first.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def to_int(text):
+...     try:
+...         return int(text)
+...     except ValueError as e:          # catch (NumberFormatException e)
+...         raise RuntimeError(f"bad number {text!r}") from e   # wrap with a cause
+...
+>>> to_int("42")
+42
+</script>
+<p><strong>In Python:</strong> Chapter 10.</p>
+<details class="check"><summary>Quick check: what is the Python version of Java's try-with-resources?</summary>
+<p>The <code>with</code> statement: <code>with open(path) as f: …</code></p>
+</details>
+
+<h2 id="patterns">14. Design patterns, the Pythonic way</h2>
+<p>Because functions are objects and modules are singletons, many Gang-of-Four patterns shrink to a few lines in Python, or disappear entirely.</p>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Typical Java</th><th>Pythonic</th></tr>
+<tr><td>Singleton</td><td>private constructor + <code>getInstance()</code></td><td>a <strong>module</strong>: it is imported once (Chapter 8)</td></tr>
+<tr><td>Strategy / Command</td><td>an interface + classes</td><td>pass a <strong>function</strong> (<code>key=</code>, a dispatch dict)</td></tr>
+<tr><td>Iterator</td><td><code>Iterator&lt;T&gt;</code> class</td><td>a <strong>generator</strong> with <code>yield</code> (Chapter 12)</td></tr>
+<tr><td>Factory method</td><td>a static factory</td><td>a <code>@classmethod</code> like <code>from_dict</code> (Chapter 11)</td></tr>
+<tr><td>Builder</td><td>a fluent builder class</td><td><strong>keyword arguments</strong> with defaults, or a dataclass</td></tr>
+<tr><td>Decorator</td><td>wrapper classes</td><td><code>@decorator</code> functions (<code>@property</code>, <code>@dataclass</code>)</td></tr>
+<tr><td>Template method</td><td>an abstract class</td><td>an ABC, or simply pass the varying step as a function</td></tr>
+<tr><td>Observer</td><td>listener interfaces</td><td>a list of callables</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> def by_amount(e): return e[1]          # Strategy: just a function
+...
+>>> def by_name(e): return e[0]
+...
+>>> expenses = [("rent", 900), ("food", 12)]
+>>> strategies = {"amount": by_amount, "name": by_name}
+>>> sorted(expenses, key=strategies["name"])
+[('food', 12), ('rent', 900)]
+>>> listeners = []                         # Observer: a list of callables
+>>> listeners.append(lambda e: print("saved", e))
+>>> for notify in listeners:
+...     notify(("food", 12))
+...
+saved ('food', 12)
+</script>
+<p><strong>In Python:</strong> Chapter 5 (functions as values), Chapter 8 (modules), Chapter 16 (the dispatch table in <code>cli.py</code>).</p>
+<details class="check"><summary>Quick check: what is the simplest Python Singleton?</summary>
+<p>A module-level object, e.g. <code>config = Config()</code> in <code>settings.py</code>. Every <code>import settings</code> shares it.</p>
+</details>
+
+<h2 id="recap-table">Recap: prerequisite feature → where you see it in Python</h2>
+<div class="table-wrap"><table>
+<tr><th>You know (Java/JS)</th><th>Python equivalent</th><th>Where in this book</th></tr>
+<tr><td>braces, semicolons</td><td>indentation, newlines</td><td>Ch. 1, 3</td></tr>
+<tr><td>static types</td><td>dynamic types + optional hints</td><td>Ch. 5</td></tr>
+<tr><td>object references</td><td>every name is a reference</td><td>Ch. 2, 11</td></tr>
+<tr><td><code>.equals()</code> / <code>===</code></td><td><code>==</code>; <code>is</code> for identity</td><td>Ch. 7</td></tr>
+<tr><td><code>null</code> / <code>undefined</code></td><td><code>None</code></td><td>Ch. 5</td></tr>
+<tr><td>for-each, iterators</td><td><code>for … in</code>, generators</td><td>Ch. 3, 12</td></tr>
+<tr><td><code>switch</code></td><td><code>match</code></td><td>Ch. 4</td></tr>
+<tr><td>overloading, varargs</td><td>defaults, <code>*args</code>, <code>**kwargs</code></td><td>Ch. 5</td></tr>
+<tr><td>ArrayList, HashMap, HashSet</td><td><code>list</code>, <code>dict</code>, <code>set</code></td><td>Ch. 6, 7</td></tr>
+<tr><td>packages, imports</td><td>modules, packages, <code>import</code></td><td>Ch. 8</td></tr>
+<tr><td>try/catch, throws</td><td>try/except, no checked exceptions</td><td>Ch. 10</td></tr>
+<tr><td>classes, interfaces</td><td>classes, duck typing, ABCs</td><td>Ch. 11</td></tr>
+<tr><td>JUnit, Maven/npm</td><td><code>unittest</code>/pytest, venv + pip</td><td>Ch. 13, 15</td></tr>
+</table></div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Translate to Python: <code>for (int i = 0; i &lt; names.length; i++) { System.out.println(i + ": " + names[i]); }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+names = ["Ana", "Ben"]
+for i, name in enumerate(names):
+    print(f"{i}: {name}")
+</script>
+<p><code>enumerate</code> replaces the index counter. The f-string replaces the string concatenation.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print? <code>print([] == [], [] is [], bool([]), bool("False"))</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>True False False True</code>. The two lists have equal values but are different objects. An empty list is false, and any non-empty string is true.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>A JS developer wrote this. Fix all four problems.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+function total(items) {
+    let sum = 0;
+    for (const x of items) sum += x;
+    return sum;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def total(items):
+    result = 0
+    for x in items:
+        result += x
+    return result
+
+print(total([1, 2, 3]), sum([1, 2, 3]))   # 6 6
+</script>
+<p><code>function</code> becomes <code>def</code>, braces become a colon and indentation, <code>let</code> and <code>const</code> disappear, and <code>of</code> becomes <code>in</code>. Avoid naming a variable <code>sum</code>, because it hides the built-in <code>sum()</code>, which does this whole job anyway.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does Python not need <code>getX()</code> and <code>setX()</code> methods?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A public attribute can later become a <code>@property</code> without changing any caller's code (<code>obj.x</code> still works). So you start simple and add logic only when you need it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Translate this Java stream: <code>list.stream().filter(s -&gt; s.length() &gt; 3).map(String::toUpperCase).collect(Collectors.toList())</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+words = ["tea", "cake", "scone"]
+print([s.upper() for s in words if len(s) > 3])   # ['CAKE', 'SCONE']
+</script>
+<p>A comprehension does the filter and the map in one readable expression.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Implement the Strategy pattern for shipping costs without any classes: <code>standard</code> (a flat €5), <code>express</code> (€5 plus 10% of the order) and <code>free</code> (orders over €100 ship free, otherwise standard). Choose a strategy by name.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def standard(total): return 5.0
+def express(total): return 5.0 + total * 0.10
+def free_over_100(total): return 0.0 if total > 100 else standard(total)
+
+SHIPPING = {"standard": standard, "express": express, "free": free_over_100}
+
+for name in SHIPPING:
+    print(name, SHIPPING[name](120.0))
+</script>
+<p>Each strategy is just a function stored in a dict. Adding a new strategy means adding one function and one dict entry.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-lang="python">
+def change(nums, name):
+    nums.append(4)
+    name += "!"
+nums, name = [1, 2, 3], "Ana"
+change(nums, name)
+print(nums, name)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[1, 2, 3, 4] Ana</code>. The list was mutated through the shared reference. <code>name += "!"</code> created a new string and only rebound the local name, because strings are immutable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write an Observer: a class <code>EventBus</code> with <code>subscribe(fn)</code> and <code>publish(event)</code>, using plain functions as listeners.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class EventBus:
+    def __init__(self):
+        self._listeners = []
+    def subscribe(self, fn):
+        self._listeners.append(fn)
+        return fn                      # lets it be used as a decorator too
+    def publish(self, event):
+        for fn in self._listeners:
+            fn(event)
+
+bus = EventBus()
+
+@bus.subscribe
+def log(event):
+    print("log:", event)
+
+bus.subscribe(lambda e: print("count:", len(e)))
+bus.publish("expense added")
+</script>
+<p>No listener interface is needed: anything callable works. Returning <code>fn</code> from <code>subscribe</code> makes it usable as a decorator, as the <code>@bus.subscribe</code> line shows.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>In Java, <code>Integer a = 1000, b = 1000; a == b</code> is <code>false</code>. In Python, <code>1000 == 1000</code> is always <code>True</code>, but <code>a is b</code> may be either. Explain both languages' behaviour.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Java's <code>==</code> on boxed <code>Integer</code>s compares references, and only small values (−128 to 127) are cached. Python's <code>==</code> always compares values. Python's <code>is</code> compares identity, and whether two equal ints are the same object is an implementation detail (CPython caches small ints and reuses constants). So never use <code>is</code> for numbers or strings.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project</span></h3>
+<p>Port this Java-style design to idiomatic Python: an interface <code>Shape</code> with <code>area()</code>, classes <code>Circle</code> and <code>Rect</code>, a <code>ShapeFactory.create(String type, double... args)</code>, and a loop that prints the shapes sorted by area. Use an ABC, dataclasses, a dict-based factory, and <code>sorted(key=…)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import math
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -> float: ...
+
+@dataclass
+class Circle(Shape):
+    r: float
+    def area(self): return math.pi * self.r ** 2
+
+@dataclass
+class Rect(Shape):
+    w: float
+    h: float
+    def area(self): return self.w * self.h
+
+FACTORY = {"circle": Circle, "rect": Rect}      # classes are objects too
+
+def create(kind, *args):
+    return FACTORY[kind](*args)
+
+shapes = [create("rect", 2, 3), create("circle", 1), create("rect", 1, 1)]
+for s in sorted(shapes, key=lambda s: s.area()):
+    print(f"{s!r:30} {s.area():.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Rect(w=1, h=1)                 1.00
+Circle(r=1)                    3.14
+Rect(w=2, h=3)                 6.00
+</script>
+<p>Classes are first-class values, so the "factory" is a dict lookup. Dataclasses remove the constructor boilerplate, and <code>key=</code> replaces a <code>Comparator</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/index.html">The Python Tutorial</a></li>
+  <li><a href="https://docs.python.org/3/reference/datamodel.html">Data model (objects, values and types)</a></li>
+  <li><a href="https://docs.python.org/3/library/abc.html">abc</a> · <a href="https://docs.python.org/3/library/typing.html#typing.Protocol">typing.Protocol</a></li>
+  <li><a href="https://docs.python.org/3/faq/programming.html">Programming FAQ</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

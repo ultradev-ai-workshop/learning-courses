@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;💶&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Project: CLI Expense Tracker · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · Putting It Together</div>
+<h1>Project: CLI Expense Tracker</h1>
+<p class="lead">Build a complete, tested command-line program from scratch, using nearly every chapter of this book: <code>expenses add 12.50 food</code>, <code>expenses list</code>, <code>expenses summary</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to split a program into a package of focused modules.</li>
+  <li>How to model data with a dataclass, a <code>StrEnum</code>, and integer cents.</li>
+  <li>How to store data safely as JSON, with clear custom errors.</li>
+  <li>How to build a real CLI with <code>argparse</code> subcommands, exit codes and <code>stderr</code>.</li>
+  <li>How to test the whole thing with <code>unittest</code>, and install it as a command.</li>
+</ul>
+</div>
+
+<h2 id="plan">The plan</h2>
+<p>We'll build <code>tracker</code>, a small package in <code>playground/</code>. (The finished version is in <code>playground/reference/</code> if you get stuck.) It replaces the little <code>tracker</code> package from Chapter 8's exercise.</p>
+<script type="text/plain" class="code" data-lang="text">
+playground/
+├── tracker/
+│   ├── __init__.py      package marker + version
+│   ├── __main__.py      makes `python3 -m tracker` work
+│   ├── models.py        Category, Expense, money helpers     (Ch. 2, 5, 11, 14)
+│   ├── storage.py       load/save JSON, StorageError         (Ch. 9, 10, 13)
+│   ├── report.py        filtering and totals                 (Ch. 7, 12, 13)
+│   └── cli.py           argparse commands, main()            (Ch. 4, 5, 13)
+├── test_tracker.py      unittest suite                       (Ch. 13)
+└── pyproject.toml       makes it installable as `expenses`   (Ch. 15)
+</script>
+<p>Design decisions, and the chapter each one comes from:</p>
+<div class="table-wrap"><table>
+<tr><th>Decision</th><th>Why</th><th>Chapter</th></tr>
+<tr><td>Store money as <strong>integer cents</strong></td><td>no float rounding errors in totals</td><td>2</td></tr>
+<tr><td><code>Category</code> as a <code>StrEnum</code></td><td>typos become errors, and members still behave like strings</td><td>14</td></tr>
+<tr><td><code>Expense</code> as a <code>@dataclass</code></td><td>a free <code>__init__</code>, <code>__repr__</code> and <code>__eq__</code></td><td>11</td></tr>
+<tr><td>A JSON file, written via a temp file</td><td>human-readable, and never left half-written</td><td>9, 13</td></tr>
+<tr><td>A custom <code>StorageError</code> with chaining</td><td>clear messages without losing the cause</td><td>10</td></tr>
+<tr><td>Generators for filtering</td><td>lazy, and easy to combine</td><td>12</td></tr>
+<tr><td><code>main(argv=None)</code> returning an exit code</td><td>testable without running a subprocess</td><td>8, 13</td></tr>
+</table></div>
+
+<h2 id="models">Step 1: the data model (models.py)</h2>
+<p>This module knows nothing about files or the command line. It only describes the data. Keeping it free of input/output makes it easy to test and reuse.</p>
+{{file:tracker/models.py}}
+<ul>
+  <li><code>Category.parse</code> is a <strong>classmethod</strong> that converts user text into an enum member. It replaces the enum's terse error with a helpful one, and <code>from None</code> hides the internal cause (Chapter 10). <code>", ".join(cls)</code> works because <code>StrEnum</code> members <em>are</em> strings.</li>
+  <li><code>parse_amount</code> validates the text by hand with <code>partition</code> and <code>isdigit</code>, and accepts both <code>12.5</code> and <code>12,50</code>. Its docstring contains a doctest.</li>
+  <li><code>format_money</code> uses <code>divmod</code> on the absolute value, then <code>:,</code> and <code>:02d</code> format specs (Chapter 9).</li>
+  <li><code>to_dict</code> and <code>from_dict</code> convert to and from JSON-friendly types: dates become ISO strings and enums become their values.</li>
+</ul>
+
+<h2 id="storage">Step 2: storage (storage.py)</h2>
+{{file:tracker/storage.py}}
+<ul>
+  <li><strong>EAFP:</strong> just try to read the file. <code>FileNotFoundError</code> means "first run", so return an empty list.</li>
+  <li>Any parsing problem (bad JSON, a missing key, an unknown category) becomes one <code>StorageError</code>, chained with <code>from exc</code> so the original cause stays visible to anyone debugging.</li>
+  <li><code>save</code> writes to <code>expenses.json.tmp</code> first, then <code>replace()</code>s the real file in one step. A crash halfway through writing can never corrupt your data.</li>
+  <li><code>max(..., default=0)</code> handles the empty list when picking the next id.</li>
+</ul>
+
+<h2 id="report">Step 3: reports (report.py)</h2>
+{{file:tracker/report.py}}
+<ul>
+  <li><code>select</code> is a <strong>generator</strong> with keyword-only filters (<code>*</code>, Chapter 5). <code>totals_by_category(select(...))</code> never builds an intermediate list.</li>
+  <li><code>defaultdict(int)</code> starts each total at 0, and <code>sorted(..., key=lambda kv: kv[1], reverse=True)</code> puts the biggest first. Since dicts keep insertion order, the result stays sorted.</li>
+  <li><code>bar</code> draws a tiny text chart with string repetition (Chapter 2).</li>
+</ul>
+
+<h2 id="cli">Step 4: the command-line interface (cli.py)</h2>
+{{file:tracker/cli.py}}
+<ul>
+  <li><strong>Subcommands:</strong> <code>add_subparsers</code> gives each command its own arguments, so <code>expenses add -h</code> shows only the options for <code>add</code>.</li>
+  <li><strong>A closure:</strong> <code>_arg(convert)</code> returns a wrapper function that remembers <code>convert</code> (Chapter 5). argparse calls it for each argument, and an <code>ArgumentTypeError</code> makes argparse print our message instead of a generic one.</li>
+  <li><strong>Functions as values:</strong> <code>COMMANDS</code> maps names to functions, a "dispatch table". Each command returns <code>True</code> if the data changed, so <code>main</code> only saves when it needs to. (A <code>match args.command:</code> block would work just as well.)</li>
+  <li><strong>Exit codes and stderr:</strong> expected problems print <code>error: …</code> to <code>stderr</code>, and <code>main</code> returns 1. Bugs are not caught, so they still show a full traceback, which is exactly what you want while developing.</li>
+  <li><code>main(argv=None)</code>: argparse reads <code>sys.argv</code> when <code>argv</code> is <code>None</code>, so tests can pass their own list instead.</li>
+</ul>
+
+<h2 id="entry">Step 5: the package files (__init__.py, __main__.py)</h2>
+{{file:tracker/__init__.py}}
+{{file:tracker/__main__.py}}
+<p><code>python3 -m tracker</code> runs <code>tracker/__main__.py</code>. <code>sys.exit(main())</code> turns <code>main</code>'s return value into the process exit code.</p>
+
+<h2 id="use">Step 6: use it</h2>
+<p>Run these from <code>playground/</code>. <code>--file demo.json</code> keeps the experiment separate from your real data, and <code>--date</code> makes the output repeatable.</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m tracker --file demo.json add 12.50 food --note "lunch with Ana" --date 2026-10-01
+added #1: €12.50 food on 2026-10-01
+$ python3 -m tracker --file demo.json add 900 rent --date 2026-10-01
+added #2: €900.00 rent on 2026-10-01
+$ python3 -m tracker --file demo.json add 2,80 transport --note bus --date 2026-10-02
+added #3: €2.80 transport on 2026-10-02
+$ python3 -m tracker --file demo.json add 25 books --note "Python book" --date 2026-10-05
+added #4: €25.00 books on 2026-10-05
+$ python3 -m tracker --file demo.json add 7.5 food --note coffee --date 2026-10-06
+added #5: €7.50 food on 2026-10-06
+$ python3 -m tracker --file demo.json add 40 fun --date 2026-09-28
+added #6: €40.00 fun on 2026-09-28
+$ python3 -m tracker --file demo.json list
+#6   2026-09-28  fun            €40.00
+#1   2026-10-01  food           €12.50  lunch with Ana
+#2   2026-10-01  rent          €900.00
+#3   2026-10-02  transport       €2.80  bus
+#4   2026-10-05  books          €25.00  Python book
+#5   2026-10-06  food            €7.50  coffee
+6 expense(s), total €987.80
+$ python3 -m tracker --file demo.json list --category food
+#1   2026-10-01  food           €12.50  lunch with Ana
+#5   2026-10-06  food            €7.50  coffee
+2 expense(s), total €20.00
+$ python3 -m tracker --file demo.json summary --month 2026-10
+rent          €900.00  ████████████████████
+books          €25.00  █
+food           €20.00
+transport       €2.80
+total         €947.80
+</script>
+<p>Errors are friendly, and the exit codes are right:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m tracker --file demo.json delete 3
+deleted #3
+$ python3 -m tracker --file demo.json delete 3; echo "exit code: $?"
+error: no expense with id 3
+exit code: 1
+$ python3 -m tracker --file demo.json add abc food
+usage: expenses add [-h] [--note NOTE] [--date DAY] amount category
+expenses add: error: argument amount: not a valid amount: 'abc'
+$ python3 -m tracker --file demo.json add 5 pets
+usage: expenses add [-h] [--note NOTE] [--date DAY] amount category
+expenses add: error: argument category: unknown category 'pets' (choose from: food, rent, transport, fun, books, misc)
+</script>
+<p>And the data file is plain, readable JSON:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ head -8 demo.json
+[
+  {
+    "id": 1,
+    "day": "2026-10-01",
+    "category": "food",
+    "cents": 1250,
+    "note": "lunch with Ana"
+  },
+</script>
+
+<h2 id="tests">Step 7: tests (test_tracker.py)</h2>
+<p>The tests call <code>main([...])</code> directly, with a temporary data file, and capture the output with <code>redirect_stdout</code> and <code>redirect_stderr</code>. <code>subTest</code> reports each bad input separately when one of them fails.</p>
+{{file:test_tracker.py}}
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m unittest test_tracker
+......
+----------------------------------------------------------------------
+Ran 6 tests in ...s
+
+OK
+$ python3 -m doctest tracker/models.py && echo "doctests pass"
+doctests pass
+</script>
+
+<h2 id="install">Step 8: install it as a real command</h2>
+{{file:pyproject.toml}}
+<script type="text/plain" class="code" data-lang="shell">
+$ python3 -m venv .venv && source .venv/bin/activate
+(.venv) $ python -m pip install -e .
+(.venv) $ expenses add 4.20 food --note "ice cream"
+added #1: €4.20 food on 2026-10-30
+(.venv) $ expenses summary
+food            €4.20  ████████████████████
+total           €4.20
+</script>
+<p>The <code>[project.scripts]</code> entry creates an <code>expenses</code> executable in the venv's <code>bin/</code> that calls <code>tracker.__main__:main</code>, and uses its return value as the exit code.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Using the package as a library</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from datetime import date
+>>> from tracker.models import Category, Expense, format_money
+>>> from tracker.report import totals_by_category
+>>> data = [Expense(1, date(2026, 10, 1), Category.FOOD, 1250),
+...         Expense(2, date(2026, 10, 3), Category.FOOD, 750),
+...         Expense(3, date(2026, 10, 4), Category.FUN, 4000)]
+>>> {str(c): format_money(t) for c, t in totals_by_category(data).items()}
+{'fun': '€40.00', 'food': '€20.00'}
+</script>
+<h3>2. A damaged data file is reported, not crashed on</h3>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ echo "[{oops" > broken.json
+$ python3 -m tracker --file broken.json list; echo "exit code: $?"
+error: broken.json is damaged: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
+exit code: 1
+</script>
+<h3>3. Exporting to CSV</h3>
+<script type="text/plain" class="code" data-file="export_csv.py" data-save>
+import csv
+import sys
+from tracker import storage
+
+def export(path, out=sys.stdout):
+    writer = csv.writer(out)
+    writer.writerow(["id", "date", "category", "amount", "note"])
+    for e in storage.load(path):
+        writer.writerow([e.id, e.day, e.category, f"{e.cents / 100:.2f}", e.note])
+
+if __name__ == "__main__":
+    export(sys.argv[1])
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 export_csv.py demo.json
+id,date,category,amount,note
+1,2026-10-01,food,12.50,lunch with Ana
+2,2026-10-01,rent,900.00,
+4,2026-10-05,books,25.00,Python book
+5,2026-10-06,food,7.50,coffee
+6,2026-09-28,fun,40.00,
+</script>
+<h3>4. Monthly totals with Counter</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from collections import Counter
+>>> from tracker import storage
+>>> from tracker.models import format_money
+>>> per_month = Counter()
+>>> for e in storage.load("demo.json"):
+...     per_month[e.day.isoformat()[:7]] += e.cents
+...
+>>> {m: format_money(c) for m, c in sorted(per_month.items())}
+{'2026-09': '€40.00', '2026-10': '€945.00'}
+</script>
+<h3>5. The same dispatch, written with match</h3>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+def run(args, expenses):
+    match args.command:
+        case "add":
+            return cmd_add(args, expenses)
+        case "list":
+            return cmd_list(args, expenses)
+        case "summary":
+            return cmd_summary(args, expenses)
+        case "delete":
+            return cmd_delete(args, expenses)
+</script>
+<p>Both styles are fine. The dict version makes adding a command a one-line change, and the <code>match</code> version is easier to extend with argument patterns.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Split by responsibility: model (pure data) → storage (files) → report (calculations) → CLI (input and output).</li>
+  <li>Integer cents, an enum and a dataclass make invalid data hard to create. Validate at the edges, where user input comes in.</li>
+  <li>Catch <em>expected</em> errors, show them on <code>stderr</code> with exit code 1, and let bugs raise.</li>
+  <li>Write <code>main(argv=None)</code> and return codes, so tests can call it directly.</li>
+  <li><code>python3 -m tracker</code> for development; <code>pyproject.toml</code> with <code>pip install -e .</code> for a real command.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+<p>All of these extend your <code>playground/tracker</code>. Add a test for each feature you build.</p>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>Add a <code>--version</code> option to the main parser that prints <code>expenses 0.1.0</code>, using <code>tracker.__version__</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+# in build_parser(), after creating `parser`:
+from . import __version__
+parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+</script>
+<p>argparse's <code>"version"</code> action prints the text and exits with code 0. <code>%(prog)s</code> is replaced by the program name.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>Add a <code>GIFTS</code> category. What else needs to change for it to work everywhere?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+class Category(StrEnum):
+    ...
+    GIFTS = auto()
+</script>
+<p>Nothing else needs to change. Parsing, the error message's list of choices, storage and reports all read the enum. That is the payoff of keeping the categories in one place.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>cmd_delete</code> <em>raise</em> <code>LookupError</code> instead of printing the error itself?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It keeps the command focused on its job and leaves the decision about <em>how</em> to report to <code>main</code>, which turns every expected error into the same <code>error: …</code> line on <code>stderr</code> with exit code 1. Tests can also check the behaviour without parsing printed text.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>parse_amount("3.5")</code> return? And <code>parse_amount("3.")</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>350</code> (<code>"5".ljust(2, "0")</code> is <code>"50"</code>), and <code>300</code> (an empty fraction becomes <code>"00"</code>). Both are reasonable. If you'd rather reject <code>"3."</code>, add a check and a test.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Add an <code>edit ID</code> command with optional <code>--amount</code>, <code>--category</code> and <code>--note</code>. Only the given fields change.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+# in build_parser():
+edit = sub.add_parser("edit", help="change an expense")
+edit.add_argument("id", type=int)
+edit.add_argument("--amount", type=_arg(parse_amount))
+edit.add_argument("--category", type=_arg(Category.parse))
+edit.add_argument("--note")
+
+def cmd_edit(args, expenses):
+    for e in expenses:
+        if e.id == args.id:
+            if args.amount is not None:
+                e.cents = args.amount
+            if args.category is not None:
+                e.category = args.category
+            if args.note is not None:
+                e.note = args.note
+            print(f"updated #{e.id}")
+            return True
+    raise LookupError(f"no expense with id {args.id}")
+
+COMMANDS["edit"] = cmd_edit
+</script>
+<p>Optional arguments default to <code>None</code>, so <code>is not None</code> tells "not given" apart from an empty note <code>""</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Add budgets: a <code>budget.json</code> like <code>{"food": 30000}</code> (in cents). Make <code>summary</code> show <code>⚠ over</code> next to categories that went over budget.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+import json
+from pathlib import Path
+
+def load_budget(path="budget.json"):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+
+# in cmd_summary, inside the loop:
+budget = load_budget()
+limit = budget.get(str(category))
+flag = "  ⚠ over" if limit is not None and cents > limit else ""
+print(f"{category:<10}{format_money(cents):>11}  {bar(cents, biggest)}{flag}")
+</script>
+<p><code>str(category)</code> gives <code>"food"</code>, which matches the JSON keys. The budget file is optional (EAFP), like the data file.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it · playground</span></h3>
+<p>Replace the <code>COMMANDS</code> dict with a <code>match</code> statement in <code>main</code> (see "More examples" #5). Do all the tests still pass?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes, they should. The tests only call <code>main([...])</code> and check its output and exit code. That is the point of testing behaviour rather than internals: you can refactor freely. Run <code>python3 -m unittest</code> to confirm.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Add a <code>--search TEXT</code> filter to <code>list</code> that matches notes case-insensitively, by adding a <code>text</code> keyword to <code>select()</code>. Write a test for it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+def select(expenses, *, category=None, month=None, text=None):
+    for e in expenses:
+        if category is not None and e.category != category:
+            continue
+        if month is not None and e.day.isoformat()[:7] != month:
+            continue
+        if text is not None and text.lower() not in e.note.lower():
+            continue
+        yield e
+
+# test
+def test_search(self):
+    self.run_cli("add", "3", "food", "--note", "Coffee with Ben", "--date", "2026-10-01")
+    self.run_cli("add", "9", "food", "--note", "pizza", "--date", "2026-10-02")
+    out = self.run_cli("list", "--search", "coffee")[1]
+    self.assertIn("Coffee with Ben", out)
+    self.assertNotIn("pizza", out)
+</script>
+<p>Because the filter is keyword-only with a <code>None</code> default, existing callers don't change.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it · playground</span></h3>
+<p>Add an <code>import FILE.csv</code> command that reads the CSV format from "More examples" #3, assigns new ids, and reports every bad row (with its line number) together at the end as one <code>ExceptionGroup</code>, while still importing the good rows.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+import csv
+
+def cmd_import(args, expenses):
+    errors, added = [], 0
+    with open(args.csv, newline="", encoding="utf-8") as f:
+        for line_no, row in enumerate(csv.DictReader(f), start=2):   # line 1 is the header
+            try:
+                expense = Expense(storage.next_id(expenses), date.fromisoformat(row["date"]),
+                                  Category.parse(row["category"]), parse_amount(row["amount"]),
+                                  row.get("note", ""))
+            except (ValueError, KeyError) as exc:
+                exc.add_note(f"{args.csv}, line {line_no}")
+                errors.append(exc)
+                continue
+            expenses.append(expense)
+            added += 1
+    print(f"imported {added} expense(s)")
+    if errors:
+        storage.save(args.file, expenses)          # keep the good rows
+        raise ExceptionGroup(f"{len(errors)} bad row(s)", errors)
+    return added > 0
+
+# in main():  except* can't be mixed with plain except in one try, so wrap the call:
+#   try: ... except ExceptionGroup as group: print each e and e.__notes__ to stderr; return 1
+</script>
+<p>This combines <code>csv.DictReader</code>, EAFP validation, <code>add_note</code>, and <code>ExceptionGroup</code> (Chapter 10) for a "report everything at once" import.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Add a <code>stats</code> command that prints, for the chosen <code>--month</code>: the number of expenses, the total, the average, the biggest expense (with its note), the busiest day, and a <code>sparkline</code> of the daily totals using the characters <code>▁▂▃▄▅▆▇█</code>. Use <code>statistics</code>, <code>Counter</code>, <code>max(key=…)</code> and a generator. Add tests.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+import statistics
+from collections import Counter
+
+BLOCKS = "▁▂▃▄▅▆▇█"
+
+def sparkline(values):
+    top = max(values, default=0)
+    return "".join(BLOCKS[min(len(BLOCKS) - 1, v * len(BLOCKS) // top)] if top else "" for v in values)
+
+def cmd_stats(args, expenses):
+    chosen = list(select(expenses, month=args.month))
+    if not chosen:
+        print("no expenses")
+        return False
+    per_day = Counter()
+    for e in chosen:
+        per_day[e.day] += e.cents
+    biggest = max(chosen, key=lambda e: e.cents)
+    busiest, busiest_cents = per_day.most_common(1)[0]
+    days = sorted(per_day)
+    print(f"count    {len(chosen)}")
+    print(f"total    {format_money(sum(e.cents for e in chosen))}")
+    print(f"average  {format_money(round(statistics.mean(e.cents for e in chosen)))}")
+    print(f"biggest  {format_money(biggest.cents)} {biggest.note or biggest.category}")
+    print(f"busiest  {busiest} ({format_money(busiest_cents)})")
+    print(f"daily    {sparkline([per_day[d] for d in days])}")
+    return False
+</script>
+<p>Every piece comes from an earlier chapter: <code>Counter</code> and <code>statistics</code> (13), a generator expression with <code>join</code> (12), <code>max</code> with a key (6), and integer-cents money (2). Test it with a small, fixed dataset, as <code>TestReport</code> does.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/index.html">The Python Tutorial</a> (everything used in this project)</li>
+  <li><a href="https://docs.python.org/3/library/argparse.html#sub-commands">argparse: sub-commands</a></li>
+  <li><a href="https://docs.python.org/3/library/unittest.html">unittest</a> · <a href="https://docs.python.org/3/library/contextlib.html#contextlib.redirect_stdout">contextlib.redirect_stdout</a></li>
+  <li><a href="https://packaging.python.org/en/latest/guides/writing-pyproject-toml/">Writing your pyproject.toml</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

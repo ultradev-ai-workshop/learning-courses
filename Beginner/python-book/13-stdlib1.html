@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔋&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Standard Library Tour I · Python Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Standard Library &amp; Ecosystem</div>
+<h1>Standard Library Tour I</h1>
+<p class="lead">Python comes with "batteries included": modules for files, command-line arguments, regular expressions, maths, dates, compression, timing and testing, all available without installing anything.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Working with the operating system and files: <code>os</code>, <code>shutil</code>, <code>glob</code>, <code>pathlib</code>.</li>
+  <li>Command-line tools: <code>sys.argv</code>, <code>argparse</code>, <code>sys.stderr</code>, <code>sys.exit</code>.</li>
+  <li>Text patterns with <code>re</code>, and numbers with <code>math</code>, <code>random</code> and <code>statistics</code>.</li>
+  <li>Dates with <code>datetime</code>, compression with <code>zlib</code>, timing with <code>timeit</code>.</li>
+  <li>Quality control with <code>doctest</code> and <code>unittest</code>, plus <code>csv</code> and <code>collections</code>.</li>
+</ul>
+</div>
+
+<h2 id="os">Operating system interface</h2>
+<p>The <code>os</code> module talks to the operating system: the current folder, environment variables, and file operations. Always write <code>import os</code>, not <code>from os import *</code>: <code>os.open()</code> would hide the built-in <code>open()</code>, which works quite differently.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import os
+>>> os.path.isabs(os.getcwd())      # the current working directory
+True
+>>> os.makedirs("reports/2026", exist_ok=True)   # create folders (no error if they exist)
+>>> os.path.join("reports", "2026", "oct.txt")   # build paths portably
+'reports/2026/oct.txt'
+>>> os.environ.get("NO_SUCH_VARIABLE", "default")   # read an environment variable
+'default'
+</script>
+<p>For everyday file and folder management, <code>shutil</code> has higher-level operations:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import shutil
+>>> with open("data.db", "w") as f:
+...     _ = f.write("pretend database")
+...
+>>> shutil.copyfile("data.db", "archive.db")
+'archive.db'
+>>> shutil.move("archive.db", "reports/archive.db")
+'reports/archive.db'
+>>> os.path.exists("reports/archive.db")
+True
+</script>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> to run other programs, use the <code>subprocess</code> module (<code>subprocess.run(["git", "status"])</code>) rather than <code>os.system()</code>. It is safer and gives you the output and the exit code.</p>
+</div>
+
+<h3>pathlib: the modern way to handle paths</h3>
+<p><code>pathlib.Path</code> represents paths as objects. The <code>/</code> operator joins path parts, and many file operations are methods on the path.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from pathlib import Path
+>>> p = Path("reports") / "2026" / "oct.txt"
+>>> p.name, p.stem, p.suffix, p.parent.name
+('oct.txt', 'oct', '.txt', '2026')
+>>> p.write_text("food,12.5\n", encoding="utf-8")
+10
+>>> p.read_text(encoding="utf-8")
+'food,12.5\n'
+>>> sorted(f.name for f in Path("reports").rglob("*") if f.is_file())
+['archive.db', 'oct.txt']
+</script>
+
+<h2 id="glob">File wildcards</h2>
+<p><code>glob</code> finds files whose names match a wildcard pattern: <code>*</code> means any characters, <code>?</code> means one character, and <code>**</code> means any number of subfolders (with <code>recursive=True</code>).</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import glob
+>>> for name in ["a.py", "b.py", "notes.txt"]:
+...     Path(name).touch()                 # create empty files
+...
+>>> sorted(glob.glob("*.py"))
+['a.py', 'b.py']
+>>> sorted(glob.glob("**/*.txt", recursive=True))
+['notes.txt', 'reports/2026/oct.txt']
+</script>
+
+<h2 id="cli">Command-line arguments</h2>
+<p>You met <code>sys.argv</code> in Chapter 1. For real tools, <code>argparse</code> parses the arguments for you. It generates <code>--help</code>, checks types, and reports errors.</p>
+<script type="text/plain" class="code" data-file="top.py" data-save>
+import argparse
+
+parser = argparse.ArgumentParser(
+    prog="top",
+    description="Show the top lines from each file")
+parser.add_argument("filenames", nargs="+")                 # one or more positionals
+parser.add_argument("-l", "--lines", type=int, default=10)  # optional, converted to int
+args = parser.parse_args()
+print(args)
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 top.py --lines=5 alpha.txt beta.txt
+Namespace(filenames=['alpha.txt', 'beta.txt'], lines=5)
+$ python3 top.py
+usage: top [-h] [-l LINES] filenames [filenames ...]
+top: error: the following arguments are required: filenames
+</script>
+<p>Running <code>python3 top.py --help</code> prints the usage and a description of every option, generated automatically.</p>
+
+<h2 id="stderr">Error output and program termination</h2>
+<p><code>sys</code> has three standard streams: <code>sys.stdin</code> (input), <code>sys.stdout</code> (normal output) and <code>sys.stderr</code> (errors and warnings). Writing errors to <code>stderr</code> keeps them visible even when the normal output is redirected to a file (Appendix B).</p>
+<script type="text/plain" class="code" data-file="warn.py" data-save>
+import sys
+
+print("normal output")
+print("Warning, log file not found starting a new one", file=sys.stderr)
+sys.exit(2)                 # stop now, with exit code 2 (non-zero = failure)
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 warn.py > out.txt; echo "exit code: $?"
+Warning, log file not found starting a new one
+exit code: 2
+$ cat out.txt
+normal output
+</script>
+
+<h2 id="re">String pattern matching</h2>
+<p>The <code>re</code> module provides <strong>regular expressions</strong>: a small language for describing text patterns. Always write patterns as <strong>raw strings</strong> (<code>r"…"</code>), so that backslashes reach <code>re</code> unchanged.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import re
+>>> re.findall(r'\bf[a-z]*', 'which foot or hand fell fastest')   # words starting with f
+['foot', 'fell', 'fastest']
+>>> re.sub(r'(\b[a-z]+) \1', r'\1', 'cat in the the hat')          # remove doubled words
+'cat in the hat'
+>>> 'tea for too'.replace('too', 'two')    # simple jobs don't need regex
+'tea for two'
+</script>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Matches</th></tr>
+<tr><td><code>\d</code> / <code>\w</code> / <code>\s</code></td><td>a digit / a word character (letter, digit, <code>_</code>) / whitespace</td></tr>
+<tr><td><code>.</code></td><td>any character except a newline</td></tr>
+<tr><td><code>*</code> <code>+</code> <code>?</code> <code>{2,4}</code></td><td>0 or more / 1 or more / 0 or 1 / 2 to 4 times</td></tr>
+<tr><td><code>^</code> <code>$</code> <code>\b</code></td><td>start / end / a word boundary</td></tr>
+<tr><td><code>[a-z]</code>, <code>[^,]</code></td><td>one character from a set / any character <em>not</em> in the set</td></tr>
+<tr><td><code>( … )</code>, <code>(?P&lt;name&gt; … )</code></td><td>a capture group / a named group</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> m = re.match(r"(?P<date>\d{4}-\d{2}-\d{2}) (?P<cat>\w+) (?P<amount>\d+\.\d+)",
+...              "2026-10-01 food 12.50")
+>>> m["cat"], float(m["amount"])
+('food', 12.5)
+>>> re.match(r"\d+", "abc") is None      # no match gives None
+True
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>re.match</code> only matches at the <em>start</em> of the string. <code>re.search</code> looks anywhere, and <code>re.fullmatch</code> requires the whole string to match.</p>
+</div>
+
+<h2 id="math">Mathematics</h2>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import math
+>>> math.cos(math.pi / 4)
+0.7071067811865476
+>>> math.log(1024, 2)
+10.0
+>>> math.sqrt(16), math.floor(-2.5), math.ceil(2.1), math.isclose(0.1 + 0.2, 0.3)
+(4.0, -3, 3, True)
+>>> import random
+>>> random.seed(42)                  # the same seed gives the same "random" values (for tests)
+>>> random.choice(['apple', 'pear', 'banana'])
+'banana'
+>>> random.sample(range(100), 5)     # 5 distinct values, no repeats
+[14, 3, 94, 35, 31]
+>>> random.random()                  # a float in [0.0, 1.0)
+0.22321073814882275
+>>> random.randrange(6)              # an int from range(6)
+5
+>>> import statistics
+>>> data = [2.75, 1.75, 1.25, 0.25, 0.5, 1.25, 3.5]
+>>> statistics.mean(data)
+1.6071428571428572
+>>> statistics.median(data)
+1.25
+>>> statistics.variance(data)
+1.3720238095238095
+</script>
+<div class="bad">
+<p>❌ <strong>Never use <code>random</code> for passwords or tokens.</strong> Its numbers are predictable. Use the <code>secrets</code> module instead: <code>secrets.token_urlsafe(16)</code>.</p>
+</div>
+
+<h2 id="internet">Internet access</h2>
+<p><code>urllib.request</code> fetches data from URLs, and <code>smtplib</code> sends email. (Most projects use the third-party <code>requests</code> or <code>httpx</code> package for HTTP; see Chapter 15.)</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+from urllib.request import urlopen
+
+with urlopen("https://docs.python.org/3/") as response:
+    print(response.status)                    # 200
+    html = response.read().decode("utf-8")    # the body arrives as bytes
+print(len(html) > 0)
+</script>
+
+<h2 id="datetime">Dates and times</h2>
+<p><code>datetime</code> supports date and time arithmetic and formatting. A <code>date</code> is a calendar day, a <code>datetime</code> is a date plus a time, and a <code>timedelta</code> is a duration.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from datetime import date, datetime, timedelta
+>>> now = date(2026, 10, 30)                # date.today() gives today's date
+>>> now.strftime("%m-%d-%y. %d %b %Y is a %A on the %d day of %B.")
+'10-30-26. 30 Oct 2026 is a Friday on the 30 day of October.'
+>>> birthday = date(1990, 7, 31)
+>>> age = now - birthday                    # subtracting dates gives a timedelta
+>>> age.days
+13240
+>>> now + timedelta(days=30)
+datetime.date(2026, 11, 29)
+>>> datetime.fromisoformat("2026-10-01T09:30").hour
+9
+>>> date.fromisoformat("2026-10-01").isoformat()
+'2026-10-01'
+</script>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> store dates as ISO strings (<code>"2026-10-01"</code>) in JSON. They sort correctly as text, and <code>fromisoformat()</code> reads them back. For time zones, use <code>zoneinfo.ZoneInfo("Europe/Berlin")</code>.</p>
+</div>
+
+<h2 id="compression">Data compression</h2>
+<p><code>zlib</code>, <code>gzip</code>, <code>bz2</code>, <code>lzma</code>, <code>zipfile</code> and <code>tarfile</code> cover the common archive and compression formats.</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> import zlib
+>>> s = b'witch which has which witches wrist watch'
+>>> len(s)
+41
+>>> t = zlib.compress(s)
+>>> len(t)
+37
+>>> zlib.decompress(t)
+b'witch which has which witches wrist watch'
+>>> zlib.crc32(s)                # a checksum
+226805979
+</script>
+
+<h2 id="timeit">Performance measurement</h2>
+<p><code>timeit</code> times small snippets accurately by running them many times. Here it compares the classic temporary-variable swap with tuple swapping:</p>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from timeit import timeit
+>>> slow = timeit('t=a; a=b; b=t', 'a=1; b=2', number=100_000)
+>>> fast = timeit('a,b = b,a', 'a=1; b=2', number=100_000)
+>>> slow > 0 and fast > 0
+True
+</script>
+<p>From the terminal: <code>python3 -m timeit "sum(range(1000))"</code>. For whole programs, the <code>cProfile</code> module shows where the time goes. (The older pure-Python <code>profile</code> module is deprecated in 3.15.)</p>
+
+<h2 id="testing">Quality control</h2>
+<p>Good software comes with tests. Python ships two testing tools.</p>
+<h3>doctest: examples in docstrings that are checked</h3>
+<p><code>doctest</code> finds REPL-style examples in your docstrings and checks that they still produce the output shown. This book's own examples are verified the same way.</p>
+<script type="text/plain" class="code" data-file="average.py" data-save>
+def average(values):
+    """Computes the arithmetic mean of a list of numbers.
+
+    >>> print(average([20, 30, 70]))
+    40.0
+    """
+    return sum(values) / len(values)
+
+if __name__ == "__main__":
+    import doctest
+    print(doctest.testmod())       # runs the examples in this module's docstrings
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 average.py
+TestResults(failed=0, attempted=1)
+</script>
+<h3>unittest: full test suites</h3>
+<p><code>unittest</code> is the xUnit-style framework, like JUnit. Write a class that subclasses <code>TestCase</code>, add methods whose names start with <code>test</code>, and use <code>assert*</code> methods.</p>
+<script type="text/plain" class="code" data-file="test_average.py" data-save>
+import unittest
+from average import average
+
+class TestStatisticalFunctions(unittest.TestCase):
+
+    def test_average(self):
+        self.assertEqual(average([20, 30, 70]), 40.0)
+        self.assertEqual(round(average([1, 5, 7]), 1), 4.3)
+        with self.assertRaises(ZeroDivisionError):
+            average([])
+        with self.assertRaises(TypeError):
+            average(20, 30, 70)
+
+if __name__ == "__main__":
+    unittest.main()
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 -m unittest -v test_average
+test_average (test_average.TestStatisticalFunctions.test_average) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in ...s
+
+OK
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>unittest</code> is JUnit. Most Python projects use the third-party <strong>pytest</strong> instead (installed with pip, Chapter 15), which lets you write plain <code>assert</code> statements in plain functions: <code>def test_avg(): assert average([2, 4]) == 3</code>.</p>
+</div>
+
+<h2 id="batteries">Batteries included</h2>
+<p>A few more modules you'll use constantly:</p>
+<div class="table-wrap"><table>
+<tr><th>Module</th><th>For</th></tr>
+<tr><td><code>json</code>, <code>csv</code></td><td>common data formats</td></tr>
+<tr><td><code>sqlite3</code></td><td>a full SQL database in a single file, with no server</td></tr>
+<tr><td><code>collections</code></td><td><code>Counter</code>, <code>defaultdict</code>, <code>deque</code>, <code>namedtuple</code></td></tr>
+<tr><td><code>pathlib</code>, <code>shutil</code>, <code>tempfile</code></td><td>files and folders</td></tr>
+<tr><td><code>email</code>, <code>xml.etree</code>, <code>html</code></td><td>messages and markup</td></tr>
+<tr><td><code>logging</code>, <code>threading</code>, <code>decimal</code></td><td>Chapter 14</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from collections import Counter, defaultdict
+>>> Counter("the cat and the hat and the bat".split()).most_common(2)
+[('the', 3), ('and', 2)]
+>>> groups = defaultdict(list)            # missing keys start as []
+>>> for cat, amount in [("food", 12.5), ("rent", 900), ("food", 7.5)]:
+...     groups[cat].append(amount)
+...
+>>> dict(groups)
+{'food': [12.5, 7.5], 'rent': [900]}
+>>> import csv, io
+>>> rows = list(csv.reader(io.StringIO('food,12.5,"lunch, with Ana"\nrent,900,\n')))
+>>> rows
+[['food', '12.5', 'lunch, with Ana'], ['rent', '900', '']]
+>>> import sqlite3
+>>> db = sqlite3.connect(":memory:")
+>>> _ = db.execute("CREATE TABLE expense (category TEXT, amount REAL)")
+>>> _ = db.executemany("INSERT INTO expense VALUES (?, ?)", [("food", 12.5), ("food", 7.5)])
+>>> db.execute("SELECT SUM(amount) FROM expense").fetchone()
+(20.0,)
+</script>
+<p>(<code>io.StringIO</code> wraps a string so that it behaves like a file. Notice that <code>csv</code> handled the comma inside the quoted field, which <code>split(",")</code> can't do.)</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Find every Python file larger than N bytes</h3>
+<script type="text/plain" class="code" data-file="big_files.py">
+from pathlib import Path
+
+Path("demo").mkdir(exist_ok=True)
+Path("demo/small.py").write_text("x = 1\n")
+Path("demo/big.py").write_text("# filler\n" * 200)
+
+for f in sorted(Path("demo").rglob("*.py")):
+    size = f.stat().st_size
+    if size > 1000:
+        print(f"{f}  {size:,} bytes")      # demo/big.py  1,800 bytes
+</script>
+<h3>2. Validating e-mail-like strings with re</h3>
+<script type="text/plain" class="code" data-lang="pycon" data-fresh>
+>>> import re
+>>> pattern = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")      # compile once, reuse
+>>> [bool(pattern.fullmatch(s)) for s in ["ana@example.com", "bad@", "b.c+d@x.org"]]
+[True, False, True]
+</script>
+<h3>3. Days until a deadline</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from datetime import date
+>>> deadline = date(2026, 12, 31)
+>>> (deadline - date(2026, 10, 30)).days
+62
+</script>
+<h3>4. A tiny CLI with sub-options</h3>
+<script type="text/plain" class="code" data-file="spend.py" data-save>
+import argparse
+
+p = argparse.ArgumentParser(prog="spend")
+p.add_argument("amount", type=float)
+p.add_argument("-c", "--category", default="misc")
+p.add_argument("--dry-run", action="store_true")      # a flag: True if given
+a = p.parse_args()
+print(f"{'would add' if a.dry_run else 'added'} {a.amount:.2f} to {a.category}")
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ python3 spend.py 12.5 -c food
+added 12.50 to food
+$ python3 spend.py 3 --dry-run
+would add 3.00 to misc
+$ python3 spend.py abc
+usage: spend [-h] [-c CATEGORY] [--dry-run] amount
+spend: error: argument amount: invalid float value: 'abc'
+</script>
+<h3>5. Expenses per month with Counter</h3>
+<script type="text/plain" class="code" data-lang="pycon">
+>>> from collections import Counter
+>>> expenses = [("2026-09-03", 40), ("2026-10-01", 12.5), ("2026-10-15", 900), ("2026-09-20", 5)]
+>>> per_month = Counter()
+>>> for day, amount in expenses:
+...     per_month[day[:7]] += amount       # "2026-10-01"[:7] == "2026-10"
+...
+>>> sorted(per_month.items())
+[('2026-09', 45), ('2026-10', 912.5)]
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>os</code>/<code>shutil</code>/<code>glob</code>/<code>pathlib</code> handle files. Prefer <code>pathlib</code> and <code>subprocess</code> in new code.</li>
+  <li><code>argparse</code> builds real CLIs. Errors go to <code>sys.stderr</code>, and <code>sys.exit(code)</code> sets the exit code.</li>
+  <li>Use <code>re</code> with raw strings (<code>match</code> = at the start, <code>search</code> = anywhere, <code>fullmatch</code> = the whole string). Use <code>math</code>, <code>random</code> (not for secrets) and <code>statistics</code> for numbers.</li>
+  <li><code>datetime</code> does date arithmetic and ISO formats. <code>zlib</code> compresses, and <code>timeit</code>/<code>cProfile</code> measure speed.</li>
+  <li><code>doctest</code> checks examples and <code>unittest</code> is xUnit. <code>csv</code>, <code>sqlite3</code>, <code>Counter</code> and <code>defaultdict</code> come for free.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Use <code>pathlib</code> to print the name, the extension, and the folder name of <code>Path("/home/ana/receipts/oct.pdf")</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pathlib import Path
+p = Path("/home/ana/receipts/oct.pdf")
+print(p.name, p.suffix, p.parent.name)   # oct.pdf .pdf receipts
+</script>
+<p>A path is an object with attributes, so there is no string slicing to do.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>re.findall(r"\d+", "3 apples, 12 pears and 0 kiwis")</code> return?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>['3', '12', '0']</code>. <code>\d+</code> matches runs of one or more digits, and <code>findall</code> returns them as <strong>strings</strong>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Print the date that is 100 days after 2026-10-30, in ISO format.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from datetime import date, timedelta
+print((date(2026, 10, 30) + timedelta(days=100)).isoformat())   # 2027-02-07
+</script>
+<p><code>date + timedelta</code> gives a new <code>date</code>, and it handles month lengths and leap years for you.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Replace this manual counting with <code>Counter</code>:</p>
+<script type="text/plain" class="code" data-lang="python">
+counts = {}
+for ch in "mississippi":
+    counts[ch] = counts.get(ch, 0) + 1
+print(counts)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from collections import Counter
+print(Counter("mississippi"))   # Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})
+</script>
+<p><code>Counter</code> is a dict subclass made for counting, and it has <code>most_common()</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>This regex never matches <code>"Total: 12.50"</code>. Why? Fix it.</p>
+<script type="text/plain" class="code" data-lang="python">
+import re
+print(re.match(r"\d+\.\d+", "Total: 12.50"))   # None
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+m = re.search(r"\d+\.\d+", "Total: 12.50")
+print(m.group())   # 12.50
+</script>
+<p><code>re.match</code> only matches at position 0, and the string starts with "Total". <code>re.search</code> scans the whole string.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/cli.py</code> with <code>argparse</code>: a positional <code>amount</code> (float), <code>--category</code> (default <code>misc</code>), and <code>--date</code> (default today, parsed with <code>date.fromisoformat</code> as the <code>type</code>). Print what would be added.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/cli.py" data-norun>
+import argparse
+from datetime import date
+
+parser = argparse.ArgumentParser(prog="expenses")
+parser.add_argument("amount", type=float)
+parser.add_argument("--category", default="misc")
+parser.add_argument("--date", type=date.fromisoformat, default=date.today())
+args = parser.parse_args()
+print(f"{args.date.isoformat()}  {args.category:<10} {args.amount:>8.2f}")
+</script>
+<p><code>type=</code> can be any function that takes a string: <code>date.fromisoformat</code> both validates and converts. Bad input gives a friendly argparse error.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a <code>unittest</code> test case for <code>format_money</code> from Chapter 5. Test a positive amount, a negative amount, and a custom currency.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import unittest
+
+def format_money(cents, /, *, currency="€"):
+    sign = "-" if cents < 0 else ""
+    whole, rest = divmod(abs(cents), 100)
+    return f"{sign}{currency}{whole}.{rest:02d}"
+
+class TestFormatMoney(unittest.TestCase):
+    def test_positive(self):
+        self.assertEqual(format_money(1205), "€12.05")
+    def test_negative(self):
+        self.assertEqual(format_money(-350), "-€3.50")
+    def test_currency(self):
+        self.assertEqual(format_money(99, currency="$"), "$0.99")
+
+unittest.main(argv=["x"], exit=False, verbosity=0)
+</script>
+<p>Each test checks one behaviour, so a failure tells you exactly what broke. (<code>argv</code> and <code>exit</code> are set here only so the snippet can run inside other code.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why should error messages go to <code>sys.stderr</code>, and why should a failing script call <code>sys.exit(1)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>When output is redirected (<code>tool &gt; out.txt</code>) or piped into another program, <code>stderr</code> still reaches the user's screen and doesn't pollute the data. A non-zero exit code lets shells, scripts and CI systems detect the failure (<code>if tool; then …</code>). Appendix B covers both.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Parse log lines like <code>"2026-10-01 09:15 ERROR disk full"</code> with a regex that uses named groups. Count the errors per day with <code>Counter</code>, and ignore lines that don't match.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+from collections import Counter
+
+LINE = re.compile(r"(?P<day>\d{4}-\d{2}-\d{2}) \d{2}:\d{2} (?P<level>[A-Z]+) (?P<msg>.*)")
+logs = [
+    "2026-10-01 09:15 ERROR disk full",
+    "2026-10-01 09:20 INFO retry",
+    "garbage line",
+    "2026-10-02 10:00 ERROR timeout",
+    "2026-10-01 11:00 ERROR disk full",
+]
+errors = Counter(m["day"] for line in logs
+                 if (m := LINE.fullmatch(line)) and m["level"] == "ERROR")
+print(sorted(errors.items()))   # [('2026-10-01', 2), ('2026-10-02', 1)]
+</script>
+<p>The walrus operator runs the match once, and keeps the result for the filter and the value. Named groups make the code self-documenting.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/monthly.py</code>. It reads an expenses CSV with the <code>csv</code> module (header <code>date,category,amount,note</code>, where notes may contain commas), groups the totals by month and category with <code>defaultdict</code>, and prints a report sorted by month. Include a doctest for a helper <code>month_of(iso_date)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/monthly.py">
+import csv
+from collections import defaultdict
+
+SAMPLE = '''date,category,amount,note
+2026-09-28,food,15.00,"pizza, with Ben"
+2026-10-01,food,12.50,lunch
+2026-10-02,rent,900.00,october
+2026-10-05,food,7.50,"coffee, cake"
+'''
+
+def month_of(iso_date):
+    """Return the YYYY-MM part of an ISO date.
+
+    >>> month_of("2026-10-05")
+    '2026-10'
+    """
+    return iso_date[:7]
+
+def report(path):
+    totals = defaultdict(lambda: defaultdict(float))     # month -> category -> total
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):                    # each row is a dict keyed by the header
+            totals[month_of(row["date"])][row["category"]] += float(row["amount"])
+    for month in sorted(totals):
+        cats = ", ".join(f"{c} {t:.2f}" for c, t in sorted(totals[month].items()))
+        print(f"{month}: {cats}")
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
+    with open("expenses.csv", "w", newline="", encoding="utf-8") as f:
+        f.write(SAMPLE)
+    report("expenses.csv")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2026-09: food 15.00
+2026-10: food 20.00, rent 900.00
+</script>
+<p><code>csv.DictReader</code> handles quoted commas and gives each row as a dict. A nested <code>defaultdict</code> avoids all the "is this key there yet?" checks. Opening CSV files with <code>newline=""</code> is what the csv docs recommend.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.python.org/3/tutorial/stdlib.html">10. Brief Tour of the Standard Library</a></li>
+  <li><a href="https://docs.python.org/3/library/argparse.html">argparse</a> · <a href="https://docs.python.org/3/library/pathlib.html">pathlib</a> · <a href="https://docs.python.org/3/howto/regex.html">Regular Expression HOWTO</a></li>
+  <li><a href="https://docs.python.org/3/library/unittest.html">unittest</a> · <a href="https://docs.python.org/3/library/doctest.html">doctest</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

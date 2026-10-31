@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧮&lt;/text&gt;&lt;/svg&gt;">
+<title>8 · Objects &amp; Arrays in State · React Beginner Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<aside id="sidebar"></aside>
+<main>
+
+<p class="eyebrow">Chapter 8 · Adding Interactivity</p>
+<h1>Objects &amp; Arrays in State</h1>
+<p class="lead">To update an object or array in state, you don't change it: you create a new copy with the changes and set that.</p>
+
+<div class="goals">
+  <strong>You will learn</strong>
+  <ul>
+    <li>What "mutation" is, and why React needs you to avoid it</li>
+    <li>How to copy and update objects with the spread syntax <code>...</code></li>
+    <li>How to update nested objects</li>
+    <li>How to add, remove, change, insert and sort array items without mutating</li>
+  </ul>
+</div>
+
+<h2>The golden rule: treat state as read-only</h2>
+<p>Numbers and strings can't be changed in place anyway: you always <em>replace</em> them (<code>setX(5)</code>). Objects and arrays <em>can</em> be changed in place. That's called <strong>mutation</strong>:</p>
+<script type="text/plain" class="code">
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  position.x = 5;   // 🔴 mutation: React doesn't know anything changed
+</script>
+<p>React decides whether to re-render by checking whether you gave it a <strong>new</strong> object. If you mutate the old one and pass it back, React sees "same object as before" and may skip the update. Mutation also breaks the "snapshot" idea from Chapter 7, because old renders would see the changed data.</p>
+<p><strong>The fix:</strong> create a <strong>new</strong> object and pass it to the setter.</p>
+<script type="text/plain" class="code">
+  setPosition({ x: 5, y: position.y });   // ✅ a brand-new object
+</script>
+
+<h2>Updating objects</h2>
+
+<h3>Copying with spread <code>...</code></h3>
+<p>Usually you want to change <em>one</em> field and keep the rest. The <strong>spread</strong> syntax copies all the fields of an object:</p>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function Form() {
+    const [person, setPerson] = useState({
+      firstName: 'Barbara',
+      lastName: 'Hepworth',
+      email: 'bhepworth@sculpture.com',
+    });
+
+    function handleFirstNameChange(e) {
+      setPerson({
+        ...person,                     // copy every old field
+        firstName: e.target.value,     // then override this one
+      });
+    }
+
+    return (
+      <>
+        <input value={person.firstName} onChange={handleFirstNameChange} />
+        <p>{person.firstName} {person.lastName} ({person.email})</p>
+      </>
+    );
+  }
+</script>
+<div class="callout tip">
+  <strong>One handler for many fields</strong>
+  Give each input a <code>name</code>, and use a <em>computed property name</em> <code>[e.target.name]</code>:
+<script type="text/plain" class="code">
+  function handleChange(e) {
+    setPerson({ ...person, [e.target.name]: e.target.value });
+  }
+
+  <input name="firstName" value={person.firstName} onChange={handleChange} />
+  <input name="lastName"  value={person.lastName}  onChange={handleChange} />
+</script>
+</div>
+
+<h3>Nested objects</h3>
+<p>Spread only copies <strong>one level deep</strong>. For nested data, copy each level you change:</p>
+<script type="text/plain" class="code">
+  const [person, setPerson] = useState({
+    name: 'Niki de Saint Phalle',
+    artwork: {
+      title: 'Blue Nana',
+      city: 'Hamburg',
+    },
+  });
+
+  function handleCityChange(e) {
+    setPerson({
+      ...person,                  // copy the top level
+      artwork: {
+        ...person.artwork,        // copy the nested object
+        city: e.target.value,     // change this field
+      },
+    });
+  }
+</script>
+<div class="callout note">
+  <strong>Too much copying?</strong>
+  If your state is deeply nested, either <strong>flatten</strong> it (Chapter 9), or use the popular library <strong>Immer</strong> (<code>use-immer</code>). It lets you write code that <em>looks</em> like mutation (<code>draft.artwork.city = 'Lagos'</code>) and makes the copies for you.
+</div>
+
+<h2>Updating arrays</h2>
+<p>Arrays in state are read-only too. Avoid methods that <strong>mutate</strong>, and use methods that <strong>return a new array</strong>:</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Task</th><th>🔴 Avoid (mutates)</th><th>✅ Prefer (new array)</th></tr>
+  <tr><td>Add</td><td><code>push</code>, <code>unshift</code></td><td><code>[...arr, item]</code>, <code>[item, ...arr]</code></td></tr>
+  <tr><td>Remove</td><td><code>pop</code>, <code>shift</code>, <code>splice</code></td><td><code>filter</code>, <code>slice</code></td></tr>
+  <tr><td>Change items</td><td><code>arr[i] = x</code></td><td><code>map</code></td></tr>
+  <tr><td>Sort / reverse</td><td><code>sort</code>, <code>reverse</code></td><td><code>toSorted</code>, <code>toReversed</code>, or copy first</td></tr>
+</table>
+</div>
+
+<h3>Adding</h3>
+<script type="text/plain" class="code">
+  let nextId = 0;
+
+  export default function List() {
+    const [name, setName] = useState('');
+    const [artists, setArtists] = useState([]);
+
+    return (
+      <>
+        <input value={name} onChange={e => setName(e.target.value)} />
+        <button onClick={() => {
+          setArtists([
+            ...artists,                    // all the old items
+            { id: nextId++, name: name },  // plus the new one at the end
+          ]);
+          setName('');
+        }}>Add</button>
+        <ul>
+          {artists.map(a => <li key={a.id}>{a.name}</li>)}
+        </ul>
+      </>
+    );
+  }
+</script>
+
+<h3>Removing</h3>
+<p><code>filter</code> keeps the items for which the test returns <code>true</code>:</p>
+<script type="text/plain" class="code">
+  <button onClick={() => {
+    setArtists(artists.filter(a => a.id !== artist.id));   // keep everyone except this one
+  }}>Delete</button>
+</script>
+
+<h3>Changing one item</h3>
+<p><code>map</code> builds a new array. Return a <strong>changed copy</strong> for the item you want, and the item unchanged for the rest:</p>
+<script type="text/plain" class="code">
+  function handleToggle(todoId) {
+    setTodos(todos.map(todo => {
+      if (todo.id === todoId) {
+        return { ...todo, done: !todo.done };   // a new object for the changed item
+      }
+      return todo;                                // the others stay the same
+    }));
+  }
+</script>
+<div class="callout pitfall">
+  <strong>Copying the array isn't enough</strong>
+<script type="text/plain" class="code">
+  const copy = [...todos];
+  copy[0].done = true;   // 🔴 still mutates! the copy holds the SAME objects
+</script>
+  Spread makes a <em>shallow</em> copy: a new array containing the same objects. Always create a new object for the item you change, as in the <code>map</code> example above.
+</div>
+
+<h3>Inserting at a position</h3>
+<script type="text/plain" class="code">
+  const insertAt = 1;
+  setArtists([
+    ...artists.slice(0, insertAt),   // the items before
+    { id: nextId++, name: name },    // the new item
+    ...artists.slice(insertAt),      // the items after
+  ]);
+</script>
+
+<h3>Sorting and reversing</h3>
+<script type="text/plain" class="code">
+  setList(list.toReversed());                               // ✅ returns a new array
+  setList(list.toSorted((a, b) => a.name.localeCompare(b.name)));
+
+  // or the older way: copy first, then mutate the copy
+  const next = [...list];
+  next.reverse();
+  setList(next);
+</script>
+
+<h2>More examples</h2>
+
+<h3>Example 1: a shopping cart (add, increase, decrease, remove)</h3>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function Cart() {
+    const [items, setItems] = useState([
+      { id: 1, name: 'Notebook', qty: 1 },
+      { id: 2, name: 'Pen', qty: 3 },
+    ]);
+
+    function increase(id) {
+      setItems(items.map(i => (i.id === id ? { ...i, qty: i.qty + 1 } : i)));
+    }
+
+    function decrease(id) {
+      setItems(items
+        .map(i => (i.id === id ? { ...i, qty: i.qty - 1 } : i))
+        .filter(i => i.qty > 0));             // remove items that reach 0
+    }
+
+    return (
+      <ul>
+        {items.map(i => (
+          <li key={i.id}>
+            {i.name} × {i.qty}
+            <button onClick={() => increase(i.id)}>+</button>
+            <button onClick={() => decrease(i.id)}>−</button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+</script>
+
+<h3>Example 2: selecting several items (an array of IDs)</h3>
+<script type="text/plain" class="code">
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  function toggle(id) {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter(x => x !== id));   // remove
+    } else {
+      setSelectedIds([...selectedIds, id]);                // add
+    }
+  }
+
+  // in the JSX:
+  <input type="checkbox" checked={selectedIds.includes(mail.id)} onChange={() => toggle(mail.id)} />
+  <p>{selectedIds.length} selected</p>
+</script>
+
+<h3>Example 3: moving an item up</h3>
+<script type="text/plain" class="code">
+  function moveUp(index) {
+    if (index === 0) return;
+    const next = [...list];                                         // copy
+    [next[index - 1], next[index]] = [next[index], next[index - 1]]; // swap in the copy
+    setList(next);
+  }
+</script>
+<p>Changing the <strong>copy</strong> is fine. It's a new array that nobody else has seen yet.</p>
+
+<h3>Example 4: an object containing an array</h3>
+<script type="text/plain" class="code">
+  const [playlist, setPlaylist] = useState({ name: 'Road trip', songs: ['Song A'] });
+
+  function addSong(title) {
+    setPlaylist({
+      ...playlist,
+      songs: [...playlist.songs, title],   // a new array inside a new object
+    });
+  }
+</script>
+
+<div class="recap">
+  <h3>Recap</h3>
+  <ul>
+    <li>Treat objects and arrays in state as <strong>read-only</strong>. Make a new one and set it.</li>
+    <li>Objects: <code>{ ...obj, field: newValue }</code>. Copy each nested level you change.</li>
+    <li>Arrays: add with <code>[...arr, x]</code>, remove with <code>filter</code>, change with <code>map</code>, insert with <code>slice</code>, sort with <code>toSorted</code>.</li>
+    <li>Spread is shallow. When you change an item <em>inside</em> an array, copy that item too.</li>
+    <li>For deeply nested state, consider Immer or flattening it.</li>
+  </ul>
+</div>
+
+<h2>Exercises</h2>
+<div class="exercise">
+  <h3>1. A complete todo list</h3>
+  <p>Build a todo app: an input plus an "Add" button, a list where clicking an item toggles it as done (crossed out), and a "Delete" button on each item.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function Todos() {
+    const [text, setText] = useState('');
+    const [todos, setTodos] = useState([]);
+
+    function handleAdd() {
+      if (!text.trim()) return;
+      setTodos([...todos, { id: crypto.randomUUID(), text, done: false }]);
+      setText('');
+    }
+
+    function handleToggle(id) {
+      setTodos(todos.map(t => (t.id === id ? { ...t, done: !t.done } : t)));
+    }
+
+    function handleDelete(id) {
+      setTodos(todos.filter(t => t.id !== id));
+    }
+
+    return (
+      <>
+        <input value={text} onChange={e => setText(e.target.value)} />
+        <button onClick={handleAdd}>Add</button>
+        <ul>
+          {todos.map(t => (
+            <li key={t.id}>
+              <span onClick={() => handleToggle(t.id)}
+                    style={{ textDecoration: t.done ? 'line-through' : 'none', cursor: 'pointer' }}>
+                {t.text}
+              </span>
+              <button onClick={() => handleDelete(t.id)}>Delete</button>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>2. Fix the mutation</h3>
+<script type="text/plain" class="code">
+  function handleIncrease(productId) {
+    const product = products.find(p => p.id === productId);
+    product.count++;
+    setProducts(products);
+  }
+</script>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function handleIncrease(productId) {
+    setProducts(products.map(p =>
+      p.id === productId ? { ...p, count: p.count + 1 } : p
+    ));
+  }
+</script>
+  </details>
+</div>
+
+<div class="exercise">
+  <h3>3. A profile form with one handler <span class="lvl">🟢 easy</span></h3>
+  <p>Keep <code>{ name, email, city }</code> in one state object. Use a single <code>handleChange</code> for all three inputs.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  export default function ProfileForm() {
+    const [form, setForm] = useState({ name: '', email: '', city: '' });
+
+    function handleChange(e) {
+      setForm({ ...form, [e.target.name]: e.target.value });
+    }
+
+    return (
+      <>
+        <input name="name" value={form.name} onChange={handleChange} placeholder="Name" />
+        <input name="email" value={form.email} onChange={handleChange} placeholder="Email" />
+        <input name="city" value={form.city} onChange={handleChange} placeholder="City" />
+        <pre>{JSON.stringify(form, null, 2)}</pre>
+      </>
+    );
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>4. Tags without duplicates <span class="lvl">🟢 easy</span></h3>
+  <p>An input plus an "Add tag" button adds to a <code>tags</code> array, but ignores tags that are already there.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function handleAdd() {
+    const tag = text.trim().toLowerCase();
+    if (!tag || tags.includes(tag)) return;
+    setTags([...tags, tag]);
+    setText('');
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>5. Remove by id <span class="lvl">🟢 easy</span></h3>
+  <p>Render a list of contacts, each with a ✕ button that removes it.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  {contacts.map(c => (
+    <li key={c.id}>
+      {c.name}
+      <button onClick={() => setContacts(contacts.filter(x => x.id !== c.id))}>✕</button>
+    </li>
+  ))}
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>6. Mark all as done <span class="lvl">🟢 easy</span></h3>
+  <p>Add a "Mark all done" button to your todo list (Exercise 1), and a "Clear completed" button.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  <button onClick={() => setTodos(todos.map(t => ({ ...t, done: true })))}>Mark all done</button>
+  <button onClick={() => setTodos(todos.filter(t => !t.done))}>Clear completed</button>
+</script>
+  <p>Note the <code>({ ... })</code>: to return an object from an arrow function, wrap it in parentheses.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>7. Nested update <span class="lvl">🟡 medium</span></h3>
+  <p>The state is <code>{ name: 'Asha', address: { city: 'Pune', pin: '411001' } }</code>. Make inputs that edit <code>city</code> and <code>pin</code> without losing the other fields.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function handleAddressChange(e) {
+    setUser({
+      ...user,
+      address: { ...user.address, [e.target.name]: e.target.value },
+    });
+  }
+
+  <input name="city" value={user.address.city} onChange={handleAddressChange} />
+  <input name="pin" value={user.address.pin} onChange={handleAddressChange} />
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>8. Insert at the top <span class="lvl">🟡 medium</span></h3>
+  <p>Make a "News feed" where new posts appear at the <strong>top</strong> of the list, and a "Pin" button that moves a post to the top.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  function addPost(text) {
+    setPosts([{ id: crypto.randomUUID(), text }, ...posts]);
+  }
+
+  function pin(id) {
+    const post = posts.find(p => p.id === id);
+    setPosts([post, ...posts.filter(p => p.id !== id)]);
+  }
+</script>
+  </details>
+</div>
+<div class="exercise">
+  <h3>9. Sort buttons <span class="lvl">🟡 medium</span></h3>
+  <p>Show a list of students (<code>{ id, name, marks }</code>) with buttons for "Sort by name" and "Sort by marks (high → low)". The original array must not be mutated.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  <button onClick={() => setStudents(students.toSorted((a, b) => a.name.localeCompare(b.name)))}>
+    Sort by name
+  </button>
+  <button onClick={() => setStudents(students.toSorted((a, b) => b.marks - a.marks))}>
+    Sort by marks
+  </button>
+</script>
+  <p>Even better: keep the original list and store only <code>sortBy</code> in state, then sort while rendering. That's the "don't store derived data" idea from Chapter 9.</p>
+  </details>
+</div>
+<div class="exercise">
+  <h3>10. A mini Kanban board <span class="lvl">🔴 hard</span></h3>
+  <p>Tasks have a <code>status</code> of <code>'todo'</code>, <code>'doing'</code> or <code>'done'</code>. Show three columns with a count in each heading. Each task gets "←" and "→" buttons that move it to the previous or next column.</p>
+  <details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code">
+  import { useState } from 'react';
+
+  const COLUMNS = ['todo', 'doing', 'done'];
+
+  export default function Kanban() {
+    const [tasks, setTasks] = useState([
+      { id: 1, title: 'Learn props', status: 'done' },
+      { id: 2, title: 'Learn state', status: 'doing' },
+      { id: 3, title: 'Learn effects', status: 'todo' },
+    ]);
+
+    function move(id, direction) {
+      setTasks(tasks.map(t => {
+        if (t.id !== id) return t;
+        const i = COLUMNS.indexOf(t.status) + direction;
+        if (i < 0 || i >= COLUMNS.length) return t;
+        return { ...t, status: COLUMNS[i] };
+      }));
+    }
+
+    return (
+      <div style={{ display: 'flex', gap: 16 }}>
+        {COLUMNS.map(col => {
+          const colTasks = tasks.filter(t => t.status === col);
+          return (
+            <section key={col} style={{ flex: 1, border: '1px solid #ccc', padding: 8 }}>
+              <h3>{col.toUpperCase()} ({colTasks.length})</h3>
+              {colTasks.map(t => (
+                <div key={t.id}>
+                  <button onClick={() => move(t.id, -1)} disabled={col === 'todo'}>←</button>
+                  {t.title}
+                  <button onClick={() => move(t.id, 1)} disabled={col === 'done'}>→</button>
+                </div>
+              ))}
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+</script>
+  </details>
+</div>
+
+<p class="docs-links">📖 Official docs: <a href="https://react.dev/learn/updating-objects-in-state">Updating Objects in State</a> · <a href="https://react.dev/learn/updating-arrays-in-state">Updating Arrays in State</a></p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
