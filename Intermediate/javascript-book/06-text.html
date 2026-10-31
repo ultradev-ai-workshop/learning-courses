@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔢&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Numbers, Strings, Dates & Intl · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Expressions &amp; Built-in Data</div>
+<h1>Numbers, Strings, Dates &amp; Intl</h1>
+<p class="lead">The everyday data: numbers that are always floats (plus BigInt), strings made of UTF-16 code units, template literals and tags, the famously awkward <code>Date</code> and its replacement Temporal, and the <code>Intl</code> APIs that format all of it for any language.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Number precision, safe integers, <code>Number.EPSILON</code>, parsing and rounding pitfalls.</li>
+  <li>Strings as UTF-16: <code>length</code> vs characters, and the modern string methods.</li>
+  <li>Template literals, tagged templates and <code>String.raw</code> <span class="es es6">ES2015</span>.</li>
+  <li><code>Date</code> pitfalls, and the Temporal API as the modern alternative.</li>
+  <li>Locale-aware formatting with <code>Intl</code>: currency, dates, plurals, lists, sorting.</li>
+</ul>
+</div>
+
+<h2 id="numbers">Numbers</h2>
+<p>Every <code>number</code> is a 64-bit IEEE-754 float, the same as Java's <code>double</code>. Integers are exact only up to <code>Number.MAX_SAFE_INTEGER</code> (2<sup>53</sup> − 1). Beyond that, use <code>BigInt</code>.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> 0.1 + 0.2 === 0.3
+false
+> Math.abs(0.1 + 0.2 - 0.3) < Number.EPSILON
+true
+> Number.MAX_SAFE_INTEGER
+9007199254740991
+> Number.isSafeInteger(2 ** 53)
+false
+> 1 / 0
+Infinity
+> 0 / 0
+NaN
+</script>
+<div class="tip">
+<p>💡 <strong>Money:</strong> store integer cents (<code>1299</code>), not <code>12.99</code>, and format only for display. That avoids float drift in totals, the same advice as Java's <code>BigDecimal</code>.</p>
+</div>
+
+<h3>Converting strings to numbers</h3>
+<div class="table-wrap"><table>
+<tr><th>Expression</th><th>Result</th><th>Why</th></tr>
+<tr><td><code>Number("12px")</code></td><td><code>NaN</code></td><td>the whole string must be numeric</td></tr>
+<tr><td><code>parseInt("12px")</code></td><td><code>12</code></td><td>parses a prefix, stops at the first bad character</td></tr>
+<tr><td><code>parseFloat("3.14abc")</code></td><td><code>3.14</code></td><td>same, for decimals</td></tr>
+<tr><td><code>Number("")</code> / <code>Number(" 42 ")</code></td><td><code>0</code> / <code>42</code></td><td>whitespace is trimmed, and an empty string is 0 ⚠️</td></tr>
+<tr><td><code>parseInt("ff", 16)</code></td><td><code>255</code></td><td>always pass the radix</td></tr>
+<tr><td><code>isNaN("abc")</code> vs <code>Number.isNaN("abc")</code></td><td><code>true</code> vs <code>false</code></td><td>the global one converts first; <code>Number.isNaN</code> <span class="es es6">ES2015</span> doesn't</td></tr>
+</table></div>
+
+<h3>Rounding</h3>
+<script type="text/plain" class="code" data-lang="repl">
+> (1.005).toFixed(2)
+'1.00'
+> (2.5).toFixed(0)
+'3'
+> [Math.round(2.5), Math.round(-2.5), Math.trunc(-2.7), Math.floor(-2.7)]
+[ 3, -2, -2, -3 ]
+</script>
+<ul>
+  <li><code>toFixed</code> returns a <strong>string</strong>, and rounds the binary value: <code>1.005</code> is really 1.00499…, so it gives <code>"1.00"</code>.</li>
+  <li><code>Math.round</code> rounds halves <em>up</em> (toward +∞): <code>-2.5</code> becomes <code>-2</code>.</li>
+  <li><code>Math.trunc</code>, <code>Math.sign</code>, <code>Math.cbrt</code> and <code>Math.hypot</code> are <span class="es es6">ES2015</span> additions.</li>
+</ul>
+
+<h3>BigInt <span class="es">ES2020</span></h3>
+<script type="text/plain" class="code" data-lang="repl">
+> 2n ** 64n
+18446744073709551616n
+> 10n / 3n
+3n
+> BigInt(Number.MAX_SAFE_INTEGER) + 2n
+9007199254740993n
+> typeof 1n
+'bigint'
+</script>
+<p>BigInt division truncates. You can't mix BigInt and Number in arithmetic (that's a <code>TypeError</code>); convert explicitly with <code>BigInt(n)</code> or <code>Number(b)</code>. <code>JSON.stringify</code> can't serialize BigInts.</p>
+
+<h2 id="strings">Strings</h2>
+<p>A string is an immutable sequence of <strong>UTF-16 code units</strong>. Most characters are one unit, but emoji and other characters outside the Basic Multilingual Plane are two (a <em>surrogate pair</em>). <code>length</code> counts units, not what a reader sees as characters.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> "😀".length
+2
+> [..."😀"].length
+1
+> "e\u0301" === "é"
+false
+> "e\u0301".normalize() === "é"
+true
+</script>
+<p>Spreading or <code>for…of</code> iterates by <em>code point</em>. For "what the user sees as one character" (for example 👍🏽, which is two code points), use <code>Intl.Segmenter</code> (see the Intl section below).</p>
+
+<h3>The modern string methods</h3>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Example → result</th><th>Since</th></tr>
+<tr><td><code>includes</code>, <code>startsWith</code>, <code>endsWith</code></td><td><code>"invoice.pdf".endsWith(".pdf")</code> → <code>true</code></td><td><span class="es es6">ES2015</span></td></tr>
+<tr><td><code>repeat</code></td><td><code>"-".repeat(3)</code> → <code>"---"</code></td><td><span class="es es6">ES2015</span></td></tr>
+<tr><td><code>padStart</code>, <code>padEnd</code></td><td><code>"7".padStart(3, "0")</code> → <code>"007"</code></td><td><span class="es">ES2017</span></td></tr>
+<tr><td><code>trimStart</code>, <code>trimEnd</code></td><td><code>"  a ".trimStart()</code> → <code>"a "</code></td><td><span class="es">ES2019</span></td></tr>
+<tr><td><code>replaceAll</code></td><td><code>"a-b-c".replaceAll("-", "/")</code> → <code>"a/b/c"</code></td><td><span class="es">ES2021</span></td></tr>
+<tr><td><code>at</code></td><td><code>"Dune".at(-1)</code> → <code>"e"</code></td><td><span class="es">ES2022</span></td></tr>
+<tr><td><code>isWellFormed</code>, <code>toWellFormed</code></td><td>detect and repair lone surrogates</td><td><span class="es">ES2024</span></td></tr>
+<tr><td><code>slice</code>, <code>split</code>, <code>indexOf</code>, <code>toUpperCase</code>, <code>localeCompare</code></td><td>the classics</td><td>ES5</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> const isbn = "978-0-441-17271-9"
+> isbn.replaceAll("-", "")
+'9780441172719'
+> isbn.slice(-1)
+'9'
+> isbn.split("-", 2)
+[ '978', '0' ]
+> "Dune".padEnd(8, ".") + "€12.99"
+'Dune....€12.99'
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>"a-b-c".replace("-", "/")</code> replaces only the <em>first</em> match. Use <code>replaceAll</code>, or a regex with the <code>g</code> flag (Chapter 7).</p>
+</div>
+
+<h2 id="templates">Template literals <span class="es es6">ES2015</span></h2>
+<p>Backtick strings can span several lines and embed any expression with <code>${…}</code>.</p>
+<script type="text/plain" class="code" data-file="template.js">
+const book = { title: "Dune", price: 1299, qty: 2 };
+const line = `${book.qty} × ${book.title} = €${(book.price * book.qty / 100).toFixed(2)}`;
+const receipt = `
+Page & Spine
+${line}
+Thank you!`.trim();
+console.log(receipt);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Page & Spine
+2 × Dune = €25.98
+Thank you!
+</script>
+<h3>Tagged templates</h3>
+<p>A <strong>tag</strong> is a function placed before a template literal. It receives the literal text pieces and the evaluated values separately, so it can escape, translate or format the values before joining them. Libraries use this for SQL, HTML and CSS.</p>
+<script type="text/plain" class="code" data-file="tagged.js">
+function money(strings, ...values) {
+  // strings: the literal parts; values: the ${} results
+  return strings.reduce((out, str, i) =>
+    out + str + (i < values.length ? `€${(values[i] / 100).toFixed(2)}` : ""), "");
+}
+const subtotal = 2598, shipping = 490;
+console.log(money`Subtotal ${subtotal}, shipping ${shipping}, total ${subtotal + shipping}.`);
+
+function html(strings, ...values) {
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return strings.reduce((out, str, i) => out + str + (i < values.length ? esc(values[i]) : ""), "");
+}
+console.log(html`<p>Review: ${'<script>alert("hi")<\/script>'}</p>`);
+console.log(String.raw`C:\new\table`);     // backslashes stay as typed
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Subtotal €25.98, shipping €4.90, total €30.88.
+<p>Review: &lt;script&gt;alert(&quot;hi&quot;)&lt;/script&gt;</p>
+C:\new\table
+</script>
+
+<h2 id="dates">Dates</h2>
+<p><code>Date</code> stores a single moment as milliseconds since 1 January 1970 UTC. It's a leftover from 1995 Java, and it has well-known traps:</p>
+<div class="table-wrap"><table>
+<tr><th>Trap</th><th>Example</th></tr>
+<tr><td>Months are 0-based (days are not)</td><td><code>new Date(2026, 9, 30)</code> is <strong>30 October</strong></td></tr>
+<tr><td>Date-only ISO strings are UTC; date-time strings without a zone are local</td><td><code>new Date("2026-10-30")</code> vs <code>new Date("2026-10-30T00:00")</code></td></tr>
+<tr><td>Dates are mutable</td><td><code>d.setDate(d.getDate() + 1)</code> changes <code>d</code> for everyone holding it</td></tr>
+<tr><td>Overflow rolls over silently</td><td><code>new Date(2026, 0, 32)</code> is 1 February</td></tr>
+<tr><td>Only local time and UTC; no other time zones</td><td>use <code>Intl</code> to <em>display</em> in another zone</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="dates.js">
+const d = new Date(Date.UTC(2026, 9, 30, 14, 5));     // month 9 = October
+console.log(d.toISOString());
+console.log(d.getUTCMonth(), d.getUTCDay());          // 9 (Oct), 5 (Friday; Sunday = 0)
+
+const due = new Date(d);                              // copy before changing!
+due.setUTCDate(due.getUTCDate() + 30);
+console.log(due.toISOString().slice(0, 10));
+
+const days = (new Date("2026-12-25") - new Date("2026-10-30")) / 86_400_000;
+console.log(days, "days to Christmas");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2026-10-30T14:05:00.000Z
+9 5
+2026-11-29
+56 days to Christmas
+</script>
+<h3>Temporal: the modern replacement</h3>
+<p><strong>Temporal</strong> is a new global API, available in Node 26 and current browsers, that fixes Date's design. It has separate immutable types for different jobs: <code>PlainDate</code> (a calendar date), <code>PlainTime</code>, <code>ZonedDateTime</code> (a moment in a real time zone), <code>Instant</code> and <code>Duration</code>. Months are 1-based, and arithmetic is calendar-aware.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> const order = Temporal.PlainDate.from("2026-01-31")
+> order.add({ months: 1 }).toString()
+'2026-02-28'
+> Temporal.PlainDate.from("2026-10-30").until("2026-12-25").days
+56
+> order.month
+1
+</script>
+<div class="note">
+<p>📝 <strong>Status:</strong> Temporal is new. Check your target browsers or Node version before relying on it, or use the <code>@js-temporal/polyfill</code> package. <code>Date</code> isn't going anywhere, so you'll keep reading it in existing code.</p>
+</div>
+
+<h2 id="intl">Internationalization with Intl</h2>
+<p>The <code>Intl</code> namespace formats numbers, dates, lists and plurals, and compares strings, according to a <strong>locale</strong> such as <code>"de-DE"</code> or <code>"en-IN"</code>. Create a formatter once and reuse it; formatters are relatively expensive to build.</p>
+<script type="text/plain" class="code" data-file="intl.js">
+const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+console.log(eur.format(1234.5));
+console.log(new Intl.NumberFormat("en-IN").format(1234567.891));
+console.log(new Intl.NumberFormat("en", { notation: "compact" }).format(1234567));
+console.log(new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 }).format(0.256));
+
+const when = new Date(Date.UTC(2026, 9, 30, 14, 5));
+console.log(new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "UTC" }).format(when));
+console.log(new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" }).format(when));
+
+console.log(new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-1, "day"));
+console.log(new Intl.ListFormat("en", { type: "conjunction" }).format(["Dune", "Emma", "Hamlet"]));
+
+const ordinal = new Intl.PluralRules("en", { type: "ordinal" });
+const suffix = { one: "st", two: "nd", few: "rd", other: "th" };
+console.log([1, 2, 3, 4, 11, 22].map((n) => n + suffix[ordinal.select(n)]).join(" "));
+
+console.log(["Émile", "zebra", "apple", "Zoe"].sort());                                  // code-unit order
+console.log(["Émile", "zebra", "apple", "Zoe"].sort(new Intl.Collator("en").compare));  // human order
+console.log([...new Intl.Segmenter("en", { granularity: "grapheme" }).segment("👍🏽ok")].length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1.234,50 €
+12,34,567.891
+1.2M
+25.6%
+Friday, 30 October 2026
+Oct 30, 2026, 10:05 AM
+yesterday
+Dune, Emma, and Hamlet
+1st 2nd 3rd 4th 11th 22nd
+[ 'Zoe', 'apple', 'zebra', 'Émile' ]
+[ 'apple', 'Émile', 'zebra', 'Zoe' ]
+3
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> formatted output may contain special spaces, such as a no-break space before <code>€</code> or a narrow no-break space before <code>AM</code>. Never compare formatted strings in tests against strings you typed by hand; compare the numbers, or use <code>formatToParts()</code>.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Summing money safely</h3>
+<script type="text/plain" class="code" data-file="sum-cents.js">
+const prices = ["12.99", "8.99", "0.10", "0.20"];
+const cents = prices.map((p) => Math.round(Number(p) * 100));   // convert once, at the edge
+const total = cents.reduce((a, b) => a + b, 0);
+console.log(total, (total / 100).toFixed(2));   // 2228 22.28
+</script>
+<h3>2. Masking a card number</h3>
+<script type="text/plain" class="code" data-file="mask.js">
+const mask = (card) => card.replaceAll(" ", "").slice(-4).padStart(16, "•");
+console.log(mask("4111 1111 1111 1234"));   // ••••••••••••1234
+</script>
+<h3>3. A receipt line aligned with padEnd/padStart</h3>
+<script type="text/plain" class="code" data-file="receipt-line.js">
+const fmt = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
+for (const [title, cents] of [["Dune", 1299], ["Emma", 899], ["Ulysses", 1450]]) {
+  console.log(title.padEnd(10, ".") + fmt.format(cents / 100).padStart(8));
+}
+</script>
+<h3>4. Truncating text by graphemes, not code units</h3>
+<script type="text/plain" class="code" data-file="truncate.js">
+const seg = new Intl.Segmenter("en", { granularity: "grapheme" });
+const truncate = (s, n) => {
+  const parts = [...seg.segment(s)].map((x) => x.segment);
+  return parts.length > n ? parts.slice(0, n).join("") + "…" : s;
+};
+console.log(truncate("Great read 👍🏽👍🏽", 12));
+</script>
+<h3>5. Next business day with Temporal</h3>
+<script type="text/plain" class="code" data-file="business-day.js">
+function nextBusinessDay(date) {
+  let d = Temporal.PlainDate.from(date).add({ days: 1 });
+  while (d.dayOfWeek > 5) d = d.add({ days: 1 });     // 6 = Sat, 7 = Sun (ISO weekdays)
+  return d.toString();
+}
+console.log(nextBusinessDay("2026-10-30"));   // Friday → Monday 2026-11-02
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Numbers are doubles: compare floats with a tolerance, store money as integer cents, and use BigInt beyond 2<sup>53</sup>.</li>
+  <li>Prefer <code>Number()</code> plus <code>Number.isNaN</code>; give <code>parseInt</code> a radix. <code>toFixed</code> returns a string.</li>
+  <li>Strings are UTF-16: <code>length</code> counts code units, spread counts code points, and <code>Intl.Segmenter</code> counts what readers see.</li>
+  <li>Template literals interpolate and span lines. Tags receive the literal parts and values separately.</li>
+  <li><code>Date</code> has 0-based months and mutable objects; Temporal fixes both. Use <code>Intl</code> for all user-facing formatting.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>Evaluate: <code>Number("42px")</code>, <code>parseInt("42px")</code>, <code>Number("")</code>, <code>parseInt("")</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>NaN</code>, <code>42</code>, <code>0</code>, <code>NaN</code>. <code>Number</code> needs the whole string to be numeric, but treats an empty string as 0. <code>parseInt</code> needs at least one digit at the start.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Format an order number <code>7</code> as <code>ORD-00007</code> using one string method.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex2.js">
+console.log(`ORD-${String(7).padStart(5, "0")}`);   // ORD-00007
+</script>
+<p><code>padStart</code> is a string method, so convert the number first.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>The month shows as November. Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const d = new Date(Date.UTC(2026, 10, 30));     // meant: 30 October 2026
+console.log(d.toISOString().slice(0, 10));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const d = new Date(Date.UTC(2026, 9, 30));      // months are 0-based: 9 = October
+console.log(d.toISOString().slice(0, 10));       // 2026-10-30
+</script>
+<p><code>Date</code> months run from 0 to 11. Temporal's <code>month</code> is 1-based, which avoids this bug.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What are <code>"café".length</code>, <code>"🍩".length</code> and <code>[..."🍩🍩"].length</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>4</code>, <code>2</code>, <code>2</code>. "é" written as one code point is one unit; the emoji needs a surrogate pair (2 units) but is one code point.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a tag function <code>upper</code> that upper-cases only the interpolated values: <code>upper`Hi ${"ana"}, your book ${"dune"} shipped`</code> → <code>"Hi ANA, your book DUNE shipped"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5.js">
+const upper = (strings, ...values) =>
+  strings.reduce((out, s, i) => out + s + (i < values.length ? String(values[i]).toUpperCase() : ""), "");
+console.log(upper`Hi ${"ana"}, your book ${"dune"} shipped`);
+</script>
+<p><code>strings</code> always has one more element than <code>values</code>, which is why the last step adds nothing after the final string.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>(1.005).toFixed(2)</code> give <code>"1.00"</code> and not <code>"1.01"</code>? How would you round money correctly?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>1.005</code> can't be stored exactly. The nearest double is 1.00499999999999989…, which correctly rounds down. Work in integer cents (<code>Math.round(x * 100)</code> at input time), or use a decimal library for exact decimal rounding.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/format.js</code> exporting <code>formatPrice(cents, locale, currency)</code>, with formatters cached per <code>locale + currency</code> in a <code>Map</code>. Print 1299 cents in <code>en-US</code>/USD, <code>de-DE</code>/EUR and <code>ja-JP</code>/JPY (yen has no minor unit, so 1299 means ¥1,299).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/format.js">
+const cache = new Map();
+
+export function formatPrice(cents, locale = "en-US", currency = "USD") {
+  const key = `${locale}|${currency}`;
+  if (!cache.has(key)) cache.set(key, new Intl.NumberFormat(locale, { style: "currency", currency }));
+  const fmt = cache.get(key);
+  const digits = fmt.resolvedOptions().maximumFractionDigits;      // 2 for USD/EUR, 0 for JPY
+  return fmt.format(cents / 10 ** digits);
+}
+
+console.log(formatPrice(1299), formatPrice(1299, "de-DE", "EUR"), formatPrice(1299, "ja-JP", "JPY"));
+</script>
+<p><code>resolvedOptions()</code> reveals how many decimals the currency uses, so the same "minor units" integer works for every currency. Caching avoids rebuilding formatters.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>["b", "a", "C", "á"].sort()</code> return? And with <code>new Intl.Collator("en").compare</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>['C', 'a', 'b', 'á']</code> (by UTF-16 code unit, so uppercase letters come first and accents last), and <code>['a', 'á', 'b', 'C']</code> (the human dictionary order for English).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Using Temporal, compute the delivery date for an order placed on <code>"2026-12-23"</code> with 3 business days of shipping, skipping weekends and the holidays <code>2026-12-25</code> and <code>2026-12-26</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex9.js">
+const HOLIDAYS = new Set(["2026-12-25", "2026-12-26"]);
+function addBusinessDays(start, n) {
+  let d = Temporal.PlainDate.from(start);
+  while (n > 0) {
+    d = d.add({ days: 1 });
+    if (d.dayOfWeek <= 5 && !HOLIDAYS.has(d.toString())) n--;
+  }
+  return d.toString();
+}
+console.log(addBusinessDays("2026-12-23", 3));   // 2026-12-29
+</script>
+<p>Walking forward from the 23rd: the 24th (Thursday) counts as day 1; the 25th (Friday) is a holiday; the 26th and 27th are a weekend (the 26th is also a holiday); the 28th (Monday) is day 2 and the 29th is day 3. So delivery is <strong>2026-12-29</strong>. <code>dayOfWeek</code> uses ISO numbering: Monday = 1 through Sunday = 7.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/receipt.js</code>. Given a locale, a currency and line items <code>{ title, cents, qty }</code>, print a receipt: aligned columns, an Intl currency for each line and the total, a pluralised item count ("1 item" / "3 items" via <code>Intl.PluralRules</code>), and a date line formatted with <code>Intl.DateTimeFormat</code> in UTC.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/receipt.js">
+export function receipt(items, { locale = "en-GB", currency = "EUR", date = new Date(Date.UTC(2026, 9, 30)) } = {}) {
+  const money = new Intl.NumberFormat(locale, { style: "currency", currency });
+  const plural = new Intl.PluralRules(locale);
+  const words = { one: "item", other: "items" };
+  const day = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(date);
+
+  const lines = items.map(({ title, cents, qty }) =>
+    `${`${qty} × ${title}`.padEnd(18)}${money.format((cents * qty) / 100).padStart(10)}`);
+  const count = items.reduce((n, i) => n + i.qty, 0);
+  const total = items.reduce((s, i) => s + i.cents * i.qty, 0);
+  return [`Page & Spine — ${day}`, ...lines, "-".repeat(28),
+    `${`${count} ${words[plural.select(count)] ?? "items"}`.padEnd(18)}${money.format(total / 100).padStart(10)}`].join("\n");
+}
+
+console.log(receipt([{ title: "Dune", cents: 1299, qty: 2 }, { title: "Emma", cents: 899, qty: 1 }]));
+</script>
+<p>It uses integer cents, template literals inside <code>padEnd</code>/<code>padStart</code>, three different <code>Intl</code> formatters, and destructured options with defaults.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Numbers_and_strings">MDN Guide: Numbers and strings</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Representing_dates_times">MDN Guide: Representing dates and times</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Internationalization">MDN Guide: Internationalization</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal">MDN: Temporal</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

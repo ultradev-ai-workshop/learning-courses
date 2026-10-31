@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏛️&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Classes & the Prototype Chain · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Collections &amp; Objects</div>
+<h1>Classes &amp; the Prototype Chain</h1>
+<p class="lead">ES6 classes look like Java classes, but underneath they're built on JavaScript's original model: objects linked to other objects through a <em>prototype chain</em>. This chapter covers the full modern class syntax, including private <code>#fields</code> and static blocks, and then opens the hood.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Class syntax: constructor, methods, getters and setters, static members <span class="es es6">ES2015</span>.</li>
+  <li>Public and private fields, private methods, <code>#x in obj</code>, static blocks <span class="es">ES2022</span>.</li>
+  <li><code>extends</code>, <code>super</code>, overriding, and extending built-ins like <code>Error</code>.</li>
+  <li>The prototype chain: how property lookup works, and what a class compiles to.</li>
+  <li><code>this</code> in class methods, arrow-function fields, and mixins.</li>
+</ul>
+</div>
+
+<h2 id="syntax">Class syntax</h2>
+<script type="text/plain" class="code" data-file="class-basics.js">
+class Book {
+  static count = 0;                 // static field: one per class
+  #stock = 0;                       // private field: only code inside the class can see it
+  currency = "EUR";                 // public field: set on each instance
+
+  constructor(title, price) {
+    this.title = title;
+    this.price = price;
+    Book.count++;
+  }
+
+  get inStock() { return this.#stock > 0; }      // getter
+  restock(qty) {                                  // method (shared via the prototype)
+    if (qty <= 0) throw new RangeError("qty must be positive");
+    this.#stock += qty;
+    return this;
+  }
+  toString() { return `${this.title} (${this.#stock} left)`; }
+  static fromJSON(json) {                         // static method: called on the class
+    const { title, price } = JSON.parse(json);
+    return new Book(title, price);
+  }
+}
+
+const dune = new Book("Dune", 1299).restock(3);
+const emma = Book.fromJSON('{"title":"Emma","price":899}');
+console.log(`${dune}`, dune.inStock, emma.inStock, Book.count);
+console.log(Object.keys(dune));                   // private and prototype members aren't listed
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune (3 left) true false 2
+[ 'currency', 'title', 'price' ]
+</script>
+<p>Facts about classes that surprise Java developers:</p>
+<ul>
+  <li>A class is a special <strong>function</strong>: <code>typeof Book === "function"</code>. It must be called with <code>new</code>.</li>
+  <li>Class bodies are always in <strong>strict mode</strong>.</li>
+  <li>Class declarations are <strong>not hoisted</strong> like functions: they're in the TDZ until their line runs.</li>
+  <li>Fields are initialised before the constructor body runs (in a subclass, right after <code>super()</code> returns).</li>
+  <li>There's no overloading and no access modifiers other than <code>#</code>.</li>
+</ul>
+
+<h2 id="private">Private members <span class="es">ES2022</span></h2>
+<p><code>#name</code> is <strong>truly private</strong>: it's a syntax error to mention it outside the class body, and it doesn't show up in any reflection (<code>Object.keys</code>, <code>JSON</code>, <code>Reflect.ownKeys</code>). Methods and accessors can be private too. <code>#field in obj</code> checks whether an object has that private field, which is a safe brand check.</p>
+<script type="text/plain" class="code" data-file="private.js">
+class Account {
+  #balance = 0;
+  static #instances = 0;
+
+  constructor() { Account.#instances++; }
+  deposit(cents) { this.#validate(cents); this.#balance += cents; return this.#balance; }
+  #validate(cents) {                                  // private method
+    if (!Number.isInteger(cents) || cents <= 0) throw new RangeError(`bad amount ${cents}`);
+  }
+  static isAccount(obj) { return #balance in obj; }   // brand check
+  static get instances() { return Account.#instances; }
+}
+
+const acc = new Account();
+console.log(acc.deposit(500), Account.isAccount(acc), Account.isAccount({ balance: 1 }));
+console.log(acc.balance, JSON.stringify(acc), Account.instances);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+500 true false
+undefined {} 1
+</script>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> the <code>_balance</code> underscore convention ("please don't touch"), closures, or WeakMaps keyed by instance for privacy. TypeScript's <code>private</code> keyword only exists at compile time, unlike <code>#</code>.</p>
+</div>
+
+<h3>Static initialization blocks <span class="es">ES2022</span></h3>
+<script type="text/plain" class="code" data-file="static-block.js">
+class Currency {
+  static #rates = new Map();
+  static {                                   // runs once, when the class is defined
+    for (const [code, rate] of [["EUR", 1], ["USD", 1.08], ["GBP", 0.85]]) Currency.#rates.set(code, rate);
+  }
+  static convert(cents, to) { return Math.round(cents * Currency.#rates.get(to)); }
+}
+console.log(Currency.convert(1299, "USD"));   // 1403
+</script>
+
+<h2 id="inheritance">Inheritance with extends</h2>
+<script type="text/plain" class="code" data-file="extends.js">
+class Product {
+  constructor(title, price) { this.title = title; this.price = price; }
+  label() { return `${this.title}: €${(this.price / 100).toFixed(2)}`; }
+}
+
+class Ebook extends Product {
+  constructor(title, price, sizeMb) {
+    super(title, price);            // must run before you touch `this`
+    this.sizeMb = sizeMb;
+  }
+  label() { return `${super.label()} [ebook, ${this.sizeMb} MB]`; }   // override + call parent
+}
+
+const e = new Ebook("Dune", 799, 2.4);
+console.log(e.label());
+console.log(e instanceof Ebook, e instanceof Product, Object.getPrototypeOf(Ebook) === Product);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune: €7.99 [ebook, 2.4 MB]
+true true true
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> in a subclass constructor, using <code>this</code> before calling <code>super()</code> throws <code>ReferenceError: Must call super constructor in derived class before accessing 'this'</code>.</p>
+</div>
+<h3>Extending built-ins</h3>
+<script type="text/plain" class="code" data-file="extend-builtin.js">
+class Shelf extends Array {
+  get totalPrice() { return this.reduce((s, b) => s + b.price, 0); }
+}
+const shelf = Shelf.from([{ price: 1299 }, { price: 899 }]);
+const cheap = shelf.filter((b) => b.price < 1000);         // map/filter return a Shelf too
+console.log(shelf.totalPrice, cheap instanceof Shelf, cheap.totalPrice);
+</script>
+
+<h2 id="prototypes">Under the hood: the prototype chain</h2>
+<p>Every object has a hidden link, <code>[[Prototype]]</code>, to another object (or to <code>null</code>). When you read a property that the object doesn't have itself, JavaScript follows the link and looks there, then follows <em>that</em> object's link, and so on. This lookup path is the <strong>prototype chain</strong>.</p>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+dune ──[[Prototype]]──▶ Book.prototype ──▶ Object.prototype ──▶ null
+ title, price            restock(), toString()   hasOwnProperty(), …
+</script>
+<script type="text/plain" class="code" data-file="chain.js">
+class Book {
+  constructor(title) { this.title = title; }
+  describe() { return `Book: ${this.title}`; }
+}
+const dune = new Book("Dune");
+
+console.log(Object.getPrototypeOf(dune) === Book.prototype);              // true
+console.log(Object.hasOwn(dune, "describe"), "describe" in dune);         // false true: found on the chain
+console.log(Object.getPrototypeOf(Book.prototype) === Object.prototype);  // true
+
+dune.describe = () => "shadowed!";       // an own property hides the prototype's method
+console.log(dune.describe(), new Book("Emma").describe());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true
+false true
+true
+shadowed! Book: Emma
+</script>
+<h3>What a class compiles to</h3>
+<p>Before ES6, the same structure was written with a <strong>constructor function</strong> and its <code>prototype</code> object. Classes are (mostly) nicer syntax for exactly this; Appendix A shows more.</p>
+<div class="compare">
+<div>
+<p><strong>ES5: constructor function</strong></p>
+<script type="text/plain" class="code" data-file="es5-class.js">
+function Book(title) { this.title = title; }
+Book.prototype.describe = function () {
+  return "Book: " + this.title;
+};
+var b = new Book("Dune");
+console.log(b.describe(), b instanceof Book);
+</script>
+</div>
+<div>
+<p><strong>ES6 class</strong></p>
+<script type="text/plain" class="code" data-file="es6-class.js">
+class Book {
+  constructor(title) { this.title = title; }
+  describe() { return `Book: ${this.title}`; }
+}
+const b = new Book("Dune");
+console.log(b.describe(), b instanceof Book);
+</script>
+</div>
+</div>
+<p>The differences: class methods are non-enumerable, classes can't be called without <code>new</code>, they're strict, they have real <code>#private</code> members, and <code>super</code> works.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> there are no separate "class" and "instance" kinds of thing at run time: a class is an object (a function), and inheritance links <em>objects</em>, not types. You can even create an object with a given prototype directly, with <code>Object.create(proto)</code>, with no class involved.</p>
+</div>
+
+<h2 id="this">this in class methods</h2>
+<p>Class methods are ordinary functions on the prototype, so they lose <code>this</code> when they're detached (Chapter 4). A <strong>class field holding an arrow function</strong> is created per instance, and captures that instance's <code>this</code>, which is a common fix for event handlers.</p>
+<script type="text/plain" class="code" data-file="class-this.js">
+class Counter {
+  count = 0;
+  incMethod() { this.count++; return this.count; }
+  incArrow = () => { this.count++; return this.count; };    // bound to this instance
+}
+const c = new Counter();
+const { incMethod, incArrow } = c;           // detach both, like passing them as callbacks
+console.log(incArrow(), incArrow());          // 1 2
+try { incMethod(); } catch (e) { console.log(e.constructor.name); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 2
+TypeError
+</script>
+<p>The trade-off: arrow fields aren't on the prototype, so each instance gets its own copy, and subclasses can't call them with <code>super</code>.</p>
+
+<h2 id="mixins">Mixins</h2>
+<p>JavaScript has single inheritance. To share behaviour across unrelated classes, use a <strong>mixin</strong>: a function that takes a base class and returns a subclass with extra methods.</p>
+<script type="text/plain" class="code" data-file="mixins.js">
+const Timestamped = (Base) => class extends Base {
+  touch() { this.updatedAt = "2026-10-30"; return this; }
+};
+const Serializable = (Base) => class extends Base {
+  toJSON() { return { type: this.constructor.name, ...this }; }
+};
+
+class Order { constructor(id) { this.id = id; } }
+class TrackedOrder extends Serializable(Timestamped(Order)) {}
+
+console.log(JSON.stringify(new TrackedOrder("o1").touch()));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"type":"TrackedOrder","id":"o1","updatedAt":"2026-10-30"}
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A small class hierarchy for discounts</h3>
+<script type="text/plain" class="code" data-file="discounts.js">
+class Discount { apply(cents) { return cents; } }
+class Percent extends Discount {
+  constructor(pct) { super(); this.pct = pct; }
+  apply(cents) { return Math.round(cents * (1 - this.pct / 100)); }
+}
+class Fixed extends Discount {
+  constructor(off) { super(); this.off = off; }
+  apply(cents) { return Math.max(0, cents - this.off); }
+}
+console.log([new Discount(), new Percent(10), new Fixed(500)].map((d) => d.apply(2598)));   // [ 2598, 2338, 2098 ]
+</script>
+<h3>2. Validating setters with a private backing field</h3>
+<script type="text/plain" class="code" data-file="setter.js">
+class Price {
+  #cents = 0;
+  get cents() { return this.#cents; }
+  set cents(v) {
+    if (!Number.isInteger(v) || v < 0) throw new RangeError(`invalid cents ${v}`);
+    this.#cents = v;
+  }
+}
+const p = new Price();
+p.cents = 1299;
+try { p.cents = -1; } catch (e) { console.log(e.message, p.cents); }
+</script>
+<h3>3. Objects without classes: Object.create</h3>
+<script type="text/plain" class="code" data-file="object-create.js">
+const animal = { speak() { return `${this.name} makes a sound`; } };
+const dog = Object.create(animal, { name: { value: "Rex", enumerable: true } });
+console.log(dog.speak(), Object.getPrototypeOf(dog) === animal);
+</script>
+<h3>4. Static factory methods with validation</h3>
+<script type="text/plain" class="code" data-file="factory.js">
+class Isbn {
+  #digits;
+  constructor(digits) { this.#digits = digits; }
+  static parse(text) {
+    const digits = text.replaceAll("-", "");
+    if (!/^97[89]\d{10}$/.test(digits)) throw new SyntaxError(`not an ISBN-13: ${text}`);
+    return new Isbn(digits);
+  }
+  toString() { return this.#digits; }
+}
+console.log(String(Isbn.parse("978-0-441-17271-9")));
+</script>
+<h3>5. A domain error hierarchy</h3>
+<script type="text/plain" class="code" data-file="error-hierarchy.js">
+class ShopError extends Error { constructor(msg, opts) { super(msg, opts); this.name = new.target.name; } }
+class PaymentError extends ShopError {}
+class CardDeclined extends PaymentError {}
+
+const e = new CardDeclined("card declined");
+console.log(e.name, e instanceof PaymentError, e instanceof ShopError, e instanceof Error);
+</script>
+<p><code>new.target</code> refers to the class that was actually instantiated, so <code>name</code> is right for every subclass without repeating it.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A class is a strict, non-hoisted, <code>new</code>-only function. Methods live on the prototype; fields live on each instance.</li>
+  <li><code>#private</code> fields and methods are truly hidden; <code>#x in obj</code> is a brand check; static blocks initialise static state.</li>
+  <li><code>extends</code> + <code>super()</code> (before <code>this</code>) + <code>super.method()</code>; built-ins like <code>Error</code> and <code>Array</code> can be extended.</li>
+  <li>Property lookup follows the <code>[[Prototype]]</code> chain, and own properties shadow inherited ones. Classes are mostly syntax over constructor functions.</li>
+  <li>Detached methods lose <code>this</code>; arrow-function fields bind it per instance. Use mixins for shared behaviour.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a class <code>Rect</code> with <code>width</code> and <code>height</code>, a getter <code>area</code>, and a static method <code>square(side)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+class Rect {
+  constructor(width, height) { this.width = width; this.height = height; }
+  get area() { return this.width * this.height; }
+  static square(side) { return new Rect(side, side); }
+}
+console.log(new Rect(3, 4).area, Rect.square(5).area);   // 12 25
+</script>
+<p>Getters are read without parentheses; static methods are called on the class.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>typeof class {}</code> give? And what happens with <code>class A {}; A();</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"function"</code>; and <code>TypeError: Class constructor A cannot be invoked without 'new'</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This throws a <code>ReferenceError</code>. Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js" data-norun>
+class Base { constructor(id) { this.id = id; } }
+class Child extends Base {
+  constructor(id, name) {
+    this.name = name;
+    super(id);
+  }
+}
+new Child(1, "x");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+class Base { constructor(id) { this.id = id; } }
+class Child extends Base {
+  constructor(id, name) {
+    super(id);            // first!
+    this.name = name;
+  }
+}
+console.log(new Child(1, "x"));   // Child { id: 1, name: 'x' }
+</script>
+<p>In a derived class, <code>this</code> doesn't exist until <code>super()</code> has created and initialised it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why isn't <code>describe</code> listed by <code>Object.keys(new Book("Dune"))</code>, even though <code>dune.describe()</code> works?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Methods live on <code>Book.prototype</code>, not on the instance, and they're non-enumerable. <code>Object.keys</code> lists only own enumerable properties; the call works because lookup follows the prototype chain.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+class A { greet() { return "A"; } }
+class B extends A { greet() { return "B>" + super.greet(); } }
+class C extends B {}
+const c = new C();
+c.greet = function () { return "own"; };
+console.log(c.greet(), C.prototype.greet.call(c), Object.getPrototypeOf(C.prototype) === B.prototype);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>own B&gt;A true</code>. The own property shadows the method. <code>C.prototype.greet</code> is found on <code>B.prototype</code>, and it calls <code>A</code>'s version via <code>super</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Convert this ES5 code to a class with a private field.</p>
+<script type="text/plain" class="code" data-file="ex6.js">
+function Cart() { this._items = []; }
+Cart.prototype.add = function (id) { this._items.push(id); return this; };
+Cart.prototype.count = function () { return this._items.length; };
+console.log(new Cart().add("b1").add("b2").count());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6-fixed.js">
+class Cart {
+  #items = [];
+  add(id) { this.#items.push(id); return this; }
+  get count() { return this.#items.length; }
+}
+console.log(new Cart().add("b1").add("b2").count);   // 2
+</script>
+<p><code>#items</code> is genuinely private, unlike the <code>_items</code> convention, and a getter reads naturally.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/models.js</code> with a <code>Book</code> class (<code>id</code>, <code>title</code>, <code>price</code> in cents, private stock with <code>reserve(qty)</code> and <code>release(qty)</code>), and an <code>OutOfStockError</code> that extends <code>Error</code>. <code>reserve</code> throws <code>OutOfStockError</code> when there isn't enough stock.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/models.js">
+export class OutOfStockError extends Error {
+  constructor(book, requested) {
+    super(`only ${book.available} of "${book.title}" available, ${requested} requested`);
+    this.name = "OutOfStockError";
+    this.bookId = book.id;
+  }
+}
+
+export class Book {
+  #stock;
+  constructor({ id, title, price, stock = 0 }) {
+    Object.assign(this, { id, title, price });
+    this.#stock = stock;
+  }
+  get available() { return this.#stock; }
+  reserve(qty) {
+    if (qty > this.#stock) throw new OutOfStockError(this, qty);
+    this.#stock -= qty;
+    return this;
+  }
+  release(qty) { this.#stock += qty; return this; }
+}
+
+const dune = new Book({ id: "b1", title: "Dune", price: 1299, stock: 2 });
+dune.reserve(1);
+try { dune.reserve(5); } catch (e) { console.log(e.name, "-", e.message); }
+console.log(dune.available, JSON.stringify(dune));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+OutOfStockError - only 1 of "Dune" available, 5 requested
+1 {"id":"b1","title":"Dune","price":1299}
+</script>
+<p>Stock is private, so it can only change through <code>reserve</code> and <code>release</code>, and it doesn't leak into the JSON. Chapter 16 reuses this class.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>The button handler (simulated) throws. Fix it inside the class.</p>
+<script type="text/plain" class="code" data-file="ex8.js" data-norun>
+class Likes {
+  count = 0;
+  onClick() { this.count++; }
+}
+const likes = new Likes();
+const handler = likes.onClick;     // e.g. button.addEventListener("click", likes.onClick)
+handler();                         // TypeError
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex8-fixed.js">
+class Likes {
+  count = 0;
+  onClick = () => { this.count++; };    // arrow field: bound to the instance
+}
+const likes = new Likes();
+const handler = likes.onClick;
+handler(); handler();
+console.log(likes.count);   // 2
+</script>
+<p>Alternatively, keep the method and bind it in the constructor: <code>this.onClick = this.onClick.bind(this)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+class Base {
+  name = "base";
+  constructor() { console.log("Base sees", this.name, this.describe()); }
+  describe() { return "Base.describe"; }
+}
+class Derived extends Base {
+  name = "derived";
+  describe() { return "Derived.describe"; }
+}
+new Derived();
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Base sees base Derived.describe</code>. When <code>Base</code>'s constructor runs, <code>Derived</code>'s fields haven't been initialised yet (that happens after <code>super()</code> returns), so <code>name</code> is still <code>"base"</code>. But methods come from the prototype chain, which is already <code>Derived</code>'s. Java behaves similarly with overridden methods called from constructors.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/events.js</code> with an <code>EventEmitter</code> class: private listener storage (a <code>Map</code> of <code>Set</code>s), <code>on(event, fn)</code> returning an unsubscribe function, <code>once</code>, and <code>emit(event, ...args)</code> returning the number of listeners called. Then make an <code>OrderBook extends EventEmitter</code> that emits <code>"added"</code> when an order is placed.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/events.js">
+export class EventEmitter {
+  #listeners = new Map();
+
+  on(event, fn) {
+    if (!this.#listeners.has(event)) this.#listeners.set(event, new Set());
+    this.#listeners.get(event).add(fn);
+    return () => this.#listeners.get(event)?.delete(fn);       // unsubscribe
+  }
+  once(event, fn) {
+    const off = this.on(event, (...args) => { off(); fn(...args); });
+    return off;
+  }
+  emit(event, ...args) {
+    const fns = [...(this.#listeners.get(event) ?? [])];       // copy: listeners may unsubscribe
+    for (const fn of fns) fn(...args);
+    return fns.length;
+  }
+}
+
+export class OrderBook extends EventEmitter {
+  #orders = [];
+  place(order) { this.#orders.push(order); this.emit("added", order, this.#orders.length); }
+}
+
+const book = new OrderBook();
+const log = [];
+const stop = book.on("added", (o, n) => log.push(`#${n} ${o.id}`));
+book.once("added", (o) => log.push(`first was ${o.id}`));
+book.place({ id: "o1" });
+book.place({ id: "o2" });
+stop();
+book.place({ id: "o3" });
+console.log(log);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ '#1 o1', 'first was o1', '#2 o2' ]
+</script>
+<p>It combines private fields, closures for unsubscribe, <code>once</code> built on <code>on</code>, inheritance, and a defensive copy while emitting. Node's own <code>node:events</code> module works the same way.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_classes">MDN Guide: Using classes</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Inheritance_and_the_prototype_chain">MDN: Inheritance and the prototype chain</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Private_elements">MDN: Private elements</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Static_initialization_blocks">Static blocks</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

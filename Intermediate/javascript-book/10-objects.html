@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📦&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Working with Objects · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Collections &amp; Objects</div>
+<h1>Working with Objects</h1>
+<p class="lead">Objects are bags of properties, but each property carries hidden flags, keys have a defined order, and every way of listing or copying properties sees a slightly different subset. Knowing these rules explains many "where did my key go?" bugs.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Modern object literals: shorthand properties and methods, computed keys, getters and setters <span class="es es6">ES2015</span>.</li>
+  <li>Property access, <code>in</code> vs <code>Object.hasOwn</code> <span class="es">ES2022</span>, and the property key order.</li>
+  <li><code>Object.keys/values/entries</code> <span class="es">ES2017</span> and <code>Object.fromEntries</code> <span class="es">ES2019</span>.</li>
+  <li>Property descriptors (<code>writable</code>, <code>enumerable</code>, <code>configurable</code>), plus freeze and seal.</li>
+  <li>Enumerability and ownership: what each listing and copying method sees; shallow vs deep copies.</li>
+</ul>
+</div>
+
+<h2 id="literals">Object literals, the modern way <span class="es es6">ES2015</span></h2>
+<script type="text/plain" class="code" data-file="literals.js">
+const title = "Dune";
+const field = "price";
+const book = {
+  title,                         // shorthand for title: title
+  [field]: 1299,                 // computed key
+  [`${field}WithTax`]: 1559,     // any expression
+  tags: ["sci-fi"],
+  describe() {                   // method shorthand
+    return `${this.title} (${this.priceLabel})`;
+  },
+  get priceLabel() {             // getter: read like a property
+    return `€${(this.price / 100).toFixed(2)}`;
+  },
+  set priceLabel(text) {         // setter: runs on assignment
+    this.price = Math.round(Number(text.replace("€", "")) * 100);
+  },
+};
+console.log(book.describe());
+book.priceLabel = "€9.99";
+console.log(book.price, Object.keys(book));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune (€12.99)
+999 [ 'title', 'price', 'priceWithTax', 'tags', 'describe', 'priceLabel' ]
+</script>
+
+<h2 id="access">Accessing properties</h2>
+<ul>
+  <li><code>obj.name</code> works for valid identifiers. <code>obj["any key"]</code> works for any string, symbol or variable.</li>
+  <li>Property keys are always <strong>strings or symbols</strong>: <code>obj[1]</code> and <code>obj["1"]</code> are the same property.</li>
+  <li>Reading a missing property gives <code>undefined</code>; reading <em>through</em> <code>undefined</code> throws, which is why <code>?.</code> exists.</li>
+  <li><code>delete obj.key</code> removes an own property.</li>
+</ul>
+<div class="table-wrap"><table>
+<tr><th>Check</th><th>Own properties</th><th>Inherited properties</th></tr>
+<tr><td><code>"key" in obj</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>Object.hasOwn(obj, "key")</code> <span class="es">ES2022</span></td><td>✓</td><td>✗</td></tr>
+<tr><td><code>obj.key !== undefined</code></td><td>wrong if the value <em>is</em> <code>undefined</code></td><td>✓</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> const order = { id: "o1", note: undefined }
+> ["note" in order, Object.hasOwn(order, "note"), order.note !== undefined]
+[ true, true, false ]
+> ["toString" in order, Object.hasOwn(order, "toString")]
+[ true, false ]
+</script>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> <code>obj.hasOwnProperty("key")</code> and <code>Object.prototype.hasOwnProperty.call(obj, "key")</code>. <code>Object.hasOwn</code> replaces both, and it also works on null-prototype objects.</p>
+</div>
+
+<h3>Property key order</h3>
+<p>Object keys are listed in a defined order, and it's <em>not</em> always insertion order:</p>
+<ol>
+  <li><strong>Integer-like keys</strong> (<code>"0"</code>, <code>"42"</code>) first, in ascending numeric order;</li>
+  <li>then other <strong>string keys</strong>, in insertion order;</li>
+  <li>then <strong>symbols</strong>, in insertion order (only for methods that include symbols).</li>
+</ol>
+<script type="text/plain" class="code" data-lang="repl">
+> Object.keys({ b: 1, 10: 1, a: 1, 2: 1, "-1": 1, "01": 1 })
+[ '2', '10', 'b', 'a', '-1', '01' ]
+</script>
+<p>(<code>"-1"</code> and <code>"01"</code> aren't canonical array indexes, so they count as ordinary strings.) If you need guaranteed insertion order for number-like keys, use a <code>Map</code>.</p>
+
+<h2 id="entries">Keys, values, entries</h2>
+<script type="text/plain" class="code" data-file="entries.js">
+const prices = { dune: 1299, emma: 899, hamlet: 650 };
+
+console.log(Object.keys(prices), Object.values(prices));
+for (const [title, cents] of Object.entries(prices)) console.log(title, cents);
+
+// transform an object: entries → map → fromEntries
+const discounted = Object.fromEntries(
+  Object.entries(prices).map(([k, v]) => [k, Math.round(v * 0.9)]),
+);
+console.log(discounted);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'dune', 'emma', 'hamlet' ] [ 1299, 899, 650 ]
+dune 1299
+emma 899
+hamlet 650
+{ dune: 1169, emma: 809, hamlet: 585 }
+</script>
+
+<h2 id="descriptors">Property descriptors</h2>
+<p>Every property has a <strong>descriptor</strong>: either a <em>data</em> descriptor (<code>value</code> and <code>writable</code>) or an <em>accessor</em> descriptor (<code>get</code> and <code>set</code>), plus two flags:</p>
+<ul>
+  <li><code>enumerable</code>: shows up in <code>Object.keys</code>, <code>for…in</code>, spread and JSON;</li>
+  <li><code>configurable</code>: can be deleted or redefined.</li>
+</ul>
+<p>Properties created by assignment or literals have all flags <code>true</code>. Properties created with <code>Object.defineProperty</code> default to <strong>false</strong>.</p>
+<script type="text/plain" class="code" data-file="descriptors.js">
+const book = { title: "Dune" };
+Object.defineProperty(book, "sku", { value: "SKU-001", enumerable: false });   // writable/configurable default false
+
+console.log(Object.getOwnPropertyDescriptor(book, "title"));
+console.log(Object.keys(book), JSON.stringify(book), book.sku);   // sku is hidden but readable
+
+try {
+  book.sku = "changed";          // non-writable: TypeError in strict code (modules are strict)
+} catch (e) {
+  console.log(e.constructor.name);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ value: 'Dune', writable: true, enumerable: true, configurable: true }
+[ 'title' ] {"title":"Dune"} SKU-001
+TypeError
+</script>
+<h3>Locking objects down</h3>
+<div class="table-wrap"><table>
+<tr><th>Function</th><th>Add properties</th><th>Delete properties</th><th>Change values</th><th>Check with</th></tr>
+<tr><td><code>Object.preventExtensions</code></td><td>✗</td><td>✓</td><td>✓</td><td><code>Object.isExtensible</code></td></tr>
+<tr><td><code>Object.seal</code></td><td>✗</td><td>✗</td><td>✓</td><td><code>Object.isSealed</code></td></tr>
+<tr><td><code>Object.freeze</code></td><td>✗</td><td>✗</td><td>✗</td><td><code>Object.isFrozen</code></td></tr>
+</table></div>
+<p>All three are <strong>shallow</strong>: nested objects stay mutable (see deep freeze in Chapter 2).</p>
+
+<h2 id="enumerability">Enumerability and ownership</h2>
+<p>Each way of listing or copying properties sees a different slice. This table, from MDN's "Enumerability and ownership" page, is worth bookmarking:</p>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Own?</th><th>Inherited?</th><th>Non-enumerable?</th><th>Symbols?</th></tr>
+<tr><td><code>Object.keys</code> / <code>values</code> / <code>entries</code></td><td>✓</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td><code>for…in</code></td><td>✓</td><td>✓</td><td>✗</td><td>✗</td></tr>
+<tr><td><code>Object.getOwnPropertyNames</code></td><td>✓</td><td>✗</td><td>✓</td><td>✗</td></tr>
+<tr><td><code>Object.getOwnPropertySymbols</code></td><td>✓</td><td>✗</td><td>✓</td><td>only symbols</td></tr>
+<tr><td><code>Reflect.ownKeys</code></td><td>✓</td><td>✗</td><td>✓</td><td>✓</td></tr>
+<tr><td>Spread <code>{...o}</code> / <code>Object.assign</code></td><td>✓</td><td>✗</td><td>✗</td><td>✓</td></tr>
+<tr><td><code>JSON.stringify</code></td><td>✓</td><td>✗</td><td>✗</td><td>✗</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="ownership.js">
+const base = { inherited: 1 };
+const obj = Object.create(base);                         // obj's prototype is base
+obj.own = 2;
+obj[Symbol("id")] = 3;
+Object.defineProperty(obj, "hidden", { value: 4, enumerable: false });
+
+const forIn = [];
+for (const k in obj) forIn.push(k);
+console.log("keys:", Object.keys(obj));
+console.log("for…in:", forIn);
+console.log("names:", Object.getOwnPropertyNames(obj));
+console.log("ownKeys:", Reflect.ownKeys(obj));
+console.log("spread:", { ...obj });
+console.log("json:", JSON.stringify(obj));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+keys: [ 'own' ]
+for…in: [ 'own', 'inherited' ]
+names: [ 'own', 'hidden' ]
+ownKeys: [ 'own', 'hidden', Symbol(id) ]
+spread: { own: 2, Symbol(id): 3 }
+json: {"own":2}
+</script>
+
+<h2 id="copying">Copying and comparing</h2>
+<div class="table-wrap"><table>
+<tr><th>Technique</th><th>Depth</th><th>Keeps</th><th>Loses or breaks</th></tr>
+<tr><td><code>{ ...obj }</code>, <code>Object.assign({}, obj)</code></td><td>shallow</td><td>own enumerable props and symbols</td><td>prototype, getters (copied as their current <em>value</em>), non-enumerable props</td></tr>
+<tr><td><code>structuredClone(obj)</code></td><td>deep</td><td>Dates, Maps, Sets, typed arrays, cycles</td><td>prototype/class, getters; <strong>throws</strong> on functions</td></tr>
+<tr><td><code>JSON.parse(JSON.stringify(obj))</code></td><td>deep</td><td>plain JSON data</td><td>Dates become strings; <code>undefined</code>, functions, Map/Set and BigInt are dropped or throw</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="copying.js">
+const order = { placed: new Date(Date.UTC(2026, 9, 30)), items: new Map([["b1", 2]]), meta: { gift: true } };
+
+const shallow = { ...order };
+const deep = structuredClone(order);
+const viaJson = JSON.parse(JSON.stringify(order));
+
+order.meta.gift = false;
+console.log(shallow.meta.gift, deep.meta.gift);          // shallow shares nested objects
+console.log(deep.placed instanceof Date, deep.items.get("b1"));
+console.log(typeof viaJson.placed, viaJson.items);       // JSON lost the Date and the Map
+try { structuredClone({ fn() {} }); } catch (e) { console.log(e.name); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+false true
+true 2
+string {}
+DataCloneError
+</script>
+<p>There's no built-in deep <em>equality</em> for objects: <code>===</code> compares identity. In Node, <code>util.isDeepStrictEqual(a, b)</code> works; in tests, use <code>assert.deepStrictEqual</code> (Appendix B). Don't compare <code>JSON.stringify</code> outputs, because key order makes equal objects look different.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Picking and omitting keys</h3>
+<script type="text/plain" class="code" data-file="pick-omit.js">
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(obj, k)).map((k) => [k, obj[k]]));
+const omit = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
+const user = { id: 1, name: "Ana", password: "secret", email: "ana@example.com" };
+console.log(pick(user, ["id", "name"]), omit(user, ["password"]));
+</script>
+<h3>2. A dictionary with no inherited surprises</h3>
+<script type="text/plain" class="code" data-file="null-proto.js">
+const counts = Object.create(null);           // no prototype: no "toString", "constructor", …
+for (const w of ["constructor", "toString", "dune"]) counts[w] = (counts[w] ?? 0) + 1;
+console.log(counts.constructor, Object.keys(counts));
+</script>
+<h3>3. Computed getters for derived data</h3>
+<script type="text/plain" class="code" data-file="getters.js">
+const cart = {
+  lines: [{ price: 1299, qty: 2 }, { price: 899, qty: 1 }],
+  get count() { return this.lines.reduce((n, l) => n + l.qty, 0); },
+  get total() { return this.lines.reduce((s, l) => s + l.price * l.qty, 0); },
+};
+cart.lines.push({ price: 650, qty: 1 });
+console.log(cart.count, cart.total);    // 4 4147 — always up to date
+</script>
+<h3>4. Merging defaults deeply (one level)</h3>
+<script type="text/plain" class="code" data-file="merge.js">
+const defaults = { shipping: { method: "standard", insured: false }, giftWrap: false };
+const choice = { shipping: { insured: true } };
+const final = { ...defaults, ...choice, shipping: { ...defaults.shipping, ...choice.shipping } };
+console.log(final);
+</script>
+<h3>5. Inverting an object</h3>
+<script type="text/plain" class="code" data-file="invert.js">
+const codeToCountry = { DE: "Germany", FR: "France" };
+const countryToCode = Object.fromEntries(Object.entries(codeToCountry).map(([k, v]) => [v, k]));
+console.log(countryToCode);   // { Germany: 'DE', France: 'FR' }
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Shorthand properties and methods, computed keys, and getters/setters make literals expressive.</li>
+  <li>Keys are strings or symbols; integer-like keys are listed first, in numeric order. <code>in</code> sees inherited keys and <code>Object.hasOwn</code> sees only own ones.</li>
+  <li><code>entries</code> → <code>map</code> → <code>fromEntries</code> is the idiom for transforming objects.</li>
+  <li>Descriptors control <code>writable</code>/<code>enumerable</code>/<code>configurable</code>, and <code>defineProperty</code> defaults them to false. Freeze, seal and preventExtensions are shallow.</li>
+  <li>Spread copies own enumerable keys shallowly; <code>structuredClone</code> copies deeply but drops classes and throws on functions.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Modernize: <code>var o = { name: name, price: price, show: function () { return this.name; } };</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+const name = "Dune", price = 1299;
+const o = { name, price, show() { return this.name; } };
+console.log(o.show());
+</script>
+<p>Use shorthand properties, and method shorthand, which is still a regular function with its own <code>this</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What is <code>Object.keys({ z: 1, 3: 1, a: 1, 1: 1 })</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ '1', '3', 'z', 'a' ]</code>. Integer-like keys come first in ascending order, then the other strings in insertion order.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This says an order with <code>discount: 0</code> has no discount field. Fix the check.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const order = { discount: 0 };
+console.log(order.discount ? "has discount field" : "no discount field");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const order = { discount: 0 };
+console.log(Object.hasOwn(order, "discount") ? "has discount field" : "no discount field");
+</script>
+<p>Truthiness tests the value. To ask whether the property exists, use <code>Object.hasOwn</code> (or <code>in</code>, which also counts inherited keys).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Turn <code>{ dune: 1299, emma: 899 }</code> into <code>{ dune: "€12.99", emma: "€8.99" }</code> using <code>entries</code> and <code>fromEntries</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex4.js">
+const prices = { dune: 1299, emma: 899 };
+console.log(Object.fromEntries(Object.entries(prices).map(([k, c]) => [k, `€${(c / 100).toFixed(2)}`])));
+</script>
+<p>This round trip is the standard way to "map over an object".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+const src = { a: 1, get b() { return this.a + 1; } };
+const copy = { ...src };
+src.a = 10;
+console.log(src.b, copy.b, Object.getOwnPropertyDescriptor(copy, "b").get);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>11 2 undefined</code>. Spread <em>read</em> the getter once and stored its value 2 as a plain data property; the copy has no getter.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a read-only, non-enumerable <code>createdAt</code> property to an order object, so that it's hidden from <code>JSON.stringify</code> but still readable.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6.js">
+const order = { id: "o1", total: 2598 };
+Object.defineProperty(order, "createdAt", { value: "2026-10-30T14:05:00Z" });   // all flags false
+console.log(JSON.stringify(order), order.createdAt);
+</script>
+<p><code>defineProperty</code> defaults <code>writable</code>, <code>enumerable</code> and <code>configurable</code> to <code>false</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/diff.js</code> exporting <code>diff(before, after)</code>, which returns <code>{ added, removed, changed }</code> lists of keys (own keys only, compared with <code>Object.is</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/diff.js">
+export function diff(before, after) {
+  const b = Object.keys(before), a = Object.keys(after);
+  return {
+    added: a.filter((k) => !Object.hasOwn(before, k)),
+    removed: b.filter((k) => !Object.hasOwn(after, k)),
+    changed: a.filter((k) => Object.hasOwn(before, k) && !Object.is(before[k], after[k])),
+  };
+}
+
+console.log(diff({ title: "Dune", price: 1299, stock: NaN }, { title: "Dune", price: 999, stock: NaN, tag: "sale" }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ added: [ 'tag' ], removed: [], changed: [ 'price' ] }
+</script>
+<p><code>Object.is</code> treats <code>NaN</code> as equal to itself, so an unchanged <code>NaN</code> isn't reported. With <code>!==</code>, it would be.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why is <code>JSON.stringify(a) === JSON.stringify(b)</code> a bad deep-equality check?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Key order matters to <code>stringify</code>, so <code>{a:1,b:2}</code> and <code>{b:2,a:1}</code> look different. It also drops <code>undefined</code> and functions, turns <code>NaN</code> into <code>null</code>, and can't handle Maps, Sets, BigInt or cycles. Use <code>util.isDeepStrictEqual</code> or a tested library.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+const proto = { shared: true };
+const o = Object.create(proto, { secret: { value: 1, enumerable: false } });
+o.visible = 2;
+const keys = [];
+for (const k in o) keys.push(k);
+console.log(keys, Object.keys(o), "secret" in o, Object.hasOwn(o, "shared"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ 'visible', 'shared' ] [ 'visible' ] true false</code>. <code>for…in</code> includes inherited enumerable keys but not the non-enumerable <code>secret</code>; <code>in</code> finds <code>secret</code> anyway; <code>shared</code> isn't an own property.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/model.js</code> exporting <code>defineModel(fields)</code>. For example, <code>defineModel({ title: "string", price: "number" })</code> returns a <code>create(data)</code> function that makes a sealed object with validating setters for each field, a non-enumerable <code>_errors</code> array, and a <code>toJSON</code> that outputs only the fields.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/model.js">
+export function defineModel(fields) {
+  return function create(data = {}) {
+    const values = {};
+    const obj = {};
+    Object.defineProperty(obj, "_errors", { value: [], enumerable: false });
+    for (const [name, type] of Object.entries(fields)) {
+      Object.defineProperty(obj, name, {
+        enumerable: true,
+        get: () => values[name],
+        set(v) {
+          if (typeof v !== type) { this._errors.push(`${name} must be a ${type}`); return; }
+          values[name] = v;
+        },
+      });
+    }
+    Object.defineProperty(obj, "toJSON", { value: () => ({ ...obj }), enumerable: false });
+    Object.assign(obj, data);          // runs the setters
+    return Object.seal(obj);
+  };
+}
+
+const createBook = defineModel({ title: "string", price: "number" });
+const book = createBook({ title: "Dune", price: "cheap" });
+try {
+  book.extra = 1;                      // sealed + strict mode (a module) → TypeError
+} catch (e) {
+  console.log("cannot add:", e.constructor.name);
+}
+console.log(JSON.stringify(book), book._errors);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cannot add: TypeError
+{"title":"Dune"} [ 'price must be a number' ]
+</script>
+<p>Each field gets an accessor descriptor whose setter validates; <code>Object.assign</code> runs those setters. <code>_errors</code> and <code>toJSON</code> are non-enumerable, so they stay out of JSON, and <code>toJSON</code>'s spread reads the getters. <code>Object.seal</code> blocks new properties, and because modules are strict, the attempt throws instead of failing silently.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Working_with_objects">MDN Guide: Working with objects</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Enumerability_and_ownership_of_properties">MDN: Enumerability and ownership of properties</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty">MDN: Object.defineProperty</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/structuredClone">structuredClone</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

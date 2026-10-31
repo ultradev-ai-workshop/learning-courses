@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚀&lt;/text&gt;&lt;/svg&gt;">
+<title>1. Modern JavaScript & ECMAScript · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Foundations Revisited</div>
+<h1>Modern JavaScript &amp; ECMAScript</h1>
+<p class="lead">You can already write JavaScript. This chapter gives you the map: how the language is versioned, what ES6 changed, where your code runs, and the two modes (scripts and modules) that quietly change the rules.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The difference between JavaScript, ECMAScript, engines and runtimes.</li>
+  <li>How a feature becomes part of the language (TC39 stages) and the ES5 → ES2026 timeline.</li>
+  <li>ES6 (ES2015) at a glance: the release that changed how JavaScript is written.</li>
+  <li>How to run code in Node.js and in the browser console.</li>
+  <li>Strict mode, and how scripts differ from modules.</li>
+</ul>
+</div>
+
+<h2 id="what">JavaScript, ECMAScript, engines and runtimes</h2>
+<p>Four words get mixed up all the time. Keeping them apart explains a lot of "why does this work here but not there?" moments.</p>
+<div class="table-wrap"><table>
+<tr><th>Word</th><th>Meaning</th><th>Examples</th></tr>
+<tr><td><strong>ECMAScript</strong></td><td>The <em>language specification</em> (ECMA-262): syntax, types, built-in objects like <code>Array</code> and <code>Promise</code></td><td>ES5, ES2015 (ES6), ES2025</td></tr>
+<tr><td><strong>JavaScript</strong></td><td>The everyday name for ECMAScript plus whatever the host adds</td><td>—</td></tr>
+<tr><td><strong>Engine</strong></td><td>The program that parses and runs the language</td><td>V8 (Chrome, Node), SpiderMonkey (Firefox), JavaScriptCore (Safari)</td></tr>
+<tr><td><strong>Runtime / host</strong></td><td>An engine plus extra APIs for its environment</td><td>Browsers add <code>document</code>, <code>fetch</code>; Node adds <code>fs</code>, <code>process</code>; also Deno and Bun</td></tr>
+</table></div>
+<p>So <code>Array.prototype.map</code> is <em>language</em> and works everywhere, while <code>document.querySelector</code> is a <em>browser API</em> and doesn't exist in Node. This book teaches the language and uses Node 26 to run it. When an example needs a browser, it says so.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> despite the name, JavaScript is not related to Java. The syntax looks similar (braces, <code>if</code>, <code>for</code>), but JavaScript is dynamically typed, uses prototypes instead of class-based inheritance under the hood, and has first-class functions. The name was a 1995 marketing decision.</p>
+</div>
+
+<h2 id="versions">How the language evolves</h2>
+<p>A committee called <strong>TC39</strong> designs new features. Each proposal moves through numbered <strong>stages</strong>: 0 (idea), 1 (proposal), 2 (draft), 2.7 (approved in principle, needs tests), 3 (ready to implement), and 4 (finished). Everything that reaches stage 4 by early in the year goes into that year's edition. Engines often ship a feature at stage 3, before it's officially "in" the standard.</p>
+<div class="table-wrap"><table>
+<tr><th>Edition</th><th>Year</th><th>Highlights</th></tr>
+<tr><td>ES3</td><td>1999</td><td>regular expressions, <code>try/catch</code></td></tr>
+<tr><td>ES5</td><td>2009</td><td>strict mode, <code>JSON</code>, <code>Array.prototype.forEach/map/filter</code>, <code>Object.defineProperty</code></td></tr>
+<tr><td><strong>ES6 / ES2015</strong></td><td>2015</td><td><strong>the big one</strong>: <code>let/const</code>, arrows, classes, modules, promises, template literals, destructuring, spread/rest, default parameters, <code>Map/Set</code>, <code>Symbol</code>, iterators and generators, <code>for…of</code>, <code>Proxy/Reflect</code></td></tr>
+<tr><td>ES2016</td><td>2016</td><td><code>**</code>, <code>Array.prototype.includes</code></td></tr>
+<tr><td>ES2017</td><td>2017</td><td><code>async/await</code>, <code>Object.entries/values</code>, <code>padStart</code></td></tr>
+<tr><td>ES2018</td><td>2018</td><td>object rest/spread, async iteration, regex named groups and lookbehind</td></tr>
+<tr><td>ES2019</td><td>2019</td><td><code>flat/flatMap</code>, <code>Object.fromEntries</code>, optional <code>catch</code> binding</td></tr>
+<tr><td>ES2020</td><td>2020</td><td><code>?.</code>, <code>??</code>, <code>BigInt</code>, <code>Promise.allSettled</code>, dynamic <code>import()</code>, <code>globalThis</code></td></tr>
+<tr><td>ES2021</td><td>2021</td><td><code>??=</code> <code>||=</code> <code>&amp;&amp;=</code>, <code>replaceAll</code>, <code>Promise.any</code>, numeric separators <code>1_000</code>, <code>WeakRef</code></td></tr>
+<tr><td>ES2022</td><td>2022</td><td>class fields and <code>#private</code>, static blocks, top-level <code>await</code>, <code>.at()</code>, <code>Error</code> <code>cause</code>, <code>Object.hasOwn</code></td></tr>
+<tr><td>ES2023</td><td>2023</td><td><code>toSorted/toReversed/toSpliced/with</code>, <code>findLast</code></td></tr>
+<tr><td>ES2024</td><td>2024</td><td><code>Object.groupBy</code>, <code>Promise.withResolvers</code>, regex <code>v</code> flag</td></tr>
+<tr><td>ES2025</td><td>2025</td><td>iterator helpers, <code>Set</code> methods (<code>union</code>, …), <code>Promise.try</code>, <code>RegExp.escape</code>, JSON import attributes, <code>Float16Array</code></td></tr>
+<tr><td>ES2026</td><td>2026</td><td>(finalised or shipping in engines during 2025–26) <code>using</code> / <code>DisposableStack</code> (resource management), <code>Error.isError</code>, <code>Array.fromAsync</code></td></tr>
+</table></div>
+<p>Throughout the book, a badge like <span class="es es6">ES2015</span> or <span class="es">ES2023</span> shows when a feature arrived. Blue badges mark ES6 features; the yellow ones are later.</p>
+<div class="note">
+<p>📝 <strong>Why "ES6" and "ES2015" both exist:</strong> the sixth edition was released in 2015. After it, TC39 switched to yearly releases named after the year, so there is no "ES7" in official use, though people still say it.</p>
+</div>
+
+<h2 id="es6">ES6 at a glance <span class="es es6">ES2015</span></h2>
+<p>If your JavaScript habits were formed before 2015, or by tutorials that copied that style, this table is your upgrade path. Each row is covered in depth in the chapter listed.</p>
+<div class="table-wrap"><table>
+<tr><th>Feature</th><th>Before (ES5)</th><th>After (ES6+)</th><th>Chapter</th></tr>
+<tr><td>Block-scoped variables</td><td><code>var x = 1;</code></td><td><code>let x = 1; const y = 2;</code></td><td>2</td></tr>
+<tr><td>Arrow functions</td><td><code>function (x) { return x * 2; }</code></td><td><code>x =&gt; x * 2</code></td><td>4</td></tr>
+<tr><td>Default and rest parameters</td><td><code>b = b || 1; arguments</code></td><td><code>(a, b = 1, ...rest) =&gt; {}</code></td><td>4</td></tr>
+<tr><td>Template literals</td><td><code>"Hi " + name + "!"</code></td><td><code>`Hi ${name}!`</code></td><td>6</td></tr>
+<tr><td>Destructuring</td><td><code>var a = obj.a, b = obj.b;</code></td><td><code>const { a, b } = obj;</code></td><td>5</td></tr>
+<tr><td>Spread</td><td><code>arr1.concat(arr2)</code></td><td><code>[...arr1, ...arr2]</code></td><td>5</td></tr>
+<tr><td>Shorthand object literals</td><td><code>{ name: name, f: function () {} }</code></td><td><code>{ name, f() {} }</code></td><td>10</td></tr>
+<tr><td><code>for…of</code></td><td><code>for (var i = 0; i &lt; a.length; i++)</code></td><td><code>for (const x of a)</code></td><td>3</td></tr>
+<tr><td>Classes</td><td>constructor functions + <code>prototype</code></td><td><code>class A extends B {}</code></td><td>11</td></tr>
+<tr><td>Promises</td><td>nested callbacks</td><td><code>fetchX().then(…)</code></td><td>12</td></tr>
+<tr><td>Iterators and generators</td><td>hand-written index loops</td><td><code>function* gen() { yield 1; }</code></td><td>13</td></tr>
+<tr><td>Modules</td><td>IIFEs, global variables, CommonJS</td><td><code>import</code> / <code>export</code></td><td>14</td></tr>
+<tr><td><code>Map</code>, <code>Set</code>, <code>WeakMap</code></td><td>plain objects as maps</td><td><code>new Map()</code></td><td>9</td></tr>
+<tr><td><code>Symbol</code>, <code>Proxy</code>, <code>Reflect</code></td><td>—</td><td>metaprogramming</td><td>15</td></tr>
+</table></div>
+
+<h2 id="run">Running JavaScript</h2>
+<h3>In Node.js</h3>
+<p><strong>Node.js</strong> runs JavaScript outside the browser. This book uses <strong>Node 26</strong>. Check your version:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ node --version
+v26.13.0
+</script>
+<p>Typing <code>node</code> alone opens the <strong>REPL</strong> (read–eval–print loop). Type an expression and Node prints its value:</p>
+<script type="text/plain" class="code" data-lang="repl">
+> 2 ** 10
+1024
+> [1, 2, 3].map(n => n * 2)
+[ 2, 4, 6 ]
+> "bookshop".toUpperCase()
+'BOOKSHOP'
+> typeof null
+'object'
+</script>
+<div class="note">
+<p>📝 <strong>About REPL blocks in this book:</strong> lines starting with <code>&gt;</code> are what you type, and the lines below are Node's answer. The real REPL also prints <code>undefined</code> after statements like <code>const x = 1</code>; the book leaves those out to reduce noise. Appendix B covers the REPL in detail.</p>
+</div>
+<p>To run a file, pass its name:</p>
+<script type="text/plain" class="code" data-file="hello.js">
+const shop = "Page & Spine";
+const books = ["Dune", "Emma", "Ulysses"];
+console.log(`${shop} has ${books.length} books`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Page & Spine has 3 books
+</script>
+<script type="text/plain" class="code" data-lang="shell">
+$ node hello.js
+Page & Spine has 3 books
+</script>
+<h3>In the browser</h3>
+<p>Every browser has a JavaScript console in its developer tools: press <kbd>F12</kbd>, or <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>J</kbd> on a Mac in Chrome. It works like the Node REPL, but with browser APIs such as <code>document</code> available. In a web page, you load code with a <code>&lt;script&gt;</code> tag:</p>
+<script type="text/plain" class="code" data-file="index.html" data-norun>
+<!doctype html>
+<script type="module" src="app.js"><\/script>      <!-- modern: a module, deferred automatically -->
+<script src="legacy.js" defer><\/script>            <!-- classic script -->
+</script>
+
+<h2 id="strict">Strict mode</h2>
+<p>ES5 introduced <strong>strict mode</strong>, an opt-in variant of the language that turns silent mistakes into errors and removes a few confusing features. You turn it on by putting the string <code>"use strict";</code> at the very top of a script or a function.</p>
+<div class="table-wrap"><table>
+<tr><th>Situation</th><th>Sloppy mode</th><th>Strict mode</th></tr>
+<tr><td>Assigning to an undeclared variable</td><td>silently creates a global</td><td><code>ReferenceError</code></td></tr>
+<tr><td><code>this</code> in a plain function call</td><td>the global object</td><td><code>undefined</code></td></tr>
+<tr><td>Writing to a read-only property</td><td>silently ignored</td><td><code>TypeError</code></td></tr>
+<tr><td>Duplicate parameter names <code>function f(a, a)</code></td><td>allowed</td><td><code>SyntaxError</code></td></tr>
+<tr><td><code>with</code> statement, octal literals like <code>010</code></td><td>allowed</td><td><code>SyntaxError</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="sloppy.cjs">
+// A CommonJS (.cjs) file is a classic script: sloppy mode unless asked otherwise.
+function setTotal() {
+  totl = 42;            // typo! creates a global variable silently
+}
+setTotal();
+console.log(globalThis.totl);   // 42 — the bug went unnoticed
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+</script>
+<script type="text/plain" class="code" data-file="strict.cjs">
+"use strict";
+function setTotal() {
+  try {
+    totl = 42;          // same typo
+  } catch (err) {
+    console.log(err.name + ": " + err.message);
+  }
+}
+setTotal();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ReferenceError: totl is not defined
+</script>
+<div class="tip">
+<p>💡 <strong>Good news:</strong> you rarely write <code>"use strict"</code> yourself today. <strong>Modules and class bodies are always strict.</strong> Since this book uses modules everywhere, you get strict mode for free.</p>
+</div>
+
+<h2 id="modules">Scripts vs modules</h2>
+<p>The same code can behave differently depending on whether it's loaded as a <strong>classic script</strong> or as a <strong>module</strong> (an ES module, or ESM, covered fully in Chapter 14).</p>
+<div class="table-wrap"><table>
+<tr><th></th><th>Classic script</th><th>Module</th></tr>
+<tr><td>Strict mode</td><td>off unless <code>"use strict"</code></td><td>always on</td></tr>
+<tr><td>Top-level variables</td><td>shared between all scripts (global)</td><td>private to the module</td></tr>
+<tr><td>Top-level <code>this</code></td><td>the global object (browser) / <code>module.exports</code> (Node CJS)</td><td><code>undefined</code></td></tr>
+<tr><td><code>import</code> / <code>export</code></td><td>not allowed (only dynamic <code>import()</code>)</td><td>allowed</td></tr>
+<tr><td>Top-level <code>await</code></td><td>no</td><td>yes <span class="es">ES2022</span></td></tr>
+<tr><td>In Node</td><td><code>.cjs</code>, or <code>.js</code> without <code>"type": "module"</code></td><td><code>.mjs</code>, or <code>.js</code> with <code>"type": "module"</code> in package.json</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="module-facts.mjs">
+// An .mjs file is always a module.
+console.log(this);                                    // undefined at the top of a module
+const price = await Promise.resolve(1999);            // top-level await works in modules
+console.log(price, typeof globalThis.price);          // module variables are not globals
+</script>
+<script type="text/plain" class="code" data-lang="text">
+undefined
+1999 undefined
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> copy a snippet that uses <code>import</code> into a plain <code>.js</code> file, run it in a folder with no <code>package.json</code>, and older Node versions throw <code>SyntaxError: Cannot use import statement outside a module</code>. Node 22+ detects ESM syntax automatically, but the clear fix is to use <code>.mjs</code>, or to add <code>"type": "module"</code> to <code>package.json</code>, as the book's playground does.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Feature detection instead of version checks</h3>
+<script type="text/plain" class="code" data-file="detect.js">
+// Ask "is this feature here?" rather than "which version is this?"
+const hasGroupBy = typeof Object.groupBy === "function";       // ES2024
+const hasSetMath = typeof new Set().union === "function";      // ES2025
+const hasUsing = typeof DisposableStack === "function";        // ES2026
+console.log({ hasGroupBy, hasSetMath, hasUsing });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ hasGroupBy: true, hasSetMath: true, hasUsing: true }
+</script>
+<h3>2. ES5 vs ES6 in one small function</h3>
+<script type="text/plain" class="code" data-file="es5-vs-es6.js">
+// ES5 style
+var totalEs5 = function (prices, discount) {
+  discount = discount || 0;
+  var sum = 0;
+  for (var i = 0; i < prices.length; i++) { sum += prices[i]; }
+  return sum - sum * discount;
+};
+
+// ES6+ style: default parameter, arrow, for...of, const
+const totalEs6 = (prices, discount = 0) => {
+  let sum = 0;
+  for (const p of prices) sum += p;
+  return sum - sum * discount;
+};
+
+console.log(totalEs5([10, 20], 0.5), totalEs6([10, 20], 0.5), totalEs6([10, 20]));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+15 15 30
+</script>
+<h3>3. Which runtime am I in?</h3>
+<script type="text/plain" class="code" data-file="where.js">
+const runtime =
+  typeof window !== "undefined" ? "browser" :
+  typeof process !== "undefined" && process.versions?.node ? `Node ${process.versions.node.split(".")[0]}` :
+  "something else";
+console.log(runtime);
+</script>
+<h3>4. A tiny module pair</h3>
+<script type="text/plain" class="code" data-file="money.js" data-save>
+export const formatCents = (cents) => `€${(cents / 100).toFixed(2)}`;
+</script>
+<script type="text/plain" class="code" data-file="main.js" data-save>
+import { formatCents } from "./money.js";
+console.log(formatCents(1999));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node main.js
+€19.99
+</script>
+<h3>5. The global object, everywhere</h3>
+<script type="text/plain" class="code" data-lang="repl">
+> typeof globalThis
+'object'
+> globalThis === globalThis.globalThis
+true
+</script>
+<p><code>globalThis</code> <span class="es">ES2020</span> is the standard name for the global object. Before it, you needed <code>window</code> in browsers, <code>global</code> in Node, and <code>self</code> in workers.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>ECMAScript is the spec, engines run it, and runtimes (browsers, Node) add host APIs.</li>
+  <li>TC39 ships a new edition every year. ES6/ES2015 was the big modernisation.</li>
+  <li>Run code with the Node REPL, <code>node file.js</code>, or the browser console.</li>
+  <li>Strict mode turns silent bugs into errors, and modules and classes are always strict.</li>
+  <li>Modules have private top-level scope, <code>this === undefined</code> at the top, <code>import/export</code> and top-level <code>await</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>document.title</code> fail with <code>ReferenceError: document is not defined</code> in Node, while <code>[1, 2].includes(2)</code> works in both Node and the browser?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>document</code> is a browser host API, not part of ECMAScript, so Node doesn't provide it. <code>Array.prototype.includes</code> is part of the language itself (ES2016), so every modern engine has it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>In <code>playground/</code>, create <code>hello.js</code> that prints the Node major version and the current year, like <code>Node 26 in 2026</code>. Run it with <code>node hello.js</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/hello.js">
+const major = process.versions.node.split(".")[0];
+console.log(`Node ${major} in ${new Date().getFullYear()}`);
+</script>
+<p><code>process</code> is a Node host object, and the template literal (Chapter 6) inserts the values.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>Which edition introduced each feature? <code>let</code>, <code>async/await</code>, <code>??</code>, <code>Object.groupBy</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>let</code>: ES2015. <code>async/await</code>: ES2017. <code>??</code>: ES2020. <code>Object.groupBy</code>: ES2024.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This classic script has a typo that strict mode would catch. Add strict mode and say what changes.</p>
+<script type="text/plain" class="code" data-file="typo.cjs">
+function addToCart(qty) {
+  quantiy = qty;           // typo
+  return qty;
+}
+console.log(addToCart(2));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="typo-fixed.cjs">
+"use strict";
+function addToCart(qty) {
+  const quantity = qty;    // declared properly
+  return quantity;
+}
+console.log(addToCart(2));
+</script>
+<p>With <code>"use strict"</code> and the original typo, the call throws <code>ReferenceError: quantiy is not defined</code> instead of quietly creating a global. Declaring the variable fixes it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print when saved as <code>a.mjs</code> and run with <code>node a.mjs</code>?</p>
+<script type="text/plain" class="code" data-file="a.mjs">
+var x = 1;
+console.log(typeof this, globalThis.x);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>undefined undefined</code>. At the top of a module, <code>this</code> is <code>undefined</code>, and even <code>var</code> at module level doesn't create a property on the global object, because module scope is private.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite this ES5 function in modern style: default parameter, arrow function, template literal and <code>const</code>.</p>
+<script type="text/plain" class="code" data-file="greet-es5.js">
+var greet = function (name, greeting) {
+  greeting = greeting || "Hello";
+  return greeting + ", " + name + "!";
+};
+console.log(greet("Ana"), greet("Ben", "Hi"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="greet-es6.js">
+const greet = (name, greeting = "Hello") => `${greeting}, ${name}!`;
+console.log(greet("Ana"), greet("Ben", "Hi"));
+</script>
+<p>A default parameter only applies when the argument is <code>undefined</code>. The ES5 <code>||</code> trick also replaced <code>""</code>, which could be a bug.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/features.js</code> that checks for <code>Object.groupBy</code>, <code>Set.prototype.union</code>, <code>Iterator.prototype.map</code>, <code>Promise.try</code> and <code>DisposableStack</code>, and prints a ✓ or ✗ line for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/features.js">
+const checks = {
+  "Object.groupBy (ES2024)": () => typeof Object.groupBy === "function",
+  "Set#union (ES2025)": () => typeof Set.prototype.union === "function",
+  "Iterator helpers (ES2025)": () => typeof Iterator?.prototype?.map === "function",
+  "Promise.try (ES2025)": () => typeof Promise.try === "function",
+  "DisposableStack (ES2026)": () => typeof DisposableStack === "function",
+};
+for (const [name, test] of Object.entries(checks)) {
+  console.log(`${test() ? "✓" : "✗"} ${name}`);
+}
+</script>
+<p>Each check is a function, so a missing global like <code>Iterator</code> can't crash the script before the check runs: <code>?.</code> stops early instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>A teammate says: "This feature is stage 3, so it's part of ES2025." Is that right?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No. Stage 3 means the design is finished and engines may ship it, but it only joins an edition after reaching stage 4 (two shipping implementations and tests). Many stage-3 features are already usable in Node or browsers, but they're not "in" the standard yet.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>Same code, two files. What does each print?</p>
+<script type="text/plain" class="code" data-file="t.cjs">
+function who() { return this === undefined ? "undefined" : typeof this; }
+console.log(who());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>As <code>t.cjs</code> (sloppy mode) it prints <code>object</code>: a plain call gets the global object as <code>this</code>. As <code>t.mjs</code> (a module, so strict) it prints <code>undefined</code>. Chapter 4 explains <code>this</code> fully.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/env-report.js</code>, a module that prints a small report: the Node version, whether the file runs as a module (<code>typeof this === "undefined"</code> at the top), whether top-level <code>await</code> works, and a sorted list of three ES2023+ features that are available. Use template literals, <code>const</code>, arrows and <code>Object.entries</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/env-report.js">
+const isModule = typeof this === "undefined";
+const tla = await Promise.resolve("works");          // would be a SyntaxError in a script
+const features = {
+  "Array#toSorted (ES2023)": [].toSorted,
+  "Object.groupBy (ES2024)": Object.groupBy,
+  "Promise.withResolvers (ES2024)": Promise.withResolvers,
+  "RegExp.escape (ES2025)": RegExp.escape,
+};
+const available = Object.entries(features)
+  .filter(([, fn]) => typeof fn === "function")
+  .map(([name]) => name)
+  .toSorted();
+
+console.log(`Node ${process.version}`);
+console.log(`module: ${isModule}, top-level await: ${tla}`);
+console.log(`available:\n  ${available.join("\n  ")}`);
+</script>
+<p>It combines this chapter's ideas: module facts (<code>this</code>, top-level <code>await</code>), feature detection, and a first taste of ES6+ syntax that later chapters explain.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Introduction">MDN Guide: Introduction</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Language_overview">MDN: JavaScript language overview</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Strict_mode">MDN: Strict mode</a></li>
+  <li><a href="https://tc39.es/process-document/">TC39 process document</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

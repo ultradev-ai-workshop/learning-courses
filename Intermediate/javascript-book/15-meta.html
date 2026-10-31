@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🪞&lt;/text&gt;&lt;/svg&gt;">
+<title>15. Metaprogramming & Resource Management · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 15 · Modules &amp; Advanced Features</div>
+<h1>Metaprogramming &amp; Resource Management</h1>
+<p class="lead">Metaprogramming means code that customises how the language itself behaves: how your objects convert, iterate or respond to property access. This chapter covers well-known symbols, <code>Proxy</code> and <code>Reflect</code> (ES6), the new <code>using</code> declarations for automatic clean-up, and how JavaScript manages memory.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Well-known symbols: <code>Symbol.toPrimitive</code>, <code>toStringTag</code>, <code>hasInstance</code>, and the <code>Symbol.for</code> registry.</li>
+  <li><code>Proxy</code>: intercept property reads and writes, <code>in</code>, deletes and calls <span class="es es6">ES2015</span>.</li>
+  <li><code>Reflect</code>: the default behaviour, as functions <span class="es es6">ES2015</span>.</li>
+  <li><code>using</code> / <code>await using</code>, <code>Symbol.dispose</code> and <code>DisposableStack</code> <span class="es">ES2026</span>.</li>
+  <li>Garbage collection, common memory leaks, <code>WeakRef</code> and <code>FinalizationRegistry</code> <span class="es">ES2021</span>.</li>
+</ul>
+</div>
+
+<h2 id="symbols">Well-known symbols</h2>
+<p>The language looks up certain <strong>symbol-keyed methods</strong> on your objects to decide how to treat them. You've already met <code>Symbol.iterator</code> (Chapter 13). A few more:</p>
+<div class="table-wrap"><table>
+<tr><th>Symbol</th><th>Used by</th></tr>
+<tr><td><code>Symbol.iterator</code> / <code>Symbol.asyncIterator</code></td><td><code>for…of</code>, spread / <code>for await</code></td></tr>
+<tr><td><code>Symbol.toPrimitive</code></td><td>conversion to a number or string (<code>+obj</code>, <code>`${obj}`</code>, <code>obj &gt; 3</code>)</td></tr>
+<tr><td><code>Symbol.toStringTag</code></td><td><code>Object.prototype.toString</code>: <code>[object Tag]</code></td></tr>
+<tr><td><code>Symbol.hasInstance</code></td><td><code>instanceof</code></td></tr>
+<tr><td><code>Symbol.dispose</code> / <code>Symbol.asyncDispose</code></td><td><code>using</code> / <code>await using</code> (below)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="symbols.js">
+class Money {
+  constructor(cents, currency = "EUR") { this.cents = cents; this.currency = currency; }
+  [Symbol.toPrimitive](hint) {                     // hint: "number", "string" or "default"
+    return hint === "number" ? this.cents : `${(this.cents / 100).toFixed(2)} ${this.currency}`;
+  }
+  get [Symbol.toStringTag]() { return "Money"; }
+  static [Symbol.hasInstance](x) { return typeof x?.cents === "number"; }   // duck-typed instanceof
+}
+
+const price = new Money(1299);
+console.log(`${price}`, +price, price > 1000, Object.prototype.toString.call(price));
+console.log({ cents: 5 } instanceof Money);        // true, thanks to Symbol.hasInstance
+
+console.log(Symbol.for("app.id") === Symbol.for("app.id"), Symbol("app.id") === Symbol("app.id"));   // global registry
+</script>
+<script type="text/plain" class="code" data-lang="text">
+12.99 EUR 1299 true [object Money]
+true
+true false
+</script>
+
+<h2 id="proxy">Proxy <span class="es es6">ES2015</span></h2>
+<p>A <code>Proxy</code> wraps a <strong>target</strong> object and lets a <strong>handler</strong> intercept fundamental operations through functions called <strong>traps</strong>. Any operation without a trap passes straight through to the target.</p>
+<div class="table-wrap"><table>
+<tr><th>Trap</th><th>Intercepts</th></tr>
+<tr><td><code>get(target, key, receiver)</code></td><td><code>proxy.key</code>, <code>proxy[key]</code></td></tr>
+<tr><td><code>set(target, key, value, receiver)</code></td><td><code>proxy.key = value</code> (return <code>true</code> for success)</td></tr>
+<tr><td><code>has(target, key)</code></td><td><code>key in proxy</code></td></tr>
+<tr><td><code>deleteProperty(target, key)</code></td><td><code>delete proxy.key</code></td></tr>
+<tr><td><code>ownKeys(target)</code></td><td><code>Object.keys</code>, <code>for…in</code>, <code>Reflect.ownKeys</code></td></tr>
+<tr><td><code>apply</code> / <code>construct</code></td><td>calling the proxy / <code>new proxy()</code> (when the target is a function)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="proxy-validate.js">
+function validated(target, schema) {
+  return new Proxy(target, {
+    set(obj, key, value, receiver) {
+      const type = schema[key];
+      if (!type) throw new TypeError(`unknown field "${String(key)}"`);
+      if (typeof value !== type) throw new TypeError(`${String(key)} must be a ${type}, got ${typeof value}`);
+      return Reflect.set(obj, key, value, receiver);      // do the normal assignment
+    },
+    get(obj, key, receiver) {
+      if (typeof key === "string" && !(key in obj)) return `‹no ${key}›`;   // friendly default
+      return Reflect.get(obj, key, receiver);
+    },
+  });
+}
+
+const book = validated({}, { title: "string", price: "number" });
+book.title = "Dune";
+book.price = 1299;
+console.log(book.title, book.price, book.author);
+for (const attempt of [() => { book.price = "cheap"; }, () => { book.isbn = "978"; }]) {
+  try { attempt(); } catch (e) { console.log(e.message); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 1299 ‹no author›
+price must be a number, got string
+unknown field "isbn"
+</script>
+<h3>Change tracking: the idea behind reactive frameworks</h3>
+<script type="text/plain" class="code" data-file="proxy-observe.js">
+function observe(target, onChange) {
+  return new Proxy(target, {
+    set(obj, key, value, receiver) {
+      const old = obj[key];
+      const ok = Reflect.set(obj, key, value, receiver);
+      if (ok && !Object.is(old, value)) onChange(key, old, value);
+      return ok;
+    },
+  });
+}
+const cart = observe({ items: 0, total: 0 }, (k, a, b) => console.log(`${k}: ${a} → ${b}`));
+cart.items = 2;
+cart.total = 2598;
+cart.total = 2598;          // unchanged: no notification
+</script>
+<script type="text/plain" class="code" data-lang="text">
+items: 0 → 2
+total: 0 → 2598
+</script>
+<p>Vue's reactivity and many state libraries work this way: reading or setting a property through a proxy is what lets them know what to re-render.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfalls:</strong> proxies are slower than plain objects, so don't put them on hot paths. Traps must respect <strong>invariants</strong>; for example, <code>get</code> can't report a different value for a non-configurable, non-writable property, or the engine throws a <code>TypeError</code>. Private <code>#fields</code> don't work through a proxy whose target is a class instance, because <code>this</code> becomes the proxy.</p>
+</div>
+
+<h2 id="reflect">Reflect <span class="es es6">ES2015</span></h2>
+<p><code>Reflect</code> is a namespace of functions that perform the <strong>default</strong> version of each operation a proxy can trap, with matching names and arguments. Inside a trap, <code>Reflect.xxx(...arguments)</code> means "now do what would normally happen". Some <code>Reflect</code> methods are also handy on their own:</p>
+<script type="text/plain" class="code" data-lang="repl">
+> const sym = Symbol("id")
+> Reflect.ownKeys({ a: 1, [sym]: 2 })
+[ 'a', Symbol(id) ]
+> Reflect.has({ title: "Dune" }, "title")
+true
+> Reflect.defineProperty(Object.freeze({}), "x", { value: 1 })
+false
+</script>
+<p>The last example shows the advantage over <code>Object.defineProperty</code>, which would <em>throw</em> on a frozen object; <code>Reflect</code> returns <code>false</code> instead.</p>
+
+<h2 id="using">Resource management: using <span class="es">ES2026</span></h2>
+<p>Files, database connections, locks and timers must be released even when an error occurs. Until now that meant <code>try/finally</code>. The new <code>using</code> declaration does it automatically: when the block ends, for any reason, the value's <code>[Symbol.dispose]()</code> method is called. Several resources are disposed in <strong>reverse</strong> order of declaration.</p>
+<script type="text/plain" class="code" data-file="using.js">
+class Connection {
+  constructor(name) { this.name = name; console.log("open", name); }
+  query(sql) { return `${this.name}: ${sql}`; }
+  [Symbol.dispose]() { console.log("close", this.name); }
+}
+
+function report() {
+  using db = new Connection("db");
+  using cache = new Connection("cache");
+  console.log(db.query("SELECT 1"));
+  return "report ready";                    // both are closed before the function returns
+}
+console.log(report());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+open db
+open cache
+db: SELECT 1
+close cache
+close db
+report ready
+</script>
+<div class="compare">
+<div>
+<p><strong>Before: try/finally</strong></p>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+const db = open("db");
+try {
+  const cache = open("cache");
+  try {
+    work(db, cache);
+  } finally {
+    cache.close();
+  }
+} finally {
+  db.close();
+}
+</script>
+</div>
+<div>
+<p><strong>Now: using</strong></p>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+using db = open("db");
+using cache = open("cache");
+work(db, cache);
+</script>
+</div>
+</div>
+<h3>await using, DisposableStack and errors</h3>
+<script type="text/plain" class="code" data-file="await-using.js">
+const tempFile = (name) => ({
+  name,
+  async [Symbol.asyncDispose]() { await null; console.log("deleted", name); },
+});
+
+{
+  await using tmp = tempFile("export.csv");    // awaits the async dispose at block end
+  console.log("writing", tmp.name);
+}
+
+const stack = new DisposableStack();            // collect clean-ups dynamically
+stack.defer(() => console.log("release lock"));
+stack.adopt({ id: 7 }, (h) => console.log("free handle", h.id));   // for values without Symbol.dispose
+stack.dispose();                                // runs in reverse: handle, then lock
+
+try {
+  using broken = { [Symbol.dispose]() { throw new Error("dispose failed"); } };
+  throw new Error("work failed");
+} catch (e) {
+  console.log(e.name, "|", e.error.message, "|", e.suppressed.message);   // both errors kept
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+writing export.csv
+deleted export.csv
+free handle 7
+release lock
+SuppressedError | dispose failed | work failed
+</script>
+<div class="note">
+<p>📝 <strong>Availability:</strong> <code>using</code> is supported in Node 24+ and current Chromium and Firefox. Check your targets; TypeScript (5.2+) can compile it down for older ones.</p>
+</div>
+
+<h2 id="memory">Memory management</h2>
+<p>JavaScript frees memory automatically with a <strong>garbage collector</strong> (GC). Modern engines use <em>mark-and-sweep</em>: starting from the <strong>roots</strong> (globals, the current call stack, active closures), the GC marks everything it can reach and frees the rest. So an object lives exactly as long as something reachable refers to it. Cycles aren't a problem: two objects that point only at each other are freed together.</p>
+<h3>Common leaks</h3>
+<div class="table-wrap"><table>
+<tr><th>Leak</th><th>Why it stays reachable</th><th>Fix</th></tr>
+<tr><td>Growing caches or Maps</td><td>the Map references every key and value forever</td><td>size limits, LRU eviction, or a <code>WeakMap</code> for per-object data</td></tr>
+<tr><td>Forgotten timers</td><td><code>setInterval</code> keeps its callback and closure alive</td><td><code>clearInterval</code>; dispose with <code>using</code></td></tr>
+<tr><td>Event listeners</td><td>the emitter keeps the listener (and what it closes over)</td><td><code>removeEventListener</code>, <code>{ signal }</code> with <code>AbortController</code>, <code>once</code></td></tr>
+<tr><td>Accidental globals</td><td>sloppy-mode assignments create global properties</td><td>modules (always strict)</td></tr>
+<tr><td>Closures holding big data</td><td>a long-lived function captures a large array</td><td>capture only what's needed</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="listener-cleanup.js">
+const target = new EventTarget();                   // the same API as DOM elements
+const controller = new AbortController();
+let hits = 0;
+target.addEventListener("order", () => hits++, { signal: controller.signal });
+target.dispatchEvent(new Event("order"));
+controller.abort();                                 // removes every listener registered with this signal
+target.dispatchEvent(new Event("order"));
+console.log(hits);   // 1
+</script>
+<h3>WeakRef and FinalizationRegistry <span class="es">ES2021</span></h3>
+<p>A <code>WeakRef</code> points to an object without keeping it alive: <code>deref()</code> returns the object, or <code>undefined</code> once it's been collected. A <code>FinalizationRegistry</code> calls you back <em>sometime after</em> an object is collected. Their timing is up to the engine and may never happen, so use them only for optimisations like caches, never for program logic.</p>
+<script type="text/plain" class="code" data-file="weakref.js">
+const cache = new Map();                            // key → WeakRef(value)
+function getReport(id) {
+  const hit = cache.get(id)?.deref();
+  if (hit) return hit;
+  const report = { id, rows: new Array(1000).fill(id) };   // expensive to build
+  cache.set(id, new WeakRef(report));
+  return report;
+}
+const r1 = getReport("2026-10");
+console.log(getReport("2026-10") === r1);          // true while r1 is still reachable
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. A read-only view with Proxy</h3>
+<script type="text/plain" class="code" data-file="readonly.js">
+const readOnly = (obj) => new Proxy(obj, {
+  set() { throw new TypeError("read-only"); },
+  deleteProperty() { throw new TypeError("read-only"); },
+  get: (o, k, r) => { const v = Reflect.get(o, k, r); return v && typeof v === "object" ? readOnly(v) : v; },   // deep, lazily
+});
+const settings = readOnly({ shop: { name: "Page & Spine" } });
+try { settings.shop.name = "x"; } catch (e) { console.log(e.message, settings.shop.name); }
+</script>
+<h3>2. Negative array indexes (a classic Proxy demo)</h3>
+<script type="text/plain" class="code" data-file="negative.js">
+const pythonic = (arr) => new Proxy(arr, {
+  get: (a, k, r) => (typeof k === "string" && /^-\d+$/.test(k) ? a[a.length + Number(k)] : Reflect.get(a, k, r)),
+});
+const books = pythonic(["Dune", "Emma", "Hamlet"]);
+console.log(books[-1], books[0], books.length);   // Hamlet Dune 3 (today .at(-1) does this natively)
+</script>
+<h3>3. Timing every method call</h3>
+<script type="text/plain" class="code" data-file="timing.js">
+const calls = [];
+const traced = (obj) => new Proxy(obj, {
+  get(o, k, r) {
+    const v = Reflect.get(o, k, r);
+    return typeof v === "function" ? (...args) => { calls.push(String(k)); return v.apply(o, args); } : v;
+  },
+});
+const svc = traced({ find: (id) => ({ id }), total: (xs) => xs.length });
+svc.find("b1"); svc.total([1, 2]); svc.find("b2");
+console.log(calls);   // [ 'find', 'total', 'find' ]
+</script>
+<h3>4. A disposable timer</h3>
+<script type="text/plain" class="code" data-file="disposable-timer.js">
+function every(ms, fn) {
+  const id = setInterval(fn, ms);
+  return { [Symbol.dispose]: () => { clearInterval(id); console.log("timer cleared"); } };
+}
+{
+  using _heartbeat = every(1000, () => console.log("tick"));
+  console.log("doing work");
+}   // the interval is cleared here, so the process can exit
+</script>
+<script type="text/plain" class="code" data-lang="text">
+doing work
+timer cleared
+</script>
+<h3>5. Revocable access</h3>
+<script type="text/plain" class="code" data-file="revocable.js">
+const { proxy, revoke } = Proxy.revocable({ secret: "api-key" }, {});
+console.log(proxy.secret);
+revoke();                                      // e.g. when a plugin is unloaded
+try { proxy.secret; } catch (e) { console.log(e.constructor.name); }
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Well-known symbols hook your objects into the language: <code>toPrimitive</code> for conversion, <code>toStringTag</code>, <code>hasInstance</code>, iteration and disposal.</li>
+  <li><code>Proxy</code> traps <code>get</code>/<code>set</code>/<code>has</code>/<code>deleteProperty</code>/<code>apply</code>…; use it for validation, defaults, tracking and views, and mind the performance cost and invariants.</li>
+  <li><code>Reflect</code> gives the default behaviour, so forward to it from traps.</li>
+  <li><code>using</code>/<code>await using</code> call <code>[Symbol.dispose]</code> in reverse order at block exit; <code>DisposableStack</code> collects clean-ups; <code>SuppressedError</code> keeps both errors.</li>
+  <li>The GC frees unreachable objects. Leaks are references you forgot: caches, timers, listeners. <code>WeakRef</code> is for optimisations only.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Give a <code>Temperature</code> class a <code>Symbol.toPrimitive</code> method, so that <code>`${t}`</code> gives <code>"21.5°C"</code> and <code>t + 1</code> gives <code>22.5</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+class Temperature {
+  constructor(c) { this.c = c; }
+  [Symbol.toPrimitive](hint) { return hint === "string" ? `${this.c}°C` : this.c; }
+}
+const t = new Temperature(21.5);
+console.log(`${t}`, t + 1);   // 21.5°C 22.5
+</script>
+<p><code>+</code> uses the <code>"default"</code> hint, which this method treats as numeric; template literals use <code>"string"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex2.js">
+const p = new Proxy({ a: 1 }, { get: (t, k) => (k in t ? t[k] : 0) });
+console.log(p.a, p.b, "b" in p);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>1 0 false</code>. The <code>get</code> trap supplies a default of 0, but there's no <code>has</code> trap, so <code>in</code> checks the target normally.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite this <code>try/finally</code> with <code>using</code>.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const lock = { release() { console.log("released"); } };
+try {
+  console.log("critical section");
+} finally {
+  lock.release();
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const acquire = () => ({ [Symbol.dispose]() { console.log("released"); } });
+{
+  using _lock = acquire();
+  console.log("critical section");
+}
+</script>
+<p>The resource provides <code>[Symbol.dispose]</code>; <code>using</code> calls it when the block exits, normally or by an exception.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why isn't a cycle (<code>a.other = b; b.other = a;</code>) a memory leak when nothing else references <code>a</code> or <code>b</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Mark-and-sweep starts from the roots. If neither object is reachable from a root, neither gets marked, and both are freed, whatever they point to among themselves. (Old reference-counting collectors couldn't do this.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>withDefaults(obj, defaults)</code>, which returns a Proxy that reads from <code>obj</code> and falls back to <code>defaults</code>. <code>in</code> should report both, and writes should go to <code>obj</code> only.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5.js">
+const withDefaults = (obj, defaults) => new Proxy(obj, {
+  get: (o, k, r) => (k in o ? Reflect.get(o, k, r) : defaults[k]),
+  has: (o, k) => k in o || k in defaults,
+});
+const user = { theme: "dark" };
+const prefs = withDefaults(user, { theme: "auto", pageSize: 20 });
+prefs.pageSize = 50;
+console.log(prefs.theme, prefs.pageSize, "pageSize" in prefs, user);   // dark 50 true { theme: 'dark', pageSize: 50 }
+</script>
+<p>No <code>set</code> trap is needed: the default <code>set</code> writes to the target.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>In what order are the lines printed?</p>
+<script type="text/plain" class="code" data-file="ex6.js">
+const r = (n) => ({ [Symbol.dispose]: () => console.log("dispose", n) });
+{
+  using a = r(1);
+  {
+    using b = r(2);
+    console.log("inner");
+  }
+  using c = r(3);
+  console.log("outer");
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>inner</code>, <code>dispose 2</code>, <code>outer</code>, <code>dispose 3</code>, <code>dispose 1</code>. Each block disposes its own resources when it exits, in reverse declaration order.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/audit.js</code> exporting <code>audited(obj, log)</code>: a Proxy that records every property <em>write</em> and <em>delete</em> as <code>{ op, key, value }</code> in the <code>log</code> array, while behaving normally otherwise.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/audit.js">
+export function audited(obj, log = []) {
+  return new Proxy(obj, {
+    set(o, key, value, receiver) {
+      log.push({ op: "set", key: String(key), value });
+      return Reflect.set(o, key, value, receiver);
+    },
+    deleteProperty(o, key) {
+      log.push({ op: "delete", key: String(key) });
+      return Reflect.deleteProperty(o, key);
+    },
+  });
+}
+
+const log = [];
+const order = audited({ id: "o1", status: "new" }, log);
+order.status = "paid";
+order.note = "gift";
+delete order.note;
+console.log(order, log);
+</script>
+<p>Each trap records the operation, then forwards to <code>Reflect</code>, so the order behaves exactly like a normal object.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>This Node script never exits. Why? Fix it, so that the interval stops after 3 ticks.</p>
+<script type="text/plain" class="code" data-file="ex8.js" data-norun>
+let ticks = 0;
+setInterval(() => { ticks++; console.log("tick", ticks); }, 10);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex8-fixed.js">
+let ticks = 0;
+const id = setInterval(() => {
+  ticks++;
+  console.log("tick", ticks);
+  if (ticks === 3) clearInterval(id);     // nothing keeps the event loop busy afterwards
+}, 10);
+</script>
+<p>An active interval keeps the event loop alive, and keeps its closure in memory. Clear it (or <code>unref()</code> it in Node) when it's done.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why should you call <code>Reflect.get(target, key, receiver)</code> in a <code>get</code> trap, rather than <code>target[key]</code>, when the target has getters?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A getter's <code>this</code> should be the object the property was read through, the <strong>receiver</strong> (usually the proxy, or an object inheriting from it). <code>target[key]</code> runs the getter with <code>this = target</code>, so property reads <em>inside</em> the getter bypass the proxy's traps. <code>Reflect.get</code> passes the receiver along correctly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/transaction.js</code> with a <code>transaction(state)</code> function. It returns a disposable object exposing <code>draft</code> (a Proxy that records changes, without touching <code>state</code>) and <code>commit()</code>. When the <code>using</code> block ends without <code>commit()</code>, the changes are discarded and a rollback message is printed.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/transaction.js">
+export function transaction(state) {
+  const changes = new Map();
+  let committed = false;
+  const draft = new Proxy(state, {
+    get: (o, k, r) => (changes.has(k) ? changes.get(k) : Reflect.get(o, k, r)),
+    set: (o, k, v) => { changes.set(k, v); return true; },
+  });
+  return {
+    draft,
+    commit() { for (const [k, v] of changes) state[k] = v; committed = true; },
+    [Symbol.dispose]() { if (!committed) console.log(`rollback: ${changes.size} change(s) discarded`); },
+  };
+}
+
+const stock = { b1: 3, b2: 1 };
+{
+  using tx = transaction(stock);
+  tx.draft.b1 -= 2;
+  tx.draft.b2 -= 1;
+  tx.commit();
+}
+{
+  using tx = transaction(stock);
+  tx.draft.b1 -= 5;            // would go negative…
+  if (tx.draft.b1 >= 0) tx.commit();
+}
+console.log(stock);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+rollback: 1 change(s) discarded
+{ b1: 1, b2: 0 }
+</script>
+<p>The Proxy layers pending changes over the real object, and <code>[Symbol.dispose]</code> turns "forgot to commit" into an automatic rollback, the same pattern database libraries use.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Meta_programming">MDN Guide: Meta programming</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Resource_management">MDN Guide: Resource management</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Memory_management">MDN: Memory management</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy">MDN: Proxy</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Reflect">Reflect</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

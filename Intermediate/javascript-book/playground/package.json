@@ -1,0 +1,12 @@
+{
+  "name": "playground",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Your practice project for the JavaScript Study Book",
+  "type": "module",
+  "scripts": {
+    "start": "node hello.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=24" }
+}

@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚙️&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Functions & Closures · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Foundations Revisited</div>
+<h1>Functions &amp; Closures</h1>
+<p class="lead">Functions are values in JavaScript: you pass them, return them and store them. This chapter covers the ES6 function features (arrows, default and rest parameters), the rules behind <code>this</code>, and closures, the idea that powers callbacks, factories and private state.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The four ways to create a function, and how they differ.</li>
+  <li>Default parameters, rest parameters and spread arguments <span class="es es6">ES2015</span>.</li>
+  <li>Arrow functions and lexical <code>this</code>.</li>
+  <li>The rules that decide <code>this</code>: plain call, method call, <code>call/apply/bind</code>, <code>new</code>.</li>
+  <li>Closures: what they are, the loop-<code>var</code> trap, and practical uses.</li>
+</ul>
+</div>
+
+<h2 id="defining">Four ways to create a function</h2>
+<script type="text/plain" class="code" data-file="defining.js">
+// 1. Function declaration: hoisted, has its own `this`
+function priceWithTax(cents) { return Math.round(cents * 1.2); }
+
+// 2. Function expression: a value assigned to a name (can be anonymous or named)
+const discount = function (cents, pct) { return cents - cents * pct; };
+
+// 3. Arrow function (ES2015): short, no own `this`
+const half = (cents) => cents / 2;
+
+// 4. Method shorthand (ES2015) inside an object or class
+const shop = {
+  name: "Page & Spine",
+  greet() { return `Welcome to ${this.name}`; },
+};
+
+console.log(priceWithTax(1000), discount(1000, 0.1), half(1000), shop.greet());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1200 900 500 Welcome to Page & Spine
+</script>
+<p>Functions are objects: they have properties such as <code>name</code> and <code>length</code> (the number of declared parameters before the first default or rest parameter), and they can be passed to and returned from other functions. A function that takes or returns a function is a <strong>higher-order function</strong>.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> function f(a, b = 2, ...rest) {}
+> [f.name, f.length]
+[ 'f', 1 ]
+> [3, 1, 2].map(String)
+[ '3', '1', '2' ]
+</script>
+
+<h2 id="params">Parameters <span class="es es6">ES2015</span></h2>
+<h3>Default parameters</h3>
+<p>A default applies only when the argument is <code>undefined</code> (missing, or passed as <code>undefined</code>), not for <code>null</code>, <code>0</code> or <code>""</code>. Defaults are evaluated <strong>at call time</strong>, and they can use earlier parameters.</p>
+<script type="text/plain" class="code" data-file="defaults.js">
+function order(title, qty = 1, total = qty * 1000) {
+  return `${qty} × ${title} = ${total}`;
+}
+console.log(order("Dune"));
+console.log(order("Dune", 3));
+console.log(order("Dune", undefined, 50));
+console.log(order("Dune", null));          // null is a real value: no default
+
+function tag(items = []) {                 // a NEW array on every call (unlike Python!)
+  items.push("x");
+  return items.length;
+}
+console.log(tag(), tag());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 × Dune = 1000
+3 × Dune = 3000
+1 × Dune = 50
+null × Dune = 0
+1 1
+</script>
+<h3>Rest parameters and the old arguments object</h3>
+<p><code>...rest</code> collects the remaining arguments into a <strong>real array</strong>. It replaces the old <code>arguments</code> object, which is array-like but not an array, and doesn't exist in arrow functions.</p>
+<div class="compare">
+<div class="bad">
+<p>📝 <strong>Older syntax you'll still see</strong></p>
+<script type="text/plain" class="code" data-file="arguments.js">
+function sum() {
+  var args = Array.prototype.slice.call(arguments);
+  return args.reduce(function (a, b) { return a + b; }, 0);
+}
+console.log(sum(1, 2, 3));
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Rest parameter</strong></p>
+<script type="text/plain" class="code" data-file="rest.js">
+const sum = (...nums) => nums.reduce((a, b) => a + b, 0);
+console.log(sum(1, 2, 3));
+</script>
+</div>
+</div>
+<h3>Spread at the call site</h3>
+<script type="text/plain" class="code" data-lang="repl">
+> const prices = [1299, 899, 2450]
+> Math.max(...prices)
+2450
+> Math.max.apply(null, prices)
+2450
+</script>
+<p>The second line is the ES5 way. Spread (<code>...</code>) reads better and works with any iterable.</p>
+
+<h2 id="arrows">Arrow functions <span class="es es6">ES2015</span></h2>
+<ul>
+  <li><strong>Concise body:</strong> <code>x =&gt; x * 2</code> returns the expression. With braces, <code>x =&gt; { return x * 2; }</code>, you need <code>return</code>.</li>
+  <li>To return an object literal, wrap it in parentheses: <code>() =&gt; ({ ok: true })</code>.</li>
+  <li>Arrows have <strong>no own <code>this</code>, <code>arguments</code>, <code>super</code> or <code>new.target</code></strong>. They use the ones of the surrounding code (<em>lexical</em> <code>this</code>).</li>
+  <li>Arrows can't be used with <code>new</code> and have no <code>prototype</code>.</li>
+</ul>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Braces mean a block, not an object</strong></p>
+<script type="text/plain" class="code" data-file="arrow-obj-bad.js">
+const toItem = (id) => { id: id };    // a block with a label "id"!
+console.log(toItem("b1"));
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Parentheses around the object</strong></p>
+<script type="text/plain" class="code" data-file="arrow-obj-good.js">
+const toItem = (id) => ({ id });
+console.log(toItem("b1"));            // { id: 'b1' }
+</script>
+</div>
+</div>
+
+<h2 id="this">How this is decided</h2>
+<p>For normal functions, <code>this</code> is decided by <strong>how the function is called</strong>, not where it's defined. Check the rules in this order:</p>
+<div class="table-wrap"><table>
+<tr><th>Call form</th><th><code>this</code> is</th></tr>
+<tr><td><code>new Fn()</code></td><td>the newly created object</td></tr>
+<tr><td><code>fn.call(obj)</code>, <code>fn.apply(obj)</code>, or <code>fn.bind(obj)()</code></td><td><code>obj</code></td></tr>
+<tr><td><code>obj.fn()</code> (method call)</td><td><code>obj</code>, the thing before the dot</td></tr>
+<tr><td><code>fn()</code> (plain call)</td><td><code>undefined</code> in strict mode/modules; the global object in sloppy scripts</td></tr>
+<tr><td>arrow function</td><td>whatever <code>this</code> was where the arrow was <em>written</em></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="this-rules.js">
+const cart = {
+  owner: "Ana",
+  whoRegular() { return this?.owner; },
+  whoArrow: () => typeof this,             // `this` of the module: undefined
+};
+
+console.log(cart.whoRegular());            // method call → "Ana"
+const detached = cart.whoRegular;
+console.log(detached());                   // plain call in a module → this is undefined
+console.log(detached.call({ owner: "Ben" }));   // explicit → "Ben"
+const bound = cart.whoRegular.bind({ owner: "Chen" });
+console.log(bound(), bound.call({ owner: "X" })); // bind is permanent
+console.log(cart.whoArrow());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana
+undefined
+Ben
+Chen Chen
+undefined
+</script>
+
+<h3>The classic bug: losing this in a callback</h3>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>A regular callback gets its own this</strong></p>
+<script type="text/plain" class="code" data-file="timer-bad.js">
+const counter = {
+  count: 0,
+  start() {
+    [1, 2, 3].forEach(function () {
+      try { this.count++; }                 // this is undefined here
+      catch (e) { console.log(e.constructor.name); }
+    });
+  },
+};
+counter.start();
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>An arrow keeps the method's this</strong></p>
+<script type="text/plain" class="code" data-file="timer-good.js">
+const counter = {
+  count: 0,
+  start() {
+    [1, 2, 3].forEach(() => { this.count++; });
+    return this.count;
+  },
+};
+console.log(counter.start());   // 3
+</script>
+</div>
+</div>
+<div class="tip">
+<p>💡 <strong>Rule of thumb:</strong> use <strong>method shorthand</strong> for object and class methods (they need their own <code>this</code>) and <strong>arrows</strong> for callbacks inside them (they should share the method's <code>this</code>).</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> Java's <code>this</code> is fixed to the instance, always. JavaScript's <code>this</code> is a hidden parameter, filled in at call time. That's why passing <code>obj.method</code> around "forgets" <code>obj</code>, a mistake Java never lets you make.</p>
+</div>
+
+<h2 id="closures">Closures</h2>
+<p>A <strong>closure</strong> is a function together with the variables it can see from the scope where it was created. The inner function keeps those variables alive even after the outer function has returned.</p>
+<p>Analogy: a function leaves home with a backpack. Inside are the variables from where it was born. It carries the backpack wherever it goes, and it can still read and change what's inside.</p>
+<script type="text/plain" class="code" data-file="closure-counter.js">
+function makeCounter(start = 0) {
+  let count = start;                    // private: only the returned functions can reach it
+  return {
+    next: () => ++count,
+    reset: () => { count = start; },
+  };
+}
+
+const orders = makeCounter(100);
+const invoices = makeCounter();
+console.log(orders.next(), orders.next(), invoices.next());
+orders.reset();
+console.log(orders.next(), typeof count);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+101 102 1
+101 undefined
+</script>
+<p>Each call to <code>makeCounter</code> creates a <strong>new</strong> <code>count</code>, so <code>orders</code> and <code>invoices</code> don't share state.</p>
+
+<h3>The loop-var trap</h3>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>var: one shared variable</strong></p>
+<script type="text/plain" class="code" data-file="loop-var.js">
+const fns = [];
+for (var i = 0; i < 3; i++) fns.push(() => i);
+console.log(fns.map((f) => f()));   // [ 3, 3, 3 ]
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>let: a fresh binding per iteration</strong></p>
+<script type="text/plain" class="code" data-file="loop-let.js">
+const fns = [];
+for (let i = 0; i < 3; i++) fns.push(() => i);
+console.log(fns.map((f) => f()));   // [ 0, 1, 2 ]
+</script>
+</div>
+</div>
+<p>Closures capture <em>variables</em>, not values. With <code>var</code> there is only one <code>i</code>, which is 3 by the time the functions run. With <code>let</code>, each iteration gets its own <code>i</code>. This was one of the main motivations for <code>let</code>.</p>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> the <strong>IIFE</strong>, an immediately invoked function expression, <code>(function () { var private = 1; })();</code>. It was used to create a private scope before block scope and modules existed. Today a <code>{ }</code> block or a module does the job.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Memoizing an expensive function</h3>
+<script type="text/plain" class="code" data-file="memo.js">
+function memoize(fn) {
+  const cache = new Map();                      // lives in the closure
+  return (arg) => {
+    if (!cache.has(arg)) cache.set(arg, fn(arg));
+    return cache.get(arg);
+  };
+}
+let calls = 0;
+const slowShipping = (country) => { calls++; return country === "DE" ? 4.9 : 9.9; };
+const shipping = memoize(slowShipping);
+console.log(shipping("DE"), shipping("DE"), shipping("FR"), "calls:", calls);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4.9 4.9 9.9 calls: 2
+</script>
+<h3>2. Partial application with bind and with arrows</h3>
+<script type="text/plain" class="code" data-file="partial.js">
+function priceIn(currency, rate, cents) { return `${(cents * rate / 100).toFixed(2)} ${currency}`; }
+const inUsd = priceIn.bind(null, "USD", 1.08);     // fixes the first two arguments
+const inGbp = (cents) => priceIn("GBP", 0.85, cents);
+console.log(inUsd(1299), inGbp(1299));
+</script>
+<h3>3. A once() wrapper</h3>
+<script type="text/plain" class="code" data-file="once.js">
+const once = (fn) => {
+  let done = false, result;
+  return (...args) => (done ? result : ((done = true), (result = fn(...args))));
+};
+const init = once(() => { console.log("connecting…"); return "db"; });
+console.log(init(), init());
+</script>
+<h3>4. Debounce (the closure behind every search box)</h3>
+<script type="text/plain" class="code" data-file="debounce.js">
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+const search = debounce((q) => console.log("searching for", q), 20);
+search("d"); search("du"); search("dun");          // only the last call runs
+</script>
+<script type="text/plain" class="code" data-lang="text">
+searching for dun
+</script>
+<h3>5. Recursion with a default accumulator</h3>
+<script type="text/plain" class="code" data-file="recursion.js">
+const countBooks = (shelf, total = 0) =>
+  shelf.reduce((n, item) => Array.isArray(item) ? countBooks(item, n) : n + 1, total);
+console.log(countBooks(["Dune", ["Emma", ["Ulysses", "Hamlet"]], "Beloved"]));   // 5
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Function declarations are hoisted. Expressions and arrows are values assigned like any other.</li>
+  <li>Defaults apply only for <code>undefined</code> and are evaluated per call. <code>...rest</code> is a real array, replacing <code>arguments</code>.</li>
+  <li>Arrows have lexical <code>this</code> and no <code>arguments</code>, and they can't be constructors. Wrap returned object literals in <code>( )</code>.</li>
+  <li><code>this</code> is decided at call time: <code>new</code> &gt; <code>call/apply/bind</code> &gt; method call &gt; plain call (<code>undefined</code> in strict mode).</li>
+  <li>Closures capture variables. <code>let</code> in loops gives one binding per iteration. Closures power private state, memoization and debouncing.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite as an arrow function with a concise body: <code>function square(n) { return n * n; }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="square.js">
+const square = (n) => n * n;
+console.log(square(7));   // 49
+</script>
+<p>A concise body (without braces) returns its expression automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>Given <code>const f = (a, b = a * 2) =&gt; a + b;</code>, what are <code>f(1)</code>, <code>f(1, 0)</code> and <code>f(1, undefined)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>3</code>, <code>1</code>, <code>3</code>. The default kicks in only for <code>undefined</code>; <code>0</code> is a real value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This returns <code>undefined</code>. Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const makeBook = (title, price) => { title, price };
+console.log(makeBook("Dune", 1299));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const makeBook = (title, price) => ({ title, price });
+console.log(makeBook("Dune", 1299));   // { title: 'Dune', price: 1299 }
+</script>
+<p>After <code>=&gt;</code>, a <code>{</code> starts a function body, not an object. Parentheses force it to be read as an expression.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write <code>average(...nums)</code>, which returns the mean, or <code>0</code> when called with no arguments.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="average.js">
+const average = (...nums) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0);
+console.log(average(2, 4, 9), average());   // 5 0
+</script>
+<p><code>nums</code> is a real array, so <code>length</code> and <code>reduce</code> just work.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print (in a module)?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+const shop = {
+  name: "Page & Spine",
+  regular() { return this?.name ?? "none"; },
+  arrow: () => this?.name ?? "none",
+};
+const { regular } = shop;
+console.log(shop.regular(), shop.arrow(), regular());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Page &amp; Spine none none</code>. The method call sets <code>this</code> to <code>shop</code>. The arrow uses the module's <code>this</code> (<code>undefined</code>). The destructured <code>regular()</code> is a plain call, so <code>this</code> is <code>undefined</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>Clicking "buy" (simulated by calling <code>handler()</code>) fails, because <code>this.items</code> is undefined. Fix it in two different ways.</p>
+<script type="text/plain" class="code" data-file="ex6.js" data-norun>
+const cart = {
+  items: [],
+  add(id) { this.items.push(id); return this.items.length; },
+};
+const handler = cart.add;      // like passing it to addEventListener
+handler("b1");                 // TypeError
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6-fixed.js">
+const cart = {
+  items: [],
+  add(id) { this.items.push(id); return this.items.length; },
+};
+const viaBind = cart.add.bind(cart);          // fix 1: bind
+const viaArrow = (id) => cart.add(id);        // fix 2: wrap in an arrow that calls the method
+console.log(viaBind("b1"), viaArrow("b2"));   // 1 2
+</script>
+<p>Extracting a method loses its object. Either fix <code>this</code> with <code>bind</code>, or keep the method call (<code>cart.add(...)</code>) inside a wrapper.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/ids.js</code> exporting <code>makeIdGenerator(prefix)</code>, which returns a function producing <code>ORD-0001</code>, <code>ORD-0002</code> and so on. Two generators must not share counters.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/ids.js">
+export function makeIdGenerator(prefix, width = 4) {
+  let n = 0;
+  return () => `${prefix}-${String(++n).padStart(width, "0")}`;
+}
+
+const orderId = makeIdGenerator("ORD");
+const invoiceId = makeIdGenerator("INV", 3);
+console.log(orderId(), orderId(), invoiceId());   // ORD-0001 ORD-0002 INV-001
+</script>
+<p>Each call creates a new closure with its own <code>n</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex8.js">
+let x = 1;
+const getX = () => x;
+x = 2;
+console.log(getX());
+function outer() { let x = 3; return getX(); }
+console.log(outer());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>2</code> then <code>2</code>. A closure reads the <em>current</em> value of the variable it captured. Scope is <em>lexical</em> (decided where <code>getX</code> is written), so the <code>x</code> inside <code>outer</code> is irrelevant.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>new (() =&gt; {})()</code> throw <code>TypeError: … is not a constructor</code>, while <code>new (function () {})()</code> works?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Arrow functions have no <code>[[Construct]]</code> behaviour and no <code>prototype</code> property, because they have no own <code>this</code> to initialise. Regular functions can be called with <code>new</code>; that's how "classes" worked before ES2015 (Appendix A).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/rate-limit.js</code> exporting <code>rateLimit(fn, max)</code>. It returns a wrapper that calls <code>fn</code> at most <code>max</code> times, then returns <code>"limit reached"</code>. Its <code>.remaining()</code> reports how many calls are left, and <code>.reset()</code> starts over. It must preserve <code>this</code> when used as a method.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/rate-limit.js">
+export function rateLimit(fn, max) {
+  let used = 0;
+  function limited(...args) {                  // a regular function, so `this` passes through
+    if (used >= max) return "limit reached";
+    used++;
+    return fn.apply(this, args);
+  }
+  limited.remaining = () => max - used;        // functions are objects: attach helpers
+  limited.reset = () => { used = 0; };
+  return limited;
+}
+
+const api = {
+  name: "payments",
+  call: rateLimit(function (amount) { return `${this.name} charged ${amount}`; }, 2),
+};
+console.log(api.call(10), "|", api.call(20), "|", api.call(30), "| left:", api.call.remaining());
+api.call.reset();
+console.log(api.call(40));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+payments charged 10 | payments charged 20 | limit reached | left: 0
+payments charged 40
+</script>
+<p>It uses a closure (<code>used</code>), rest parameters, <code>apply</code> to forward <code>this</code>, and properties on a function object. An arrow wrapper would break <code>this</code> here.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Functions">MDN Guide: Functions</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures">MDN: Closures</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/this">MDN: this</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/Arrow_functions">Arrow functions</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

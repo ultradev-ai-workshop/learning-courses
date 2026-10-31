@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📚&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Project: Async Order Processor · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · Putting It Together</div>
+<h1>Project: Async Order Processor</h1>
+<p class="lead">Build a complete Node command-line tool for the "Page &amp; Spine" bookshop. It validates orders, reserves stock, charges a flaky payment gateway with retries and timeouts, rolls back failures, processes orders concurrently, and prints a localized report. Almost every chapter of the book appears in it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to structure a modern Node project: ES modules, <code>package.json</code>, JSON imports, <code>parseArgs</code>.</li>
+  <li>Domain modelling with classes, private fields and a custom error hierarchy.</li>
+  <li>Robust async code: retries with backoff, timeouts with <code>AbortSignal</code>, rollback, and bounded concurrency.</li>
+  <li>Streaming results with an async generator, and reporting with grouping and <code>Intl</code>.</li>
+  <li>Testing with the built-in <code>node:test</code> runner and dependency injection.</li>
+</ul>
+</div>
+
+<h2 id="plan">The plan</h2>
+<p>The finished project lives in <code>playground/reference/</code>; build your own in <code>playground/</code>.</p>
+<script type="text/plain" class="code" data-lang="text">
+order-processor/
+├── package.json            "type": "module", scripts, engines          (Ch. 14, App. B)
+├── data/
+│   ├── books.json          the catalog, imported as a JSON module       (Ch. 14)
+│   └── orders.json         sample orders, read with fs/promises         (Ch. 12)
+├── src/
+│   ├── errors.js           ShopError → ValidationError, OutOfStock, …   (Ch. 3, 11)
+│   ├── catalog.js          Book (#stock), Catalog (Map, iterable)       (Ch. 9, 11, 13)
+│   ├── payments.js         fake async gateway: latency, failures        (Ch. 12)
+│   ├── processor.js        validate → reserve → pay (retry, timeout)    (Ch. 4, 5, 12, 13)
+│   ├── report.js           groupBy, toSorted, Intl formatting           (Ch. 6, 8, 9)
+│   └── cli.js              parseArgs, for await, using, import.meta.main (Ch. 13–15)
+└── test/
+    └── processor.test.js   node:test + assert/strict                    (App. B)
+</script>
+<div class="table-wrap"><table>
+<tr><th>Decision</th><th>Why</th><th>Chapter</th></tr>
+<tr><td>Money as integer cents, formatted only for display</td><td>no float drift in totals</td><td>6</td></tr>
+<tr><td>Stock as a <code>#private</code> field changed only via <code>reserve</code>/<code>release</code></td><td>invariants can't be bypassed</td><td>11</td></tr>
+<tr><td>Expected failures become result objects; bugs still throw</td><td>one bad order doesn't stop the batch, but real bugs stay visible</td><td>3, 10</td></tr>
+<tr><td>Retry only errors marked <code>retryable</code>, with exponential backoff</td><td>don't hammer a declined card</td><td>12</td></tr>
+<tr><td>A deterministic fake gateway, injectable as <code>pay</code></td><td>repeatable examples and fast tests</td><td>4, 12</td></tr>
+<tr><td>An async generator with a concurrency limit</td><td>results stream out as they're ready, without overloading the gateway</td><td>12, 13</td></tr>
+</table></div>
+
+<h2 id="setup">Step 1: package.json and data</h2>
+<script type="text/plain" class="code" data-file="package.json" data-save>
+{
+  "name": "order-processor",
+  "version": "1.0.0",
+  "description": "Async order processor for the Page & Spine bookshop (JavaScript Study Book, Chapter 16)",
+  "type": "module",
+  "bin": { "orders": "./src/cli.js" },
+  "scripts": {
+    "start": "node src/cli.js data/orders.json",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=24" }
+}
+</script>
+<script type="text/plain" class="code" data-file="data/books.json" data-save>
+[
+  { "id": "b1", "title": "Dune", "price": 1299, "stock": 3 },
+  { "id": "b2", "title": "Emma", "price": 899, "stock": 1 },
+  { "id": "b3", "title": "Hamlet", "price": 650, "stock": 10 },
+  { "id": "b4", "title": "Ulysses", "price": 1450, "stock": 0 }
+]
+</script>
+<script type="text/plain" class="code" data-file="data/orders.json" data-save>
+[
+  { "id": "o1", "customer": "Ana", "card": "4111-0001", "items": [{ "bookId": "b1", "qty": 2 }] },
+  { "id": "o2", "customer": "Ben", "card": "4111-0002", "items": [{ "bookId": "b3", "qty": 1 }] },
+  { "id": "o3", "customer": "Chen", "card": "4111-0119", "items": [{ "bookId": "b2", "qty": 1 }, { "bookId": "b3", "qty": 2 }] },
+  { "id": "o4", "customer": "Dee", "card": "4111-0001", "items": [{ "bookId": "b4", "qty": 1 }] },
+  { "id": "o5", "customer": "Eve", "card": "4111-0001", "items": [{ "bookId": "b9", "qty": 1 }] },
+  { "id": "o6", "customer": "Ana", "card": "4111-0001", "items": [{ "bookId": "b1", "qty": 1 }, { "bookId": "b3", "qty": 3 }] }
+]
+</script>
+<p>The card numbers drive the fake gateway: <code>…0002</code> is always declined, and <code>…0119</code> fails twice before succeeding, to exercise the retry logic.</p>
+
+<h2 id="errors">Step 2: errors and the catalog</h2>
+<script type="text/plain" class="code" data-file="src/errors.js" data-save>
+// Domain errors. `new.target.name` gives each subclass its own name automatically.
+export class ShopError extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+export class ValidationError extends ShopError {}
+export class OutOfStockError extends ShopError {}
+export class PaymentError extends ShopError {}
+</script>
+<script type="text/plain" class="code" data-file="src/catalog.js" data-save>
+import { OutOfStockError, ValidationError } from "./errors.js";
+
+export class Book {
+  #stock;
+  constructor({ id, title, price, stock = 0 }) {
+    if (!Number.isInteger(price) || price <= 0) throw new ValidationError(`bad price for ${id}`);
+    Object.assign(this, { id, title, price });
+    this.#stock = stock;
+  }
+  get stock() { return this.#stock; }
+  reserve(qty) {
+    if (qty > this.#stock) throw new OutOfStockError(`only ${this.#stock} × ${this.title} left, ${qty} requested`);
+    this.#stock -= qty;
+  }
+  release(qty) { this.#stock += qty; }
+}
+
+export class Catalog {
+  #books;
+  constructor(records) { this.#books = new Map(records.map((r) => [r.id, new Book(r)])); }
+  get(id) {
+    const book = this.#books.get(id);
+    if (!book) throw new ValidationError(`unknown book ${id}`);
+    return book;
+  }
+  *[Symbol.iterator]() { yield* this.#books.values(); }
+}
+</script>
+<ul>
+  <li><code>new.target.name</code> sets each error's <code>name</code> automatically, so <code>OutOfStockError</code> reports itself correctly without repeating the name.</li>
+  <li><code>Book.#stock</code> can only change through <code>reserve</code> and <code>release</code>; the getter exposes it read-only.</li>
+  <li><code>Catalog</code> keeps books in a <code>Map</code> and is <strong>iterable</strong> through a generator method, so the report can write <code>[...catalog]</code>.</li>
+</ul>
+
+<h2 id="payments">Step 3: a fake payment gateway</h2>
+<script type="text/plain" class="code" data-file="src/payments.js" data-save>
+import { setTimeout as sleep } from "node:timers/promises";
+import { PaymentError } from "./errors.js";
+
+// A fake payment gateway with deterministic behaviour, so examples and tests are repeatable:
+//   card ending 0002 → always declined
+//   card ending 0119 → fails twice (a "network blip"), then succeeds
+//   anything else    → succeeds
+const attempts = new Map();
+
+export function resetGateway() { attempts.clear(); }
+
+export async function charge({ card, cents }, { signal, latencyMs = 10 } = {}) {
+  await sleep(latencyMs, null, { signal });
+  const n = (attempts.get(card) ?? 0) + 1;
+  attempts.set(card, n);
+  if (card.endsWith("0002")) throw new PaymentError("card declined");
+  if (card.endsWith("0119") && n <= 2) throw new PaymentError(`gateway timeout (attempt ${n})`, { cause: { retryable: true } });
+  return { receipt: `rcpt-${card.slice(-4)}-${cents}`, cents };
+}
+</script>
+<p>It uses <code>node:timers/promises</code> for an abortable delay (Chapter 12), counts attempts per card in a module-level <code>Map</code>, a singleton shared by every importer (Chapter 14), and marks transient failures with <code>{ cause: { retryable: true } }</code>.</p>
+
+<h2 id="processor">Step 4: the processor</h2>
+<script type="text/plain" class="code" data-file="src/processor.js" data-save>
+import { setTimeout as sleep } from "node:timers/promises";
+import { charge } from "./payments.js";
+import { ValidationError, ShopError } from "./errors.js";
+
+function validate(order) {
+  if (!order?.id || !Array.isArray(order.items) || order.items.length === 0) {
+    throw new ValidationError(`order ${order?.id ?? "?"} has no items`);
+  }
+  for (const { bookId, qty } of order.items) {
+    if (!Number.isInteger(qty) || qty < 1) throw new ValidationError(`bad qty for ${bookId}`);
+  }
+}
+
+async function withRetry(fn, { retries = 2, baseMs = 5 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= retries || !err.cause?.retryable) throw err;
+      await sleep(baseMs * 2 ** attempt);                 // exponential backoff
+    }
+  }
+}
+
+// Process one order: validate → reserve stock → charge (with retry + timeout) → or roll back.
+export async function processOrder(order, catalog, { timeoutMs = 200, retries = 2, pay = charge } = {}) {
+  const reserved = [];
+  try {
+    validate(order);
+    for (const { bookId, qty } of order.items) {
+      catalog.get(bookId).reserve(qty);
+      reserved.push([bookId, qty]);
+    }
+    const cents = order.items.reduce((sum, { bookId, qty }) => sum + catalog.get(bookId).price * qty, 0);
+    const signal = AbortSignal.timeout(timeoutMs);
+    const payment = await withRetry(() => pay({ card: order.card, cents }, { signal }), { retries });   // `pay` is injectable for tests
+    return { id: order.id, customer: order.customer, status: "paid", cents, receipt: payment.receipt };
+  } catch (err) {
+    for (const [bookId, qty] of reserved) catalog.get(bookId).release(qty);    // roll back
+    if (!(err instanceof ShopError)) throw err;                                // bugs still surface
+    return { id: order.id, customer: order.customer, status: "failed", reason: `${err.name}: ${err.message}` };
+  }
+}
+
+// Process many orders with a concurrency limit; yields each result as soon as it's ready.
+export async function* processAll(orders, catalog, { concurrency = 2, ...options } = {}) {
+  const queue = orders.values();
+  const running = new Set();
+  const launch = () => {
+    const next = queue.next();
+    if (next.done) return;
+    const task = processOrder(next.value, catalog, options).then((result) => ({ task, result }));
+    running.add(task);
+  };
+  for (let i = 0; i < concurrency; i++) launch();
+  while (running.size) {
+    const { task, result } = await Promise.race(running);
+    running.delete(task);
+    launch();
+    yield result;
+  }
+}
+</script>
+<ul>
+  <li><strong>Rollback:</strong> every successful reservation is recorded, and the <code>catch</code> block releases them in one place, so a failed payment never leaks stock.</li>
+  <li><strong>Retry:</strong> <code>withRetry</code> uses <code>return await</code> inside <code>try</code>, so that rejections are caught (Chapter 12, Exercise 9), and backs off 5, 10, 20 ms…</li>
+  <li><strong>Timeout:</strong> one <code>AbortSignal.timeout</code> covers <em>all</em> attempts for an order, capping its total time.</li>
+  <li><strong>Concurrency:</strong> <code>processAll</code> keeps at most <code>concurrency</code> orders in flight. It races the running promises and launches the next order as soon as one finishes, yielding each result through an <strong>async generator</strong>.</li>
+</ul>
+
+<h2 id="report">Step 5: the report</h2>
+<script type="text/plain" class="code" data-file="src/report.js" data-save>
+const money = new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" });
+const list = new Intl.ListFormat("en", { type: "conjunction" });
+
+export const formatCents = (cents) => money.format(cents / 100);
+
+export function summarize(results, catalog) {
+  const { paid = [], failed = [] } = Object.groupBy(results, (r) => r.status);
+  const revenue = paid.reduce((sum, r) => sum + r.cents, 0);
+  const byCustomer = Map.groupBy(paid, (r) => r.customer);
+  const topCustomer = [...byCustomer]
+    .map(([name, rs]) => [name, rs.reduce((s, r) => s + r.cents, 0)])
+    .toSorted(([a, x], [b, y]) => y - x || a.localeCompare(b))[0];
+  const lowStock = [...catalog].filter((b) => b.stock <= 1).map((b) => `${b.title} (${b.stock})`);
+  return { paid: paid.length, failed: failed.length, revenue, topCustomer, lowStock };
+}
+
+export function render(summary, results) {
+  const lines = results
+    .toSorted((a, b) => a.id.localeCompare(b.id))
+    .map((r) => (r.status === "paid"
+      ? `✓ ${r.id} ${r.customer.padEnd(5)} ${formatCents(r.cents).padStart(8)}  ${r.receipt}`
+      : `✗ ${r.id} ${r.customer.padEnd(5)} ${r.reason}`));
+  const [name, cents] = summary.topCustomer ?? ["—", 0];
+  return [
+    ...lines,
+    "─".repeat(44),
+    `${summary.paid} paid, ${summary.failed} failed · revenue ${formatCents(summary.revenue)}`,
+    `top customer: ${name} (${formatCents(cents)})`,
+    `low stock: ${summary.lowStock.length ? list.format(summary.lowStock) : "none"}`,
+  ].join("\n");
+}
+</script>
+<p><code>Object.groupBy</code> splits the results by status, with defaults for missing groups; <code>Map.groupBy</code> sums per customer; <code>toSorted</code> ranks without mutating anything; <code>Intl.NumberFormat</code> and <code>Intl.ListFormat</code> make the output readable.</p>
+
+<h2 id="cli">Step 6: the command-line entry point</h2>
+<script type="text/plain" class="code" data-file="src/cli.js" data-save>
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import { parseArgs } from "node:util";
+import books from "../data/books.json" with { type: "json" };
+import { Catalog } from "./catalog.js";
+import { processAll } from "./processor.js";
+import { summarize, render } from "./report.js";
+
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    concurrency: { type: "string", short: "c", default: "2" },
+    verbose: { type: "boolean", short: "v", default: false },
+  },
+});
+
+const timer = {                                   // a disposable stopwatch (Chapter 15)
+  start: performance.now(),
+  [Symbol.dispose]() { if (values.verbose) console.error(`done in ${Math.round(performance.now() - this.start)} ms`); },
+};
+
+export async function main(ordersFile = positionals[0] ?? "data/orders.json") {
+  using _t = timer;
+  const orders = JSON.parse(await readFile(ordersFile, "utf8"));
+  const catalog = new Catalog(books);
+  const results = [];
+  for await (const result of processAll(orders, catalog, { concurrency: Number(values.concurrency) })) {
+    if (values.verbose) console.error(`  ${result.status.padEnd(6)} ${result.id}`);
+    results.push(result);
+  }
+  console.log(render(summarize(results, catalog), results));
+  return results;
+}
+
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("fatal:", err.message);
+    process.exitCode = 1;
+  });
+}
+</script>
+<ul>
+  <li><code>import books from "…json" with { type: "json" }</code> loads the catalog as a JSON module.</li>
+  <li><code>parseArgs</code> from <code>node:util</code> handles <code>-c 3</code> and <code>--verbose</code> without any dependency.</li>
+  <li><code>for await</code> consumes the async generator; progress messages go to <strong>stderr</strong>, so stdout stays clean for the report.</li>
+  <li><code>using</code> disposes the stopwatch when <code>main</code> finishes, and <code>import.meta.main</code> runs <code>main()</code> only when the file is executed directly, not when it's imported by tests.</li>
+</ul>
+
+<h2 id="run">Step 7: run it</h2>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node src/cli.js data/orders.json
+✓ o1 Ana     €25.98  rcpt-0001-2598
+✗ o2 Ben   PaymentError: card declined
+✓ o3 Chen    €21.99  rcpt-0119-2199
+✗ o4 Dee   OutOfStockError: only 0 × Ulysses left, 1 requested
+✗ o5 Eve   ValidationError: unknown book b9
+✓ o6 Ana     €32.49  rcpt-0001-3249
+────────────────────────────────────────────
+3 paid, 3 failed · revenue €80.46
+top customer: Ana (€58.47)
+low stock: Dune (0), Emma (0), and Ulysses (0)
+</script>
+<p>Chen's order (<code>o3</code>) succeeded after two retried gateway timeouts, and Ben's declined order released its Hamlet reservation. Try <code>node src/cli.js -v -c 3</code> to see progress lines on stderr, and <code>npm start</code>, which runs the script from <code>package.json</code>.</p>
+
+<h2 id="tests">Step 8: test it</h2>
+<script type="text/plain" class="code" data-file="test/processor.test.js" data-save>
+import { test, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { Catalog } from "../src/catalog.js";
+import { processOrder, processAll } from "../src/processor.js";
+import { resetGateway } from "../src/payments.js";
+import { summarize } from "../src/report.js";
+
+const BOOKS = [
+  { id: "b1", title: "Dune", price: 1299, stock: 2 },
+  { id: "b2", title: "Emma", price: 899, stock: 1 },
+];
+let catalog;
+beforeEach(() => { catalog = new Catalog(BOOKS); resetGateway(); });
+
+test("a valid order is paid and reduces stock", async () => {
+  const r = await processOrder({ id: "t1", customer: "Ana", card: "x-0001", items: [{ bookId: "b1", qty: 2 }] }, catalog);
+  assert.equal(r.status, "paid");
+  assert.equal(r.cents, 2598);
+  assert.equal(catalog.get("b1").stock, 0);
+});
+
+test("a declined card rolls the stock back", async () => {
+  const r = await processOrder({ id: "t2", customer: "Ben", card: "x-0002", items: [{ bookId: "b2", qty: 1 }] }, catalog);
+  assert.deepEqual([r.status, r.reason], ["failed", "PaymentError: card declined"]);
+  assert.equal(catalog.get("b2").stock, 1);
+});
+
+test("a flaky gateway succeeds after retries", async () => {
+  const r = await processOrder({ id: "t3", customer: "Chen", card: "x-0119", items: [{ bookId: "b2", qty: 1 }] }, catalog);
+  assert.equal(r.status, "paid");
+});
+
+test("validation and stock errors are reported, not thrown", async () => {
+  const bad = await processOrder({ id: "t4", items: [] }, catalog);
+  const short = await processOrder({ id: "t5", card: "x-0001", items: [{ bookId: "b2", qty: 5 }] }, catalog);
+  assert.match(bad.reason, /^ValidationError/);
+  assert.match(short.reason, /^OutOfStockError/);
+});
+
+test("processAll respects the concurrency limit and yields every result", async () => {
+  let active = 0, peak = 0;
+  const pay = async ({ cents }) => {                    // a fake gateway that counts calls in flight
+    active++; peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return { receipt: "test", cents };
+  };
+  const orders = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, customer: "Ana", card: "x-0001", items: [{ bookId: "b1", qty: 1 }] }));
+  const results = await Array.fromAsync(processAll(orders, new Catalog([{ ...BOOKS[0], stock: 99 }]), { concurrency: 2, pay }));
+  assert.equal(results.length, 5);
+  assert.equal(peak, 2);
+  assert.equal(summarize(results, catalog).revenue, 5 * 1299);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test
+...
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+...
+</script>
+<p>Thanks to the injectable <code>pay</code> option, the concurrency test uses a fake gateway that counts how many calls are in flight, and asserts that the peak is exactly 2. The default gateway's module state is reset in <code>beforeEach</code>, so the tests don't depend on each other.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Using the modules as a library</h3>
+<script type="text/plain" class="code" data-file="library-use.js" data-save>
+import { Catalog } from "./src/catalog.js";
+import { processOrder } from "./src/processor.js";
+const catalog = new Catalog([{ id: "b1", title: "Dune", price: 1299, stock: 1 }]);
+const result = await processOrder({ id: "x1", customer: "Zoe", card: "4111-0001", items: [{ bookId: "b1", qty: 1 }] }, catalog);
+console.log(result.status, result.cents, catalog.get("b1").stock);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node library-use.js
+paid 1299 0
+</script>
+<h3>2. A different payment provider through injection</h3>
+<script type="text/plain" class="code" data-file="custom-pay.js" data-save>
+import { Catalog } from "./src/catalog.js";
+import { processOrder } from "./src/processor.js";
+const freeGateway = async ({ cents }) => ({ receipt: "gift-card", cents });
+const catalog = new Catalog([{ id: "b1", title: "Dune", price: 1299, stock: 1 }]);
+console.log((await processOrder({ id: "g1", customer: "Ana", card: "gift", items: [{ bookId: "b1", qty: 1 }] }, catalog, { pay: freeGateway })).receipt);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node custom-pay.js
+gift-card
+</script>
+<h3>3. Higher concurrency, same results</h3>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node src/cli.js data/orders.json -c 6 | tail -3
+3 paid, 3 failed · revenue €80.46
+top customer: Ana (€58.47)
+low stock: Dune (0), Emma (0), and Ulysses (0)
+</script>
+<p>Results stream in a different <em>order</em> when more orders run at once, but the report sorts by id, so the output is stable.</p>
+<h3>4. Handling a missing file</h3>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node src/cli.js nope.json; echo "exit code: $?"
+fatal: ENOENT: no such file or directory, open 'nope.json'
+exit code: 1
+</script>
+<h3>5. Exporting results as JSON lines</h3>
+<script type="text/plain" class="code" data-file="jsonl.js" data-save>
+import books from "./data/books.json" with { type: "json" };
+import orders from "./data/orders.json" with { type: "json" };
+import { Catalog } from "./src/catalog.js";
+import { processAll } from "./src/processor.js";
+const lines = [];
+for await (const r of processAll(orders.slice(0, 2), new Catalog(books))) lines.push(JSON.stringify({ id: r.id, status: r.status }));
+console.log(lines.toSorted().join("\n"));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node jsonl.js
+{"id":"o1","status":"paid"}
+{"id":"o2","status":"failed"}
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Structure: errors → models → services (payments, processor) → presentation (report) → entry point (cli), each a small ES module.</li>
+  <li>Protect invariants with <code>#private</code> state and a domain error hierarchy. Turn expected failures into results, and let bugs throw.</li>
+  <li>Async robustness: retry only retryable errors, with backoff; time out with <code>AbortSignal</code>; roll back on every failure path; bound the concurrency.</li>
+  <li>Stream results with an async generator; summarise with <code>groupBy</code>, <code>toSorted</code> and <code>Intl</code>.</li>
+  <li>Make dependencies injectable, and test with <code>node:test</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+<p>All of these extend your own copy in <code>playground/</code>. Add a test for each feature.</p>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>Add a <code>--currency</code> option (default <code>EUR</code>) that changes the report's currency formatting.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+// report.js: make the formatter a parameter
+export const makeFormatter = (currency = "EUR") =>
+  new Intl.NumberFormat("en-IE", { style: "currency", currency });
+// cli.js: options.currency = { type: "string", default: "EUR" }, then pass it down to render()
+</script>
+<p><code>parseArgs</code> handles the option; the formatter is created once per run and passed to <code>render</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why do progress messages go to <code>console.error</code> while the report goes to <code>console.log</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>stdout carries the program's <em>result</em>, so <code>node src/cli.js &gt; report.txt</code> or a pipe gets just the report. stderr carries diagnostics, which stay on screen (Appendix B).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>If <code>data/books.json</code> gave Dune a stock of 1, what would happen to order <code>o6</code> (Dune ×1, Hamlet ×3), given that <code>o1</code> ran first?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>o1</code> needs 2 Dunes but only 1 exists, so <code>o1</code> fails with <code>OutOfStockError</code>, leaving Dune at 1. Then <code>o6</code> succeeds. With concurrency, the order in which <code>o1</code> and <code>o6</code> reserve stock could change the outcome, which is why reservations happen <em>before</em> the slow payment step.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Add an <code>npm test</code>-friendly check: a test asserting that a <code>Book</code> with a negative price throws <code>ValidationError</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+import { ValidationError } from "../src/errors.js";
+test("negative prices are rejected", () => {
+  assert.throws(() => new Catalog([{ id: "x", title: "X", price: -1 }]), ValidationError);
+});
+</script>
+<p><code>assert.throws</code> accepts an error class and checks the thrown value with <code>instanceof</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Add discount codes: an order may have <code>"coupon": "SAVE10"</code> (10% off) or <code>"FREESHIP"</code> (it doesn't change the total). Unknown codes fail validation. Apply discounts in integer cents, rounding once.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+const COUPONS = new Map([["SAVE10", (c) => Math.round(c * 0.9)], ["FREESHIP", (c) => c]]);
+// in validate(): if (order.coupon && !COUPONS.has(order.coupon)) throw new ValidationError(`unknown coupon ${order.coupon}`);
+// after computing cents: cents = (COUPONS.get(order.coupon) ?? ((c) => c))(cents);
+</script>
+<p>A Map of functions is a small strategy table (Appendix A). Rounding once, at the end, avoids cumulative errors.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Emit events while processing: make <code>processAll</code> accept an <code>EventTarget</code> and dispatch <code>CustomEvent("result", { detail })</code> for each order, so other code can listen without changing the CLI.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+export async function* processAll(orders, catalog, { concurrency = 2, events, ...options } = {}) {
+  // …inside the loop, before `yield result`:
+  events?.dispatchEvent(new CustomEvent("result", { detail: result }));
+}
+// usage: const events = new EventTarget(); events.addEventListener("result", (e) => log(e.detail));
+</script>
+<p><code>EventTarget</code> and <code>CustomEvent</code> are global in Node and in browsers; optional chaining makes the feature opt-in.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it · playground</span></h3>
+<p>Replace the hand-written <code>Promise.race</code> pool in <code>processAll</code> with the <code>AsyncQueue</code> from Chapter 12's Exercise 10. Do all the tests still pass?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes, they should: the tests check behaviour (every result arrives, and the peak concurrency is 2), not internals. Note one difference: the queue version resolves promises in completion order too, but you'll need an async generator wrapper (yield each result as its promise settles) to keep the streaming interface.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Add a <code>--dry-run</code> flag: validate orders and reserve stock, but never call the payment gateway; report what <em>would</em> be charged. Implement it by injecting a fake <code>pay</code>, not with <code>if</code> statements inside the processor.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+// cli.js
+const dryPay = async ({ cents }) => ({ receipt: "dry-run", cents });
+const options = { concurrency: Number(values.concurrency), ...(values["dry-run"] && { pay: dryPay }) };
+for await (const result of processAll(orders, catalog, options)) { … }
+</script>
+<p>Dependency injection keeps the processor unaware of "modes". Spreading <code>false</code> is a no-op, which makes the conditional option a one-liner.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it · playground</span></h3>
+<p>Make the whole run cancellable: pressing <kbd>Ctrl</kbd>+<kbd>C</kbd> should stop launching new orders, let in-flight ones finish or time out, and still print a partial report.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+// cli.js
+const stop = new AbortController();
+process.once("SIGINT", () => { console.error("stopping after in-flight orders…"); stop.abort(); });
+// processor.js: accept `signal` in processAll's options and skip launching when it's aborted
+const launch = () => {
+  if (options.signal?.aborted) return;
+  /* …as before… */
+};
+</script>
+<p>Cancellation is cooperative: the generator stops <em>starting</em> work, and the running orders drain normally, so stock is never left reserved. Use <code>AbortSignal.any([stop.signal, AbortSignal.timeout(ms)])</code> to combine a user abort with the per-order timeout.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Persist results: after a run, append each result as one JSON line to <code>data/results.jsonl</code>, and add a <code>stats</code> sub-command that streams that file with <code>readline</code> plus <code>for await</code> and prints the total revenue per day, the success rate, and the most common failure reason, using <code>Intl</code> for numbers and percentages.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="js" data-norun>
+import { appendFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+
+export async function save(results, file = "data/results.jsonl") {
+  const day = new Date().toISOString().slice(0, 10);
+  await appendFile(file, results.map((r) => JSON.stringify({ ...r, day })).join("\n") + "\n");
+}
+
+export async function stats(file = "data/results.jsonl") {
+  const perDay = new Map(), reasons = new Map();
+  let ok = 0, all = 0;
+  for await (const line of createInterface({ input: createReadStream(file) })) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line);
+    all++;
+    if (r.status === "paid") { ok++; perDay.set(r.day, (perDay.get(r.day) ?? 0) + r.cents); }
+    else { const kind = r.reason.split(":")[0]; reasons.set(kind, (reasons.get(kind) ?? 0) + 1); }
+  }
+  const pct = new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 });
+  const top = [...reasons].toSorted(([, a], [, b]) => b - a)[0]?.[0] ?? "none";
+  return { perDay: Object.fromEntries(perDay), successRate: pct.format(all ? ok / all : 0), topFailure: top };
+}
+</script>
+<p>Appending JSON lines is crash-safe and streamable. <code>readline</code> plus <code>for await</code> processes files of any size line by line, and Maps aggregate per day and per reason. Wire it into <code>cli.js</code> with <code>parseArgs</code> positionals (<code>orders stats</code>).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide">MDN JavaScript Guide</a> (everything used in this project)</li>
+  <li><a href="https://nodejs.org/api/test.html">Node.js: test runner</a> · <a href="https://nodejs.org/api/util.html#utilparseargsconfig">util.parseArgs</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static">MDN: AbortSignal.timeout</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

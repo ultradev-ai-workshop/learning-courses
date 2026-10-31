@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗂️&lt;/text&gt;&lt;/svg&gt;">
+<title>9. Maps, Sets & Weak Collections · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Collections &amp; Objects</div>
+<h1>Maps, Sets &amp; Weak Collections</h1>
+<p class="lead">Before ES6, plain objects did double duty as dictionaries, with string-only keys and prototype surprises. <code>Map</code> and <code>Set</code> are the proper tools. ES2024 and ES2025 added grouping and set algebra, and the weak collections let the garbage collector clean up after you.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><code>Map</code>: any key type, ordered, sized, iterable <span class="es es6">ES2015</span>, and when to choose it over an object.</li>
+  <li><code>Set</code>: uniqueness, plus the new set operations <code>union</code>, <code>intersection</code> and friends <span class="es">ES2025</span>.</li>
+  <li>Grouping with <code>Object.groupBy</code> and <code>Map.groupBy</code> <span class="es">ES2024</span>.</li>
+  <li>Upserts with <code>getOrInsert</code>/<code>getOrInsertComputed</code> (new in 2026 engines).</li>
+  <li><code>WeakMap</code>, <code>WeakSet</code> and <code>WeakRef</code>: collections that don't keep their keys alive.</li>
+</ul>
+</div>
+
+<h2 id="map">Map <span class="es es6">ES2015</span></h2>
+<script type="text/plain" class="code" data-file="map-basics.js">
+const stock = new Map([["b1", 3], ["b2", 0]]);
+stock.set("b3", 5).set("b1", 4);           // set returns the map, so calls can chain
+console.log(stock.get("b1"), stock.has("b9"), stock.size);
+stock.delete("b2");
+
+for (const [id, qty] of stock) console.log(id, qty);   // insertion order; updating b1 kept its place
+console.log([...stock.keys()], Object.fromEntries(stock));
+
+const visits = new Map();
+const user = { name: "Ana" };              // an object as a key!
+visits.set(user, 1);
+console.log(visits.get(user), visits.get({ name: "Ana" }));   // keys compare by identity
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 false 3
+b1 4
+b3 5
+[ 'b1', 'b3' ] { b1: 4, b3: 5 }
+1 undefined
+</script>
+<h3>Map or plain object?</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>Map</code></th><th>Object</th></tr>
+<tr><td>Key types</td><td>anything: objects, numbers, <code>NaN</code>, functions</td><td>strings and symbols only (numbers become strings)</td></tr>
+<tr><td>Order</td><td>insertion order, always</td><td>integer-like keys first (ascending), then insertion order (Chapter 10)</td></tr>
+<tr><td>Size</td><td><code>map.size</code></td><td><code>Object.keys(o).length</code></td></tr>
+<tr><td>Iteration</td><td>directly iterable</td><td>via <code>Object.entries</code></td></tr>
+<tr><td>Accidental keys</td><td>none</td><td>inherited ones like <code>"toString"</code>, unless created with <code>Object.create(null)</code></td></tr>
+<tr><td>JSON</td><td>needs converting</td><td>native</td></tr>
+<tr><td>Best for</td><td>dynamic dictionaries, caches, frequent add/remove</td><td>fixed-shape records, JSON data</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>map["b1"] = 3</code> sets an ordinary <em>property</em> on the Map object, not an entry: <code>get("b1")</code> won't see it and <code>size</code> doesn't change. Always use <code>set</code> and <code>get</code>.</p>
+</div>
+<p>Map keys use <strong>SameValueZero</strong> (Chapter 5): <code>NaN</code> works as a key, and <code>0</code> and <code>-0</code> are the same key.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> a <code>Map</code> behaves like <code>LinkedHashMap</code> (it keeps insertion order). But object keys are compared by identity; there's no <code>hashCode()</code>/<code>equals()</code> override, so two equal-looking objects are two different keys.</p>
+</div>
+
+<h3>Upsert: getOrInsert and getOrInsertComputed</h3>
+<p>"Get the value, or insert a default first" is extremely common. Newer engines (Node 26 included) ship <code>getOrInsert(key, value)</code> and <code>getOrInsertComputed(key, fn)</code>, where the function only runs if the key is missing.</p>
+<script type="text/plain" class="code" data-file="upsert.js">
+const byAuthor = new Map();
+for (const [author, title] of [["Austen", "Emma"], ["Herbert", "Dune"], ["Austen", "Persuasion"]]) {
+  byAuthor.getOrInsertComputed(author, () => []).push(title);
+}
+console.log(byAuthor);
+
+// The pattern you'll see in older code:
+const old = new Map();
+if (!old.has("Austen")) old.set("Austen", []);
+old.get("Austen").push("Emma");
+console.log(old);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Map(2) {
+  'Austen' => [ 'Emma', 'Persuasion' ],
+  'Herbert' => [ 'Dune' ]
+}
+Map(1) { 'Austen' => [ 'Emma' ] }
+</script>
+<div class="note">
+<p>📝 <strong>Availability:</strong> <code>getOrInsert</code> is very new. Check your target runtimes; the <code>has</code>/<code>set</code>/<code>get</code> pattern works everywhere.</p>
+</div>
+
+<h2 id="set">Set <span class="es es6">ES2015</span></h2>
+<p>A <code>Set</code> holds unique values, in insertion order, and checks membership quickly.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> const tags = new Set(["classic", "romance", "classic"])
+> tags.size
+2
+> tags.add("drama").has("drama")
+true
+> [...new Set([3, 1, 3, 2, 1])]
+[ 3, 1, 2 ]
+> [...new Set("banana")].join("")
+'ban'
+</script>
+<h3>Set operations <span class="es">ES2025</span></h3>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Result</th><th>Maths</th></tr>
+<tr><td><code>a.union(b)</code></td><td>in a or b</td><td>a ∪ b</td></tr>
+<tr><td><code>a.intersection(b)</code></td><td>in both</td><td>a ∩ b</td></tr>
+<tr><td><code>a.difference(b)</code></td><td>in a, not in b</td><td>a − b</td></tr>
+<tr><td><code>a.symmetricDifference(b)</code></td><td>in exactly one</td><td>a Δ b</td></tr>
+<tr><td><code>a.isSubsetOf(b)</code>, <code>isSupersetOf</code>, <code>isDisjointFrom</code></td><td>booleans</td><td>⊆, ⊇, no overlap</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="set-ops.js">
+const anaLikes = new Set(["Dune", "Emma", "Hamlet"]);
+const benLikes = new Set(["Emma", "Ulysses"]);
+
+console.log(anaLikes.intersection(benLikes));           // both like
+console.log(anaLikes.union(benLikes).size);             // all liked titles
+console.log([...anaLikes.difference(benLikes)]);        // recommend to Ben
+console.log(new Set(["Emma"]).isSubsetOf(benLikes), anaLikes.isDisjointFrom(new Set(["Beloved"])));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Set(1) { 'Emma' }
+4
+[ 'Dune', 'Hamlet' ]
+true true
+</script>
+<p>These methods return <strong>new</strong> sets and never change the originals. The argument may be any "set-like" object with <code>size</code>, <code>has</code> and <code>keys</code>, so a <code>Map</code> works too (its keys are used).</p>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> <code>new Set([...a].filter((x) =&gt; b.has(x)))</code> for intersection, and similar spreads for the others. They still work, but the new methods are clearer and faster.</p>
+</div>
+
+<h2 id="groupby">Grouping <span class="es">ES2024</span></h2>
+<p><code>Object.groupBy(items, fn)</code> returns an object whose keys are the strings <code>fn</code> returns. <code>Map.groupBy</code> returns a Map, so keys can be any value.</p>
+<script type="text/plain" class="code" data-file="groupby.js">
+const books = [
+  { title: "Dune", price: 1299, stock: 3 },
+  { title: "Emma", price: 899, stock: 0 },
+  { title: "Hamlet", price: 650, stock: 5 },
+];
+const byBand = Object.groupBy(books, (b) => (b.price < 1000 ? "budget" : "standard"));
+console.log(Object.keys(byBand), byBand.budget.map((b) => b.title));
+
+const inStock = Map.groupBy(books, (b) => b.stock > 0);   // boolean keys need a Map
+console.log(inStock.get(false).map((b) => b.title));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'standard', 'budget' ] [ 'Emma', 'Hamlet' ]
+[ 'Emma' ]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> the object from <code>Object.groupBy</code> has a <strong>null prototype</strong>, so it has no <code>hasOwnProperty</code> method, and Node prints it as <code>[Object: null prototype] {…}</code>. Use <code>Object.hasOwn(groups, key)</code> or <code>key in groups</code>.</p>
+</div>
+
+<h2 id="weak">Weak collections</h2>
+<p>A normal Map keeps its keys alive forever. A <code>WeakMap</code> holds its keys <strong>weakly</strong>: if nothing else references a key object, the garbage collector may remove the entry. In exchange, keys must be objects (or non-registered symbols), and weak collections can't be iterated or sized, since their contents may vanish at any moment.</p>
+<div class="table-wrap"><table>
+<tr><th></th><th>Map / Set</th><th>WeakMap / WeakSet</th></tr>
+<tr><td>Keys</td><td>any value</td><td>objects (and non-registered symbols) only</td></tr>
+<tr><td>Iterable, <code>size</code></td><td>yes</td><td>no</td></tr>
+<tr><td>Keeps keys alive</td><td>yes</td><td>no</td></tr>
+<tr><td>Typical use</td><td>data you own</td><td>metadata attached to objects you <em>don't</em> own: caches, "seen" markers, private data</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="weak.js">
+const priceCache = new WeakMap();          // per-object cache that can't leak memory
+function cachedTotal(order) {
+  if (!priceCache.has(order)) {
+    priceCache.set(order, order.items.reduce((s, i) => s + i.price * i.qty, 0));
+  }
+  return priceCache.get(order);
+}
+const order = { items: [{ price: 1299, qty: 2 }] };
+console.log(cachedTotal(order), cachedTotal(order));
+
+const processed = new WeakSet();
+processed.add(order);
+console.log(processed.has(order));
+try { processed.add("b1"); } catch (e) { console.log(e.constructor.name, e.message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2598 2598
+true
+TypeError Invalid value used in weak set
+</script>
+<p><code>WeakRef</code> and <code>FinalizationRegistry</code> <span class="es">ES2021</span> go one step further: they let you hold a single object weakly and get notified after it's collected. They're advanced tools with unpredictable timing; Chapter 15 covers them.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Counting with a Map</h3>
+<script type="text/plain" class="code" data-file="count-map.js">
+const words = "the cat and the hat and the bat".split(" ");
+const counts = new Map();
+for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+console.log([...counts].toSorted(([, a], [, b]) => b - a).slice(0, 2));   // [ [ 'the', 3 ], [ 'and', 2 ] ]
+</script>
+<h3>2. Removing duplicate objects by id</h3>
+<script type="text/plain" class="code" data-file="dedupe.js">
+const rows = [{ id: "b1", t: "Dune" }, { id: "b2", t: "Emma" }, { id: "b1", t: "Dune (2nd)" }];
+const unique = [...new Map(rows.map((r) => [r.id, r])).values()];   // the last one per id wins
+console.log(unique.map((r) => r.t));   // [ 'Dune (2nd)', 'Emma' ]
+</script>
+<h3>3. Converting between Map and JSON</h3>
+<script type="text/plain" class="code" data-file="map-json.js">
+const prefs = new Map([["theme", "dark"], ["pageSize", 20]]);
+const json = JSON.stringify(Object.fromEntries(prefs));
+const back = new Map(Object.entries(JSON.parse(json)));
+console.log(json, back.get("pageSize"));
+</script>
+<h3>4. Permissions with Set operations</h3>
+<script type="text/plain" class="code" data-file="perms.js">
+const required = new Set(["orders:read", "orders:write"]);
+const granted = new Set(["orders:read", "books:read"]);
+console.log(required.isSubsetOf(granted) ? "allowed" : `missing: ${[...required.difference(granted)]}`);
+</script>
+<h3>5. Grouping orders by customer and summing</h3>
+<script type="text/plain" class="code" data-file="group-sum.js">
+const orders = [{ customer: "Ana", total: 2598 }, { customer: "Ben", total: 899 }, { customer: "Ana", total: 650 }];
+const totals = Object.fromEntries(
+  Object.entries(Object.groupBy(orders, (o) => o.customer))
+    .map(([name, list]) => [name, list.reduce((s, o) => s + o.total, 0)]),
+);
+console.log(totals);   // { Ana: 3248, Ben: 899 }
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use <code>Map</code> for dynamic dictionaries: any key type, insertion order, <code>size</code>, direct iteration. Use <code>get</code>/<code>set</code>, never brackets.</li>
+  <li>Use <code>Set</code> for uniqueness and fast membership. ES2025 adds <code>union</code>, <code>intersection</code>, <code>difference</code> and the subset checks.</li>
+  <li><code>Object.groupBy</code> returns a null-prototype object; <code>Map.groupBy</code> supports any key type.</li>
+  <li><code>getOrInsertComputed</code> handles "get or create" in one call, where it's available.</li>
+  <li><code>WeakMap</code>/<code>WeakSet</code> take object keys only, aren't iterable, and don't prevent garbage collection, which makes them ideal for metadata and caches.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Remove duplicates from <code>["Dune", "Emma", "Dune", "Hamlet", "Emma"]</code>, keeping the first-seen order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+console.log([...new Set(["Dune", "Emma", "Dune", "Hamlet", "Emma"])]);   // [ 'Dune', 'Emma', 'Hamlet' ]
+</script>
+<p>A Set keeps insertion order and ignores repeated adds.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex2.js">
+const m = new Map();
+m.set(1, "number").set("1", "string");
+m["2"] = "property";
+console.log(m.size, m.get(1), m.get("2"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>2 number undefined</code>. <code>1</code> and <code>"1"</code> are different Map keys. The bracket assignment created an ordinary property, not an entry.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This always prints <code>undefined</code>. Why? Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const prices = new Map();
+prices.set({ id: "b1" }, 1299);
+console.log(prices.get({ id: "b1" }));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const prices = new Map();
+prices.set("b1", 1299);                 // use a primitive id as the key…
+console.log(prices.get("b1"));          // 1299
+
+const book = { id: "b1" };              // …or keep a reference to the same object
+const byObject = new Map([[book, 1299]]);
+console.log(byObject.get(book));        // 1299
+</script>
+<p>Object keys compare by identity: the second <code>{ id: "b1" }</code> is a different object.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Given two sets of book ids, list the ids that are in the cart but no longer in the catalog.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex4.js">
+const catalog = new Set(["b1", "b2", "b3"]);
+const cart = new Set(["b2", "b9"]);
+console.log([...cart.difference(catalog)]);   // [ 'b9' ]
+</script>
+<p><code>difference</code> keeps the items of the first set that aren't in the second.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Replace this manual grouping with <code>Object.groupBy</code>.</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+const books = [{ t: "Dune", g: "sci-fi" }, { t: "Emma", g: "classic" }, { t: "Hamlet", g: "classic" }];
+const byGenre = {};
+for (const b of books) {
+  if (!byGenre[b.g]) byGenre[b.g] = [];
+  byGenre[b.g].push(b.t);
+}
+console.log(byGenre);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5-fixed.js">
+const books = [{ t: "Dune", g: "sci-fi" }, { t: "Emma", g: "classic" }, { t: "Hamlet", g: "classic" }];
+const grouped = Object.groupBy(books, (b) => b.g);
+console.log(Object.fromEntries(Object.entries(grouped).map(([g, list]) => [g, list.map((b) => b.t)])));
+</script>
+<p><code>groupBy</code> groups whole items; a small map step turns them into titles. (Copying with <code>Object.fromEntries</code> also gives a normal prototype.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why can't you loop over a <code>WeakMap</code> or read its <code>size</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Entries can disappear whenever the garbage collector runs, which happens at unpredictable times. Iteration or a size would expose GC timing and make programs non-deterministic, so the API only offers <code>get</code>/<code>set</code>/<code>has</code>/<code>delete</code> for a key you already hold.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/inventory-map.js</code> with a class-free inventory built on a <code>Map</code>: <code>add(id, qty)</code>, <code>remove(id, qty)</code> (throwing if there isn't enough stock), <code>lowStock(limit)</code>, which returns the ids at or below the limit, and <code>toJSON()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/inventory-map.js">
+export function createInventory(entries = []) {
+  const stock = new Map(entries);
+  return {
+    add(id, qty) { stock.set(id, (stock.get(id) ?? 0) + qty); return this; },
+    remove(id, qty) {
+      const have = stock.get(id) ?? 0;
+      if (have < qty) throw new RangeError(`only ${have} of ${id}`);
+      stock.set(id, have - qty);
+      return this;
+    },
+    lowStock(limit) { return [...stock].filter(([, q]) => q <= limit).map(([id]) => id); },
+    toJSON() { return Object.fromEntries(stock); },
+  };
+}
+
+const inv = createInventory([["b1", 3], ["b2", 1]]);
+inv.add("b3", 10).remove("b1", 2);
+console.log(inv.lowStock(1), JSON.stringify(inv));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'b1', 'b2' ] {"b1":1,"b2":1,"b3":10}
+</script>
+<p>The Map is private, held in a closure (Chapter 4). <code>JSON.stringify</code> calls <code>toJSON</code> automatically, and returning <code>this</code> allows chaining.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex8.js">
+const a = new Set([1, 2, 3]), b = new Set([3, 4]);
+console.log([...a.symmetricDifference(b)], a.size, a.union(b).has(4), a.has(4));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ 1, 2, 4 ] 3 true false</code>. The set methods return new sets and never change <code>a</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write <code>memoizeByObject(fn)</code>, which caches results per argument object in a <code>WeakMap</code>, and per primitive argument in a <code>Map</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex9.js">
+function memoizeByObject(fn) {
+  const weak = new WeakMap(), strong = new Map();
+  return (arg) => {
+    const cache = (typeof arg === "object" && arg !== null) || typeof arg === "function" ? weak : strong;
+    if (!cache.has(arg)) cache.set(arg, fn(arg));
+    return cache.get(arg);
+  };
+}
+let calls = 0;
+const size = memoizeByObject((x) => (calls++, typeof x === "string" ? x.length : Object.keys(x).length));
+const order = { a: 1, b: 2 };
+console.log(size(order), size(order), size("dune"), size("dune"), calls);   // 2 2 4 4 2
+</script>
+<p>Objects go into the WeakMap, so cached results disappear together with their keys. Primitives can't be WeakMap keys, so they use a normal Map.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/recommend.js</code>. Given each customer's purchased book ids, recommend for a customer the books bought by others who share at least one purchase with them, excluding books they already own, ranked by how many such customers bought each one. Use Sets for the purchases, the Set methods, and a Map for the scores.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/recommend.js">
+const purchases = new Map([
+  ["Ana", new Set(["b1", "b2"])],
+  ["Ben", new Set(["b2", "b3", "b4"])],
+  ["Chen", new Set(["b1", "b3"])],
+  ["Dee", new Set(["b9"])],
+]);
+
+export function recommend(name) {
+  const mine = purchases.get(name);
+  const scores = new Map();
+  for (const [other, theirs] of purchases) {
+    if (other === name || mine.isDisjointFrom(theirs)) continue;     // no overlap → skip
+    for (const book of theirs.difference(mine)) scores.set(book, (scores.get(book) ?? 0) + 1);
+  }
+  return [...scores].toSorted(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([book]) => book);
+}
+
+console.log(recommend("Ana"), recommend("Dee"));   // [ 'b3', 'b4' ] []
+</script>
+<p><code>isDisjointFrom</code> finds customers with something in common, and <code>difference</code> keeps only books Ana doesn't own. A Map counts the scores, and the sort uses the score and then the id for a stable, predictable order.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Keyed_collections">MDN Guide: Keyed collections</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set#set_composition">MDN: Set composition methods</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/groupBy">MDN: Object.groupBy</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

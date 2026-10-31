@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🟨&lt;/text&gt;&lt;/svg&gt;">
+<title>JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Intermediate · ES2015 → ES2026 · following the MDN JavaScript Guide</div>
+<h1>🟨 JavaScript Study Book</h1>
+<p class="lead">An intermediate, chapter-by-chapter course through the <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide">MDN JavaScript Guide</a> and its intermediate and advanced topics. It's built around everything ES6 changed and everything added since, for developers who can already write basic JavaScript (or Java) and want to understand it properly.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 16 chapters follow MDN's Guide, grouped into six parts. Each chapter uses only ideas from earlier ones, or says where an idea is explained.</li>
+  <li><strong>Watch the badges.</strong> <span class="es es6">ES2015</span> marks ES6 features; <span class="es">ES2020</span>-style badges show when later features arrived. Chapter 1 has the full timeline and an "ES6 at a glance" table.</li>
+  <li><strong>Type the examples.</strong> Every example was run on Node 26 and its output checked. <code>&gt;</code> blocks are REPL sessions; file blocks are ES modules. Use the <em>Copy</em> button.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10+ exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. Playground exercises grow towards the Chapter 16 project.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000, and scores you per chapter.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>Rusty on pre-2015 JavaScript, or on Node tooling?</strong> <a href="appendix-es5.html">Appendix A: ES5 to ES6+ Refresher</a> maps old idioms to modern ones, and <a href="appendix-tooling.html">Appendix B: Node.js, npm &amp; DevTools</a> covers running, testing and debugging. First time here? Start with <a href="playground-howto.html">Using the Playground</a>.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Node 26 LTS and check it with <code>node --version</code>. Node 24 runs nearly everything, except Temporal and a few ES2025/2026 additions.</p>
+</div>
+
+<div id="cards"></div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Set up the playground (an ESM Node project), run and test files, and fix common problems.",
+  "01-intro.html": "ECMAScript vs engines vs runtimes, TC39 and ES5→ES2026, ES6 at a glance, strict mode, scripts vs modules.",
+  "02-types.html": "let/const vs var, hoisting and the TDZ, the 8 types and typeof quirks, references, literals, BigInt.",
+  "03-control.html": "Falsy values, switch, try/catch/finally, error cause, custom errors, for…of vs for…in, labels.",
+  "04-functions.html": "Arrows, default and rest parameters, the rules of this, call/apply/bind, closures and the loop-var trap.",
+  "05-operators.html": "?. and ??, logical assignment, destructuring, spread, and == vs === vs Object.is.",
+  "06-text.html": "Number precision and BigInt, UTF-16 strings, template tags, Date pitfalls, Temporal, Intl.",
+  "07-regex.html": "Named groups, lookbehind, flags g i m s u y d v, matchAll, replace callbacks, RegExp.escape.",
+  "08-arrays.html": "Mutating vs non-mutating methods, toSorted/with, reduce, sorting, holes, typed arrays.",
+  "09-collections.html": "Map vs Object, Set algebra (ES2025), groupBy, getOrInsert, WeakMap/WeakSet/WeakRef.",
+  "10-objects.html": "Literals, key order, hasOwn, entries/fromEntries, descriptors, enumerability, copying.",
+  "11-classes.html": "Fields, #private, static blocks, extends/super, the prototype chain, this in classes, mixins.",
+  "12-async.html": "The event loop, promises and combinators, async/await, parallelism, AbortController.",
+  "13-iterators.html": "Iteration protocols, generators, iterator helpers (ES2025), async iteration and for await.",
+  "14-modules.html": "import/export forms, live bindings, barrels, dynamic import, import.meta, JSON modules, ESM vs CJS.",
+  "15-meta.html": "Well-known symbols, Proxy and Reflect, using/DisposableStack, garbage collection and leaks.",
+  "16-project.html": "Build and test an async order processor: retries, timeouts, rollback, concurrency, Intl report.",
+  "appendix-es5.html": "var, IIFEs, self = this, constructor functions, callbacks, == — and their modern replacements.",
+  "appendix-tooling.html": "REPL, running files, package.json and npm, node:test, process, console, debugging, Node versions.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

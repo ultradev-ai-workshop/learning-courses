@@ -1,0 +1,12 @@
+{
+  "name": "order-processor",
+  "version": "1.0.0",
+  "description": "Async order processor for the Page & Spine bookshop (JavaScript Study Book, Chapter 16)",
+  "type": "module",
+  "bin": { "orders": "./src/cli.js" },
+  "scripts": {
+    "start": "node src/cli.js data/orders.json",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=24" }
+}

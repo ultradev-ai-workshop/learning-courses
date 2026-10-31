@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>14. JavaScript Modules · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · Modules &amp; Advanced Features</div>
+<h1>JavaScript Modules</h1>
+<p class="lead">ES modules (ESM) <span class="es es6">ES2015</span> are the standard way to split JavaScript into files, in browsers and in Node. This chapter covers every form of <code>import</code> and <code>export</code>, live bindings, dynamic <code>import()</code>, <code>import.meta</code>, JSON modules, and how ESM coexists with Node's older CommonJS system.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Named and default exports, renaming, and re-exporting ("barrel" files).</li>
+  <li>Import forms: named, default, namespace, side-effect; plus live bindings and module singletons.</li>
+  <li>Dynamic <code>import()</code> <span class="es">ES2020</span>, <code>import.meta</code>, and top-level <code>await</code> <span class="es">ES2022</span>.</li>
+  <li>Importing JSON with import attributes <span class="es">ES2025</span>.</li>
+  <li>ESM vs CommonJS in Node: <code>"type"</code>, file extensions, <code>require</code>, interop.</li>
+</ul>
+</div>
+
+<h2 id="why">Why modules?</h2>
+<p>Before ES6, every <code>&lt;script&gt;</code> shared one global scope. Libraries hid their internals inside IIFEs (Chapter 4), and Node invented its own system, <strong>CommonJS</strong> (<code>require</code>/<code>module.exports</code>). ES modules standardise this for every environment:</p>
+<ul>
+  <li>Each file has its <strong>own scope</strong>; only what you <code>export</code> is visible to others.</li>
+  <li>Dependencies are <strong>declared statically</strong> at the top, so tools can analyse them (tree-shaking removes unused code).</li>
+  <li>Modules are <strong>strict</strong> and evaluated <strong>once</strong>; every importer shares the same instance.</li>
+</ul>
+
+<h2 id="export">Exporting</h2>
+<script type="text/plain" class="code" data-file="money.js" data-save>
+// Named exports: as many as you like
+export const CURRENCY = "EUR";
+
+export function formatCents(cents) {
+  return `€${(cents / 100).toFixed(2)}`;
+}
+
+function addTax(cents, rate = 0.2) { return Math.round(cents * (1 + rate)); }
+const roundToCents = (x) => Math.round(x);
+export { addTax, roundToCents as round };   // export a list, renaming with "as"
+
+// One default export per module (optional)
+export default function total(lines) {
+  return lines.reduce((s, l) => s + l.price * l.qty, 0);
+}
+</script>
+
+<h2 id="import">Importing</h2>
+<script type="text/plain" class="code" data-file="app.js" data-save>
+import total, { formatCents, addTax as withVat, CURRENCY } from "./money.js";   // default + named
+import * as money from "./money.js";                                          // namespace object
+
+const lines = [{ price: 1299, qty: 2 }, { price: 899, qty: 1 }];
+console.log(formatCents(total(lines)), formatCents(withVat(1000)), CURRENCY);
+console.log(Object.keys(money).sort());
+console.log(money.default === total);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node app.js
+€34.97 €12.00 EUR
+[ 'CURRENCY', 'addTax', 'default', 'formatCents', 'round' ]
+true
+</script>
+<div class="table-wrap"><table>
+<tr><th>Form</th><th>Example</th></tr>
+<tr><td>Named</td><td><code>import { a, b } from "./m.js"</code></td></tr>
+<tr><td>Renamed</td><td><code>import { a as alpha } from "./m.js"</code></td></tr>
+<tr><td>Default</td><td><code>import anyName from "./m.js"</code></td></tr>
+<tr><td>Namespace</td><td><code>import * as m from "./m.js"</code></td></tr>
+<tr><td>Side effects only</td><td><code>import "./polyfills.js"</code></td></tr>
+<tr><td>Dynamic</td><td><code>const m = await import("./m.js")</code></td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfalls:</strong> in Node's ESM and in browsers, the <strong>file extension is required</strong>: write <code>"./money.js"</code>, not <code>"./money"</code>. A specifier without <code>./</code> or <code>/</code> (like <code>"lodash"</code>) means a <em>package</em>. And <code>import { x }</code> is not object destructuring, so <code>import { a: b }</code> is a syntax error; use <code>as</code>.</p>
+</div>
+<div class="tip">
+<p>💡 <strong>Named or default?</strong> Many teams prefer named exports only: the names are consistent across files, editors auto-import them, and renaming them is explicit. Default exports suit modules with one obvious main thing, like a React component.</p>
+</div>
+
+<h3>Live bindings and singletons</h3>
+<p>Imports are <strong>live, read-only views</strong> of the exporting module's variables, not copies. And a module's code runs only once, however many files import it.</p>
+<script type="text/plain" class="code" data-file="counter.js" data-save>
+console.log("counter.js evaluated");
+export let count = 0;
+export function increment() { count++; }
+</script>
+<script type="text/plain" class="code" data-file="live.js" data-save>
+import { count, increment } from "./counter.js";
+import * as again from "./counter.js";           // same module instance: not evaluated twice
+
+increment();
+increment();
+console.log(count, again.count);                 // live: both see 2
+try { count = 10; } catch (e) { console.log(e.name, "-", e.message); }   // imports are read-only
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node live.js
+counter.js evaluated
+2 2
+TypeError - Assignment to constant variable.
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> an ES module is roughly a class with only static members: loaded once, shared by everyone, and exposing a public API, with everything else private. But imports are file paths, not package-qualified class names, and there's no classpath.</p>
+</div>
+
+<h2 id="reexport">Re-exporting and barrel files</h2>
+<p>A module can pass on what other modules export. A <strong>barrel</strong> (often <code>index.js</code>) gathers a folder's public API in one place.</p>
+<script type="text/plain" class="code" data-file="shop/books.js" data-save>
+export const books = [{ id: "b1", title: "Dune", price: 1299 }];
+export const findBook = (id) => books.find((b) => b.id === id);
+</script>
+<script type="text/plain" class="code" data-file="shop/orders.js" data-save>
+import { findBook } from "./books.js";
+export const orderTotal = (items) => items.reduce((s, i) => s + findBook(i.id).price * i.qty, 0);
+export const internalHelper = () => "not part of the public API";
+</script>
+<script type="text/plain" class="code" data-file="shop/index.js" data-save>
+export * from "./books.js";                    // everything named from books.js
+export { orderTotal } from "./orders.js";      // only what we choose
+export * as orders from "./orders.js";         // a namespace re-export (ES2020)
+</script>
+<script type="text/plain" class="code" data-file="use-shop.js" data-save>
+import { findBook, orderTotal, orders } from "./shop/index.js";
+console.log(findBook("b1").title, orderTotal([{ id: "b1", qty: 2 }]), typeof orders.internalHelper);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node use-shop.js
+Dune 2598 function
+</script>
+
+<h2 id="dynamic">Dynamic import() <span class="es">ES2020</span></h2>
+<p><code>import(specifier)</code> is an <em>expression</em> that loads a module at run time and returns a promise for its namespace object. Use it for code that's rarely needed (lazy loading and code splitting), or for specifiers computed at run time. It also works in classic scripts and CommonJS.</p>
+<script type="text/plain" class="code" data-file="exporters/csv.js" data-save>
+export const extension = "csv";
+export default (rows) => rows.map((r) => Object.values(r).join(",")).join("\n");
+</script>
+<script type="text/plain" class="code" data-file="exporters/json.js" data-save>
+export const extension = "json";
+export default (rows) => JSON.stringify(rows);
+</script>
+<script type="text/plain" class="code" data-file="export-report.js" data-save>
+const format = process.argv[2] ?? "csv";
+const rows = [{ id: "o1", total: 2598 }, { id: "o2", total: 899 }];
+try {
+  const { default: render, extension } = await import(`./exporters/${format}.js`);   // loaded only when needed
+  console.log(`report.${extension}:\n${render(rows)}`);
+} catch {
+  console.log(`unknown format: ${format}`);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node export-report.js json
+report.json:
+[{"id":"o1","total":2598},{"id":"o2","total":899}]
+$ node export-report.js csv
+report.csv:
+o1,2598
+o2,899
+$ node export-report.js xml
+unknown format: xml
+</script>
+
+<h2 id="meta">import.meta and top-level await</h2>
+<p><code>import.meta</code> holds information about the current module. In Node, <code>import.meta.url</code> is a <code>file://</code> URL, and <code>import.meta.dirname</code> and <code>import.meta.filename</code> replace CommonJS's <code>__dirname</code> and <code>__filename</code>. <code>import.meta.main</code> (Node 24+) tells you whether this file was run directly, like Python's <code>__name__ == "__main__"</code>.</p>
+<script type="text/plain" class="code" data-file="where.js" data-save>
+import { readFile } from "node:fs/promises";
+import { join, basename } from "node:path";
+
+console.log(basename(import.meta.filename), import.meta.url.startsWith("file://"));
+const config = JSON.parse(await readFile(join(import.meta.dirname, "config.json"), "utf8"));   // top-level await
+console.log(config.currency, import.meta.main ? "run directly" : "imported");
+</script>
+<script type="text/plain" class="code" data-file="config.json" data-save>
+{ "currency": "EUR", "pageSize": 20 }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node where.js
+where.js true
+EUR run directly
+</script>
+<p>Top-level <code>await</code> <span class="es">ES2022</span> pauses this module's evaluation, and every module that imports it waits too. Use it for set-up such as loading config, but avoid long waits in widely imported modules.</p>
+
+<h2 id="json">JSON modules <span class="es">ES2025</span></h2>
+<p><strong>Import attributes</strong> tell the host what kind of module to expect. Importing JSON requires <code>with { type: "json" }</code>, so that a server can't trick your code into executing a "JSON" file as JavaScript.</p>
+<script type="text/plain" class="code" data-file="json-import.js" data-save>
+import config from "./config.json" with { type: "json" };
+const { default: again } = await import("./config.json", { with: { type: "json" } });
+console.log(config.pageSize, again === config);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node json-import.js
+20 true
+</script>
+<div class="older">
+<p>📝 <strong>Older syntax you'll still see:</strong> <code>import data from "./x.json" assert { type: "json" }</code>, the earlier "import assertions" spelling, which has been removed from Node. Use <code>with</code>.</p>
+</div>
+
+<h2 id="node">ESM and CommonJS in Node</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>ES modules</th><th>CommonJS</th></tr>
+<tr><td>Syntax</td><td><code>import</code> / <code>export</code></td><td><code>require()</code> / <code>module.exports</code></td></tr>
+<tr><td>Files</td><td><code>.mjs</code>, or <code>.js</code> with <code>"type": "module"</code></td><td><code>.cjs</code>, or <code>.js</code> without it</td></tr>
+<tr><td>Loading</td><td>static, async-capable, top-level <code>await</code></td><td>synchronous, at run time</td></tr>
+<tr><td>Extensions in specifiers</td><td>required</td><td>optional</td></tr>
+<tr><td>File location</td><td><code>import.meta.dirname</code> / <code>filename</code></td><td><code>__dirname</code> / <code>__filename</code></td></tr>
+<tr><td>Strict mode</td><td>always</td><td>only with <code>"use strict"</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="legacy.cjs" data-save>
+// A CommonJS module
+function greet(name) { return `Hello, ${name}`; }
+module.exports = { greet, version: 1 };
+</script>
+<script type="text/plain" class="code" data-file="interop.mjs" data-save>
+import legacy from "./legacy.cjs";                  // the CJS exports object is the default import
+import { greet } from "./legacy.cjs";               // Node also detects simple named exports
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);     // a require() inside ESM, when you need one
+console.log(legacy.greet("Ana"), greet("Ben"), require("./legacy.cjs").version);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node interop.mjs
+Hello, Ana Hello, Ben 1
+</script>
+<p>The other direction also works in modern Node (22+): a CommonJS file can <code>require()</code> an ES module, as long as that module doesn't use top-level <code>await</code>. In <code>package.json</code>, the <code>"exports"</code> field declares a package's public entry points for both systems.</p>
+<h3>In the browser</h3>
+<script type="text/plain" class="code" data-file="index.html" data-norun>
+<script type="importmap">
+  { "imports": { "money": "/js/money.js" } }
+<\/script>
+<script type="module">
+  import { formatCents } from "money";        // bare specifier resolved by the import map
+  document.title = formatCents(1299);
+<\/script>
+</script>
+<p>Module scripts are deferred automatically, fetched with CORS, and run once even if they're included twice.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Feature-flagged lazy loading</h3>
+<script type="text/plain" class="code" data-file="lazy-flag.js" data-save>
+const flags = { recommendations: false };
+const recs = flags.recommendations ? await import("./shop/books.js") : null;   // never loaded when off
+console.log(recs === null ? "recommendations disabled" : "loaded");
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node lazy-flag.js
+recommendations disabled
+</script>
+<h3>2. A module-level cache shared by all importers</h3>
+<script type="text/plain" class="code" data-file="rates.js" data-save>
+let cached;
+export async function getRates() {
+  cached ??= Promise.resolve({ USD: 1.08, GBP: 0.85 });   // cache the promise itself
+  return cached;
+}
+</script>
+<script type="text/plain" class="code" data-file="use-rates.js" data-save>
+import { getRates } from "./rates.js";
+const [a, b] = await Promise.all([getRates(), getRates()]);
+console.log(a === b, a.USD);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node use-rates.js
+true 1.08
+</script>
+<h3>3. "Run if main"</h3>
+<script type="text/plain" class="code" data-file="cli-tool.js" data-save>
+export const double = (n) => n * 2;
+if (import.meta.main) console.log(double(Number(process.argv[2] ?? 21)));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node cli-tool.js
+42
+$ node -e 'import("./cli-tool.js").then((m) => console.log("imported, double(5) =", m.double(5)))'
+imported, double(5) = 10
+</script>
+<h3>4. Inspecting a namespace object</h3>
+<script type="text/plain" class="code" data-file="ns.js" data-save>
+import * as money from "./money.js";
+console.log(Object.isFrozen(money), Object.getPrototypeOf(money), money[Symbol.toStringTag]);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node ns.js
+false null Module
+</script>
+<p>The namespace object has a <code>null</code> prototype and can't be modified: its properties are live, read-only bindings. (It isn't technically frozen, because the values can still change inside the exporting module.)</p>
+<h3>5. Circular imports, and why functions survive them</h3>
+<script type="text/plain" class="code" data-file="a.js" data-save>
+import { b } from "./b.js";
+export function a() { return "a"; }
+console.log("a.js sees", b());
+</script>
+<script type="text/plain" class="code" data-file="b.js" data-save>
+import { a } from "./a.js";
+export function b() { return "b calls " + a(); }    // works: function declarations are hoisted
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node a.js
+a.js sees b calls a
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>export</code> named or default values; <code>import</code> named, default, <code>* as ns</code> or side-effects only. Rename with <code>as</code>, and always include file extensions.</li>
+  <li>Imports are live, read-only bindings. Each module is evaluated once and shared.</li>
+  <li><code>export * from</code> and <code>export { x } from</code> build barrel files; <code>export * as ns from</code> re-exports a namespace.</li>
+  <li><code>import()</code> loads lazily and returns a promise. <code>import.meta.dirname</code>, <code>filename</code> and <code>main</code> help in Node. Top-level <code>await</code> delays importers.</li>
+  <li>JSON needs <code>with { type: "json" }</code>. In Node, <code>"type": "module"</code> or <code>.mjs</code> means ESM, and ESM can import CommonJS.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>Node says <code>Cannot find module '/…/utils' imported from /…/main.js</code>. What's wrong with <code>import { slug } from "./utils";</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>ESM resolution doesn't add extensions. Write <code>import { slug } from "./utils.js";</code>. CommonJS's <code>require("./utils")</code> guessed the extension; ES modules never do.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>A module has <code>export default 42; export const x = 1;</code>. What do <code>import y from "./m.js"</code> and <code>import * as ns from "./m.js"</code> give for <code>y</code> and <code>Object.keys(ns)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>y</code> is <code>42</code>, and <code>Object.keys(ns)</code> is <code>[ 'default', 'x' ]</code>. The default export is simply the export named <code>default</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>Split <code>playground/money.js</code> (with <code>formatCents</code> and <code>addTax</code>) from <code>playground/main.js</code>, which imports both and prints a formatted price with tax.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/money.js" data-norun>
+export const formatCents = (cents) => `€${(cents / 100).toFixed(2)}`;
+export const addTax = (cents, rate = 0.2) => Math.round(cents * (1 + rate));
+</script>
+<script type="text/plain" class="code" data-file="playground/main.js" data-norun>
+import { formatCents, addTax } from "./money.js";
+console.log(formatCents(addTax(1299)));   // €15.59
+</script>
+<p>The playground's <code>package.json</code> has <code>"type": "module"</code>, so <code>.js</code> files are ES modules.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does assigning to an imported binding (<code>count = 5</code>) throw, even though the exporting module declared it with <code>let</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Importers get a read-only <em>view</em> of the exporter's variable. Only the exporting module can change it (for example through an exported function like <code>increment()</code>), and importers then see the new value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Convert this CommonJS module and its usage to ES modules.</p>
+<script type="text/plain" class="code" data-file="cjs-version.cjs" data-norun>
+const path = require("path");
+function reportName(dir) { return path.join(dir, "report.csv"); }
+module.exports = { reportName };
+// usage: const { reportName } = require("./paths");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="paths.js" data-norun>
+import { join } from "node:path";
+export function reportName(dir) { return join(dir, "report.csv"); }
+// usage: import { reportName } from "./paths.js";
+</script>
+<p><code>require</code> becomes <code>import</code>, <code>module.exports</code> becomes <code>export</code>, built-ins get the <code>node:</code> prefix, and relative specifiers include <code>.js</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a function <code>loadPlugin(name)</code> that dynamically imports <code>./plugins/${name}.js</code> and calls its default export, returning <code>null</code> if the plugin doesn't exist.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="plugins/hello.js" data-save>
+export default () => "hello from plugin";
+</script>
+<script type="text/plain" class="code" data-file="load-plugin.js" data-save>
+export async function loadPlugin(name) {
+  try {
+    const mod = await import(`./plugins/${name}.js`);
+    return mod.default();
+  } catch (e) {
+    if (e.code === "ERR_MODULE_NOT_FOUND") return null;
+    throw e;                                   // real bugs inside the plugin still surface
+  }
+}
+console.log(await loadPlugin("hello"), await loadPlugin("missing"));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node load-plugin.js
+hello from plugin null
+</script>
+<p>Checking <code>e.code</code> separates "plugin not found" from errors thrown by the plugin itself.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create a barrel <code>playground/lib/index.js</code> that re-exports everything from <code>lib/money.js</code> and <code>lib/ids.js</code>, but only <code>search</code> from <code>lib/catalog.js</code>. Import from it in one line.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/lib/index.js" data-norun>
+export * from "./money.js";
+export * from "./ids.js";
+export { search } from "./catalog.js";
+</script>
+<script type="text/plain" class="code" data-file="playground/use-lib.js" data-norun>
+import { formatCents, makeIdGenerator, search } from "./lib/index.js";
+</script>
+<p>Barrels give a folder one public entry point. Keep them shallow, because large barrels can slow down tooling and hide circular dependencies.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p><code>log.js</code> contains <code>console.log("log loaded"); export const x = 1;</code>. <code>main.js</code> imports it twice (once as <code>import "./log.js"</code> and once as <code>import { x } from "./log.js"</code>) and then prints <code>x</code>. What's the output?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>log loaded</code> (once), then <code>1</code>. A module is evaluated a single time; all imports share that instance.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Module <code>a.js</code> imports <code>b.js</code>, and <code>b.js</code> imports <code>a.js</code> and, at its top level, reads a <code>const</code> exported by <code>a.js</code>. Running <code>node a.js</code> throws <code>ReferenceError: Cannot access 'X' before initialization</code>. Why? Why did "More examples" #5 work?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Node evaluates <code>b.js</code> first (it's a dependency of <code>a.js</code>), while <code>a.js</code> hasn't run yet, so <code>a</code>'s <code>const</code> is still in its TDZ. In example #5, <code>b</code> only <em>called</em> <code>a()</code> later, inside a function, and <code>a</code> was a hoisted function declaration, already initialised. Avoid top-level use of circular imports.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create a mini plugin system in <code>playground/plugins/</code>: each plugin module exports <code>name</code>, <code>appliesTo(order)</code> and a default <code>apply(order)</code> that returns a new order (for example, a discount or free shipping). A <code>run.js</code> script reads the folder with <code>fs.readdir</code>, dynamically imports every <code>.js</code> file, and applies the matching plugins in alphabetical order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="p/10-discount.js" data-save>
+export const name = "10% off over €50";
+export const appliesTo = (o) => o.subtotal > 5000;
+export default (o) => ({ ...o, subtotal: Math.round(o.subtotal * 0.9) });
+</script>
+<script type="text/plain" class="code" data-file="p/20-shipping.js" data-save>
+export const name = "free shipping over €30";
+export const appliesTo = (o) => o.subtotal > 3000;
+export default (o) => ({ ...o, shipping: 0 });
+</script>
+<script type="text/plain" class="code" data-file="run.js" data-save>
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const dir = join(import.meta.dirname, "p");
+const files = (await readdir(dir)).filter((f) => f.endsWith(".js")).toSorted();
+const plugins = await Promise.all(files.map((f) => import(pathToFileURL(join(dir, f)))));
+
+let order = { id: "o1", subtotal: 6000, shipping: 490 };
+for (const p of plugins) {
+  if (p.appliesTo(order)) { order = p.default(order); console.log("applied:", p.name); }
+}
+console.log(order);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node run.js
+applied: 10% off over €50
+applied: free shipping over €30
+{ id: 'o1', subtotal: 5400, shipping: 0 }
+</script>
+<p><code>pathToFileURL</code> turns an absolute path into a valid import specifier (important on Windows). <code>Promise.all</code> loads every plugin in parallel, and the immutable order updates keep each plugin independent. (In your playground, name the folder <code>plugins/</code>; here it's <code>p/</code> to stay separate from Exercise 6.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules">MDN Guide: JavaScript modules</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import">MDN: import()</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import.meta">import.meta</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import/with">import attributes</a></li>
+  <li><a href="https://nodejs.org/api/esm.html">Node.js: ECMAScript modules</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

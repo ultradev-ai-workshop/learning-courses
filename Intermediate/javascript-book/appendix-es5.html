@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📜&lt;/text&gt;&lt;/svg&gt;">
+<title>A. ES5 to ES6+ Refresher · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A · Refresher</div>
+<h1>ES5 to ES6+ Refresher</h1>
+<p class="lead">Huge amounts of existing code, tutorials and Stack Overflow answers are written in pre-2015 JavaScript. This appendix refreshes the ES5 idioms every intermediate developer must be able to <em>read</em>, and shows the modern equivalent of each.</p>
+
+<div class="learn">
+<h2>You will refresh</h2>
+<ul>
+  <li><code>var</code>, function scope, hoisting, and the IIFE/module pattern.</li>
+  <li>The four <code>this</code> rules, and <code>var self = this</code>.</li>
+  <li>Constructor functions, <code>prototype</code>, and ES5 inheritance.</li>
+  <li>Callbacks, <code>arguments</code>, <code>==</code> coercion, and ES5 array methods.</li>
+  <li>A complete ES5 → ES6+ mapping table.</li>
+</ul>
+</div>
+
+<h2 id="var">1. var and function scope</h2>
+<p><code>var</code> is scoped to the whole <em>function</em>, not the block, and can be re-declared. Loops therefore share one variable.</p>
+<script type="text/plain" class="code" data-file="var.cjs">
+function demo() {
+  for (var i = 0; i < 2; i++) { var inside = "visible everywhere in demo"; }
+  return [i, inside];
+}
+console.log(demo());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 2, 'visible everywhere in demo' ]
+</script>
+<p><strong>In modern JS:</strong> <code>let</code>/<code>const</code> are block-scoped (Chapter 2).</p>
+<details class="check"><summary>Quick check: after <code>if (true) { var x = 1; }</code>, is <code>x</code> defined outside the block?</summary>
+<p>Yes, <code>x</code> is 1. <code>var</code> ignores block boundaries.</p>
+</details>
+
+<h2 id="hoisting">2. Hoisting</h2>
+<p>Declarations move to the top of their scope: <code>var</code> as <code>undefined</code>, and function declarations completely.</p>
+<script type="text/plain" class="code" data-file="hoist.cjs">
+console.log(typeof helper, total);   // function undefined
+var total = 5;
+function helper() {}
+</script>
+<p><strong>In modern JS:</strong> <code>let</code>/<code>const</code> have a TDZ instead (Chapter 2).</p>
+<details class="check"><summary>Quick check: what does <code>console.log(a); var a = 2;</code> print?</summary>
+<p><code>undefined</code>. The declaration is hoisted, but the assignment isn't.</p>
+</details>
+
+<h2 id="iife">3. IIFEs and the module pattern</h2>
+<p>An <strong>IIFE</strong> (immediately invoked function expression) created a private scope; returning an object exposed a public API. This was the "revealing module pattern".</p>
+<script type="text/plain" class="code" data-file="iife.cjs">
+var Counter = (function () {
+  var count = 0;                                  // private
+  return { inc: function () { return ++count; } };
+})();
+console.log(Counter.inc(), Counter.inc(), typeof count);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 2 undefined
+</script>
+<p><strong>In modern JS:</strong> ES modules give each file a private scope (Chapter 14), and blocks or closures cover the rest.</p>
+<details class="check"><summary>Quick check: why the parentheses around <code>function () {…}</code>?</summary>
+<p>They make it an <em>expression</em>. A statement that starts with <code>function</code> is a declaration, which can't be called immediately.</p>
+</details>
+
+<h2 id="this">4. The four this rules, and self = this</h2>
+<p><code>this</code> depends on the call: <code>new</code>, then <code>call</code>/<code>apply</code>/<code>bind</code>, then a method call, then a plain call (global or <code>undefined</code>). Inner callbacks lost the outer <code>this</code>, so ES5 code saved it in a variable.</p>
+<script type="text/plain" class="code" data-file="self.cjs">
+var cart = {
+  items: ["Dune", "Emma"],
+  label: "Cart",
+  list: function () {
+    var self = this;                              // capture for the callback
+    return this.items.map(function (item) { return self.label + ": " + item; });
+  },
+};
+console.log(cart.list());
+</script>
+<p><strong>In modern JS:</strong> arrow callbacks inherit <code>this</code> (Chapter 4). <code>.bind(this)</code> was the other ES5 fix.</p>
+<details class="check"><summary>Quick check: what is <code>this</code> inside <code>setTimeout(function () { … })</code> in sloppy browser code?</summary>
+<p>The global object (<code>window</code>). It's a plain call made by the timer.</p>
+</details>
+
+<h2 id="constructors">5. Constructor functions and prototype</h2>
+<p>Before <code>class</code>, a "class" was a function called with <code>new</code>, with shared methods on its <code>prototype</code>.</p>
+<script type="text/plain" class="code" data-file="ctor.cjs">
+function Book(title, price) {
+  this.title = title;
+  this.price = price;
+}
+Book.prototype.label = function () { return this.title + " €" + (this.price / 100).toFixed(2); };
+Book.fromObject = function (o) { return new Book(o.title, o.price); };   // "static"
+
+var b = Book.fromObject({ title: "Dune", price: 1299 });
+console.log(b.label(), b instanceof Book, Object.getPrototypeOf(b) === Book.prototype);
+</script>
+<p><strong>In modern JS:</strong> <code>class Book { constructor() {} label() {} static fromObject() {} }</code> (Chapter 11).</p>
+<details class="check"><summary>Quick check: what happens if you call <code>Book("Dune", 1)</code> without <code>new</code> in sloppy mode?</summary>
+<p><code>this</code> is the global object, so <code>title</code> and <code>price</code> become globals and the call returns <code>undefined</code>. Classes throw instead.</p>
+</details>
+
+<h2 id="inheritance">6. ES5 inheritance</h2>
+<script type="text/plain" class="code" data-file="es5-inherit.cjs">
+function Product(title) { this.title = title; }
+Product.prototype.describe = function () { return "Product " + this.title; };
+
+function Ebook(title, mb) {
+  Product.call(this, title);                          // "super(title)"
+  this.mb = mb;
+}
+Ebook.prototype = Object.create(Product.prototype);   // link the prototypes
+Ebook.prototype.constructor = Ebook;                  // repair the constructor
+Ebook.prototype.describe = function () {
+  return Product.prototype.describe.call(this) + " (" + this.mb + " MB)";   // "super.describe()"
+};
+console.log(new Ebook("Dune", 2).describe());
+</script>
+<p><strong>In modern JS:</strong> <code>class Ebook extends Product</code>, with <code>super(...)</code> and <code>super.describe()</code>.</p>
+<details class="check"><summary>Quick check: why <code>Object.create(Product.prototype)</code> rather than <code>new Product()</code>?</summary>
+<p><code>new Product()</code> would run the constructor (with no title) and put its properties on the shared prototype. <code>Object.create</code> just links the chain.</p>
+</details>
+
+<h2 id="callbacks">7. Callbacks and "callback hell"</h2>
+<p>Asynchronous ES5 code passed callbacks, often using Node's error-first convention <code>(err, result)</code>. Each step nested one level deeper.</p>
+<script type="text/plain" class="code" data-file="callbacks.cjs">
+function getUser(id, cb) { setTimeout(function () { cb(null, { id: id, cart: "c1" }); }, 5); }
+function getCart(id, cb) { setTimeout(function () { cb(null, { id: id, total: 2598 }); }, 5); }
+
+getUser("u1", function (err, user) {
+  if (err) return console.error(err);
+  getCart(user.cart, function (err, cart) {
+    if (err) return console.error(err);
+    console.log("total:", cart.total);
+  });
+});
+</script>
+<p><strong>In modern JS:</strong> promises plus <code>async</code>/<code>await</code> (Chapter 12), and <code>util.promisify</code> for old APIs.</p>
+<details class="check"><summary>Quick check: what does the "error-first" convention mean?</summary>
+<p>The callback's first argument is an error (or <code>null</code>), and the result comes second.</p>
+</details>
+
+<h2 id="arguments">8. The arguments object</h2>
+<script type="text/plain" class="code" data-file="arguments.cjs">
+function joinAll() {
+  var parts = Array.prototype.slice.call(arguments);   // array-like → array
+  return parts.join(" + ");
+}
+console.log(joinAll("a", "b", "c"), joinAll.length);
+</script>
+<p><strong>In modern JS:</strong> rest parameters, <code>(...parts) =&gt; parts.join(" + ")</code> (Chapter 4).</p>
+<details class="check"><summary>Quick check: do arrow functions have their own <code>arguments</code>?</summary>
+<p>No. They see the enclosing function's <code>arguments</code>, or get a <code>ReferenceError</code> at module top level.</p>
+</details>
+
+<h2 id="coercion">9. == and type coercion</h2>
+<p>ES5 code often used <code>==</code>, which converts types before comparing.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> ["1" == 1, 0 == "", null == undefined, null == 0, [] == ""]
+[ true, true, true, false, true ]
+</script>
+<p><strong>In modern JS:</strong> <code>===</code> everywhere, except for the idiom <code>x == null</code> (Chapter 5).</p>
+<details class="check"><summary>Quick check: is <code>"" == 0</code> true?</summary>
+<p>Yes. <code>""</code> converts to the number 0.</p>
+</details>
+
+<h2 id="defaults">10. Defaults with ||</h2>
+<script type="text/plain" class="code" data-file="or-defaults.cjs">
+function greet(name, punctuation) {
+  name = name || "guest";
+  punctuation = punctuation || "!";        // bug: an empty string "" can never be chosen
+  return "Hi " + name + punctuation;
+}
+console.log(greet(), greet("Ana", ""));
+</script>
+<p><strong>In modern JS:</strong> default parameters (which apply only for <code>undefined</code>) and <code>??</code> (Chapters 4 and 5).</p>
+<details class="check"><summary>Quick check: what does <code>greet("Ana", "")</code> return?</summary>
+<p><code>"Hi Ana!"</code>. The empty string was replaced, which is the classic <code>||</code> bug.</p>
+</details>
+
+<h2 id="arrays">11. ES5 array methods</h2>
+<p>ES5 already had <code>forEach</code>, <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>some</code>, <code>every</code> and <code>indexOf</code>; they were just written with <code>function</code> expressions.</p>
+<script type="text/plain" class="code" data-file="es5-arrays.cjs">
+var prices = [1299, 899, 650];
+var cheap = prices.filter(function (p) { return p < 1000; })
+                  .map(function (p) { return "€" + (p / 100).toFixed(2); });
+console.log(cheap, prices.indexOf(899) !== -1);
+</script>
+<p><strong>In modern JS:</strong> arrows, <code>includes</code>, <code>find</code>, <code>at</code>, <code>toSorted</code>, <code>flatMap</code>, … (Chapter 8).</p>
+<details class="check"><summary>Quick check: what's the modern replacement for <code>arr.indexOf(x) !== -1</code>?</summary>
+<p><code>arr.includes(x)</code>, which also finds <code>NaN</code>.</p>
+</details>
+
+<h2 id="objects">12. Objects in ES5</h2>
+<script type="text/plain" class="code" data-file="es5-objects.cjs">
+var base = { currency: "EUR" };
+var settings = {};
+for (var k in base) if (base.hasOwnProperty(k)) settings[k] = base[k];   // a manual copy
+settings["page" + "Size"] = 20;                                         // a "computed" key, after creation
+console.log(settings, Object.keys(settings).length);
+</script>
+<p><strong>In modern JS:</strong> <code>{ ...base, [`page${"Size"}`]: 20 }</code>, <code>Object.hasOwn</code>, and <code>Object.entries</code>/<code>fromEntries</code> (Chapter 10).</p>
+<details class="check"><summary>Quick check: why the <code>hasOwnProperty</code> check in the <code>for…in</code> loop?</summary>
+<p><code>for…in</code> also visits inherited enumerable keys, and the check keeps only the object's own keys.</p>
+</details>
+
+<h2 id="strings">13. Strings in ES5</h2>
+<script type="text/plain" class="code" data-file="es5-strings.cjs">
+var title = "Dune", qty = 2;
+var line = qty + " x " + title + "\n" +
+           "Total: " + (qty * 12.99).toFixed(2);
+console.log(line, "invoice.pdf".indexOf(".pdf") === "invoice.pdf".length - 4);
+</script>
+<p><strong>In modern JS:</strong> template literals, <code>endsWith</code>, <code>padStart</code>, <code>replaceAll</code>, <code>at</code> (Chapter 6).</p>
+<details class="check"><summary>Quick check: what's the modern version of the <code>indexOf</code> check above?</summary>
+<p><code>"invoice.pdf".endsWith(".pdf")</code>.</p>
+</details>
+
+<h2 id="recap-table">Recap: ES5 idiom → modern replacement</h2>
+<div class="table-wrap"><table>
+<tr><th>ES5 idiom</th><th>Modern replacement</th><th>Chapter</th></tr>
+<tr><td><code>var</code></td><td><code>const</code> / <code>let</code></td><td>2</td></tr>
+<tr><td>IIFE / revealing module</td><td>ES modules, blocks</td><td>14</td></tr>
+<tr><td><code>var self = this</code>, <code>.bind(this)</code></td><td>arrow callbacks, arrow class fields</td><td>4, 11</td></tr>
+<tr><td>constructor function + <code>prototype</code></td><td><code>class</code>, with <code>#private</code> and <code>static</code></td><td>11</td></tr>
+<tr><td><code>Child.prototype = Object.create(Parent.prototype)</code></td><td><code>class Child extends Parent</code> + <code>super</code></td><td>11</td></tr>
+<tr><td>callbacks <code>(err, result)</code></td><td>promises, <code>async</code>/<code>await</code></td><td>12</td></tr>
+<tr><td><code>arguments</code></td><td>rest parameters <code>...args</code></td><td>4</td></tr>
+<tr><td><code>x = x || default</code></td><td>default parameters, <code>??</code>, <code>??=</code></td><td>4, 5</td></tr>
+<tr><td><code>==</code></td><td><code>===</code> (and <code>== null</code>)</td><td>5</td></tr>
+<tr><td><code>"a" + b + "c"</code></td><td><code>`a${b}c`</code></td><td>6</td></tr>
+<tr><td><code>for (var i…)</code> over arrays</td><td><code>for…of</code>, <code>entries()</code></td><td>3</td></tr>
+<tr><td><code>indexOf(x) !== -1</code></td><td><code>includes(x)</code></td><td>8</td></tr>
+<tr><td>objects as dictionaries</td><td><code>Map</code> / <code>Set</code></td><td>9</td></tr>
+<tr><td><code>hasOwnProperty</code> + manual copies</td><td><code>Object.hasOwn</code>, spread, <code>structuredClone</code></td><td>10</td></tr>
+<tr><td>hand-written iterators / index loops</td><td>generators, iterator helpers</td><td>13</td></tr>
+</table></div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Modernise: <code>var names = []; for (var i = 0; i &lt; books.length; i++) { names.push(books[i].title); }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+const books = [{ title: "Dune" }, { title: "Emma" }];
+const names = books.map((b) => b.title);
+console.log(names);
+</script>
+<p><code>map</code> plus an arrow replaces the loop, the counter and the push.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex2.cjs">
+var x = "global";
+function f() { console.log(x); var x = "local"; }
+f();
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>undefined</code>. The inner <code>var x</code> is hoisted to the top of <code>f</code>, shadowing the global, and it hasn't been assigned yet.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Convert the <code>Book</code> constructor function from section 5 into a class.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3.js">
+class Book {
+  constructor(title, price) { this.title = title; this.price = price; }
+  label() { return `${this.title} €${(this.price / 100).toFixed(2)}`; }
+  static fromObject({ title, price }) { return new Book(title, price); }
+}
+console.log(Book.fromObject({ title: "Dune", price: 1299 }).label());
+</script>
+<p>The prototype method becomes a class method and the function property becomes <code>static</code>; destructuring tidies the parameters.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why did ES5 code write <code>var self = this;</code> before a callback?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The callback is a normal function called by someone else, so its <code>this</code> is different (global or <code>undefined</code>). Saving the outer <code>this</code> in a variable lets the closure reach it. Arrow functions make that unnecessary.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>All buttons report <code>3</code>. Fix it the ES5 way (an IIFE) and the modern way (<code>let</code>).</p>
+<script type="text/plain" class="code" data-file="ex5.cjs">
+var handlers = [];
+for (var i = 0; i < 3; i++) handlers.push(function () { return i; });
+console.log(handlers.map(function (h) { return h(); }));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5-fixed.cjs">
+var es5 = [];
+for (var i = 0; i < 3; i++) es5.push((function (j) { return function () { return j; }; })(i));
+
+const modern = [];
+for (let k = 0; k < 3; k++) modern.push(() => k);
+
+console.log(es5.map(function (h) { return h(); }), modern.map((h) => h()));   // [0,1,2] twice
+</script>
+<p>The IIFE captures each value in a new scope; <code>let</code> creates a new binding per iteration automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite the nested callbacks in section 7 with promises and <code>async</code>/<code>await</code>, using <code>util.promisify</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6.js">
+import { promisify } from "node:util";
+function getUser(id, cb) { setTimeout(() => cb(null, { id, cart: "c1" }), 5); }
+function getCart(id, cb) { setTimeout(() => cb(null, { id, total: 2598 }), 5); }
+const getUserP = promisify(getUser), getCartP = promisify(getCart);
+
+try {
+  const user = await getUserP("u1");
+  const cart = await getCartP(user.cart);
+  console.log("total:", cart.total);
+} catch (err) {
+  console.error(err);
+}
+</script>
+<p>Error-first callbacks map naturally to promises: the error becomes a rejection, which <code>try</code>/<code>catch</code> handles once for all the steps.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>greet("", 0)</code> return here, and what would it return with default parameters and <code>??</code>?</p>
+<script type="text/plain" class="code" data-file="ex7.cjs">
+function greet(name, times) {
+  name = name || "guest";
+  times = times || 1;
+  return Array(times + 1).join(name + " ");
+}
+console.log(JSON.stringify(greet("", 0)));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>It returns <code>"guest "</code>: both the empty name and 0 were treated as missing. With <code>(name = "guest", times = 1)</code>, the result is <code>""</code>, because an empty string repeated 0 times is empty. Whether that's wanted is a design decision; the point is that <code>||</code> decided it for you silently.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Turn the revealing-module <code>Counter</code> (section 3) into an ES module with a named export, and import it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="counter.js" data-save>
+let count = 0;                       // private to the module
+export const inc = () => ++count;
+</script>
+<script type="text/plain" class="code" data-file="use-counter.js" data-save>
+import { inc } from "./counter.js";
+console.log(inc(), inc());
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node use-counter.js
+1 2
+</script>
+<p>Module scope replaces the IIFE: <code>count</code> is invisible to importers, and only <code>inc</code> is exported.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why does ES5 inheritance need <code>Ebook.prototype.constructor = Ebook</code>? What breaks without it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Object.create(Product.prototype)</code> makes a new object whose inherited <code>constructor</code> property is <code>Product</code>. Code that relies on <code>obj.constructor</code> (for example, to create "another one of these", or to log the class name) would wrongly see <code>Product</code>. <code>class … extends</code> sets this up correctly for you.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project</span></h3>
+<p>Modernise this whole ES5 snippet: <code>var</code>, constructor function, <code>self = this</code>, <code>||</code> defaults, string concatenation and <code>indexOf</code>. Keep the behaviour (except fixing the <code>||</code> bug for a 0% discount).</p>
+<script type="text/plain" class="code" data-file="ex10.cjs">
+function Shop(name, discount) {
+  this.name = name;
+  this.discount = discount || 10;
+  this.books = [];
+}
+Shop.prototype.add = function (title, price) { this.books.push({ title: title, price: price }); return this; };
+Shop.prototype.list = function () {
+  var self = this;
+  return this.books.map(function (b) {
+    var p = b.price - b.price * self.discount / 100;
+    return self.name + ": " + b.title + " " + (p / 100).toFixed(2);
+  });
+};
+Shop.prototype.has = function (title) {
+  return this.books.map(function (b) { return b.title; }).indexOf(title) !== -1;
+};
+var s = new Shop("Page & Spine", 0).add("Dune", 1299);
+console.log(s.list(), s.has("Dune"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex10-modern.js">
+class Shop {
+  books = [];
+  constructor(name, discount = 10) { Object.assign(this, { name, discount }); }
+  add(title, price) { this.books.push({ title, price }); return this; }
+  list() {
+    return this.books.map(({ title, price }) =>
+      `${this.name}: ${title} ${((price * (1 - this.discount / 100)) / 100).toFixed(2)}`);
+  }
+  has(title) { return this.books.some((b) => b.title === title); }
+}
+const s = new Shop("Page & Spine", 0).add("Dune", 1299);
+console.log(s.list(), s.has("Dune"));   // [ 'Page & Spine: Dune 12.99' ] true
+</script>
+<p>The ES5 version applied a 10% discount even when 0% was requested. The modern version, with a default parameter, respects the 0. A class field replaces the constructor's array set-up, an arrow replaces <code>self</code>, and <code>some</code> replaces the <code>map</code> plus <code>indexOf</code> combination.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Language_overview">MDN: JavaScript language overview</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Inheritance_and_the_prototype_chain">MDN: Inheritance and the prototype chain</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Glossary/IIFE">MDN: IIFE</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/arguments">arguments</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

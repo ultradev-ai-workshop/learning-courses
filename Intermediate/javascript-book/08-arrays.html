@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📋&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Arrays & Typed Arrays · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Collections &amp; Objects</div>
+<h1>Arrays &amp; Typed Arrays</h1>
+<p class="lead">Arrays are JavaScript's workhorse. This chapter sorts the methods into "changes the array" and "returns something new", covers the ES2023 copy-returning methods that make immutable code easy, and explains the default <code>sort()</code> trap. It ends with typed arrays for raw binary data.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Creating arrays: literals, <code>Array.from</code>, <code>Array.of</code> <span class="es es6">ES2015</span>, and the <code>new Array(n)</code> trap.</li>
+  <li>Which methods mutate and which return a new array, including <code>toSorted</code>, <code>toReversed</code>, <code>toSpliced</code> and <code>with</code> <span class="es">ES2023</span>.</li>
+  <li><code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code>/<code>findLast</code>, <code>some</code>/<code>every</code>, <code>flat</code>/<code>flatMap</code>.</li>
+  <li>Sorting correctly: the default string order, comparators and stability.</li>
+  <li>Typed arrays and <code>ArrayBuffer</code> for binary data.</li>
+</ul>
+</div>
+
+<h2 id="creating">Creating arrays</h2>
+<script type="text/plain" class="code" data-lang="repl">
+> new Array(3)
+[ <3 empty items> ]
+> Array.of(3)
+[ 3 ]
+> Array.from({ length: 3 }, (_, i) => i * 10)
+[ 0, 10, 20 ]
+> Array.from("Dune")
+[ 'D', 'u', 'n', 'e' ]
+> Array.from(new Set([1, 1, 2]))
+[ 1, 2 ]
+> new Array(3).fill(0)
+[ 0, 0, 0 ]
+</script>
+<ul>
+  <li><code>new Array(3)</code> creates three <strong>holes</strong> (empty slots, not <code>undefined</code>), which many methods skip. <code>Array.of</code> exists precisely to avoid that one-number confusion.</li>
+  <li><code>Array.from(iterableOrArrayLike, mapFn)</code> converts strings, Sets, Maps, NodeLists and <code>{ length: n }</code> objects into real arrays.</li>
+</ul>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>new Array(3).fill([])</code> puts the <em>same</em> array in all three slots. Use <code>Array.from({ length: 3 }, () =&gt; [])</code> for separate ones.</p>
+</div>
+
+<h2 id="access">Reading and length</h2>
+<script type="text/plain" class="code" data-lang="repl">
+> const shelf = ["Dune", "Emma", "Hamlet"]
+> [shelf.at(-1), shelf[shelf.length - 1], shelf[10]]
+[ 'Hamlet', 'Hamlet', undefined ]
+> shelf.length = 1
+1
+> shelf
+[ 'Dune' ]
+> [NaN].indexOf(NaN)
+-1
+> [NaN].includes(NaN)
+true
+</script>
+<p><code>at()</code> <span class="es">ES2022</span> accepts negative indexes. Setting <code>length</code> truncates the array. <code>includes</code> <span class="es">ES2016</span> uses SameValueZero, so it finds <code>NaN</code>, while <code>indexOf</code> uses <code>===</code> and doesn't.</p>
+
+<h2 id="mutating">Mutating vs non-mutating methods</h2>
+<p>This is the most useful table in the chapter. In React, Redux, and any code that shares data, you want the right-hand column.</p>
+<div class="table-wrap"><table>
+<tr><th>Mutates the array</th><th>Returns a new array or value (original untouched)</th></tr>
+<tr><td><code>push</code>, <code>pop</code>, <code>shift</code>, <code>unshift</code></td><td><code>[...arr, x]</code>, <code>arr.slice(0, -1)</code>, <code>arr.slice(1)</code>, <code>[x, ...arr]</code></td></tr>
+<tr><td><code>splice(i, n, ...items)</code></td><td><code>toSpliced(i, n, ...items)</code> <span class="es">ES2023</span></td></tr>
+<tr><td><code>sort(cmp)</code></td><td><code>toSorted(cmp)</code> <span class="es">ES2023</span></td></tr>
+<tr><td><code>reverse()</code></td><td><code>toReversed()</code> <span class="es">ES2023</span></td></tr>
+<tr><td><code>arr[i] = x</code></td><td><code>with(i, x)</code> <span class="es">ES2023</span></td></tr>
+<tr><td><code>fill</code>, <code>copyWithin</code></td><td><code>map</code>, <code>filter</code>, <code>slice</code>, <code>concat</code>, <code>flat</code>, <code>flatMap</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="immutable.js">
+const prices = [1299, 899, 2450];
+
+const sorted = prices.toSorted((a, b) => a - b);
+const replaced = prices.with(1, 999);
+const removed = prices.toSpliced(0, 1);
+const reversed = prices.toReversed();
+
+console.log(prices);                         // untouched
+console.log(sorted, replaced, removed, reversed);
+
+const copy = [...prices];
+copy.sort((a, b) => b - a);                  // the old way: copy, then mutate the copy
+console.log(copy);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 1299, 899, 2450 ]
+[ 899, 1299, 2450 ] [ 1299, 999, 2450 ] [ 899, 2450 ] [ 2450, 899, 1299 ]
+[ 2450, 1299, 899 ]
+</script>
+<div class="tip">
+<p>💡 <strong>Return values:</strong> <code>push</code> and <code>unshift</code> return the <em>new length</em>; <code>pop</code> and <code>shift</code> return the removed item; <code>splice</code> returns an array of the removed items; <code>sort</code> and <code>reverse</code> return the same (mutated) array.</p>
+</div>
+
+<h2 id="iteration">Iteration methods</h2>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Returns</th><th>Stops early?</th></tr>
+<tr><td><code>forEach(fn)</code></td><td><code>undefined</code></td><td>no</td></tr>
+<tr><td><code>map(fn)</code></td><td>a new array of results, same length</td><td>no</td></tr>
+<tr><td><code>filter(fn)</code></td><td>a new array of items where <code>fn</code> is truthy</td><td>no</td></tr>
+<tr><td><code>reduce(fn, init)</code></td><td>a single accumulated value</td><td>no</td></tr>
+<tr><td><code>find</code> / <code>findIndex</code> <span class="es es6">ES2015</span></td><td>the first match / its index (<code>undefined</code> / <code>-1</code>)</td><td>yes</td></tr>
+<tr><td><code>findLast</code> / <code>findLastIndex</code> <span class="es">ES2023</span></td><td>the same, searching from the end</td><td>yes</td></tr>
+<tr><td><code>some</code> / <code>every</code></td><td><code>true</code> if any / all items pass</td><td>yes</td></tr>
+<tr><td><code>flat(depth)</code> / <code>flatMap(fn)</code> <span class="es">ES2019</span></td><td>flattened arrays</td><td>no</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="iteration.js">
+const books = [
+  { title: "Dune", price: 1299, stock: 3, tags: ["sci-fi"] },
+  { title: "Emma", price: 899, stock: 0, tags: ["classic", "romance"] },
+  { title: "Hamlet", price: 650, stock: 5, tags: ["classic", "drama"] },
+];
+
+const inStock = books.filter((b) => b.stock > 0).map((b) => b.title);
+const stockValue = books.reduce((sum, b) => sum + b.price * b.stock, 0);
+const firstClassic = books.find((b) => b.tags.includes("classic"))?.title;
+const lastClassic = books.findLast((b) => b.tags.includes("classic"))?.title;
+const allTags = [...new Set(books.flatMap((b) => b.tags))];
+
+console.log(inStock, stockValue, firstClassic, lastClassic);
+console.log(allTags, books.some((b) => b.stock === 0), books.every((b) => b.price > 500));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Hamlet' ] 7147 Emma Hamlet
+[ 'sci-fi', 'classic', 'romance', 'drama' ] true true
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: reduce without an initial value.</strong> <code>[].reduce((a, b) =&gt; a + b)</code> throws a <code>TypeError</code>, and with objects the first item becomes the accumulator. Always pass the initial value.</p>
+</div>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: <code>map(parseInt)</code>.</strong> <code>["1", "2", "3"].map(parseInt)</code> gives <code>[1, NaN, NaN]</code>, because <code>map</code> passes <code>(item, index)</code> and <code>parseInt</code> treats the index as a radix. Write <code>.map((s) =&gt; parseInt(s, 10))</code> or <code>.map(Number)</code>.</p>
+</div>
+
+<h2 id="sorting">Sorting</h2>
+<p>Without a comparator, <code>sort</code> converts items to <strong>strings</strong> and compares UTF-16 code units. That's fine for plain ASCII words, and wrong for numbers.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> [10, 9, 1, 100].toSorted()
+[ 1, 10, 100, 9 ]
+> [10, 9, 1, 100].toSorted((a, b) => a - b)
+[ 1, 9, 10, 100 ]
+> ["émile", "Zoe", "adam"].toSorted((a, b) => a.localeCompare(b))
+[ 'adam', 'émile', 'Zoe' ]
+</script>
+<p>A comparator returns a negative number if <code>a</code> comes first, a positive number if <code>b</code> does, and 0 for "equal". Since ES2019, <code>sort</code> is <strong>stable</strong>: equal items keep their order, so sorting by several keys can be done by chaining, or more clearly with <code>||</code>:</p>
+<script type="text/plain" class="code" data-file="multi-sort.js">
+const books = [
+  { title: "Hamlet", author: "Shakespeare", year: 1603 },
+  { title: "Emma", author: "Austen", year: 1815 },
+  { title: "Persuasion", author: "Austen", year: 1817 },
+];
+const byAuthorThenYearDesc = books.toSorted(
+  (a, b) => a.author.localeCompare(b.author) || b.year - a.year,
+);
+console.log(byAuthorThenYearDesc.map((b) => b.title));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Persuasion', 'Emma', 'Hamlet' ]
+</script>
+
+<h2 id="holes">Holes and array-likes</h2>
+<p>Holes come from <code>new Array(n)</code>, <code>[1, , 3]</code>, or writing past the end. <code>forEach</code>, <code>map</code> and <code>filter</code> <em>skip</em> them, while <code>for…of</code>, spread and <code>Array.from</code> treat them as <code>undefined</code>. Avoid creating holes.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> const sparse = [1, , 3]
+> sparse.map((x) => x * 2)
+[ 2, <1 empty item>, 6 ]
+> [...sparse]
+[ 1, undefined, 3 ]
+</script>
+
+<h2 id="typed">Typed arrays</h2>
+<p>A <strong>typed array</strong> is a fixed-length array of raw numbers of one type, stored in an <code>ArrayBuffer</code> (a block of bytes). They're used for binary file formats, network protocols, images, audio, WebGL and WebAssembly. Several <em>views</em> can look at the same buffer.</p>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Bytes per item</th><th>Range or notes</th></tr>
+<tr><td><code>Uint8Array</code> / <code>Int8Array</code></td><td>1</td><td>0–255 / −128–127; overflow wraps around</td></tr>
+<tr><td><code>Uint8ClampedArray</code></td><td>1</td><td>clamps to 0–255 (canvas pixels)</td></tr>
+<tr><td><code>Int16</code>/<code>Uint16</code>, <code>Int32</code>/<code>Uint32</code></td><td>2, 4</td><td>integers</td></tr>
+<tr><td><code>Float16Array</code> <span class="es">ES2025</span>, <code>Float32Array</code>, <code>Float64Array</code></td><td>2, 4, 8</td><td>floats</td></tr>
+<tr><td><code>BigInt64Array</code>, <code>BigUint64Array</code></td><td>8</td><td>BigInt values</td></tr>
+<tr><td><code>DataView</code></td><td>any</td><td>mixed types at any offset, with explicit endianness</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="typed.js">
+const buf = new ArrayBuffer(8);                 // 8 zero bytes
+const bytes = new Uint8Array(buf);
+const words = new Uint32Array(buf);             // a second view on the same memory
+
+bytes[0] = 255;
+bytes[1] = 256;                                 // wraps around to 0
+bytes[2] = -1;                                  // wraps to 255
+console.log(bytes, words[0]);
+
+const clamped = Uint8ClampedArray.from([300, -5, 12.6]);
+console.log(clamped);
+
+const view = new DataView(buf);
+view.setUint16(4, 0x1234, false);               // big-endian at byte offset 4
+console.log(bytes[4].toString(16), bytes[5].toString(16));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Uint8Array(8) [
+  255, 0, 255, 0,
+    0, 0,   0, 0
+] 16711935
+Uint8ClampedArray(3) [ 255, 0, 13 ]
+12 34
+</script>
+<p><code>words[0]</code> is 16711935 (<code>0x00FF00FF</code>) because this machine is little-endian: the first byte is the least significant one. Typed arrays have most array methods (<code>map</code>, <code>slice</code>, <code>toSorted</code>, …), but a fixed length, so there's no <code>push</code>.</p>
+<div class="note">
+<p>📝 <strong>Advanced:</strong> <code>SharedArrayBuffer</code> plus <code>Atomics</code> let several workers share memory safely. MDN covers this in "Agent communication and coordination". It's outside the scope of this book, but now you know where to look.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Order totals with reduce</h3>
+<script type="text/plain" class="code" data-file="totals.js">
+const lines = [{ price: 1299, qty: 2 }, { price: 899, qty: 1 }];
+const total = lines.reduce((sum, { price, qty }) => sum + price * qty, 0);
+console.log(total);   // 3497
+</script>
+<h3>2. Chunking an array into pages</h3>
+<script type="text/plain" class="code" data-file="chunk.js">
+const chunk = (arr, size) => Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, i * size + size));
+console.log(chunk(["a", "b", "c", "d", "e"], 2));   // [ [ 'a', 'b' ], [ 'c', 'd' ], [ 'e' ] ]
+</script>
+<h3>3. Immutable cart updates</h3>
+<script type="text/plain" class="code" data-file="cart-updates.js">
+let cart = [{ id: "b1", qty: 1 }, { id: "b2", qty: 2 }];
+const i = cart.findIndex((l) => l.id === "b2");
+cart = cart.with(i, { ...cart[i], qty: cart[i].qty + 1 });     // replace one line
+cart = cart.filter((l) => l.id !== "b1");                       // remove one
+console.log(cart);   // [ { id: 'b2', qty: 3 } ]
+</script>
+<h3>4. Zipping two arrays</h3>
+<script type="text/plain" class="code" data-file="zip.js">
+const titles = ["Dune", "Emma"], prices = [1299, 899];
+console.log(titles.map((t, i) => [t, prices[i]]));   // [ [ 'Dune', 1299 ], [ 'Emma', 899 ] ]
+</script>
+<h3>5. Checksum of a byte array</h3>
+<script type="text/plain" class="code" data-file="checksum.js">
+const data = new TextEncoder().encode("Page & Spine");      // a Uint8Array of UTF-8 bytes
+const checksum = data.reduce((acc, b) => (acc + b) % 256, 0);
+console.log(data.length, checksum);
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use <code>Array.from</code> to convert iterables and build arrays, and <code>Array.of</code> for one number; avoid holes.</li>
+  <li><code>push/pop/shift/unshift/splice/sort/reverse/fill</code> mutate; prefer <code>toSorted/toReversed/toSpliced/with</code>, spread and <code>map/filter</code> for shared data.</li>
+  <li>Always give <code>reduce</code> an initial value. <code>find/some/every</code> stop early. <code>flatMap</code> maps and flattens one level.</li>
+  <li>The default <code>sort</code> compares strings, so pass <code>(a, b) =&gt; a - b</code> for numbers and <code>localeCompare</code> for text. Sorting is stable.</li>
+  <li>Typed arrays are fixed-size numeric views over an <code>ArrayBuffer</code>; integer views wrap on overflow.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What is <code>[5, 25, 100, 1].sort()</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[1, 100, 25, 5]</code>. The default sort compares the items as strings: "1" &lt; "100" &lt; "25" &lt; "5".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>From <code>[{ title: "Dune", price: 1299 }, { title: "Emma", price: 899 }]</code>, get the titles of the books under 1000 cents.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex2.js">
+const books = [{ title: "Dune", price: 1299 }, { title: "Emma", price: 899 }];
+console.log(books.filter((b) => b.price < 1000).map((b) => b.title));   // [ 'Emma' ]
+</script>
+<p>Filter first, then map: each step returns a new array.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>The function should return a sorted copy, but it also changes the caller's array. Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+const sortedPrices = (prices) => prices.sort((a, b) => a - b);
+const mine = [3, 1, 2];
+sortedPrices(mine);
+console.log(mine);     // [ 1, 2, 3 ] — changed!
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const sortedPrices = (prices) => prices.toSorted((a, b) => a - b);
+const mine = [3, 1, 2];
+console.log(sortedPrices(mine), mine);   // [ 1, 2, 3 ] [ 3, 1, 2 ]
+</script>
+<p><code>sort</code> mutates in place and returns the same array. <code>toSorted</code> returns a new one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does <code>["10", "10", "10"].map(parseInt)</code> return?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[10, NaN, 2]</code>. <code>map</code> calls <code>parseInt("10", 0)</code> (radix 0 means auto, so 10), then <code>parseInt("10", 1)</code> (an invalid radix, so NaN), then <code>parseInt("10", 2)</code> (binary, so 2).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite this loop as a single <code>reduce</code> that builds <code>{ classic: 2, "sci-fi": 1, … }</code>.</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+const books = [{ tags: ["sci-fi"] }, { tags: ["classic", "romance"] }, { tags: ["classic"] }];
+const counts = {};
+for (const b of books) for (const t of b.tags) counts[t] = (counts[t] || 0) + 1;
+console.log(counts);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5-fixed.js">
+const books = [{ tags: ["sci-fi"] }, { tags: ["classic", "romance"] }, { tags: ["classic"] }];
+const counts = books.flatMap((b) => b.tags).reduce((acc, t) => ({ ...acc, [t]: (acc[t] ?? 0) + 1 }), {});
+console.log(counts);   // { 'sci-fi': 1, classic: 2, romance: 1 }
+</script>
+<p><code>flatMap</code> gathers all the tags, and <code>reduce</code> counts them. For large data, mutating the accumulator (<code>acc[t] = …; return acc</code>) avoids copying on every step. Chapter 9's <code>Map</code> or <code>Object.groupBy</code> are alternatives.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex6.js">
+const a = [1, 2, 3];
+const r1 = a.push(4);
+const r2 = a.splice(1, 2);
+const r3 = a.with(0, 9);
+console.log(r1, r2, a, r3);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>4 [ 2, 3 ] [ 1, 4 ] [ 9, 4 ]</code>. <code>push</code> returns the new length; <code>splice</code> returns the removed items and changes <code>a</code>; <code>with</code> returns a copy.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/catalog.js</code> exporting <code>search(books, { text, maxPrice, sortBy = "title" })</code>. It filters by a case-insensitive title substring and by maximum price (each optional), sorts by <code>"title"</code> (locale-aware) or <code>"price"</code>, and never mutates the input.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/catalog.js">
+export const BOOKS = [
+  { id: "b1", title: "Dune", price: 1299 },
+  { id: "b2", title: "émile", price: 1050 },
+  { id: "b3", title: "Emma", price: 899 },
+];
+
+const comparators = {
+  title: (a, b) => a.title.localeCompare(b.title),
+  price: (a, b) => a.price - b.price,
+};
+
+export function search(books, { text, maxPrice, sortBy = "title" } = {}) {
+  const needle = text?.toLowerCase();
+  return books
+    .filter((b) => (needle ? b.title.toLowerCase().includes(needle) : true))
+    .filter((b) => (maxPrice != null ? b.price <= maxPrice : true))
+    .toSorted(comparators[sortBy]);
+}
+
+console.log(search(BOOKS).map((b) => b.title), search(BOOKS, { text: "e", maxPrice: 1100, sortBy: "price" }).map((b) => b.id));
+</script>
+<p><code>maxPrice != null</code> accepts <code>0</code> as a real limit, and a lookup table of comparators avoids a <code>switch</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>Array(3).map((_, i) =&gt; i)</code> give <code>[ &lt;3 empty items&gt; ]</code>, while <code>Array.from({ length: 3 }, (_, i) =&gt; i)</code> gives <code>[0, 1, 2]</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Array(3)</code> has three holes, and <code>map</code> skips holes, so the callback never runs. <code>Array.from</code> reads indexes 0 to length−1 explicitly, so it calls the function for each one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+const u8 = new Uint8Array([250, 5]);
+u8[0] += 10;
+u8[1] -= 10;
+const f32 = new Float32Array([0.1]);
+console.log(Array.from(u8), f32[0] === 0.1);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ 4, 251 ] false</code>. 260 wraps to 4, and −5 wraps to 251 (modulo 256). Storing 0.1 in 32 bits loses precision, so it no longer equals the 64-bit <code>0.1</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/sales.js</code>. From a list of sale records <code>{ day, bookId, qty, price }</code>, compute (without mutating the input): total revenue; the top-2 books by revenue as <code>[id, cents]</code> pairs; the last day each book sold (<code>findLast</code>); and the days with no sales between the first and last day.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/sales.js">
+const sales = [
+  { day: 1, bookId: "b1", qty: 2, price: 1299 },
+  { day: 1, bookId: "b2", qty: 1, price: 899 },
+  { day: 3, bookId: "b1", qty: 1, price: 1299 },
+  { day: 4, bookId: "b3", qty: 4, price: 650 },
+];
+
+const revenue = sales.reduce((s, r) => s + r.qty * r.price, 0);
+
+const perBook = sales.reduce((acc, r) => ({ ...acc, [r.bookId]: (acc[r.bookId] ?? 0) + r.qty * r.price }), {});
+const top2 = Object.entries(perBook).toSorted(([, a], [, b]) => b - a).slice(0, 2);
+
+const ids = [...new Set(sales.map((r) => r.bookId))];
+const lastSold = Object.fromEntries(ids.map((id) => [id, sales.findLast((r) => r.bookId === id).day]));
+
+const days = sales.map((r) => r.day);
+const [first, last] = [Math.min(...days), Math.max(...days)];
+const quiet = Array.from({ length: last - first + 1 }, (_, i) => first + i).filter((d) => !days.includes(d));
+
+console.log(revenue, top2, lastSold, quiet);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7396 [ [ 'b1', 3897 ], [ 'b3', 2600 ] ] { b1: 3, b2: 1, b3: 4 } [ 2 ]
+</script>
+<p>It uses <code>reduce</code> with an initial value, <code>toSorted</code> on entries, <code>findLast</code>, <code>Set</code> for uniqueness, <code>Array.from</code> to build a range, and <code>Object.fromEntries</code> (Chapter 10).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Indexed_collections">MDN Guide: Indexed collections</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Typed_arrays">MDN Guide: Typed arrays</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array">MDN: Array reference</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

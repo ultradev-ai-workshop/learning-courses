@@ -103,12 +103,26 @@ try {
   const kept = await evaluate(`Object.keys(window.__assessment.state().attempt.picks).filter(k => window.__assessment.state().attempt.picks[k].length).length`);
   check(kept === 35, `saved answers survive the reload (${kept})`);
 
-  // ---- submit (confirm about the 15 unanswered)
-  await evaluate(`window.__confirmed = 0; window.confirm = () => { window.__confirmed++; return true; }; document.getElementById('btn-submit').click(); true`);
-  const res = await evaluate(`({ confirmed: window.__confirmed, score: window.__assessment.state().attempt.result.score,
+  // ---- submit: the in-page dialog replaces window.confirm
+  await evaluate(`window.__nativeConfirm = 0; window.confirm = () => { window.__nativeConfirm++; return true; }; document.getElementById('btn-submit').click(); true`);
+  const dlg = await evaluate(`(() => { const d = document.querySelector('dialog.confirm-dialog[open]');
+    return d && { text: d.textContent, focused: document.activeElement?.dataset.confirm }; })()`);
+  check(!!dlg && /15 unanswered questions/.test(dlg.text), `in-page dialog opens and reports 15 unanswered ("${dlg?.text.slice(0, 60)}…")`);
+  check(dlg?.focused === "no", 'the safe "Keep answering" button has focus');
+  await sleep(400);                                    // let the open animation finish
+  await shot('confirm-dark.png');
+  await evaluate(`document.querySelector('dialog.confirm-dialog [data-confirm="no"]').click(); true`);
+  const jumped = await evaluate(`({ open: !!document.querySelector('dialog[open]'), current: window.__assessment.state().attempt.current, done: !!window.__assessment.state().attempt.done })`);
+  check(!jumped.open && jumped.current === 35 && !jumped.done, `"Keep answering" closes the dialog and jumps to the first unanswered question (#${jumped.current + 1})`);
+  await evaluate(`document.getElementById('btn-submit').click(); true`);
+  await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true })); true`);
+  const keyIgnored = await evaluate(`(() => { const s = window.__assessment.state().attempt; return !(s.picks[s.ids[s.current]] || []).length; })()`);
+  check(keyIgnored, 'keyboard shortcuts are ignored while the dialog is open');
+  await evaluate(`document.querySelector('dialog.confirm-dialog [data-confirm="yes"]').click(); true`);
+  const res = await evaluate(`({ native: window.__nativeConfirm, score: window.__assessment.state().attempt.result.score,
     text: document.getElementById('r-score').textContent, rows: document.querySelectorAll('#r-table tr').length - 1,
     visible: !document.getElementById('results').classList.contains('hidden') })`);
-  check(res.confirmed === 1, 'submit asks for confirmation when questions are unanswered');
+  check(res.native === 0, 'the browser\'s native confirm() is never used');
   check(res.visible && res.score === 20, `score equals the number answered correctly (${res.score} / 50, "${res.text}")`);
   check(res.rows === 18, `score-by-chapter table has a row per chapter (${res.rows})`);
   const filt = async (f) => evaluate(`document.querySelector('[data-filter="${f}"]').click(); document.querySelectorAll('#r-review .review').length`);

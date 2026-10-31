@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔁&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Iterators & Generators · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Asynchronous JavaScript</div>
+<h1>Iterators &amp; Generators</h1>
+<p class="lead"><code>for…of</code>, spread and destructuring all work through one small protocol introduced in ES6. Learn the protocol, write your own iterables with generators, chain the new iterator helpers lazily, and stream asynchronous data with <code>for await</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The iterable and iterator protocols, and which language features use them <span class="es es6">ES2015</span>.</li>
+  <li>How to make your own objects iterable.</li>
+  <li>Generator functions: <code>yield</code>, <code>yield*</code>, two-way <code>next(value)</code>, infinite sequences.</li>
+  <li>Iterator helpers: lazy <code>map</code>, <code>filter</code>, <code>take</code>, <code>drop</code>, <code>toArray</code> <span class="es">ES2025</span>.</li>
+  <li>Async iteration: <code>Symbol.asyncIterator</code>, async generators and <code>for await…of</code> <span class="es">ES2018</span>.</li>
+</ul>
+</div>
+
+<h2 id="protocol">The iteration protocols</h2>
+<ul>
+  <li>An <strong>iterable</strong> is an object with a <code>[Symbol.iterator]()</code> method that returns an iterator.</li>
+  <li>An <strong>iterator</strong> is an object with a <code>next()</code> method that returns <code>{ value, done }</code> objects.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="repl">
+> const it = ["Dune", "Emma"][Symbol.iterator]()
+> it.next()
+{ value: 'Dune', done: false }
+> it.next()
+{ value: 'Emma', done: false }
+> it.next()
+{ value: undefined, done: true }
+</script>
+<p>Built-in iterables: arrays, strings, <code>Map</code>, <code>Set</code>, typed arrays, <code>arguments</code>, NodeLists, and the results of <code>entries()</code>, <code>keys()</code> and <code>values()</code>. Plain objects are <strong>not</strong> iterable; use <code>Object.entries(obj)</code>.</p>
+<div class="table-wrap"><table>
+<tr><th>Consumers of the protocol</th></tr>
+<tr><td><code>for…of</code> · spread <code>[...x]</code> · array destructuring · <code>Array.from</code> · <code>new Map(x)</code> / <code>new Set(x)</code> · <code>Promise.all(x)</code> · <code>yield*</code> · <code>Object.fromEntries(x)</code></td></tr>
+</table></div>
+
+<h2 id="custom">Making an object iterable</h2>
+<script type="text/plain" class="code" data-file="range.js">
+class Range {
+  constructor(from, to, step = 1) { Object.assign(this, { from, to, step }); }
+  [Symbol.iterator]() {                     // called once per for…of / spread
+    let current = this.from;
+    const { to, step } = this;
+    return {
+      next: () => (current <= to ? { value: (current += step) - step, done: false } : { value: undefined, done: true }),
+    };
+  }
+}
+const r = new Range(1, 9, 3);
+console.log([...r], Math.max(...r));
+for (const n of r) console.log(n);           // a fresh iterator each time: reusable
+const [first, second] = r;
+console.log(first, second);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 1, 4, 7 ] 7
+1
+4
+7
+1 4
+</script>
+<p>Hand-written iterators are verbose. Generators, next, do the same job in a few lines.</p>
+
+<h2 id="generators">Generators <span class="es es6">ES2015</span></h2>
+<p>A <strong>generator function</strong> (<code>function*</code>) returns a generator object, which is both an iterator and an iterable. Calling the function runs <em>none</em> of its body. Each <code>next()</code> runs the body up to the next <code>yield</code>, pauses there, and hands out the yielded value.</p>
+<script type="text/plain" class="code" data-file="gen-basics.js">
+function* countdown(n) {
+  console.log("  (started)");
+  while (n > 0) {
+    yield n;            // pause here and hand out n
+    n--;
+  }
+  return "liftoff";     // the final value, with done: true
+}
+
+const g = countdown(2);
+console.log("created");
+console.log(g.next());
+console.log(g.next());
+console.log(g.next());
+console.log([...countdown(3)]);     // for…of and spread ignore the return value
+</script>
+<script type="text/plain" class="code" data-lang="text">
+created
+  (started)
+{ value: 2, done: false }
+{ value: 1, done: false }
+{ value: 'liftoff', done: true }
+  (started)
+[ 3, 2, 1 ]
+</script>
+<h3>Generators as iterator implementations</h3>
+<script type="text/plain" class="code" data-file="gen-iterable.js">
+class Shelf {
+  #books = [];
+  add(...titles) { this.#books.push(...titles); return this; }
+  *[Symbol.iterator]() { yield* this.#books; }                 // delegate to the array
+  *byLetter(letter) { for (const b of this.#books) if (b.startsWith(letter)) yield b; }
+}
+const shelf = new Shelf().add("Dune", "Emma", "Dracula");
+console.log([...shelf], [...shelf.byLetter("D")]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Emma', 'Dracula' ] [ 'Dune', 'Dracula' ]
+</script>
+<h3>Infinite and lazy sequences</h3>
+<p>A generator computes values only when asked, so infinite sequences are fine, as long as the consumer stops.</p>
+<script type="text/plain" class="code" data-file="infinite.js">
+function* orderIds(prefix = "ORD") {
+  for (let n = 1; ; n++) yield `${prefix}-${String(n).padStart(4, "0")}`;
+}
+const ids = orderIds();
+console.log(ids.next().value, ids.next().value);
+for (const id of orderIds("INV")) {
+  if (id.endsWith("3")) break;          // break calls the generator's return(): clean shutdown
+  console.log(id);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ORD-0001 ORD-0002
+INV-0001
+INV-0002
+</script>
+<h3>Two-way communication</h3>
+<p><code>next(value)</code> sends a value <em>into</em> the generator: it becomes the result of the paused <code>yield</code> expression. (The first <code>next()</code> only starts the generator, so a value sent with it is ignored.)</p>
+<script type="text/plain" class="code" data-file="two-way.js">
+function* runningTotal() {
+  let total = 0;
+  while (true) {
+    const amount = yield total;      // receives the value passed to next()
+    total += amount;
+  }
+}
+const t = runningTotal();
+t.next();                            // start: runs to the first yield
+console.log(t.next(1299).value, t.next(899).value);   // 1299 2198
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> a JavaScript iterable is <code>Iterable&lt;T&gt;</code>, and an iterator's <code>next()</code> folds <code>hasNext()</code>/<code>next()</code> into one call that returns <code>{ value, done }</code>. Generators are like coroutines; Java has no direct equivalent (the closest is a <code>Stream</code> built from a <code>Supplier</code>).</p>
+</div>
+
+<h2 id="helpers">Iterator helpers <span class="es">ES2025</span></h2>
+<p>Iterators now have their own lazy methods, so you can process huge or infinite sequences without first building arrays. They live on <code>Iterator.prototype</code>, and every built-in iterator and generator has them.</p>
+<div class="table-wrap"><table>
+<tr><th>Lazy (return iterators)</th><th>Eager (consume the iterator)</th></tr>
+<tr><td><code>map</code>, <code>filter</code>, <code>take(n)</code>, <code>drop(n)</code>, <code>flatMap</code></td><td><code>toArray</code>, <code>reduce</code>, <code>forEach</code>, <code>some</code>, <code>every</code>, <code>find</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="helpers.js">
+function* naturals() { for (let n = 1; ; n++) yield n; }
+
+const firstOddSquares = naturals()
+  .filter((n) => n % 2 === 1)
+  .map((n) => n * n)
+  .take(4)
+  .toArray();
+console.log(firstOddSquares);
+
+const prices = new Map([["b1", 1299], ["b2", 899], ["b3", 650]]);
+console.log(prices.values().filter((p) => p < 1000).reduce((s, p) => s + p, 0));   // no array created
+
+let pulled = 0;
+const lazy = naturals().map((n) => { pulled++; return n; }).drop(2).take(2);
+console.log(pulled, lazy.toArray(), pulled);          // nothing runs until toArray pulls values
+console.log(Iterator.from({ next: () => ({ done: true }) }).toArray());   // wrap any iterator-like object
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 1, 9, 25, 49 ]
+1549
+0 [ 3, 4 ] 4
+[]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Arrays vs iterators:</strong> <code>[1, 2, 3].map(f)</code> is the <em>array</em> method (eager, returns an array). <code>[1, 2, 3].values().map(f)</code> is the <em>iterator</em> helper (lazy, returns an iterator). Iterators are single-use: once consumed, they're empty.</p>
+</div>
+
+<h2 id="async">Async iteration <span class="es">ES2018</span></h2>
+<p>When each value arrives asynchronously, like pages from an API, lines from a file or chunks from a stream, use an <strong>async iterable</strong>: an object with <code>[Symbol.asyncIterator]()</code>, whose <code>next()</code> returns a <em>promise</em> of <code>{ value, done }</code>. An <code>async function*</code> creates one, and <code>for await…of</code> consumes it.</p>
+<script type="text/plain" class="code" data-file="pages.js">
+// A fake paginated API: 3 pages of orders
+const PAGES = [["o1", "o2"], ["o3", "o4"], ["o5"]];
+const fetchPage = (n) => new Promise((r) => setTimeout(() => r({ items: PAGES[n] ?? [], next: n + 1 < PAGES.length ? n + 1 : null }), 5));
+
+async function* allOrders() {
+  let page = 0;
+  while (page !== null) {
+    const { items, next } = await fetchPage(page);
+    yield* items;                       // hand out each order one by one
+    page = next;
+  }
+}
+
+for await (const id of allOrders()) {
+  console.log("processing", id);
+  if (id === "o4") break;               // stops fetching further pages
+}
+console.log(await Array.fromAsync(allOrders()));   // collect everything (ES2026)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+processing o1
+processing o2
+processing o3
+processing o4
+[ 'o1', 'o2', 'o3', 'o4', 'o5' ]
+</script>
+<h3>Reading a file line by line in Node</h3>
+<script type="text/plain" class="code" data-file="lines.js">
+import { writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+
+await writeFile("orders.csv", "id,total\no1,2598\no2,899\no3,1299\n");
+let sum = 0;
+for await (const line of createInterface({ input: createReadStream("orders.csv") })) {   // streams are async iterables
+  const [id, total] = line.split(",");
+  if (id !== "id") sum += Number(total);
+}
+console.log("total cents:", sum);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+total cents: 4796
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Pairwise and zip with generators</h3>
+<script type="text/plain" class="code" data-file="pairwise.js">
+function* pairwise(iterable) {
+  let prev, first = true;
+  for (const x of iterable) { if (!first) yield [prev, x]; prev = x; first = false; }
+}
+function* zip(...iterables) {
+  const its = iterables.map((i) => i[Symbol.iterator]());
+  while (true) {
+    const steps = its.map((it) => it.next());
+    if (steps.some((s) => s.done)) return;
+    yield steps.map((s) => s.value);
+  }
+}
+console.log([...pairwise([10, 12, 9])], [...zip(["Dune", "Emma"], [1299, 899])]);
+</script>
+<h3>2. Batching items for bulk inserts</h3>
+<script type="text/plain" class="code" data-file="batch.js">
+function* batches(iterable, size) {
+  let batch = [];
+  for (const item of iterable) {
+    batch.push(item);
+    if (batch.length === size) { yield batch; batch = []; }
+  }
+  if (batch.length) yield batch;
+}
+console.log([...batches(["o1", "o2", "o3", "o4", "o5"], 2)]);
+</script>
+<h3>3. Walking a tree recursively with yield*</h3>
+<script type="text/plain" class="code" data-file="tree.js">
+const categories = { name: "Books", children: [{ name: "Fiction", children: [{ name: "Sci-fi", children: [] }] }, { name: "History", children: [] }] };
+function* walk(node, depth = 0) {
+  yield `${"  ".repeat(depth)}${node.name}`;
+  for (const child of node.children) yield* walk(child, depth + 1);
+}
+console.log([...walk(categories)].join("\n"));
+</script>
+<h3>4. Cleanup on early exit with try/finally</h3>
+<script type="text/plain" class="code" data-file="cleanup.js">
+function* withConnection() {
+  console.log("open connection");
+  try {
+    yield "row 1"; yield "row 2"; yield "row 3";
+  } finally {
+    console.log("close connection");     // runs even when the consumer breaks early
+  }
+}
+for (const row of withConnection()) { console.log(row); break; }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+open connection
+row 1
+close connection
+</script>
+<h3>5. Polling with an async generator and a limit</h3>
+<script type="text/plain" class="code" data-file="poll.js">
+async function* poll(check, intervalMs) {
+  while (true) {
+    yield await check();
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+let n = 0;
+const status = async () => (++n < 3 ? "processing" : "shipped");
+for await (const s of poll(status, 5)) {
+  console.log(s);
+  if (s === "shipped") break;
+}
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>An iterable has <code>[Symbol.iterator]()</code>; an iterator's <code>next()</code> returns <code>{ value, done }</code>. <code>for…of</code>, spread and destructuring all use them.</li>
+  <li><code>function*</code> plus <code>yield</code> makes iterators easy: they're lazy, they can be infinite, they pause and resume, and <code>yield*</code> delegates.</li>
+  <li><code>break</code> calls <code>return()</code>, so a generator's <code>finally</code> blocks run, which is good for cleanup.</li>
+  <li>Iterator helpers (<code>map</code>/<code>filter</code>/<code>take</code>/<code>drop</code>/<code>toArray</code>…) process sequences lazily and without arrays.</li>
+  <li><code>async function*</code> plus <code>for await…of</code> streams asynchronous data such as pages, lines and events, and <code>Array.fromAsync</code> collects it.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a generator <code>evens(limit)</code> that yields 0, 2, 4, … below <code>limit</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+function* evens(limit) { for (let n = 0; n < limit; n += 2) yield n; }
+console.log([...evens(9)]);   // [ 0, 2, 4, 6, 8 ]
+</script>
+<p>Each <code>yield</code> hands out one value; spread pulls them all.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex2.js">
+const it = [1, 2, 3].values();
+console.log([...it], [...it]);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ 1, 2, 3 ] []</code>. An iterator is single-use: the first spread consumes it. The array itself is iterable many times, because each spread asks it for a <em>new</em> iterator.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This throws <code>TypeError: book is not iterable</code>. Fix it, so that it prints each key and value.</p>
+<script type="text/plain" class="code" data-file="ex3.js" data-norun>
+const book = { title: "Dune", price: 1299 };
+for (const [k, v] of book) console.log(k, v);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+const book = { title: "Dune", price: 1299 };
+for (const [k, v] of Object.entries(book)) console.log(k, v);
+</script>
+<p>Plain objects aren't iterable. <code>Object.entries</code> gives an array of <code>[key, value]</code> pairs.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Replace <code>Array.from(map.values()).filter((p) =&gt; p &gt; 1000).length</code> with iterator helpers, without creating an intermediate array.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex4.js">
+const map = new Map([["b1", 1299], ["b2", 899], ["b3", 2450]]);
+console.log(map.values().filter((p) => p > 1000).reduce((n) => n + 1, 0));   // 2
+</script>
+<p>The helpers run lazily, item by item, and <code>reduce</code> counts without materialising an array.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+function* g() {
+  const x = yield 1;
+  const y = yield x * 10;
+  return x + y;
+}
+const it = g();
+console.log(it.next(5).value, it.next(2).value, it.next(3).value, it.next().done);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>1 20 5 true</code>. The first <code>next(5)</code> only starts the generator, so the 5 is ignored and <code>1</code> is yielded. <code>next(2)</code> makes <code>x = 2</code> and yields 20. <code>next(3)</code> makes <code>y = 3</code> and returns 5. After that, it's done.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Make the <code>Cart</code> class iterable, yielding <code>[id, qty]</code> pairs, so that <code>new Map(cart)</code> and <code>for (const [id, qty] of cart)</code> both work.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6.js">
+class Cart {
+  #lines = new Map();
+  add(id, qty = 1) { this.#lines.set(id, (this.#lines.get(id) ?? 0) + qty); return this; }
+  *[Symbol.iterator]() { yield* this.#lines; }      // a Map iterates as [key, value] pairs
+}
+const cart = new Cart().add("b1").add("b2", 2).add("b1");
+for (const [id, qty] of cart) console.log(id, qty);
+console.log(new Map(cart).get("b1"));               // 2
+</script>
+<p>A generator method named <code>[Symbol.iterator]</code> makes the class iterable; <code>yield*</code> delegates to the private Map.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/stream-orders.js</code> with an async generator <code>orderStream(count, ms)</code> that yields fake orders <code>{ id, total }</code> every <code>ms</code> milliseconds. Consume it with <code>for await</code>, keeping a running total, and stop once the total passes 5000 cents.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/stream-orders.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+export async function* orderStream(count, ms) {
+  for (let i = 1; i <= count; i++) {
+    await sleep(ms);
+    yield { id: `o${i}`, total: 1000 * i };
+  }
+}
+
+let total = 0;
+for await (const order of orderStream(10, 5)) {
+  total += order.total;
+  console.log(order.id, total);
+  if (total > 5000) break;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+o1 1000
+o2 3000
+o3 6000
+</script>
+<p><code>break</code> stops the async generator, so no further orders are produced or waited for.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why can an infinite generator be used safely with <code>.take(5).toArray()</code>, but not with <code>[...gen()]</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Spread keeps calling <code>next()</code> until <code>done</code> is <code>true</code>, which never happens, so it runs forever (and runs out of memory). <code>take(5)</code> is lazy: it pulls only five values and then stops asking, so the generator never runs further.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+function* letters() {
+  try { yield "a"; yield "b"; yield "c"; }
+  finally { console.log("cleanup"); }
+}
+const [x, y] = letters();
+console.log(x, y);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>cleanup</code>, then <code>a b</code>. Array destructuring pulls only two values, then closes the iterator by calling <code>return()</code>, which runs the <code>finally</code> block, all before the <code>console.log</code> line executes.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/pipeline.js</code>: a lazy order-processing pipeline. Start from an async generator of raw CSV lines, then parse, skip invalid rows, keep only orders over 1000 cents, and group them into batches of 2. Write each stage as an <code>async function*</code> that takes an async iterable, and compose them like <code>batch(filter(parse(lines)))</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/pipeline.js">
+async function* lines() {
+  for (const l of ["o1,2598", "garbage", "o2,899", "o3,1299", "o4,abc", "o5,4500", "o6,1001"]) {
+    await null;                                   // pretend each line arrives asynchronously
+    yield l;
+  }
+}
+async function* parse(src) {
+  for await (const line of src) {
+    const [id, raw] = line.split(",");
+    const total = Number(raw);
+    if (id && Number.isInteger(total)) yield { id, total };
+  }
+}
+async function* over(src, min) {
+  for await (const order of src) if (order.total > min) yield order;
+}
+async function* batch(src, size) {
+  let buf = [];
+  for await (const item of src) {
+    buf.push(item.id);
+    if (buf.length === size) { yield buf; buf = []; }
+  }
+  if (buf.length) yield buf;
+}
+
+for await (const group of batch(over(parse(lines()), 1000), 2)) console.log("insert batch", group);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+insert batch [ 'o1', 'o3' ]
+insert batch [ 'o5', 'o6' ]
+</script>
+<p>Each stage pulls from the previous one on demand, so only one order is in flight at a time, however long the input is. The same shape works for real files and HTTP streams.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_generators">MDN Guide: Iterators and generators</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols">MDN: Iteration protocols</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator">MDN: Iterator (helpers)</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of">for await…of</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

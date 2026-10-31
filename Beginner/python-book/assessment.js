@@ -225,11 +225,76 @@
     renderQuestion();
   }
 
+
+  // ---------------- in-page confirm dialog (replaces the browser's native confirm) ----------------
+  // Returns a promise for true (confirm) / false (cancel, Esc or a click on the backdrop).
+  function confirmDialog(opts) {
+    if (!document.getElementById('confirm-dialog-style')) {
+      var style = document.createElement('style');
+      style.id = 'confirm-dialog-style';
+      style.textContent =
+        '.confirm-dialog{border:1px solid var(--border);border-radius:14px;padding:22px 24px 18px;' +
+        'width:min(440px,calc(100vw - 32px));background:var(--panel,var(--surface,#fff));color:var(--text);' +
+        'box-shadow:0 20px 50px rgba(0,0,0,.35)}' +
+        '.confirm-dialog::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}' +
+        '.confirm-dialog[open]{animation:confirm-pop .14s ease-out}' +
+        '@keyframes confirm-pop{from{opacity:0;transform:translateY(6px) scale(.98)}}' +
+        '.confirm-dialog h2{margin:0 0 8px;padding:0;border:0;font-size:1.15rem;color:var(--heading,var(--text))}' +
+        '.confirm-dialog p{margin:0 0 18px;color:var(--muted);line-height:1.5}' +
+        '.confirm-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}';
+      document.head.appendChild(style);
+    }
+    return new Promise(function (resolve) {
+      var dlg = document.createElement('dialog');
+      dlg.className = 'confirm-dialog';
+      dlg.setAttribute('aria-labelledby', 'confirm-dialog-title');
+      dlg.setAttribute('aria-describedby', 'confirm-dialog-text');
+      var h = document.createElement('h2'); h.id = 'confirm-dialog-title'; h.textContent = opts.title;
+      var p = document.createElement('p'); p.id = 'confirm-dialog-text'; p.textContent = opts.message;
+      var actions = document.createElement('div'); actions.className = 'confirm-actions';
+      var cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn'; cancel.textContent = opts.cancelText || 'Cancel';
+      var ok = document.createElement('button'); ok.type = 'button'; ok.className = 'btn primary'; ok.textContent = opts.confirmText || 'OK';
+      ok.setAttribute('data-confirm', 'yes'); cancel.setAttribute('data-confirm', 'no');
+      actions.appendChild(cancel); actions.appendChild(ok);
+      dlg.appendChild(h); dlg.appendChild(p); dlg.appendChild(actions);
+      var done = false;
+      function finish(value) {
+        if (done) return;
+        done = true;
+        if (dlg.open) dlg.close();
+        dlg.remove();
+        resolve(value);
+      }
+      ok.addEventListener('click', function () { finish(true); });
+      cancel.addEventListener('click', function () { finish(false); });
+      dlg.addEventListener('cancel', function (e) { e.preventDefault(); finish(false); });     // Esc
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) finish(false); });  // backdrop
+      document.body.appendChild(dlg);
+      dlg.showModal();
+      cancel.focus();                                     // the safe choice is the default
+    });
+  }
+
   // ---------------- submit and results ----------------
   function submit() {
     var a = state.attempt;
     var missing = a.ids.length - answeredCount();
-    if (missing > 0 && !window.confirm(missing + ' question(s) are unanswered and will score 0. Submit anyway?')) return;
+    if (missing === 0) return finishAttempt();
+    confirmDialog({
+      title: 'Submit with unanswered questions?',
+      message: 'You have ' + missing + ' unanswered question' + (missing === 1 ? '' : 's') +
+        '. Unanswered questions score 0. Keep answering to jump to the first one, or submit now.',
+      cancelText: 'Keep answering',
+      confirmText: 'Submit anyway',
+    }).then(function (yes) {
+      if (yes) return finishAttempt();
+      var first = a.ids.findIndex(function (id) { return !(a.picks[id] && a.picks[id].length); });
+      if (first >= 0) go(first);
+    });
+  }
+
+  function finishAttempt() {
+    var a = state.attempt;
     a.done = true;
     var score = a.ids.filter(function (id) { return sameSet(a.picks[id] || [], byId[id].answer); }).length;
     var pct = Math.round(100 * score / a.ids.length);
@@ -339,6 +404,7 @@
   });
   document.addEventListener('keydown', function (e) {
     if ($('quiz').classList.contains('hidden') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.querySelector('dialog[open]')) return;     // shortcuts pause while a dialog is open
     if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'checkbox') return;
     var q = current();
     if (/^[1-6]$/.test(e.key)) {

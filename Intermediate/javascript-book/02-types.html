@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔤&lt;/text&gt;&lt;/svg&gt;">
+<title>2. Grammar, Types & Declarations · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Foundations Revisited</div>
+<h1>Grammar, Types &amp; Declarations</h1>
+<p class="lead"><code>let</code> and <code>const</code> replaced <code>var</code> for good reasons. This chapter shows exactly what changed, including hoisting and the "temporal dead zone", and then tours JavaScript's eight data types and their literals.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><code>var</code> vs <code>let</code> vs <code>const</code>: scope, re-declaration, and what "constant" really means.</li>
+  <li>Hoisting, and the temporal dead zone (TDZ) of <code>let</code>, <code>const</code> and <code>class</code>.</li>
+  <li>The seven primitive types plus objects, and the quirks of <code>typeof</code>.</li>
+  <li>Primitives vs references: what gets copied and what gets shared.</li>
+  <li>Every kind of literal, including <code>BigInt</code> and numeric separators.</li>
+</ul>
+</div>
+
+<h2 id="syntax">A few grammar basics</h2>
+<ul>
+  <li>JavaScript is <strong>case-sensitive</strong> and uses Unicode: <code>total</code> and <code>Total</code> are different names, and <code>prix_€</code> is a valid identifier.</li>
+  <li>Comments are <code>// line</code> and <code>/* block */</code>. A <code>#!/usr/bin/env node</code> shebang is allowed as the very first line.</li>
+  <li>Statements end with <code>;</code>. <strong>Automatic semicolon insertion</strong> (ASI) adds missing ones, but it has traps, so most style guides either always write semicolons or use a formatter.</li>
+</ul>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>ASI trap: returns undefined</strong></p>
+<script type="text/plain" class="code" data-file="asi-bad.js">
+function getBook() {
+  return              // ASI inserts ";" right here!
+  { title: "Dune" };
+}
+console.log(getBook());
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Keep the value on the same line</strong></p>
+<script type="text/plain" class="code" data-file="asi-good.js">
+function getBook() {
+  return {
+    title: "Dune",
+  };
+}
+console.log(getBook());
+</script>
+</div>
+</div>
+
+<h2 id="declarations">Declarations: var, let, const <span class="es es6">ES2015</span></h2>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>var</code></th><th><code>let</code></th><th><code>const</code></th></tr>
+<tr><td>Scope</td><td>function (or global)</td><td>block <code>{ … }</code></td><td>block <code>{ … }</code></td></tr>
+<tr><td>Re-declare in the same scope</td><td>allowed</td><td><code>SyntaxError</code></td><td><code>SyntaxError</code></td></tr>
+<tr><td>Re-assign</td><td>yes</td><td>yes</td><td>no (<code>TypeError</code>)</td></tr>
+<tr><td>Use before the declaration</td><td><code>undefined</code> (hoisted)</td><td><code>ReferenceError</code> (TDZ)</td><td><code>ReferenceError</code> (TDZ)</td></tr>
+<tr><td>Creates a global property (in a classic script)</td><td>yes</td><td>no</td><td>no</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="block-scope.js">
+if (true) {
+  var a = "var leaks out of the block";
+  let b = "let stays inside";
+}
+console.log(a);
+console.log(typeof b);   // "undefined": b doesn't exist out here
+</script>
+<script type="text/plain" class="code" data-lang="text">
+var leaks out of the block
+undefined
+</script>
+
+<h3>const means "constant binding", not "frozen value"</h3>
+<p><code>const</code> stops you from <em>re-assigning the name</em>. If the value is an object, you can still change what's inside it. To make the object itself unchangeable, use <code>Object.freeze</code>, which is shallow: nested objects stay mutable.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> const cart = ["Dune"]
+> cart.push("Emma")
+2
+> cart
+[ 'Dune', 'Emma' ]
+> cart = []
+Uncaught TypeError: Assignment to constant variable.
+> const config = Object.freeze({ currency: "EUR" })
+> config.currency = "USD"
+'USD'
+> config.currency
+'EUR'
+</script>
+<p>(The assignment to a frozen property was silently ignored, because the REPL runs in sloppy mode. In a module it would throw a <code>TypeError</code>.)</p>
+<div class="tip">
+<p>💡 <strong>Default to <code>const</code></strong>, use <code>let</code> when you really re-assign, and don't use <code>var</code> in new code. Seeing <code>let</code> then tells the reader "this changes later".</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>const</code> is like <code>final</code> on a reference: <code>final List&lt;String&gt; l</code> can still be <code>add</code>ed to. JavaScript variables have no declared type; the <em>value</em> carries the type.</p>
+</div>
+
+<h2 id="hoisting">Hoisting and the temporal dead zone</h2>
+<p>Before running a scope, the engine registers every declaration in it. This is called <strong>hoisting</strong>. What a name holds <em>before</em> its declaration line runs depends on how it was declared:</p>
+<ul>
+  <li><code>var</code>: the name exists and is <code>undefined</code>.</li>
+  <li><code>function</code> declarations: fully hoisted, so you can call them before the line that defines them.</li>
+  <li><code>let</code>, <code>const</code>, <code>class</code>: the name exists, but touching it throws a <code>ReferenceError</code> until the declaration runs. That gap is the <strong>temporal dead zone (TDZ)</strong>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="hoisting.js">
+console.log(v);              // undefined — var is hoisted with no value
+console.log(square(4));      // 16 — function declarations are fully hoisted
+try {
+  console.log(l);            // in the TDZ
+} catch (e) {
+  console.log(e.name + ": " + e.message);
+}
+var v = 1;
+let l = 2;
+function square(n) { return n * n; }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+undefined
+16
+ReferenceError: Cannot access 'l' before initialization
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: function expressions are not fully hoisted.</strong> <code>const f = () =&gt; …</code> is a <code>const</code>, so calling <code>f()</code> above that line throws. Only <code>function name() {}</code> declarations can be called early.</p>
+</div>
+<p>The TDZ is about <em>time</em>, not position: a function can mention a <code>let</code> variable declared below it, as long as the function is <em>called</em> after the declaration has run.</p>
+<script type="text/plain" class="code" data-file="tdz-time.js">
+function showLimit() { return limit; }   // mentions limit before its line...
+const limit = 3;
+console.log(showLimit());                // ...but is called after it: fine
+</script>
+
+<h2 id="types">Data types</h2>
+<p>JavaScript has <strong>seven primitive types</strong> and <strong>objects</strong>. A primitive is an immutable value with no methods of its own. When you call <code>"abc".toUpperCase()</code>, JavaScript briefly wraps the string in a <code>String</code> object to find the method.</p>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Example</th><th><code>typeof</code></th></tr>
+<tr><td>Undefined</td><td><code>undefined</code></td><td><code>"undefined"</code></td></tr>
+<tr><td>Null</td><td><code>null</code></td><td><code>"object"</code> ⚠️ (a historic bug)</td></tr>
+<tr><td>Boolean</td><td><code>true</code></td><td><code>"boolean"</code></td></tr>
+<tr><td>Number (64-bit float)</td><td><code>42</code>, <code>3.14</code>, <code>NaN</code>, <code>Infinity</code></td><td><code>"number"</code></td></tr>
+<tr><td>BigInt <span class="es">ES2020</span></td><td><code>9007199254740993n</code></td><td><code>"bigint"</code></td></tr>
+<tr><td>String</td><td><code>"Dune"</code></td><td><code>"string"</code></td></tr>
+<tr><td>Symbol <span class="es es6">ES2015</span></td><td><code>Symbol("id")</code></td><td><code>"symbol"</code></td></tr>
+<tr><td>Object (incl. arrays, functions, dates, …)</td><td><code>{}</code>, <code>[]</code>, <code>() =&gt; {}</code></td><td><code>"object"</code>, or <code>"function"</code> for functions</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> typeof NaN
+'number'
+> typeof []
+'object'
+> Array.isArray([])
+true
+> typeof function () {}
+'function'
+> typeof undeclaredName
+'undefined'
+> null === undefined
+false
+> null == undefined
+true
+</script>
+<div class="tip">
+<p>💡 <strong>Reliable type checks:</strong> <code>x === null</code> for null, <code>Array.isArray(x)</code> for arrays, <code>Number.isNaN(x)</code> for NaN, and <code>x instanceof Date</code> for class instances. <code>typeof</code> is best for primitives and functions.</p>
+</div>
+
+<h3>undefined vs null</h3>
+<p>Both mean "no value", by convention in different ways. <code>undefined</code> is what the <em>language</em> gives you (a missing property, a missing argument, a function with no return). <code>null</code> is what <em>programmers</em> write on purpose to say "intentionally empty". Many codebases check for both with <code>x == null</code>, the one widely accepted use of <code>==</code>, or with <code>x ?? fallback</code> (Chapter 5).</p>
+
+<h3>Symbols, in one paragraph</h3>
+<p>Every <code>Symbol()</code> call creates a unique value, so it can be used as an object key that never collides with string keys. The built-in "well-known" symbols such as <code>Symbol.iterator</code> let you hook into language features (Chapters 13 and 15).</p>
+<script type="text/plain" class="code" data-lang="repl">
+> Symbol("id") === Symbol("id")
+false
+> const ID = Symbol("id")
+> const book = { title: "Dune", [ID]: 42 }
+> Object.keys(book)
+[ 'title' ]
+> book[ID]
+42
+</script>
+
+<h2 id="references">Primitives vs references</h2>
+<p>Assigning a primitive copies the value. Assigning an object copies a <em>reference</em> to the same object, just as in Java.</p>
+<script type="text/plain" class="code" data-file="references.js">
+let a = 5;
+let b = a;          // copies the number
+b++;
+console.log(a, b);  // 5 6
+
+const order1 = { items: ["Dune"] };
+const order2 = order1;            // same object, two names
+order2.items.push("Emma");
+console.log(order1.items);        // [ 'Dune', 'Emma' ]
+
+const copy = structuredClone(order1);   // a real deep copy
+copy.items.push("Ulysses");
+console.log(order1.items.length, copy.items.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 6
+[ 'Dune', 'Emma' ]
+2 3
+</script>
+<p>Comparing objects with <code>===</code> compares <em>identity</em>: <code>{} === {}</code> is <code>false</code>. Chapter 5 covers equality in depth.</p>
+
+<h2 id="literals">Literals</h2>
+<div class="table-wrap"><table>
+<tr><th>Kind</th><th>Examples</th><th>Notes</th></tr>
+<tr><td>Numbers</td><td><code>255</code>, <code>0xff</code>, <code>0o377</code> <span class="es es6">ES2015</span>, <code>0b1111_1111</code>, <code>2.5e3</code></td><td><code>_</code> numeric separators <span class="es">ES2021</span></td></tr>
+<tr><td>BigInt</td><td><code>10n</code>, <code>2n ** 64n</code></td><td>arbitrary size integers; can't mix with Number</td></tr>
+<tr><td>Strings</td><td><code>'a'</code>, <code>"b"</code>, <code>`c ${x}`</code> <span class="es es6">ES2015</span></td><td>Chapter 6</td></tr>
+<tr><td>Arrays</td><td><code>[1, 2, 3]</code>, <code>[1, , 3]</code></td><td>the second has a <em>hole</em> (Chapter 8)</td></tr>
+<tr><td>Objects</td><td><code>{ title, [key]: v, f() {} }</code></td><td>shorthand and computed keys <span class="es es6">ES2015</span></td></tr>
+<tr><td>Regular expressions</td><td><code>/\d+/g</code></td><td>Chapter 7</td></tr>
+<tr><td>Booleans, null</td><td><code>true</code>, <code>false</code>, <code>null</code></td><td><code>undefined</code> is a global property, not a literal</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> 1_000_000 + 0xff + 0b101
+1000260
+> Number.MAX_SAFE_INTEGER + 2
+9007199254740992
+> 9007199254740991n + 2n
+9007199254740993n
+> 1n + 1
+Uncaught TypeError: Cannot mix BigInt and other types, use explicit conversions
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Choosing the declaration</h3>
+<script type="text/plain" class="code" data-file="choose.js">
+const TAX = 0.2;                       // never re-assigned
+const books = [];                      // the array changes, the binding doesn't
+let total = 0;                         // re-assigned in the loop
+for (const price of [1200, 800]) {     // a fresh const per iteration
+  books.push(price);
+  total += price;
+}
+console.log(books, total, total * (1 + TAX));
+</script>
+<h3>2. A type-describing helper</h3>
+<script type="text/plain" class="code" data-file="describe.js">
+const describe = (x) =>
+  x === null ? "null" :
+  Array.isArray(x) ? "array" :
+  x instanceof Date ? "date" :
+  typeof x;
+
+console.log([null, [], new Date(0), 1n, Symbol(), () => {}, "s"].map(describe).join(", "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+null, array, date, bigint, symbol, function, string
+</script>
+<p>The order of the checks matters: <code>null</code> and arrays must be handled before falling back to <code>typeof</code>, which would call both of them <code>"object"</code>.</p>
+<h3>3. Shadowing with block scope</h3>
+<script type="text/plain" class="code" data-file="shadow.js">
+const label = "outer";
+{
+  const label = "inner";      // a different variable that shadows the outer one
+  console.log(label);
+}
+console.log(label);
+</script>
+<h3>4. Large IDs need BigInt</h3>
+<script type="text/plain" class="code" data-file="bigint-ids.js">
+const json = '{"orderId": 9007199254740993}';
+console.log(JSON.parse(json).orderId);                     // precision lost!
+const safe = BigInt(json.match(/\d+/)[0]);
+console.log(safe, safe + 1n);
+</script>
+<h3>5. Freezing a settings object deeply</h3>
+<script type="text/plain" class="code" data-file="deep-freeze.js">
+const deepFreeze = (obj) => {
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === "object") deepFreeze(value);
+  }
+  return Object.freeze(obj);
+};
+const settings = deepFreeze({ shop: { name: "Page & Spine" }, currency: "EUR" });
+console.log(Object.isFrozen(settings.shop));   // true — nested object frozen too
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use <code>const</code> by default and <code>let</code> when you re-assign. <code>var</code> is function-scoped, re-declarable and hoisted as <code>undefined</code>.</li>
+  <li><code>let</code>, <code>const</code> and <code>class</code> are in the TDZ until their line runs. Function declarations are fully hoisted.</li>
+  <li><code>const</code> freezes the binding, not the value. <code>Object.freeze</code> is shallow.</li>
+  <li>There are seven primitives plus objects. <code>typeof null === "object"</code>, so use <code>Array.isArray</code> and <code>Number.isNaN</code> for those checks.</li>
+  <li>Primitives copy by value and objects by reference. <code>structuredClone</code> makes a deep copy.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What do these give? <code>typeof null</code>, <code>typeof NaN</code>, <code>typeof []</code>, <code>typeof 10n</code>, <code>typeof undefined</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"object"</code>, <code>"number"</code>, <code>"object"</code>, <code>"bigint"</code>, <code>"undefined"</code>. The first one is a bug from 1995 that can never be fixed without breaking the web.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This throws <code>TypeError: Assignment to constant variable.</code> Fix it.</p>
+<script type="text/plain" class="code" data-file="count-bug.js" data-norun>
+const count = 0;
+for (const book of ["Dune", "Emma"]) {
+  count++;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="count-fixed.js">
+let count = 0;
+for (const book of ["Dune", "Emma"]) {
+  count++;
+}
+console.log(count);   // 2
+</script>
+<p><code>count</code> is re-assigned, so it must be <code>let</code>. <code>const book</code> in <code>for…of</code> is fine, because each iteration gets a fresh binding.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>describe</code> in "More examples" #2 check <code>x === null</code> and <code>Array.isArray(x)</code> <em>before</em> using <code>typeof</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Because <code>typeof null</code> and <code>typeof []</code> are both <code>"object"</code>, so <code>typeof</code> can't tell them apart from plain objects. The special cases have to run first; everything else is described well by <code>typeof</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex4.js">
+for (var i = 0; i < 3; i++) {}
+for (let j = 0; j < 3; j++) {}
+console.log(typeof i, typeof j);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>number undefined</code>. <code>var i</code> belongs to the surrounding scope and is 3 after the loop; <code>let j</code> only exists inside the loop.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does each line print, or throw?</p>
+<script type="text/plain" class="code" data-file="ex5.js" data-norun>
+console.log(typeof a);
+console.log(typeof b);
+var a = 1;
+let b = 2;
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>The first prints <code>undefined</code> (a hoisted <code>var</code>). The second throws <code>ReferenceError: Cannot access 'b' before initialization</code>. Even <code>typeof</code> isn't safe inside the TDZ, although it is safe for names that were never declared at all.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Replace every <code>var</code> with <code>let</code> or <code>const</code>, choosing the most restrictive one that works.</p>
+<script type="text/plain" class="code" data-file="refactor-var.js">
+var prices = [1200, 800, 450];
+var discount = 0.1;
+var total = 0;
+for (var i = 0; i < prices.length; i++) {
+  var p = prices[i];
+  total += p;
+}
+console.log(total - total * discount);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="refactor-const.js">
+const prices = [1200, 800, 450];
+const discount = 0.1;
+let total = 0;
+for (let i = 0; i < prices.length; i++) {
+  const p = prices[i];
+  total += p;
+}
+console.log(total - total * discount);   // 2205
+</script>
+<p>Only <code>total</code> and <code>i</code> are re-assigned. <code>p</code> is a new binding on each pass, so it can be <code>const</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/types.js</code> with <code>typeName(x)</code>, which returns one of <code>null</code>, <code>array</code>, <code>nan</code>, <code>integer</code>, <code>float</code>, <code>bigint</code>, <code>string</code>, <code>boolean</code>, <code>symbol</code>, <code>function</code>, <code>undefined</code> or <code>object</code>. Print it for a mixed sample.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/types.js">
+export function typeName(x) {
+  if (x === null) return "null";
+  if (Array.isArray(x)) return "array";
+  if (typeof x === "number") {
+    if (Number.isNaN(x)) return "nan";
+    return Number.isInteger(x) ? "integer" : "float";
+  }
+  return typeof x;
+}
+
+const sample = [null, [1], NaN, 3, 3.5, 2n, "a", true, Symbol(), () => {}, undefined, {}];
+console.log(sample.map(typeName).join(" "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+null array nan integer float bigint string boolean symbol function undefined object
+</script>
+<p>The special cases are checked first, and <code>typeof</code> handles the rest. <code>Number.isInteger(3.0)</code> is <code>true</code>, because JavaScript has a single number type.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>Changing <code>draft</code> also changes <code>original</code>. Fix it, so that nested arrays are copied too.</p>
+<script type="text/plain" class="code" data-file="copy-bug.js">
+const original = { title: "Dune", tags: ["sci-fi"] };
+const draft = { ...original };          // shallow copy (Chapter 5)
+draft.tags.push("classic");
+console.log(original.tags);            // [ 'sci-fi', 'classic' ]  ← unwanted
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="copy-fixed.js">
+const original = { title: "Dune", tags: ["sci-fi"] };
+const draft = structuredClone(original);
+draft.tags.push("classic");
+console.log(original.tags);            // [ 'sci-fi' ]
+</script>
+<p>Spread copies only the top level, so <code>draft.tags</code> is the same array object. <code>structuredClone</code> copies all the way down.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+let x = "outer";
+function f() {
+  try {
+    console.log(x);
+  } catch (e) {
+    console.log(e.constructor.name);
+  }
+  let x = "inner";
+}
+f();
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>ReferenceError</code>. The inner <code>let x</code> is hoisted to the top of <code>f</code>'s scope, so <code>x</code> inside <code>f</code> refers to the inner variable, which is still in its TDZ. It does <em>not</em> fall back to the outer <code>"outer"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/inventory.js</code>. It holds a frozen <code>CATALOG</code> of books (id, title, price in cents) and a mutable <code>stock</code> object. Write <code>restock(id, qty)</code>, which validates that <code>qty</code> is a positive safe integer and that the id exists, and a <code>report()</code> that prints each book with its stock. Show that the catalog can't be modified.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/inventory.js">
+"use strict";   // redundant in a module, but harmless
+
+export const CATALOG = Object.freeze([
+  Object.freeze({ id: "b1", title: "Dune", price: 1299 }),
+  Object.freeze({ id: "b2", title: "Emma", price: 899 }),
+]);
+const stock = { b1: 3, b2: 0 };
+
+export function restock(id, qty) {
+  if (!Number.isSafeInteger(qty) || qty <= 0) throw new RangeError(`bad quantity: ${qty}`);
+  if (!(id in stock)) throw new Error(`unknown book: ${id}`);
+  stock[id] += qty;
+}
+
+export function report() {
+  for (const { id, title } of CATALOG) console.log(`${title.padEnd(6)} ${stock[id]}`);
+}
+
+restock("b2", 5);
+report();
+try {
+  CATALOG[0].price = 1;           // frozen + strict → TypeError
+} catch (e) {
+  console.log(e.constructor.name);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune   3
+Emma   5
+TypeError
+</script>
+<p>This combines <code>const</code> with a deep freeze (each book frozen too), strict-mode errors on frozen writes, safe-integer validation, and destructuring in <code>for…of</code> (Chapter 5).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Grammar_and_types">MDN Guide: Grammar and types</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Data_structures">MDN: JavaScript data types and data structures</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz">MDN: Temporal dead zone</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

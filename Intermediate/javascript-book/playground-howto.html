@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧪&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here · How-to</div>
+<h1>Using the JavaScript Playground</h1>
+<p class="lead">The <code>playground/</code> folder is a ready-made Node project for practising: type the examples, solve the exercises, run them with <code>node</code>, and test them with <code>node --test</code>. This page shows how to set it up once and how to work in it every day.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What the playground contains and why it uses ES modules.</li>
+  <li>How to install Node 26, open the folder, and run files.</li>
+  <li>The everyday loop: create, run, experiment in the REPL, test.</li>
+  <li>Which chapter adds which files, and how they lead to the Chapter 16 project.</li>
+  <li>How to compare with the reference solution and fix common problems.</li>
+</ul>
+</div>
+
+<h2 id="what">What is the playground?</h2>
+<script type="text/plain" class="code" data-lang="text">
+javascript-book/
+├── index.html, 01-intro.html, …      ← the book
+└── playground/
+    ├── package.json                  ← "type": "module" + npm scripts (start, test)
+    ├── README.md                     ← a short version of this page
+    ├── reference/                    ← the FINISHED Chapter 16 order processor (compare, don't edit)
+    │   ├── src/  data/  test/
+    │   └── package.json
+    └── (your files: hello.js, types.js, models.js, …)
+</script>
+<p>Because <code>package.json</code> says <code>"type": "module"</code>, every <code>.js</code> file you create is an <strong>ES module</strong>: <code>import</code>/<code>export</code> and top-level <code>await</code> work, and strict mode is on (Chapters 1 and 14). Nothing needs <code>npm install</code>; every exercise uses only built-in features.</p>
+
+<h2 id="setup">One-time setup</h2>
+<h3>1. Install Node 26 (LTS)</h3>
+<script type="text/plain" class="code" data-lang="shell">
+$ node --version
+v26.13.0
+</script>
+<p>Get it from <a href="https://nodejs.org/">nodejs.org</a> or a version manager (<code>fnm install 26</code>; see Appendix B). Node 24 works for almost everything, but Temporal and a few ES2025/2026 features need 26.</p>
+<h3>2. Open the folder</h3>
+<script type="text/plain" class="code" data-lang="shell">
+$ cd path/to/javascript-book/playground
+$ code .                         # VS Code; its terminal opens in this folder
+</script>
+<ul>
+  <li>VS Code understands JavaScript out of the box. Optionally install <strong>ESLint</strong> and <strong>Prettier</strong>.</li>
+  <li>Add <code>// @ts-check</code> at the top of a file to get type checking from JSDoc comments (Appendix B).</li>
+</ul>
+<h3>3. Check that it works</h3>
+<script type="text/plain" class="code" data-file="hello.js" data-save>
+console.log(`Node ${process.versions.node.split(".")[0]} is ready`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node hello.js
+Node 26 is ready
+</script>
+
+<h2 id="loop">The everyday loop</h2>
+<ol>
+  <li><strong>Create</strong> the file the exercise names, such as <code>types.js</code>.</li>
+  <li><strong>Run</strong> it: <code>node types.js</code>. Use <code>node --watch types.js</code> to re-run on every save.</li>
+  <li><strong>Experiment</strong> in the REPL. Start <code>node</code> in the playground folder and import your module dynamically:</li>
+</ol>
+<script type="text/plain" class="code" data-file="money.js" data-save>
+export const formatCents = (cents) => `€${(cents / 100).toFixed(2)}`;
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node
+> const { formatCents } = await import("./money.js")
+undefined
+> formatCents(1299)
+'€12.99'
+</script>
+<ol start="4">
+  <li><strong>Compare</strong> with the exercise's <em>Show solution</em> only after you have something running. Different-but-working is fine; read the "why" note.</li>
+  <li><strong>Test</strong> anything you'll reuse. A file named <code>something.test.js</code> is picked up by <code>npm test</code>:</li>
+</ol>
+<script type="text/plain" class="code" data-file="money.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { formatCents } from "./money.js";
+test("formats cents", () => assert.equal(formatCents(1299), "€12.99"));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test
+...
+ℹ pass 1
+ℹ fail 0
+...
+</script>
+<div class="tip">
+<p>💡 <strong>Read errors from the top line and the first stack frame in <em>your</em> file.</strong> Node prints the error type and message first, then the stack, so look for your file name in the stack lines.</p>
+</div>
+
+<h2 id="map">What each chapter adds</h2>
+<div class="table-wrap"><table>
+<tr><th>Chapter</th><th>Files you create in playground/</th></tr>
+<tr><td><a href="01-intro.html#exercises">1</a></td><td><code>hello.js</code>, <code>features.js</code>, <code>env-report.js</code></td></tr>
+<tr><td><a href="02-types.html#exercises">2</a></td><td><code>types.js</code>, <code>inventory.js</code></td></tr>
+<tr><td><a href="03-control.html#exercises">3</a></td><td><code>errors.js</code>, <code>checkout.js</code></td></tr>
+<tr><td><a href="04-functions.html#exercises">4</a></td><td><code>ids.js</code>, <code>rate-limit.js</code></td></tr>
+<tr><td><a href="05-operators.html#exercises">5</a></td><td><code>settings.js</code>, <code>update.js</code></td></tr>
+<tr><td><a href="06-text.html#exercises">6</a></td><td><code>format.js</code>, <code>receipt.js</code></td></tr>
+<tr><td><a href="07-regex.html#exercises">7</a></td><td><code>parse-orders.js</code>, <code>validate.js</code></td></tr>
+<tr><td><a href="08-arrays.html#exercises">8</a></td><td><code>catalog.js</code>, <code>sales.js</code></td></tr>
+<tr><td><a href="09-collections.html#exercises">9</a></td><td><code>inventory-map.js</code>, <code>recommend.js</code></td></tr>
+<tr><td><a href="10-objects.html#exercises">10</a></td><td><code>diff.js</code>, <code>model.js</code></td></tr>
+<tr><td><a href="11-classes.html#exercises">11</a></td><td><code>models.js</code> (Book, OutOfStockError) ↻, <code>events.js</code></td></tr>
+<tr><td><a href="12-async.html#exercises">12</a></td><td><code>payments.js</code> ↻, <code>queue.js</code></td></tr>
+<tr><td><a href="13-iterators.html#exercises">13</a></td><td><code>stream-orders.js</code>, <code>pipeline.js</code></td></tr>
+<tr><td><a href="14-modules.html#exercises">14</a></td><td><code>money.js</code>, <code>main.js</code>, <code>lib/index.js</code> (a barrel), plugins</td></tr>
+<tr><td><a href="15-meta.html#exercises">15</a></td><td><code>audit.js</code>, <code>transaction.js</code></td></tr>
+<tr><td><a href="16-project.html">16</a></td><td>the order processor: <code>src/</code>, <code>data/</code>, <code>test/</code> (↻ = reused here)</td></tr>
+<tr><td><a href="appendix-tooling.html#exercises">B</a></td><td><code>money.test.js</code>, <code>word-count/</code></td></tr>
+</table></div>
+<p>If the folder gets crowded, create one sub-folder per chapter (<code>ch02/types.js</code>). Imports are relative (<code>./</code>, <code>../</code>), so moving files only means updating those paths.</p>
+
+<h2 id="reference">Using the reference project</h2>
+<script type="text/plain" class="code" data-lang="shell">
+$ cd reference
+$ npm start                # node src/cli.js data/orders.json
+$ npm test                 # 5 passing tests
+$ node src/cli.js -v -c 3  # verbose progress on stderr, 3 orders at a time
+</script>
+<p>Read its <code>src/</code> files alongside Chapter 16. To compare your version: <code>diff -ru reference/src src</code>, or <code>code --diff reference/src/processor.js src/processor.js</code>.</p>
+
+<h2 id="trouble">Troubleshooting</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+<tr><td><code>SyntaxError: Cannot use import statement outside a module</code></td><td>the file isn't treated as ESM</td><td>run it from <code>playground/</code> (where <code>package.json</code> is), or rename it <code>.mjs</code></td></tr>
+<tr><td><code>ERR_MODULE_NOT_FOUND</code> for <code>./money</code></td><td>a missing file extension</td><td>import <code>./money.js</code></td></tr>
+<tr><td><code>ReferenceError: require is not defined</code></td><td>CommonJS syntax in an ES module</td><td>use <code>import</code> (Chapter 14)</td></tr>
+<tr><td><code>TypeError: … is not a function</code> for <code>Object.groupBy</code>, <code>using</code> syntax errors, <code>Temporal is not defined</code></td><td>Node is too old</td><td><code>node --version</code>; install 26 LTS</td></tr>
+<tr><td>The program exits silently halfway</td><td>an unawaited promise, or a <code>forEach(async …)</code></td><td><code>await</code> it, or use <code>Promise.all</code> (Chapter 12)</td></tr>
+<tr><td>The process never exits</td><td>an active <code>setInterval</code> or open handle</td><td>clear it, or use <code>using</code> (Chapter 15)</td></tr>
+<tr><td><code>this</code> is <code>undefined</code> in a callback</td><td>a detached method</td><td>an arrow function or <code>bind</code> (Chapter 4)</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>playground/</code> is an ESM Node project with <code>npm start</code>/<code>npm test</code>; <code>reference/</code> is the finished Chapter 16 project.</li>
+  <li>Install Node 26 LTS, open the folder, and run files with <code>node file.js</code> (or <code>--watch</code>).</li>
+  <li>Experiment in the REPL with <code>await import("./file.js")</code>; test with <code>*.test.js</code> and <code>node --test</code>.</li>
+  <li>Always include <code>.js</code> in relative imports, and run commands from the playground folder.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/introduction-to-nodejs">Node.js: Introduction</a></li>
+  <li><a href="https://nodejs.org/api/esm.html">Node.js: ECMAScript modules</a> · <a href="https://nodejs.org/api/test.html">test runner</a></li>
+  <li><a href="https://code.visualstudio.com/docs/nodejs/nodejs-tutorial">Node.js in VS Code</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

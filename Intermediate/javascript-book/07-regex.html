@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔍&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Regular Expressions · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Expressions &amp; Built-in Data</div>
+<h1>Regular Expressions</h1>
+<p class="lead">Regular expressions are a small language for describing text patterns. JavaScript's regex engine gained a lot since ES5: named groups, lookbehind, Unicode properties, <code>matchAll</code>, new flags and <code>RegExp.escape</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to create a regex: literals vs the <code>RegExp</code> constructor, and escaping user input.</li>
+  <li>Character classes, quantifiers, anchors, groups and backreferences.</li>
+  <li>Named groups and lookbehind <span class="es">ES2018</span>, Unicode property escapes.</li>
+  <li>The flags <code>g i m s u y d v</code>, and what each changes.</li>
+  <li><code>test</code>, <code>exec</code>, <code>match</code>, <code>matchAll</code> <span class="es">ES2020</span>, <code>replace</code> and <code>split</code>, plus the stateful <code>lastIndex</code> trap.</li>
+</ul>
+</div>
+
+<h2 id="creating">Creating a regular expression</h2>
+<script type="text/plain" class="code" data-file="create.js">
+const isbnLiteral = /^\d{3}-\d{1,5}-\d+-\d+-\d$/;           // literal: compiled once, no string escaping
+const field = "price";
+const dynamic = new RegExp(`"${field}":\\s*(\\d+)`);        // constructor: built at run time; "\\" in strings
+console.log(isbnLiteral.test("978-0-441-17271-9"), dynamic.exec('{"price": 1299}')[1]);
+
+const userText = "C++ (2nd ed.)";
+const safe = new RegExp(RegExp.escape(userText), "i");      // ES2025: escape user input
+console.log(safe.test("Learning c++ (2nd ED.) today"), RegExp.escape("a.b*c"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true 1299
+true \x61\.b\*c
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> never put raw user input into <code>new RegExp(input)</code>. Characters like <code>.</code>, <code>+</code> and <code>(</code> have special meanings, and a malicious pattern can freeze your program (catastrophic backtracking). Use <code>RegExp.escape</code> <span class="es">ES2025</span>. (Notice that it even escapes a leading letter, as <code>\x61</code>, so that the result is safe in any position.)</p>
+</div>
+
+<h2 id="syntax">Pattern syntax</h2>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Matches</th></tr>
+<tr><td><code>.</code></td><td>any character except line breaks (unless the <code>s</code> flag is set)</td></tr>
+<tr><td><code>\d \w \s</code> / <code>\D \W \S</code></td><td>a digit, a word character <code>[A-Za-z0-9_]</code>, whitespace / their opposites</td></tr>
+<tr><td><code>[aeiou]</code> <code>[^,]</code> <code>[a-z]</code></td><td>one character from a set / not in a set / a range</td></tr>
+<tr><td><code>\p{L}</code>, <code>\p{Lu}</code>, <code>\p{Emoji}</code></td><td>Unicode properties: any letter, an uppercase letter, an emoji (needs <code>u</code> or <code>v</code>)</td></tr>
+<tr><td><code>* + ?</code> <code>{2}</code> <code>{2,5}</code> <code>{2,}</code></td><td>0+, 1+, 0 or 1, exactly 2, 2 to 5, at least 2 times</td></tr>
+<tr><td><code>*? +? ??</code></td><td>lazy versions: match as <em>little</em> as possible</td></tr>
+<tr><td><code>^ $ \b \B</code></td><td>start, end, word boundary, not a boundary</td></tr>
+<tr><td><code>(…)</code> <code>(?:…)</code> <code>(?&lt;name&gt;…)</code></td><td>capturing group, non-capturing group, named group <span class="es">ES2018</span></td></tr>
+<tr><td><code>\1</code> <code>\k&lt;name&gt;</code></td><td>backreference to a group's text</td></tr>
+<tr><td><code>a|b</code></td><td>alternation</td></tr>
+<tr><td><code>(?=…)</code> <code>(?!…)</code></td><td>lookahead: followed by / not followed by</td></tr>
+<tr><td><code>(?&lt;=…)</code> <code>(?&lt;!…)</code></td><td>lookbehind: preceded by / not preceded by <span class="es">ES2018</span></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> "<b>Dune</b> and <b>Emma</b>".match(/<b>.*<\/b>/)[0]
+'<b>Dune</b> and <b>Emma</b>'
+> "<b>Dune</b> and <b>Emma</b>".match(/<b>.*?<\/b>/)[0]
+'<b>Dune</b>'
+> /\b(\w+) \1\b/.test("the the book")
+true
+> "Total: €42, shipping €5".match(/(?<=€)\d+/g)
+[ '42', '5' ]
+> "price 100 qty 3".replace(/\d+(?! qty)/g, "#")
+'price #0 qty #'
+> "price 100 qty 3".replace(/\d+(?!\d| qty)/g, "#")
+'price 100 qty #'
+</script>
+<p>The first of the last two examples is a classic surprise. The goal was "numbers not followed by ' qty'". <code>100</code> <em>is</em> followed by " qty", so the lookahead fails, and the engine <strong>backtracks</strong>: it tries the shorter <code>10</code>, which is followed by <code>0</code>, not " qty". So <code>10</code> matches, and you get <code>#0</code>. Adding <code>\d</code> to the negative lookahead, <code>(?!\d| qty)</code>, forbids stopping in the middle of a number. Always test lookarounds on real data.</p>
+
+<h2 id="named">Named groups <span class="es">ES2018</span></h2>
+<p>Named groups make patterns self-documenting, and they show up on <code>match.groups</code>. In <code>replace</code>, refer to them with <code>$&lt;name&gt;</code>.</p>
+<script type="text/plain" class="code" data-file="named.js">
+const ORDER = /^(?<id>ORD-\d{4}) (?<qty>\d+)x (?<isbn>[\d-]+)$/;
+const m = "ORD-0042 3x 978-0-441-17271-9".match(ORDER);
+const { id, qty, isbn } = m.groups;
+console.log(id, Number(qty), isbn);
+
+const iso = "2026-10-30";
+console.log(iso.replace(/(?<y>\d{4})-(?<m>\d{2})-(?<d>\d{2})/, "$<d>/$<m>/$<y>"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ORD-0042 3 978-0-441-17271-9
+30/10/2026
+</script>
+
+<h2 id="flags">Flags</h2>
+<div class="table-wrap"><table>
+<tr><th>Flag</th><th>Name</th><th>Effect</th></tr>
+<tr><td><code>g</code></td><td>global</td><td>find all matches; makes <code>exec</code>/<code>test</code> stateful via <code>lastIndex</code></td></tr>
+<tr><td><code>i</code></td><td>ignoreCase</td><td>case-insensitive</td></tr>
+<tr><td><code>m</code></td><td>multiline</td><td><code>^</code> and <code>$</code> match at every line start and end</td></tr>
+<tr><td><code>s</code></td><td>dotAll <span class="es">ES2018</span></td><td><code>.</code> also matches line breaks</td></tr>
+<tr><td><code>u</code></td><td>unicode <span class="es es6">ES2015</span></td><td>works on code points, enables <code>\p{…}</code>, stricter syntax</td></tr>
+<tr><td><code>y</code></td><td>sticky <span class="es es6">ES2015</span></td><td>match only at exactly <code>lastIndex</code> (useful for tokenizers)</td></tr>
+<tr><td><code>d</code></td><td>hasIndices <span class="es">ES2022</span></td><td>adds <code>match.indices</code> with the start/end of each group</td></tr>
+<tr><td><code>v</code></td><td>unicodeSets <span class="es">ES2024</span></td><td>an upgraded <code>u</code>: set operations in classes like <code>[\p{L}--[a-z]]</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> "😀".match(/./)[0].length
+1
+> "Ünïcödé text".match(/\p{Lu}/gu)
+[ 'Ü' ]
+> "line1\nline2".match(/^line\d$/gm)
+[ 'line1', 'line2' ]
+> "αβγ abc".match(/[\p{L}--[a-z]]+/v)[0]
+'αβγ'
+</script>
+
+<h2 id="methods">Methods</h2>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Returns</th></tr>
+<tr><td><code>re.test(str)</code></td><td><code>true</code> / <code>false</code></td></tr>
+<tr><td><code>re.exec(str)</code></td><td>one match array (with groups and index), or <code>null</code></td></tr>
+<tr><td><code>str.match(re)</code></td><td>without <code>g</code>: like <code>exec</code>. With <code>g</code>: an array of the matched strings only, or <code>null</code></td></tr>
+<tr><td><code>str.matchAll(re)</code> <span class="es">ES2020</span></td><td>an iterator of full match objects; requires <code>g</code></td></tr>
+<tr><td><code>str.replace(re, x)</code> / <code>replaceAll</code></td><td>a new string; <code>x</code> may be a string with <code>$1</code>/<code>$&lt;name&gt;</code>/<code>$&amp;</code> or a function</td></tr>
+<tr><td><code>str.split(re)</code>, <code>str.search(re)</code></td><td>an array of parts / the index of the first match</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="methods.js">
+const log = "b1:3, b2:10, b7:1";
+const re = /b(\d+):(\d+)/g;
+
+console.log(log.match(re));                                  // strings only (g)
+for (const m of log.matchAll(re)) console.log(m.index, m[1], m[2]);   // full details
+
+const doubled = log.replace(/(\d+)(?=,|$)/g, (qty) => String(qty * 2));   // function replacer
+console.log(doubled);
+console.log("Dune;  Emma ,Hamlet".split(/\s*[;,]\s*/));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'b1:3', 'b2:10', 'b7:1' ]
+0 1 3
+6 2 10
+13 7 1
+b1:6, b2:20, b7:2
+[ 'Dune', 'Emma', 'Hamlet' ]
+</script>
+
+<h3>The lastIndex trap</h3>
+<p>A regex with <code>g</code> or <code>y</code> remembers where its last match ended, in <code>lastIndex</code>. Reusing the same regex object with <code>test</code> or <code>exec</code> continues from there, which leads to alternating results.</p>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>A shared global regex in test()</strong></p>
+<script type="text/plain" class="code" data-file="lastindex-bad.js">
+const isBook = /book/g;
+console.log(["book", "book", "book"].map((s) => isBook.test(s)));
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>No g flag for yes/no checks</strong></p>
+<script type="text/plain" class="code" data-file="lastindex-good.js">
+const isBook = /book/;
+console.log(["book", "book", "book"].map((s) => isBook.test(s)));
+</script>
+</div>
+</div>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+[ true, false, true ]        ← left
+[ true, true, true ]         ← right
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Validating a simple postcode</h3>
+<script type="text/plain" class="code" data-file="postcode.js">
+const DE_POSTCODE = /^\d{5}$/;
+console.log(["10115", "1011", "10115a"].map((p) => DE_POSTCODE.test(p)));   // [ true, false, false ]
+</script>
+<h3>2. Extracting all prices from text</h3>
+<script type="text/plain" class="code" data-file="prices.js">
+const text = "Dune €12.99, Emma €8.50 and Hamlet €5";
+const cents = [...text.matchAll(/€(?<euros>\d+)(?:\.(?<c>\d{2}))?/g)]
+  .map(({ groups: { euros, c = "00" } }) => Number(euros) * 100 + Number(c));
+console.log(cents);   // [ 1299, 850, 500 ]
+</script>
+<h3>3. Slugifying a title with Unicode classes</h3>
+<script type="text/plain" class="code" data-file="slug.js">
+const slug = (title) => title.normalize("NFD").replace(/\p{M}/gu, "")       // strip accents
+  .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+console.log(slug("Les Misérables — Tome 1!"));   // les-miserables-tome-1
+</script>
+<h3>4. Highlighting search terms safely</h3>
+<script type="text/plain" class="code" data-file="highlight.js">
+const highlight = (text, term) => text.replace(new RegExp(RegExp.escape(term), "gi"), (m) => `[${m}]`);
+console.log(highlight("C++ Primer and c++ tricks", "c++"));
+</script>
+<h3>5. A tiny tokenizer with the sticky flag</h3>
+<script type="text/plain" class="code" data-file="tokenizer.js">
+function tokenize(src) {
+  const rules = [["num", /\d+/y], ["op", /[+*()-]/y], ["ws", /\s+/y]];
+  const out = [];
+  let pos = 0;
+  outer: while (pos < src.length) {
+    for (const [type, re] of rules) {
+      re.lastIndex = pos;                         // sticky: must match exactly here
+      const m = re.exec(src);
+      if (m) { if (type !== "ws") out.push(`${type}:${m[0]}`); pos = re.lastIndex; continue outer; }
+    }
+    throw new SyntaxError(`unexpected "${src[pos]}" at ${pos}`);
+  }
+  return out;
+}
+console.log(tokenize("12 + (3*4)").join(" "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+num:12 op:+ op:( num:3 op:* num:4 op:)
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use literals for fixed patterns and <code>new RegExp</code> for dynamic ones; escape user input with <code>RegExp.escape</code>.</li>
+  <li>Quantifiers are greedy unless you add <code>?</code>. Use <code>\b</code> for word boundaries, and lookarounds to check context without consuming it.</li>
+  <li>Named groups give readable <code>match.groups</code>, and <code>$&lt;name&gt;</code> in replacements.</li>
+  <li>Flags: <code>g i m s u y d v</code>. Use <code>u</code> or <code>v</code> for Unicode-correct matching.</li>
+  <li>Use <code>matchAll</code> for full details of every match. Never share a <code>g</code> regex for <code>test()</code> checks.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a regex that tests for a 4-digit year from 1900 to 2099.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+const YEAR = /^(19|20)\d{2}$/;
+console.log(["1899", "1999", "2026", "2100"].map((y) => YEAR.test(y)));   // [ false, true, true, false ]
+</script>
+<p>The anchors <code>^</code> and <code>$</code> make the whole string match, not just a part of it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What do <code>"a1b22c333".match(/\d+/g)</code> and <code>"a1b22c333".match(/\d+/)[0]</code> return?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ '1', '22', '333' ]</code> and <code>'1'</code>. With <code>g</code>, <code>match</code> returns every match; without it, only the first (plus group details).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This should replace every dot with a dash, but it replaces everything. Fix it.</p>
+<script type="text/plain" class="code" data-file="ex3.js">
+console.log("1.2.3".replace(/./g, "-"));   // "-----"
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.js">
+console.log("1.2.3".replace(/\./g, "-"));     // 1-2-3
+console.log("1.2.3".replaceAll(".", "-"));    // simpler: no regex needed
+</script>
+<p>An unescaped <code>.</code> means "any character". For a literal text replacement, <code>replaceAll</code> with a string avoids regex altogether.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why does <code>/^\p{L}+$/.test("Émile")</code> throw or misbehave without a flag, and what fixes it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without <code>u</code> (or <code>v</code>), <code>\p</code> is just an escaped "p", so the pattern means "one or more p's followed by {L}", and it fails. Adding the <code>u</code> flag enables Unicode property escapes: <code>/^\p{L}+$/u</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Using named groups, turn <code>"Herbert, Frank"</code> into <code>"Frank Herbert"</code> with a single <code>replace</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5.js">
+console.log("Herbert, Frank".replace(/^(?<last>[^,]+),\s*(?<first>.+)$/, "$<first> $<last>"));
+</script>
+<p><code>[^,]+</code> stops at the comma, and <code>$&lt;name&gt;</code> refers to named groups in the replacement string.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex6.js">
+const re = /o/g;
+console.log(re.test("book"), re.lastIndex, re.test("book"), re.lastIndex, re.test("book"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>true 2 true 3 false</code>. Each <code>test</code> continues from <code>lastIndex</code>: it finds the "o" at index 1, then the one at index 2, then finds nothing and resets <code>lastIndex</code> to 0.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/parse-orders.js</code> exporting <code>parseOrders(text)</code>, which reads lines like <code>ORD-0001 | Ana | 2x b1, 1x b7</code> and returns <code>{ id, customer, items: [{ qty, book }] }</code> objects, skipping lines that don't match.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/parse-orders.js">
+const LINE = /^(?<id>ORD-\d{4})\s*\|\s*(?<customer>[^|]+?)\s*\|\s*(?<items>.+)$/;
+const ITEM = /(?<qty>\d+)x\s*(?<book>b\d+)/g;
+
+export function parseOrders(text) {
+  return text.split("\n").flatMap((line) => {
+    const m = line.trim().match(LINE);
+    if (!m) return [];
+    const { id, customer, items } = m.groups;
+    return [{ id, customer, items: [...items.matchAll(ITEM)].map(({ groups }) => ({ qty: Number(groups.qty), book: groups.book })) }];
+  });
+}
+
+const sample = `ORD-0001 | Ana | 2x b1, 1x b7
+garbage line
+ORD-0002 | Ben Lee | 3x b2`;
+console.log(JSON.stringify(parseOrders(sample)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[{"id":"ORD-0001","customer":"Ana","items":[{"qty":2,"book":"b1"},{"qty":1,"book":"b7"}]},{"id":"ORD-0002","customer":"Ben Lee","items":[{"qty":3,"book":"b2"}]}]
+</script>
+<p>Lazy <code>+?</code> keeps the customer name from swallowing the trailing spaces. <code>flatMap</code> with <code>[]</code> drops the non-matching lines (Chapter 8).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor it</span></h3>
+<p>Replace this <code>exec</code> loop with <code>matchAll</code>.</p>
+<script type="text/plain" class="code" data-file="ex8.js">
+const re = /#(\w+)/g;
+const tags = [];
+let m;
+while ((m = re.exec("#scifi #classic #new")) !== null) tags.push(m[1]);
+console.log(tags);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex8-fixed.js">
+const tags = [..."#scifi #classic #new".matchAll(/#(\w+)/g)].map((m) => m[1]);
+console.log(tags);   // [ 'scifi', 'classic', 'new' ]
+</script>
+<p><code>matchAll</code> returns an iterator of full match objects, without manual <code>lastIndex</code> bookkeeping.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Format an integer with thousands separators using a single <code>replace</code> with lookarounds: <code>1234567</code> → <code>"1,234,567"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex9.js">
+const group = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+console.log(group(1234567), group(999), group(1000));   // 1,234,567 999 1,000
+</script>
+<p>It inserts a comma at every non-boundary position that is followed by a multiple of three digits up to the end. In real code, <code>Intl.NumberFormat</code> (Chapter 6) is the right tool.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/validate.js</code> exporting a <code>validators</code> object (email-ish, ISBN-13 with or without dashes, and a coupon code like <code>SAVE-10</code> or <code>SAVE-25</code>), plus <code>check(field, value)</code>, which returns <code>{ ok, value }</code> with the normalized value (lower-cased email, ISBN without dashes, upper-cased coupon).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/validate.js">
+export const validators = {
+  email: { re: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u, norm: (v) => v.toLowerCase() },
+  isbn: { re: /^97[89](?:-?\d){10}$/, norm: (v) => v.replaceAll("-", "") },
+  coupon: { re: /^save-(?:10|25)$/i, norm: (v) => v.toUpperCase() },
+};
+
+export function check(field, value) {
+  const v = validators[field];
+  if (!v) throw new Error(`no validator for ${field}`);
+  const trimmed = String(value).trim();
+  return v.re.test(trimmed) ? { ok: true, value: v.norm(trimmed) } : { ok: false, value: trimmed };
+}
+
+console.log(check("email", " Ana@Example.COM "), check("isbn", "978-0-441-17271-9"), check("coupon", "save-25"), check("coupon", "SAVE-50"));
+</script>
+<p>Patterns without <code>g</code> are safe to share for <code>test()</code>. <code>(?:-?\d){10}</code> allows optional dashes between digits, and each validator pairs its pattern with a normalizer.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions">MDN Guide: Regular expressions</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences">Groups and backreferences</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Assertions">Assertions</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes">Character classes</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Quantifiers">Quantifiers</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

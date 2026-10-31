@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔀&lt;/text&gt;&lt;/svg&gt;">
+<title>3. Control Flow, Errors & Loops · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 3 · Foundations Revisited</div>
+<h1>Control Flow, Errors &amp; Loops</h1>
+<p class="lead">Branching, exceptions and loops look familiar, but each has sharp edges: falsy values, <code>switch</code> fall-through, <code>finally</code> overriding <code>return</code>, and the crucial difference between <code>for…in</code> and <code>for…of</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The eight falsy values, and <code>if</code>/<code>switch</code> pitfalls.</li>
+  <li><code>throw</code>, <code>try</code>/<code>catch</code>/<code>finally</code>, the optional catch binding, and error <code>cause</code>.</li>
+  <li>The built-in error types, and how to write your own error class.</li>
+  <li>Every loop: <code>for</code>, <code>while</code>, <code>do…while</code>, labels, <code>break</code>/<code>continue</code>.</li>
+  <li><code>for…in</code> (keys) vs <code>for…of</code> (values) <span class="es es6">ES2015</span>, and when to use which.</li>
+</ul>
+</div>
+
+<h2 id="truthy">Conditions and truthiness</h2>
+<p>An <code>if</code> condition doesn't need a boolean: JavaScript converts the value. Exactly <strong>eight values are falsy</strong>, and everything else is truthy, including <code>"0"</code>, <code>"false"</code>, <code>[]</code> and <code>{}</code>.</p>
+<div class="table-wrap"><table>
+<tr><th>Falsy values</th></tr>
+<tr><td><code>false</code> · <code>0</code> · <code>-0</code> · <code>0n</code> · <code>""</code> · <code>null</code> · <code>undefined</code> · <code>NaN</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-lang="repl">
+> [0, "", "0", [], {}, null, NaN, " "].map(Boolean)
+[
+  false, false,
+  true,  true,
+  true,  false,
+  false, true
+]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall:</strong> <code>if (qty)</code> treats a real quantity of <code>0</code> as "missing". When 0 or <code>""</code> are valid values, test explicitly: <code>if (qty !== undefined)</code>, or use <code>??</code> (Chapter 5).</p>
+</div>
+
+<h3>switch compares with ===, and falls through</h3>
+<p><code>switch</code> compares with <strong>strict equality</strong> (<code>===</code>), and execution <em>falls through</em> into the next case unless you <code>break</code> or <code>return</code>. Wrap a case body in <code>{ }</code> if you declare <code>let</code>/<code>const</code> inside it, because all cases share one block scope.</p>
+<script type="text/plain" class="code" data-file="switch.js">
+function shippingDays(country) {
+  switch (country) {
+    case "DE":
+    case "AT":                 // grouped cases: intentional fall-through
+      return 2;
+    case "FR": {
+      const extra = 1;         // braces give this case its own scope
+      return 2 + extra;
+    }
+    default:
+      return 7;
+  }
+}
+console.log(shippingDays("AT"), shippingDays("FR"), shippingDays("JP"));
+
+switch ("1") {
+  case 1: console.log("number one"); break;     // "1" === 1 is false
+  default: console.log("no match: switch uses ===");
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 3 7
+no match: switch uses ===
+</script>
+
+<h2 id="exceptions">Exceptions</h2>
+<p><code>throw</code> can throw <em>any</em> value, but always throw an <code>Error</code> (or a subclass): it records a stack trace, and the code that catches it can rely on <code>.name</code> and <code>.message</code>.</p>
+<script type="text/plain" class="code" data-file="try-catch.js">
+function parseQty(text) {
+  const n = Number(text);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new RangeError(`quantity must be a positive whole number, got "${text}"`);
+  }
+  return n;
+}
+
+for (const input of ["3", "-1", "two"]) {
+  try {
+    console.log("ok:", parseQty(input));
+  } catch (err) {
+    console.log(`${err.name}: ${err.message}`);
+  } finally {
+    // runs after try or catch, every time
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok: 3
+RangeError: quantity must be a positive whole number, got "-1"
+RangeError: quantity must be a positive whole number, got "two"
+</script>
+
+<h3>The built-in error types</h3>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Typical cause</th></tr>
+<tr><td><code>TypeError</code></td><td>using a value the wrong way: <code>undefined.x</code>, calling a non-function, writing to a <code>const</code></td></tr>
+<tr><td><code>ReferenceError</code></td><td>an undeclared name, or the TDZ</td></tr>
+<tr><td><code>RangeError</code></td><td>a number out of range: <code>new Array(-1)</code>, <code>(1).toFixed(200)</code>, infinite recursion</td></tr>
+<tr><td><code>SyntaxError</code></td><td>invalid code, or <code>JSON.parse("{bad}")</code></td></tr>
+<tr><td><code>URIError</code>, <code>EvalError</code></td><td>bad <code>decodeURIComponent</code> input / legacy</td></tr>
+<tr><td><code>AggregateError</code> <span class="es">ES2021</span></td><td>several errors at once, e.g. from <code>Promise.any</code> (Chapter 12)</td></tr>
+</table></div>
+
+<h3>Optional catch binding <span class="es">ES2019</span> and error cause <span class="es">ES2022</span></h3>
+<script type="text/plain" class="code" data-file="cause.js">
+function loadConfig(text) {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    // wrap a low-level error in a meaningful one, keeping the original as `cause`
+    throw new Error("config file is invalid", { cause: err });
+  }
+}
+
+function isJson(text) {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {                       // no (err) needed when you don't use it
+    return false;
+  }
+}
+
+try {
+  loadConfig("{oops}");
+} catch (e) {
+  console.log(e.message, "<-", e.cause.name);
+}
+console.log(isJson("[1]"), isJson("nope"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+config file is invalid <- SyntaxError
+true false
+</script>
+
+<h3>Custom error classes</h3>
+<p>Extend <code>Error</code> (classes are covered in Chapter 11). Set <code>name</code>, so that logs show your type, and add any extra data as properties.</p>
+<script type="text/plain" class="code" data-file="custom-error.js">
+class OutOfStockError extends Error {
+  constructor(bookId, requested, available) {
+    super(`only ${available} of ${bookId} left, ${requested} requested`);
+    this.name = "OutOfStockError";
+    this.bookId = bookId;
+  }
+}
+
+try {
+  throw new OutOfStockError("b1", 5, 2);
+} catch (e) {
+  if (e instanceof OutOfStockError) console.log(e.name, "|", e.message, "|", e.bookId);
+  else throw e;                 // re-throw anything you didn't expect
+}
+console.log(Error.isError(new OutOfStockError("b2", 1, 0)));   // ES2026: cross-realm safe check
+</script>
+<script type="text/plain" class="code" data-lang="text">
+OutOfStockError | only 2 of b1 left, 5 requested | b1
+true
+</script>
+
+<h3>finally can override return</h3>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>return in finally swallows everything</strong></p>
+<script type="text/plain" class="code" data-file="finally-bad.js">
+function risky() {
+  try {
+    throw new Error("lost!");
+  } finally {
+    return "finally wins";    // the error disappears
+  }
+}
+console.log(risky());
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Use finally only for clean-up</strong></p>
+<script type="text/plain" class="code" data-file="finally-good.js">
+function withLock(work) {
+  let locked = true;
+  try {
+    return work();
+  } finally {
+    locked = false;            // clean-up, no return
+    console.log("unlocked");
+  }
+}
+console.log(withLock(() => "done"));
+</script>
+</div>
+</div>
+
+<h2 id="loops">Loops</h2>
+<div class="table-wrap"><table>
+<tr><th>Loop</th><th>Use it for</th></tr>
+<tr><td><code>for (let i = 0; i &lt; n; i++)</code></td><td>counting, or when you need the index arithmetic</td></tr>
+<tr><td><code>while (cond)</code></td><td>repeat while a condition holds</td></tr>
+<tr><td><code>do { … } while (cond)</code></td><td>run at least once</td></tr>
+<tr><td><code>for (const v of iterable)</code> <span class="es es6">ES2015</span></td><td>the <strong>values</strong> of arrays, strings, Maps, Sets and any iterable</td></tr>
+<tr><td><code>for (const k in object)</code></td><td>the enumerable <strong>string keys</strong> of an object (inherited ones too)</td></tr>
+<tr><td><code>array.forEach(fn)</code></td><td>side effects per item; you can't <code>break</code> out of it</td></tr>
+</table></div>
+
+<h3>for…of vs for…in</h3>
+<script type="text/plain" class="code" data-file="of-vs-in.js">
+const books = ["Dune", "Emma"];
+books.note = "extra property";       // arrays are objects too
+
+for (const i in books) console.log("in:", i, typeof i);   // keys (strings!) incl. "note"
+for (const b of books) console.log("of:", b);            // values only
+
+for (const [i, b] of books.entries()) console.log(i, b);  // index + value, the modern way
+
+for (const ch of "né🙂") console.log(ch);                  // strings iterate by code point
+</script>
+<script type="text/plain" class="code" data-lang="text">
+in: 0 string
+in: 1 string
+in: note string
+of: Dune
+of: Emma
+0 Dune
+1 Emma
+n
+é
+🙂
+</script>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>for…in on an array</strong></p>
+<script type="text/plain" class="code" data-file="in-array-bad.js">
+let sum = 0;
+for (const i in [10, 20]) sum += i;   // i is "0", "1"
+console.log(sum);                     // "001" — string concatenation!
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>for…of for values</strong></p>
+<script type="text/plain" class="code" data-file="of-array-good.js">
+let sum = 0;
+for (const n of [10, 20]) sum += n;
+console.log(sum);                     // 30
+</script>
+</div>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>for (const x of list)</code> is Java's enhanced for loop, <code>for (String x : list)</code>. JavaScript's <code>for…in</code> has no Java equivalent; think of it as "for each key of an object".</p>
+</div>
+
+<h3>break, continue and labels</h3>
+<p>A <strong>label</strong> names a loop, so that <code>break</code> or <code>continue</code> can target an <em>outer</em> loop. It's rare, but it's the clean way to leave nested loops.</p>
+<script type="text/plain" class="code" data-file="labels.js">
+const shelves = [["Dune", "Emma"], ["Ulysses", "Beloved"], ["Hamlet"]];
+let found = null;
+search: for (const [s, shelf] of shelves.entries()) {
+  for (const title of shelf) {
+    if (title.startsWith("U")) {
+      found = `${title} on shelf ${s}`;
+      break search;            // leaves BOTH loops
+    }
+  }
+}
+console.log(found);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ulysses on shelf 1
+</script>
+<h3>do…while</h3>
+<script type="text/plain" class="code" data-file="do-while.js">
+let attempts = 0;
+let ok;
+do {
+  attempts++;
+  ok = attempts >= 3;          // pretend the 3rd try succeeds
+} while (!ok);
+console.log(`succeeded after ${attempts} attempts`);
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>1. Validating an order with early returns</h3>
+<script type="text/plain" class="code" data-file="validate-order.js">
+function validate(order) {
+  if (!order) return "no order";
+  if (!Array.isArray(order.items) || order.items.length === 0) return "empty order";
+  for (const item of order.items) {
+    if (!Number.isInteger(item.qty) || item.qty < 1) return `bad qty for ${item.id}`;
+  }
+  return "ok";
+}
+console.log(validate(null), "|", validate({ items: [] }), "|",
+  validate({ items: [{ id: "b1", qty: 0 }] }), "|", validate({ items: [{ id: "b1", qty: 2 }] }));
+</script>
+<h3>2. Retry with a counter and a final error</h3>
+<script type="text/plain" class="code" data-file="retry.js">
+let calls = 0;
+const flaky = () => { if (++calls < 3) throw new Error(`timeout #${calls}`); return "paid"; };
+
+function retry(fn, times) {
+  const errors = [];
+  for (let i = 0; i < times; i++) {
+    try { return fn(); } catch (e) { errors.push(e); }
+  }
+  throw new AggregateError(errors, `failed ${times} times`);
+}
+console.log(retry(flaky, 5));
+try { calls = -10; retry(flaky, 2); } catch (e) { console.log(e.message, e.errors.length); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+paid
+failed 2 times 2
+</script>
+<h3>3. Counting categories with for…of</h3>
+<script type="text/plain" class="code" data-file="count-tags.js">
+const books = [{ tags: ["sci-fi"] }, { tags: ["classic", "romance"] }, { tags: ["classic"] }];
+const counts = {};
+for (const { tags } of books) {
+  for (const t of tags) counts[t] = (counts[t] ?? 0) + 1;
+}
+console.log(counts);
+</script>
+<h3>4. Mapping status codes with switch(true)</h3>
+<script type="text/plain" class="code" data-file="switch-true.js">
+function band(price) {
+  switch (true) {                   // each case expression is compared with === true
+    case price < 1000: return "budget";
+    case price < 2500: return "standard";
+    default: return "premium";
+  }
+}
+console.log([499, 1999, 4999].map(band));
+</script>
+<h3>5. Guarding JSON input</h3>
+<script type="text/plain" class="code" data-file="safe-json.js">
+const safeParse = (text, fallback = null) => {
+  try { return JSON.parse(text); } catch { return fallback; }
+};
+console.log(safeParse('{"qty":2}'), safeParse("nope"), safeParse("nope", {}));
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Eight values are falsy. Test explicitly when <code>0</code> or <code>""</code> are valid.</li>
+  <li><code>switch</code> uses <code>===</code> and falls through without <code>break</code>/<code>return</code>.</li>
+  <li>Throw <code>Error</code> objects. <code>catch {}</code> needs no binding, wrap errors with <code>{ cause }</code>, and never <code>return</code> from <code>finally</code>.</li>
+  <li>Extend <code>Error</code> for domain errors, and re-throw what you don't handle.</li>
+  <li><code>for…of</code> gives values, <code>for…in</code> gives string keys (even inherited ones). Use <code>entries()</code> for indexes, and labels to break out of nested loops.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>Which of these are truthy? <code>"0"</code>, <code>0n</code>, <code>[]</code>, <code>-0</code>, <code>"false"</code>, <code>NaN</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>Truthy: <code>"0"</code>, <code>[]</code>, <code>"false"</code>. Falsy: <code>0n</code>, <code>-0</code>, <code>NaN</code>. Non-empty strings and all objects (even empty ones) are truthy.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>Every size prints <code>large</code>. Fix it.</p>
+<script type="text/plain" class="code" data-file="size-bug.js">
+function size(n) {
+  let s;
+  switch (n) {
+    case 1: s = "small";
+    case 2: s = "medium";
+    default: s = "large";
+  }
+  return s;
+}
+console.log(size(1), size(2), size(3));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="size-fixed.js">
+function size(n) {
+  switch (n) {
+    case 1: return "small";
+    case 2: return "medium";
+    default: return "large";
+  }
+}
+console.log(size(1), size(2), size(3));   // small medium large
+</script>
+<p>Without <code>break</code> or <code>return</code>, execution falls through every following case, so <code>default</code> always ran last.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor it</span></h3>
+<p>Rewrite with <code>for…of</code> and <code>entries()</code>: <code>for (var i = 0; i &lt; titles.length; i++) console.log(i + 1 + ". " + titles[i]);</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="entries.js">
+const titles = ["Dune", "Emma"];
+for (const [i, title] of titles.entries()) console.log(`${i + 1}. ${title}`);
+</script>
+<p><code>entries()</code> yields <code>[index, value]</code> pairs, which destructuring splits apart.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why should you <code>throw new Error("x")</code> rather than <code>throw "x"</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>An <code>Error</code> carries a stack trace, plus <code>name</code>, <code>message</code> and optionally <code>cause</code>. Code that catches it can use <code>instanceof</code> and those properties. A thrown string has none of that, and is hard to debug.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+function f() {
+  try {
+    console.log("try");
+    return "from try";
+  } finally {
+    console.log("finally");
+  }
+}
+console.log(f());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>try</code>, <code>finally</code>, <code>from try</code>. The return value is computed, then <code>finally</code> runs, and then the function actually returns.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>firstOver(matrix, limit)</code>, which returns the <code>[row, col]</code> of the first number over <code>limit</code>, or <code>null</code>. Use a labelled <code>break</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="first-over.js">
+function firstOver(matrix, limit) {
+  let pos = null;
+  outer: for (const [r, row] of matrix.entries()) {
+    for (const [c, v] of row.entries()) {
+      if (v > limit) { pos = [r, c]; break outer; }
+    }
+  }
+  return pos;
+}
+console.log(firstOver([[1, 2], [3, 9], [10]], 5), firstOver([[1]], 5));   // [ 1, 1 ] null
+</script>
+<p><code>break outer</code> exits both loops at once. A <code>return</code> inside the loop would work too, and is often simpler.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/errors.js</code> exporting <code>ValidationError</code> (with a <code>field</code> property) and <code>validateBook(book)</code>, which throws for a missing title or a non-positive integer price, and wraps any error from <code>JSON.parse</code> in <code>loadBook(json)</code> using <code>cause</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/errors.js">
+export class ValidationError extends Error {
+  constructor(field, message, options) {
+    super(message, options);
+    this.name = "ValidationError";
+    this.field = field;
+  }
+}
+
+export function validateBook(book) {
+  if (!book.title) throw new ValidationError("title", "title is required");
+  if (!Number.isInteger(book.price) || book.price <= 0) throw new ValidationError("price", "price must be positive cents");
+  return book;
+}
+
+export function loadBook(json) {
+  let data;
+  try { data = JSON.parse(json); }
+  catch (err) { throw new ValidationError("json", "not valid JSON", { cause: err }); }
+  return validateBook(data);
+}
+
+for (const input of ['{"title":"Dune","price":1299}', '{"title":"Emma","price":-1}', "{bad"]) {
+  try { console.log("ok", loadBook(input).title); }
+  catch (e) { console.log(`${e.name} [${e.field}] ${e.message}${e.cause ? " (cause: " + e.cause.name + ")" : ""}`); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok Dune
+ValidationError [price] price must be positive cents
+ValidationError [json] not valid JSON (cause: SyntaxError)
+</script>
+<p>Passing <code>options</code> through to <code>super(message, options)</code> lets callers attach a <code>cause</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What does this print?</p>
+<script type="text/plain" class="code" data-file="ex8.js">
+const proto = { inherited: 1 };
+const obj = Object.create(proto);
+obj.own = 2;
+const keys = [];
+for (const k in obj) keys.push(k);
+console.log(keys, Object.keys(obj));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[ 'own', 'inherited' ] [ 'own' ]</code>. <code>for…in</code> also walks enumerable <em>inherited</em> keys, while <code>Object.keys</code> returns only the object's own keys.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why can't you stop <code>array.forEach</code> with <code>break</code>? Give two alternatives for "stop at the first match".</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The <code>forEach</code> callback is a separate function; <code>break</code> is only valid inside a loop statement, and <code>return</code> just ends that one callback call. Alternatives: a <code>for…of</code> loop with <code>break</code>, or methods that stop early by design: <code>find</code>, <code>findIndex</code>, <code>some</code> and <code>every</code> (Chapter 8).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/checkout.js</code>. Given a stock object and an order (a list of <code>{ id, qty }</code>), collect <em>every</em> problem (an unknown book, an invalid qty, not enough stock) instead of stopping at the first. If there are any problems, throw one <code>AggregateError</code>. Otherwise reduce the stock and return the new stock. Print the outcome for one good order and one bad order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/checkout.js">
+export function checkout(stock, order) {
+  const problems = [];
+  for (const { id, qty } of order) {
+    if (!(id in stock)) { problems.push(new Error(`unknown book ${id}`)); continue; }
+    if (!Number.isInteger(qty) || qty < 1) { problems.push(new RangeError(`bad qty ${qty} for ${id}`)); continue; }
+    if (stock[id] < qty) problems.push(new Error(`only ${stock[id]} of ${id} left`));
+  }
+  if (problems.length) throw new AggregateError(problems, `${problems.length} problem(s) with order`);
+  const next = { ...stock };
+  for (const { id, qty } of order) next[id] -= qty;
+  return next;
+}
+
+const stock = { b1: 3, b2: 1 };
+console.log(checkout(stock, [{ id: "b1", qty: 2 }]));
+try {
+  checkout(stock, [{ id: "b9", qty: 1 }, { id: "b1", qty: 0 }, { id: "b2", qty: 4 }]);
+} catch (e) {
+  console.log(e.message);
+  for (const p of e.errors) console.log(" -", p.name, p.message);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ b1: 1, b2: 1 }
+3 problem(s) with order
+ - Error unknown book b9
+ - RangeError bad qty 0 for b1
+ - Error only 1 of b2 left
+</script>
+<p>It combines loops with <code>continue</code>, the <code>in</code> operator, built-in error types, <code>AggregateError</code>, and a non-mutating update with spread.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Control_flow_and_error_handling">MDN Guide: Control flow and error handling</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Loops_and_iteration">MDN Guide: Loops and iteration</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/cause">MDN: Error cause</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

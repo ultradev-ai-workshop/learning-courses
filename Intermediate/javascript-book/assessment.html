@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;✅&lt;/text&gt;&lt;/svg&gt;">
+<title>Final Assessment · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+<style>
+  .a-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 600;
+    border: 1px solid var(--border); background: var(--bg-soft); color: var(--text); }
+  .chip.easy { color: var(--easy); border-color: var(--easy); }
+  .chip.medium { color: var(--medium); border-color: var(--medium); }
+  .chip.hard { color: var(--hard); border-color: var(--hard); }
+  .progress { height: 8px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 99px; overflow: hidden; margin: 6px 0 18px; }
+  .progress > div { height: 100%; background: var(--accent); transition: width .2s; }
+  .q-text { font-size: 1.15rem; font-weight: 600; margin: .4em 0 .8em; white-space: pre-wrap; }
+  .q-code { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px;
+    font: 14px/1.5 var(--mono); overflow-x: auto; margin: 0 0 14px; color: var(--code-text); }
+  .options { display: grid; gap: 10px; margin: 0 0 18px; }
+  .opt { display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius);
+    background: var(--panel); cursor: pointer; transition: border-color .12s, background .12s; }
+  .opt:hover { border-color: var(--accent); }
+  .opt.checked { border-color: var(--accent); background: var(--accent-soft); }
+  .opt input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+  .opt .key { font: 12px var(--mono); color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; flex: none; margin-top: 2px; }
+  .opt .txt { font-family: var(--mono); font-size: 14.5px; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+  .nav { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; margin: 10px 0 20px; }
+  .nav .grow { flex: 1; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 6px; margin: 8px 0; }
+  .grid button { height: 34px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    font: 600 13px var(--sans); cursor: pointer; }
+  .grid button.answered { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .grid button.current { outline: 3px solid var(--accent-2); outline-offset: 1px; }
+  .score-big { font-size: 3rem; font-weight: 800; margin: .1em 0; }
+  .pass { color: var(--easy); } .fail { color: var(--hard); }
+  .bar { height: 10px; background: var(--bg-soft); border-radius: 99px; overflow: hidden; min-width: 80px; border: 1px solid var(--border); }
+  .bar > div { height: 100%; background: var(--accent); }
+  .bar.low > div { background: var(--hard); }
+  .review { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin: 12px 0; background: var(--panel); }
+  .review.right { border-left: 5px solid var(--good-bd); }
+  .review.wrong { border-left: 5px solid var(--bad-bd); }
+  .review ul { list-style: none; padding: 0; margin: 8px 0; }
+  .review li { font-family: var(--mono); font-size: 14px; padding: 3px 8px; border-radius: 6px; margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .review li.is-correct { background: var(--good-bg); }
+  .review li.picked-wrong { background: var(--bad-bg); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .filters .btn.active { border-color: var(--accent); background: var(--accent-soft); }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Final Assessment</div>
+<h1>Test Your JavaScript</h1>
+
+<section id="loading"><p class="muted">Loading the question bank…</p></section>
+
+<section id="start" class="hidden">
+  <p class="lead">50 random questions from a pool of <strong id="pool-size">…</strong>, drawn from every chapter and both appendices.</p>
+  <div class="learn">
+    <h2>Rules</h2>
+    <ul>
+      <li>Each attempt picks <strong>50 questions</strong> at random, spread across all chapters.</li>
+      <li>Every question allows <strong>one or more</strong> answers. Tick all the options you think are correct.</li>
+      <li>A question scores a point only if your selection <strong>exactly matches</strong> the correct set.</li>
+      <li>The pass mark is <strong>70%</strong> (35 / 50). Your progress is saved in this browser, so you can stop and resume.</li>
+      <li>Keyboard: <kbd>1</kbd>–<kbd>6</kbd> toggle options, <kbd>←</kbd> / <kbd>→</kbd> move between questions.</li>
+    </ul>
+  </div>
+  <p id="best" class="muted"></p>
+  <div class="nav">
+    <button id="btn-start" class="btn primary" type="button">Start a new assessment</button>
+    <button id="btn-resume" class="btn hidden" type="button">Resume unfinished attempt</button>
+  </div>
+  <details>
+    <summary>Question pool per chapter</summary>
+    <div class="table-wrap"><table id="pool-table"></table></div>
+  </details>
+  <div id="history"></div>
+</section>
+
+<section id="quiz" class="hidden">
+  <div class="a-meta">
+    <span id="q-count"></span>
+    <span class="chip" id="q-topic"></span>
+    <span class="chip" id="q-diff"></span>
+  </div>
+  <div class="progress"><div id="q-progress"></div></div>
+  <div class="q-text" id="q-text"></div>
+  <pre class="q-code hidden" id="q-code"></pre>
+  <div class="options" id="q-options" role="group" aria-label="Answer options"></div>
+  <div class="nav">
+    <button id="btn-prev" class="btn" type="button">← Previous</button>
+    <span class="grow"></span>
+    <button id="btn-next" class="btn" type="button">Next →</button>
+    <button id="btn-submit" class="btn primary" type="button">Submit</button>
+  </div>
+  <details open>
+    <summary>Jump to a question</summary>
+    <div class="grid" id="q-grid"></div>
+  </details>
+</section>
+
+<section id="results" class="hidden">
+  <div class="score-big" id="r-score"></div>
+  <p class="lead" id="r-message"></p>
+  <div id="r-revisit"></div>
+  <h2>Score by chapter</h2>
+  <div class="table-wrap"><table id="r-table"></table></div>
+  <h2>Review your answers</h2>
+  <div class="filters" id="r-filters">
+    <button class="btn active" data-filter="all" type="button">All</button>
+    <button class="btn" data-filter="wrong" type="button">Incorrect</button>
+    <button class="btn" data-filter="right" type="button">Correct</button>
+  </div>
+  <div id="r-review"></div>
+  <div class="nav">
+    <button id="btn-again" class="btn primary" type="button">Take a new random assessment</button>
+    <a class="btn" href="index.html">Back to the book</a>
+  </div>
+</section>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+<script src="assessment.js"></script>
+</body>
+</html>

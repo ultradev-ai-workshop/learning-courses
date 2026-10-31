@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛠️&lt;/text&gt;&lt;/svg&gt;">
+<title>B. Node.js, npm & DevTools · JavaScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B · Refresher</div>
+<h1>Node.js, npm &amp; DevTools</h1>
+<p class="lead">The language is only half the job; the other half is running, testing, debugging and packaging code. This appendix refreshes the Node, npm and browser-DevTools skills the chapters rely on.</p>
+
+<div class="learn">
+<h2>You will refresh</h2>
+<ul>
+  <li>The Node REPL, running files, <code>--watch</code>, <code>-e</code>/<code>-p</code> and <code>--env-file</code>.</li>
+  <li><code>package.json</code>, npm commands, semantic versioning and lockfiles.</li>
+  <li>The built-in test runner (<code>node:test</code>) and <code>assert</code>.</li>
+  <li><code>process</code>, built-in <code>node:</code> modules, and exit codes.</li>
+  <li>Debugging in Node and in browser DevTools, plus the console's extra methods.</li>
+</ul>
+</div>
+
+<h2 id="repl">1. The Node REPL</h2>
+<p>Run <code>node</code> with no arguments. Useful commands: <code>.help</code>, <code>.editor</code> (multi-line paste mode, finished with <kbd>Ctrl</kbd>+<kbd>D</kbd>), <code>.exit</code>. <code>_</code> holds the last result, <kbd>Tab</kbd> completes names, and top-level <code>await</code> works.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node
+> const prices = [1299, 899]
+undefined
+> prices.reduce((a, b) => a + b)
+2198
+> _ / 100
+21.98
+> await Promise.resolve("works")
+'works'
+</script>
+<p><strong>In this book:</strong> REPL blocks (<code>&gt;</code>) leave out the <code>undefined</code> echoes after declarations (Chapter 1).</p>
+<details class="check"><summary>Quick check: why does the REPL print <code>undefined</code> after <code>const x = 1</code>?</summary>
+<p>It prints the completion value of every input, and a declaration statement has none (<code>undefined</code>).</p>
+</details>
+
+<h2 id="run">2. Running code</h2>
+<div class="table-wrap"><table>
+<tr><th>Command</th><th>Does</th></tr>
+<tr><td><code>node app.js</code></td><td>runs a file</td></tr>
+<tr><td><code>node --watch app.js</code></td><td>re-runs when files change</td></tr>
+<tr><td><code>node -e "code"</code> / <code>node -p "expr"</code></td><td>runs code / prints an expression's value</td></tr>
+<tr><td><code>node --env-file=.env app.js</code></td><td>loads <code>KEY=value</code> lines into <code>process.env</code></td></tr>
+<tr><td><code>node --test</code></td><td>runs <code>*.test.js</code> files (section 6)</td></tr>
+<tr><td><code>node --inspect app.js</code></td><td>enables the debugger (section 9)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file=".env" data-save>
+SHOP_NAME="Page & Spine"
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node -p "2 ** 10"
+1024
+$ node --env-file=.env -e "console.log(process.env.SHOP_NAME)"
+Page & Spine
+</script>
+<p><strong>In this book:</strong> every example runs with <code>node file.js</code>; Chapter 16's CLI uses a shebang and <code>"bin"</code>.</p>
+<details class="check"><summary>Quick check: what's the difference between <code>-e</code> and <code>-p</code>?</summary>
+<p><code>-e</code> evaluates code; <code>-p</code> evaluates it <em>and prints</em> the result.</p>
+</details>
+
+<h2 id="package">3. package.json</h2>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "name": "order-processor",
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": { "start": "node src/cli.js", "test": "node --test", "dev": "node --watch src/cli.js" },
+  "dependencies": { "zod": "^3.23.8" },
+  "devDependencies": { "prettier": "~3.3.3" },
+  "engines": { "node": ">=24" },
+  "bin": { "orders": "./src/cli.js" },
+  "exports": { ".": "./src/index.js" }
+}
+</script>
+<div class="table-wrap"><table>
+<tr><th>Field</th><th>Meaning</th></tr>
+<tr><td><code>type</code></td><td><code>"module"</code>: <code>.js</code> files are ES modules (Chapter 14)</td></tr>
+<tr><td><code>scripts</code></td><td>commands for <code>npm run &lt;name&gt;</code>; <code>npm start</code> and <code>npm test</code> are shortcuts</td></tr>
+<tr><td><code>dependencies</code> / <code>devDependencies</code></td><td>needed at run time / only for development (tests, linters, build)</td></tr>
+<tr><td><code>engines</code></td><td>supported Node versions</td></tr>
+<tr><td><code>bin</code>, <code>exports</code></td><td>commands to install / the public entry points of the package</td></tr>
+</table></div>
+<p><strong>In this book:</strong> the playground and the Chapter 16 project both use <code>"type": "module"</code>.</p>
+<details class="check"><summary>Quick check: where does a test framework like Vitest belong?</summary>
+<p>In <code>devDependencies</code>, because it's not needed when the app runs in production.</p>
+</details>
+
+<h2 id="npm">4. npm and semantic versioning</h2>
+<div class="table-wrap"><table>
+<tr><th>Command</th><th>Does</th></tr>
+<tr><td><code>npm init -y</code></td><td>creates <code>package.json</code></td></tr>
+<tr><td><code>npm install zod</code> / <code>npm i -D prettier</code></td><td>adds a dependency / a dev dependency</td></tr>
+<tr><td><code>npm ci</code></td><td>a clean install exactly as recorded in <code>package-lock.json</code> (CI and servers)</td></tr>
+<tr><td><code>npm run dev</code></td><td>runs a script</td></tr>
+<tr><td><code>npx eslint .</code></td><td>runs a package's command without installing it globally</td></tr>
+<tr><td><code>npm outdated</code> / <code>npm update</code></td><td>shows / applies allowed updates</td></tr>
+</table></div>
+<p>Versions are <code>MAJOR.MINOR.PATCH</code>: a breaking change, a new feature, a fix. <code>^3.23.8</code> allows <code>&gt;=3.23.8 &lt;4.0.0</code>, and <code>~3.3.3</code> allows <code>&gt;=3.3.3 &lt;3.4.0</code>. Commit <code>package-lock.json</code>, and never commit <code>node_modules/</code>.</p>
+<p><strong>In this book:</strong> nothing needs installing; every example uses only built-in modules.</p>
+<details class="check"><summary>Quick check: does <code>^1.4.2</code> allow version 1.9.0? 2.0.0?</summary>
+<p>1.9.0 yes (same major version); 2.0.0 no.</p>
+</details>
+
+<h2 id="test">5. Testing with node:test</h2>
+<script type="text/plain" class="code" data-file="price.js" data-save>
+export const withTax = (cents, rate = 0.2) => {
+  if (!Number.isInteger(cents) || cents < 0) throw new RangeError("cents must be a non-negative integer");
+  return Math.round(cents * (1 + rate));
+};
+</script>
+<script type="text/plain" class="code" data-file="price.test.js" data-save>
+import { test, describe } from "node:test";
+import assert from "node:assert/strict";
+import { withTax } from "./price.js";
+
+describe("withTax", () => {
+  test("adds 20% by default", () => assert.equal(withTax(1000), 1200));
+  test("rounds to whole cents", () => assert.equal(withTax(999, 0.07), 1069));
+  test("rejects bad input", () => assert.throws(() => withTax(-1), RangeError));
+  test("deep equality for objects", () => assert.deepEqual({ a: [1] }, { a: [1] }));
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test
+...
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+...
+</script>
+<p><code>node --test</code> finds files named <code>*.test.js</code> (and a few other patterns), runs them in parallel, and reports the results. <code>node:test</code> also offers <code>beforeEach</code>, <code>mock.fn()</code>, <code>mock.timers</code>, snapshots and <code>--watch</code>. Vitest and Jest are popular alternatives with the same ideas.</p>
+<p><strong>In this book:</strong> Chapter 16 tests the order processor this way.</p>
+<details class="check"><summary>Quick check: why import <code>node:assert/strict</code> rather than <code>node:assert</code>?</summary>
+<p>The strict version uses <code>===</code> and strict deep equality by default; the legacy one uses <code>==</code>.</p>
+</details>
+
+<h2 id="process">6. process and exit codes</h2>
+<script type="text/plain" class="code" data-file="proc.js" data-save>
+const [, , ...args] = process.argv;                 // argv[0] = node, argv[1] = the script path
+if (args.length === 0) {
+  console.error("usage: node proc.js <name>");      // diagnostics → stderr
+  process.exitCode = 2;                             // set the code; let the program finish normally
+} else {
+  console.log(`hello ${args.join(" ")} (${process.platform})`.replace(/\(\w+\)/, "(os)"));
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node proc.js Ana Lima
+hello Ana Lima (os)
+$ node proc.js; echo "exit code: $?"
+usage: node proc.js <name>
+exit code: 2
+</script>
+<p>Prefer <code>process.exitCode = n</code> over <code>process.exit(n)</code>, which stops immediately, even with output still being written.</p>
+<p><strong>In this book:</strong> Chapter 16 sets <code>process.exitCode = 1</code> on fatal errors.</p>
+<details class="check"><summary>Quick check: what's in <code>process.argv[2]</code> for <code>node tool.js --fast</code>?</summary>
+<p><code>"--fast"</code>. Index 0 is the node binary and index 1 is the script.</p>
+</details>
+
+<h2 id="builtins">7. Built-in modules</h2>
+<div class="table-wrap"><table>
+<tr><th>Module</th><th>For</th></tr>
+<tr><td><code>node:fs/promises</code>, <code>node:fs</code></td><td>files: <code>readFile</code>, <code>writeFile</code>, streams</td></tr>
+<tr><td><code>node:path</code>, <code>node:url</code></td><td><code>join</code>, <code>basename</code>, <code>fileURLToPath</code>, <code>pathToFileURL</code></td></tr>
+<tr><td><code>node:util</code></td><td><code>parseArgs</code>, <code>promisify</code>, <code>inspect</code>, <code>isDeepStrictEqual</code></td></tr>
+<tr><td><code>node:timers/promises</code></td><td>awaitable, abortable <code>setTimeout</code></td></tr>
+<tr><td><code>node:child_process</code>, <code>node:worker_threads</code></td><td>run programs / CPU work in parallel</td></tr>
+<tr><td><code>node:events</code>, <code>node:readline</code>, <code>node:http</code></td><td>emitters, line input, servers</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="parse-args.js">
+import { parseArgs } from "node:util";
+const { values, positionals } = parseArgs({
+  args: ["-n", "3", "--dry-run", "orders.json"],
+  allowPositionals: true,
+  options: { n: { type: "string", short: "n" }, "dry-run": { type: "boolean" } },
+});
+console.log(Number(values.n), values["dry-run"], positionals);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 true [ 'orders.json' ]
+</script>
+<p><strong>In this book:</strong> Chapters 12–16 use <code>fs/promises</code>, <code>timers/promises</code>, <code>readline</code>, <code>util</code> and <code>path</code>.</p>
+<details class="check"><summary>Quick check: why write <code>"node:fs"</code> instead of <code>"fs"</code>?</summary>
+<p>The <code>node:</code> prefix makes it unambiguous that it's a built-in, and an npm package called <code>fs</code> can never shadow it.</p>
+</details>
+
+<h2 id="console">8. More than console.log</h2>
+<script type="text/plain" class="code" data-file="console.js">
+console.table([{ id: "b1", price: 1299 }, { id: "b2", price: 899 }]);
+console.group("order o1");
+console.log("validated");
+console.log("charged");
+console.groupEnd();
+console.assert(1 + 1 === 3, "math is broken");      // prints only when the assertion fails
+</script>
+<script type="text/plain" class="code" data-lang="text">
+┌─────────┬──────┬───────┐
+│ (index) │ id   │ price │
+├─────────┼──────┼───────┤
+│ 0       │ 'b1' │ 1299  │
+│ 1       │ 'b2' │ 899   │
+└─────────┴──────┴───────┘
+order o1
+  validated
+  charged
+</script>
+<p>(The assertion message goes to stderr, so it isn't in the stdout listing above.) Also useful: <code>console.time("x")</code>/<code>console.timeEnd("x")</code>, <code>console.trace()</code> and <code>console.dir(obj, { depth: null })</code>.</p>
+<p><strong>In this book:</strong> Chapter 16 sends progress to <code>console.error</code>, which is stderr.</p>
+<details class="check"><summary>Quick check: which console method shows the full nested structure of a deep object?</summary>
+<p><code>console.dir(obj, { depth: null })</code>. By default Node only prints 2 levels deep.</p>
+</details>
+
+<h2 id="debug">9. Debugging</h2>
+<ol>
+  <li>Put a <code>debugger;</code> statement where you want to stop, or set a breakpoint in your editor.</li>
+  <li>Run <code>node --inspect-brk app.js</code>, which pauses on the first line.</li>
+  <li>Open <code>chrome://inspect</code> in Chrome (or use VS Code's <em>JavaScript Debug Terminal</em>), and step through the code, inspecting variables and the call stack.</li>
+</ol>
+<p><strong>In the browser:</strong> DevTools (<kbd>F12</kbd>) has a <em>Console</em> (where <code>$0</code> is the selected element, <code>copy(x)</code> copies a value, and "Live expressions" are available), <em>Sources</em> (breakpoints, conditional breakpoints, logpoints, the call stack and scopes), and <em>Network</em> (requests, timing, throttling).</p>
+<p><strong>In this book:</strong> try it on Chapter 12's event-loop examples by setting breakpoints inside the <code>then</code> callbacks.</p>
+<details class="check"><summary>Quick check: what's a logpoint?</summary>
+<p>A breakpoint that logs a message instead of pausing. It's like adding a <code>console.log</code> without editing the code.</p>
+</details>
+
+<h2 id="quality">10. Formatting, linting and types</h2>
+<ul>
+  <li><strong>Prettier</strong> formats code automatically, ending style debates.</li>
+  <li><strong>ESLint</strong> finds bugs and bad patterns, such as unused variables, <code>==</code>, missing <code>await</code>, or floating promises (with a TypeScript plugin).</li>
+  <li><strong>TypeScript</strong> adds static types. Node 24+ can run <code>.ts</code> files directly by stripping the types, and plain JS files can get type checking through JSDoc comments plus <code>// @ts-check</code>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="jsdoc.js">
+// @ts-check
+/**
+ * @param {number} cents  integer amount in cents
+ * @param {string} [currency="EUR"]
+ * @returns {string}
+ */
+export const format = (cents, currency = "EUR") =>
+  new Intl.NumberFormat("en", { style: "currency", currency }).format(cents / 100);
+console.log(format(1299));
+</script>
+<p><strong>In this book:</strong> the code follows Prettier-style formatting; types are a natural next step after Chapter 16.</p>
+<details class="check"><summary>Quick check: does <code>// @ts-check</code> change how Node runs the file?</summary>
+<p>No. It's a comment that editors and <code>tsc</code> read; the runtime ignores it.</p>
+</details>
+
+<h2 id="versions">11. Managing Node versions</h2>
+<p>Node has a new major release every 6 months; <strong>even-numbered</strong> versions become <strong>LTS</strong> (long-term support), which is what you use in production. Version managers such as <code>fnm</code>, <code>nvm</code> or <code>volta</code> install several versions side by side, and a <code>.nvmrc</code> or <code>.node-version</code> file pins a project's version.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ fnm install 26 && fnm use 26
+$ echo "26" > .node-version
+$ node --version
+v26.13.0
+</script>
+<p><strong>In this book:</strong> everything was verified on Node 26.13 (LTS). A few features (<code>using</code>, Temporal, <code>RegExp.escape</code>) need 24+ or 26+.</p>
+<details class="check"><summary>Quick check: should a production server run Node 27?</summary>
+<p>Preferably not: odd-numbered releases never become LTS. Use the current even-numbered LTS line.</p>
+</details>
+
+<h2 id="recap-table">Recap: tool → where you see it in this book</h2>
+<div class="table-wrap"><table>
+<tr><th>Tool</th><th>Used for</th><th>Where</th></tr>
+<tr><td>Node REPL</td><td>quick experiments</td><td>REPL blocks in every chapter</td></tr>
+<tr><td><code>node file.js</code>, <code>-e</code>/<code>-p</code></td><td>running examples</td><td>every chapter</td></tr>
+<tr><td><code>"type": "module"</code></td><td>ES modules by default</td><td>Ch. 1, 14, playground</td></tr>
+<tr><td>npm scripts</td><td><code>npm start</code> / <code>npm test</code></td><td>Ch. 16</td></tr>
+<tr><td><code>node:test</code> + <code>assert/strict</code></td><td>tests</td><td>Ch. 16</td></tr>
+<tr><td><code>process.argv</code>/<code>exitCode</code>, <code>parseArgs</code></td><td>command-line tools</td><td>Ch. 14, 16</td></tr>
+<tr><td><code>fs/promises</code>, <code>timers/promises</code>, <code>readline</code></td><td>async I/O</td><td>Ch. 12, 13, 16</td></tr>
+<tr><td><code>--inspect</code>, DevTools</td><td>debugging</td><td>any chapter</td></tr>
+</table></div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">build it · playground</span></h3>
+<p>In <code>playground/</code>, run <code>npm init -y</code>, set <code>"type": "module"</code>, and add scripts <code>start</code> (runs <code>hello.js</code>) and <code>test</code> (runs <code>node --test</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/package.json" data-norun>
+{
+  "name": "playground",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "start": "node hello.js", "test": "node --test" }
+}
+</script>
+<p>Then <code>npm start</code> and <code>npm test</code> work. (The book's playground already ships with this file.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>Which versions satisfy <code>"^2.3.1"</code>: 2.3.0, 2.3.9, 2.10.0, 3.0.0?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>2.3.9 and 2.10.0. <code>^</code> allows any version from 2.3.1 up to (but not including) 3.0.0.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain why</span></h3>
+<p>Why should CI servers run <code>npm ci</code> instead of <code>npm install</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>npm ci</code> installs exactly what <code>package-lock.json</code> records, fails if the lockfile and <code>package.json</code> disagree, and starts from a clean <code>node_modules</code>. Builds are reproducible. <code>npm install</code> may update the lockfile.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Print the current Node version's major number with a single <code>node -p</code> command.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node -p "process.versions.node.split('.')[0]"
+26
+</script>
+<p><code>-p</code> prints the value of the expression.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Write <code>playground/money.test.js</code> testing <code>formatPrice</code> from Chapter 6 (<code>playground/format.js</code>): the USD output, the JPY output (no decimals), and that the formatter cache returns the same result twice.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/money.test.js" data-norun>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { formatPrice } from "./format.js";
+
+test("USD has two decimals", () => assert.equal(formatPrice(1299, "en-US", "USD"), "$12.99"));
+test("JPY has none", () => assert.match(formatPrice(1299, "ja-JP", "JPY"), /1,299/));
+test("cached formatter is stable", () => assert.equal(formatPrice(5, "en-US", "USD"), formatPrice(5, "en-US", "USD")));
+</script>
+<p>For JPY, <code>assert.match</code> avoids depending on the exact yen symbol and spacing, which can differ between ICU versions.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>Sometimes the last lines of output go missing when this script fails. Why? Fix it.</p>
+<script type="text/plain" class="code" data-file="ex6.js" data-norun>
+console.log(hugeReport);
+if (errors) process.exit(1);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6-fixed.js" data-norun>
+console.log(hugeReport);
+if (errors) process.exitCode = 1;      // the process exits after output is flushed
+</script>
+<p>When stdout is a pipe, writes can be asynchronous, and <code>process.exit()</code> terminates immediately, possibly before they're done. Setting <code>exitCode</code> lets Node finish naturally.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a tiny CLI, <code>greet.js</code>, using <code>parseArgs</code>: <code>--name</code> (required), <code>--times</code>/<code>-t</code> (default 1) and <code>--shout</code> (a boolean). Print the usage to stderr with exit code 2 when <code>--name</code> is missing.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="greet.js" data-save>
+import { parseArgs } from "node:util";
+const { values } = parseArgs({
+  options: {
+    name: { type: "string" },
+    times: { type: "string", short: "t", default: "1" },
+    shout: { type: "boolean", default: false },
+  },
+});
+if (!values.name) {
+  console.error("usage: node greet.js --name NAME [-t N] [--shout]");
+  process.exitCode = 2;
+} else {
+  const msg = `hello ${values.name}`;
+  for (let i = 0; i < Number(values.times); i++) console.log(values.shout ? msg.toUpperCase() : msg);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node greet.js --name Ana -t 2 --shout
+HELLO ANA
+HELLO ANA
+$ node greet.js; echo "exit $?"
+usage: node greet.js --name NAME [-t N] [--shout]
+exit 2
+</script>
+<p><code>parseArgs</code> returns strings for <code>string</code> options; converting to a number is your job.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>Why does an even-numbered Node release (24, 26) suit production better than an odd-numbered one?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Even releases enter Long-Term Support, with about 30 months of fixes and security patches. Odd releases are supported only briefly, to try out new features.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Use <code>mock.fn()</code> from <code>node:test</code> to test that a <code>notify(order, send)</code> function calls <code>send</code> exactly once, with the right message, for paid orders, and never for failed ones.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="notify.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+
+const notify = (order, send) => { if (order.status === "paid") send(`Order ${order.id} confirmed`); };
+
+test("paid orders send one confirmation", () => {
+  const send = mock.fn();
+  notify({ id: "o1", status: "paid" }, send);
+  assert.equal(send.mock.callCount(), 1);
+  assert.deepEqual(send.mock.calls[0].arguments, ["Order o1 confirmed"]);
+});
+
+test("failed orders send nothing", () => {
+  const send = mock.fn();
+  notify({ id: "o2", status: "failed" }, send);
+  assert.equal(send.mock.callCount(), 0);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test notify.test.js
+...
+ℹ pass 2
+ℹ fail 0
+...
+</script>
+<p>Passing <code>send</code> as a parameter (dependency injection) is what makes it easy to replace with a mock, as Chapter 16 does with <code>pay</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Set up a complete mini project in <code>playground/word-count/</code>: a <code>package.json</code> (ESM, a <code>bin</code>, and <code>start</code>/<code>test</code> scripts), <code>src/count.js</code> exporting <code>countWords(text)</code> (returning a <code>Map</code> sorted by frequency), <code>src/cli.js</code> reading a file given as an argument (with a usage message and exit code 2), and <code>test/count.test.js</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="wc/src/count.js" data-save>
+export function countWords(text) {
+  const counts = new Map();
+  for (const w of text.toLowerCase().match(/\p{L}+/gu) ?? []) counts.set(w, (counts.get(w) ?? 0) + 1);
+  return new Map([...counts].toSorted(([a, x], [b, y]) => y - x || a.localeCompare(b)));
+}
+</script>
+<script type="text/plain" class="code" data-file="wc/src/cli.js" data-save>
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import { countWords } from "./count.js";
+const file = process.argv[2];
+if (!file) { console.error("usage: wc <file>"); process.exitCode = 2; }
+else for (const [w, n] of [...countWords(await readFile(file, "utf8"))].slice(0, 3)) console.log(n, w);
+</script>
+<script type="text/plain" class="code" data-file="wc/test/count.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { countWords } from "../src/count.js";
+test("counts and sorts", () => assert.deepEqual([...countWords("b a B c b a")], [["b", 3], ["a", 2], ["c", 1]]));
+</script>
+<script type="text/plain" class="code" data-file="wc/package.json" data-save>
+{ "name": "word-count", "type": "module", "bin": { "wc": "./src/cli.js" }, "scripts": { "start": "node src/cli.js", "test": "node --test" } }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd wc && printf "the cat and the hat and the bat" > sample.txt && node src/cli.js sample.txt
+3 the
+2 and
+1 bat
+$ cd wc && node --test 2>&1 | grep -E "^ℹ (pass|fail)"
+ℹ pass 1
+ℹ fail 0
+</script>
+<p>It covers the whole toolchain: ESM <code>package.json</code> with <code>bin</code> and scripts, Unicode-aware regex, a Map sorted with <code>toSorted</code>, top-level <code>await</code>, exit codes, and <code>node:test</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/api/repl.html">Node.js: REPL</a> · <a href="https://nodejs.org/api/cli.html">Command-line options</a></li>
+  <li><a href="https://nodejs.org/api/test.html">Node.js: test runner</a> · <a href="https://nodejs.org/api/process.html">process</a></li>
+  <li><a href="https://docs.npmjs.com/cli/v11/configuring-npm/package-json">npm: package.json</a> · <a href="https://semver.org/">Semantic Versioning</a></li>
+  <li><a href="https://developer.chrome.com/docs/devtools">Chrome DevTools</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
