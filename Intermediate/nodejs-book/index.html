@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🟩&lt;/text&gt;&lt;/svg&gt;">
+<title>Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Basics → Intermediate · Node 26 · following nodejs.org/learn</div>
+<h1>🟩 Node.js Study Book</h1>
+<p class="lead">A chapter-by-chapter course through <a href="https://nodejs.org/en/learn">Node.js Learn</a>, from your first script to a tested, production-ready HTTP API. It's written for developers who know JavaScript (the <a href="../javascript-book/index.html">JavaScript Study Book</a> level) and want to understand how Node really works: the event loop, streams, servers and the tools around them.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 16 chapters follow the Node.js Learn sections (Getting Started, Command Line, Modules, Asynchronous Work, Files, HTTP, Concurrency, Test Runner, Diagnostics…), grouped into six parts and ordered from basic to intermediate.</li>
+  <li><strong>Look for the 🧠 boxes.</strong> Every hard idea — the event loop, backpressure, the thread pool, streams — comes with a real-world analogy, and 🌐/☕ boxes connect it to what you already know from browser JavaScript and Java.</li>
+  <li><strong>Type the examples.</strong> Every example was run on Node 26 and its output checked. <code>$</code> blocks are terminal sessions, <code>&gt;</code> blocks are REPL sessions, file blocks are ES modules. Use the <em>Copy</em> button.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. Playground exercises grow towards the Chapter 16 project.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000, and scores you per chapter.</li>
+  <li><strong>Practise beyond the book.</strong> The <a href="../../problems/index.html">🧩 Problem Set</a> has 100 language-neutral problems with exact tests — solve them as Node scripts.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>New to the JavaScript language itself?</strong> Do the <a href="../javascript-book/index.html">JavaScript Study Book</a> first (at least Chapters 1–12). Coming from browser code or libraries like axios, chalk or Mocha? <a href="appendix-migrations.html">Appendix B</a> maps them to built-in Node features. Want types? <a href="appendix-typescript.html">Appendix A</a> runs TypeScript natively. First time here? Start with <a href="playground-howto.html">Using the Playground</a>.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Node 26 (Current) or Node 24 LTS and check it with <code>node --version</code>. Node 24 runs nearly every example; differences are marked with badges like <span class="es">Node 26</span>.</p>
+</div>
+
+<div id="cards"></div>
+
+<h2>Keep practising</h2>
+<div class="cards">
+  <a class="card" href="../../problems/index.html"><div class="num">Problem Set · any language</div><h3>🧩 100 Practice Problems</h3><p>25 easy, 25 medium, 25 hard and 25 object-oriented problems with exact test cases. Each one is a Node script that reads stdin — perfect after Chapter 2 (input &amp; output). Check with <code>node runner/run-tests.mjs E01 -- node e01.mjs</code>.</p></a>
+  <a class="card" href="../../problems/guide.html"><div class="num">Problem Set guide</div><h3>🛠️ How to Solve &amp; Test</h3><p>Reading stdin and printing stdout in JavaScript, the OOP command-loop template, and the test runner.</p></a>
+</div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Set up the playground folder, run and watch files, use the REPL, and fix common problems.",
+  "01-intro.html": "What Node is, V8 and libuv, Node vs the browser, how much JavaScript you need, versions and version managers.",
+  "02-cli.html": "Running scripts, --watch, the REPL, console output and colours, reading input, argv, parseArgs, env vars and exit codes.",
+  "03-modules.html": "CommonJS vs ES modules, require vs import, node: built-ins, import.meta, package.json type/exports, interop.",
+  "04-npm.html": "npm install, dependencies vs devDependencies, semver ranges, the lockfile, scripts, npx and publishing.",
+  "05-callbacks.html": "Error-first callbacks, callback hell, and flow control: series, parallel and limited concurrency.",
+  "06-promises.html": "Promisified core APIs, async/await patterns, error handling, unhandled rejections and AbortSignal.",
+  "07-event-loop.html": "The six event-loop phases, timers, setImmediate vs setTimeout, process.nextTick and microtasks.",
+  "08-events.html": "EventEmitter: on/once/emit/off, the error event, extending EventEmitter, events.once and leak warnings.",
+  "09-files.html": "Paths, stats, reading and writing (sync, callback, promise), file descriptors, folders and atomic writes.",
+  "10-streams.html": "Buffers, the four stream types, pipeline, Transform streams, object mode and backpressure.",
+  "11-http.html": "The anatomy of an HTTP transaction: requests, bodies, responses, routing, JSON APIs and errors.",
+  "12-fetch.html": "fetch in Node, JSON and streaming bodies, timeouts and retries, proxies, and the WebSocket client.",
+  "13-concurrency.html": "Blocking vs non-blocking, the libuv thread pool, partitioning, worker threads and child processes.",
+  "14-testing.html": "node:test and assert, suites and hooks, mocking functions, methods and timers, coverage.",
+  "15-production.html": "Debugging with the inspector, profiling, memory, NODE_ENV, the permission model and security practices.",
+  "16-project.html": "Build and test a notes REST API: routing, validation, a JSON file store, events, logging and shutdown.",
+  "appendix-typescript.html": "Running TypeScript natively with type stripping, tsc for type checking, and what isn't supported.",
+  "appendix-migrations.html": "Browser JS → Node, and replacing chalk, axios, dotenv, nodemon and Mocha with built-ins.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

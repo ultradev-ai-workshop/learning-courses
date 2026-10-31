@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧰&lt;/text&gt;&lt;/svg&gt;">
+<title>4. npm, Packages &amp; Versions · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Getting Started</div>
+<h1>npm, Packages &amp; Versions</h1>
+<p class="lead">npm is Node's package manager and the world's largest software registry. This chapter shows how a project is described by <code>package.json</code>, how dependencies are installed and versioned, why the lockfile matters, how scripts automate your workflow, and how to publish a package of your own — safely.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The three parts of npm: the registry, the CLI and <code>package.json</code>.</li>
+  <li>Installing packages: dependencies vs devDependencies, global installs, <code>npm ci</code>.</li>
+  <li>Semantic versioning and ranges: <code>^</code>, <code>~</code>, exact versions and the <code>0.x</code> rule.</li>
+  <li><code>package-lock.json</code>: why it exists and why you commit it.</li>
+  <li>npm scripts, <code>node --run</code>, <code>npx</code>, publishing, and supply-chain safety.</li>
+</ul>
+</div>
+
+<h2 id="what">What npm is</h2>
+<p>"npm" means three related things:</p>
+<ul>
+  <li>the <strong>registry</strong> at npmjs.com, holding millions of open-source packages;</li>
+  <li>the <strong>command-line tool</strong> <code>npm</code>, installed together with Node, which downloads packages and runs scripts;</li>
+  <li>the <strong><code>package.json</code></strong> file that describes your project: its name, version, dependencies and scripts.</li>
+</ul>
+<p>Alternatives such as <strong>pnpm</strong> and <strong>Yarn</strong> use the same registry and the same <code>package.json</code>; they differ in how they lay out <code>node_modules</code> and in speed. Everything in this chapter maps directly to them.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a recipe and a receipt.</strong> <code>package.json</code> is your <em>shopping list</em>: "flour, any brand from version 2", "eggs, ~ a dozen". <code>package-lock.json</code> is the <em>receipt</em> from the day you shopped: exactly which brand, which batch, which shop. The registry is the supermarket. With only the list, two people can come home with slightly different flour; with the receipt, they buy exactly the same things.</p>
+</div>
+
+<h2 id="package-json">Creating package.json</h2>
+<p><code>npm init</code> asks some questions and writes <code>package.json</code>; <code>npm init -y</code> accepts all the defaults:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ mkdir shop && cd shop && npm init -y > /dev/null && cat package.json
+{
+  "name": "shop",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
+</script>
+<p>Recent npm versions write <code>"type": "commonjs"</code> explicitly. For an ES-module project (recommended, Chapter 3) change it. <code>npm pkg</code> edits <code>package.json</code> from the command line, safely:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd shop && npm pkg set type=module && npm pkg set private=true --json && npm pkg get type private
+{
+  "type": "module",
+  "private": true
+}
+</script>
+<p>The fields you'll use most:</p>
+<div class="table-wrap"><table>
+  <tr><th>Field</th><th>Meaning</th></tr>
+  <tr><td><code>name</code>, <code>version</code></td><td>Identity of the package (required to publish). Names are lower-case; scoped names look like <code>@acme/utils</code>.</td></tr>
+  <tr><td><code>type</code></td><td><code>"module"</code> or <code>"commonjs"</code>: how <code>.js</code> files are loaded.</td></tr>
+  <tr><td><code>scripts</code></td><td>Named commands: <code>npm run build</code>, <code>npm test</code>, <code>npm start</code>.</td></tr>
+  <tr><td><code>dependencies</code></td><td>Packages your code needs at run time.</td></tr>
+  <tr><td><code>devDependencies</code></td><td>Packages only needed to develop: test tools, linters, TypeScript.</td></tr>
+  <tr><td><code>exports</code> / <code>main</code></td><td>The entry points others can import (Chapter 3).</td></tr>
+  <tr><td><code>bin</code></td><td>Command-line tools the package installs.</td></tr>
+  <tr><td><code>engines</code></td><td>The Node versions you support, e.g. <code>{ "node": "&gt;=22" }</code>.</td></tr>
+  <tr><td><code>private</code></td><td><code>true</code> prevents accidental publishing (use it for apps).</td></tr>
+</table></div>
+
+<h2 id="install">Installing packages</h2>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install express            # add to "dependencies" and install (alias: npm i)
+$ npm install -D vitest eslint   # add to "devDependencies"
+$ npm install                    # install everything listed in package.json
+$ npm uninstall express          # remove it
+$ npm install -g npm-check       # global: a command available everywhere (use sparingly)
+$ npm outdated                   # what has newer versions?
+$ npm update                     # update within the allowed ranges
+$ npm ls                         # show the installed dependency tree
+</script>
+<p>Packages go into <code>node_modules/</code>, which can be large and is always rebuilt from <code>package.json</code> + the lockfile: <strong>never commit <code>node_modules</code></strong> (put it in <code>.gitignore</code>). Here's a real install of a local package (a folder instead of a registry name), so you can see what npm records:</p>
+<script type="text/plain" class="code" data-file="slugger/package.json" data-save>
+{ "name": "slugger", "version": "1.2.0", "type": "module", "exports": "./index.js" }
+</script>
+<script type="text/plain" class="code" data-file="slugger/index.js" data-save>
+export const slug = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd shop && npm install ../slugger --no-audit --no-fund
+
+added 1 package in ...
+$ cd shop && npm pkg get dependencies
+{
+  "slugger": "file:../slugger"
+}
+$ cd shop && node -e "import('slugger').then((m) => console.log(m.slug('Hello Node World')))"
+hello-node-world
+</script>
+<p>With a registry package, <code>package.json</code> would record a version <em>range</em> instead, like <code>"express": "^5.1.0"</code>.</p>
+<div class="tip">
+<p>💡 <strong>dependencies or devDependencies?</strong> Ask: "does the code need this <em>while running in production</em>?" A web framework, a database driver: <code>dependencies</code>. Test runners, linters, TypeScript, build tools: <code>devDependencies</code>. Production installs (<code>npm ci --omit=dev</code>) skip devDependencies, making images smaller and safer.</p>
+</div>
+
+<h2 id="semver">Semantic versioning</h2>
+<p>npm packages follow <strong>semver</strong>: <code>MAJOR.MINOR.PATCH</code>, for example <code>4.17.21</code>.</p>
+<ul>
+  <li><strong>PATCH</strong> (4.17.<em>21</em> → 4.17.22): bug fixes only.</li>
+  <li><strong>MINOR</strong> (4.<em>17</em> → 4.18.0): new features, backwards compatible.</li>
+  <li><strong>MAJOR</strong> (<em>4</em> → 5.0.0): breaking changes; your code may need updating.</li>
+</ul>
+<p>In <code>package.json</code> you write <strong>ranges</strong> of acceptable versions:</p>
+<div class="table-wrap"><table>
+  <tr><th>Range</th><th>Means</th><th>Accepts</th><th>Rejects</th></tr>
+  <tr><td><code>^1.4.2</code> (npm's default)</td><td>same major, ≥ 1.4.2</td><td>1.4.2, 1.4.9, 1.9.0</td><td>2.0.0, 1.4.1</td></tr>
+  <tr><td><code>~1.4.2</code></td><td>same minor, ≥ 1.4.2</td><td>1.4.2, 1.4.9</td><td>1.5.0</td></tr>
+  <tr><td><code>1.4.2</code></td><td>exactly this version</td><td>1.4.2</td><td>everything else</td></tr>
+  <tr><td><code>&gt;=1.4.0 &lt;3</code></td><td>explicit bounds</td><td>1.4.0, 2.9.9</td><td>3.0.0</td></tr>
+  <tr><td><code>^0.3.1</code></td><td>for 0.x, the <em>minor</em> is treated as major</td><td>0.3.1, 0.3.8</td><td>0.4.0</td></tr>
+  <tr><td><code>*</code> or <code>latest</code></td><td>anything (avoid)</td><td>all</td><td>—</td></tr>
+</table></div>
+<p>npm itself uses the <code>semver</code> package to evaluate ranges. It ships inside npm, so we can borrow it to check the table (in your own project you'd <code>npm install semver</code>):</p>
+<script type="text/plain" class="code" data-file="ranges.js">
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
+const npmDir = join(dirname(process.execPath), "..", "lib", "node_modules", "npm");
+const semver = createRequire(join(npmDir, "package.json"))("semver");
+
+const versions = ["1.4.1", "1.4.2", "1.4.9", "1.9.0", "2.0.0"];
+for (const range of ["^1.4.2", "~1.4.2", "1.4.2"]) {
+  console.log(range.padEnd(7), versions.filter((v) => semver.satisfies(v, range)).join(" "));
+}
+console.log("^0.3.1", ["0.3.1", "0.3.8", "0.4.0"].filter((v) => semver.satisfies(v, "^0.3.1")).join(" "));
+console.log("max for ^1.4.2:", semver.maxSatisfying(versions, "^1.4.2"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+^1.4.2  1.4.2 1.4.9 1.9.0
+~1.4.2  1.4.2 1.4.9
+1.4.2   1.4.2
+^0.3.1 0.3.1 0.3.8
+max for ^1.4.2: 1.9.0
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: renting a flat.</strong> <code>^</code> says "any flat in this building, but not another building" (a new MAJOR is a different building, with different rules). <code>~</code> says "any flat on this floor". An exact version says "flat 4B, no substitutes". The <code>0.x</code> rule exists because a package before 1.0 promises nothing: each minor release may be a whole new building.</p>
+</div>
+
+<h2 id="lockfile">The lockfile</h2>
+<p>Ranges leave room for change: <code>^1.4.2</code> installs 1.4.2 today and maybe 1.9.0 next month — on your colleague's machine, or on the production server. <code>package-lock.json</code> records the <strong>exact</strong> version (and download URL and checksum) of every package in the tree, including dependencies of dependencies.</p>
+<ul>
+  <li><strong>Commit <code>package-lock.json</code></strong> for applications and libraries alike.</li>
+  <li>Use <strong><code>npm ci</code></strong> in CI and production builds: it deletes <code>node_modules</code> and installs exactly what the lockfile says, failing if <code>package.json</code> and the lockfile disagree.</li>
+  <li>Use <code>npm install</code> while developing: it may update the lockfile when you add or change dependencies.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd shop && node -p "Object.keys(require('./package-lock.json').packages)"
+[ '', '../slugger', 'node_modules/slugger' ]
+$ cd shop && npm ls
+shop@1.0.0 ...
+`-- slugger@1.2.0 -> ./../slugger
+</script>
+
+<h2 id="scripts">npm scripts</h2>
+<p>The <code>"scripts"</code> object gives names to commands, so every developer (and the CI server) runs tasks the same way:</p>
+<script type="text/plain" class="code" data-file="tasks/package.json" data-save>
+{
+  "name": "tasks",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "greet": "node app.js --name",
+    "pretest": "echo preparing",
+    "test": "node -e \"console.log('tests pass')\"",
+    "where": "echo $npm_lifecycle_event"
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="tasks/app.js" data-save>
+import { parseArgs } from "node:util";
+const { values } = parseArgs({ options: { name: { type: "string", default: "world" } } });
+console.log(`hello, ${values.name}`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd tasks && npm start --silent
+hello, world
+$ cd tasks && npm run greet --silent -- Ana
+hello, Ana
+$ cd tasks && npm test --silent
+preparing
+tests pass
+$ cd tasks && node --run greet -- Ana
+hello, Ana
+</script>
+<ul>
+  <li><code>npm start</code> and <code>npm test</code> are shortcuts; every other script needs <code>npm run name</code>.</li>
+  <li>Arguments after <code>--</code> are passed on to the script's command.</li>
+  <li><code>pre</code>/<code>post</code> scripts run automatically around a script with the same name (<code>pretest</code> before <code>test</code>).</li>
+  <li>Scripts run with <code>node_modules/.bin</code> on the <code>PATH</code>, so <code>"lint": "eslint ."</code> finds the locally installed ESLint without <code>npx</code>.</li>
+  <li><strong><code>node --run</code></strong> runs a script directly, without starting npm: noticeably faster, but it doesn't run <code>pre</code>/<code>post</code> scripts.</li>
+</ul>
+
+<h2 id="npx">npx: run without installing</h2>
+<p><code>npx</code> (or <code>npm exec</code>) runs a package's command-line tool. If the package is a local dependency it uses that one; otherwise it downloads it to a cache and runs it once:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx eslint .                         # the project's own ESLint
+$ npx create-vite@latest my-app        # one-off project generators
+$ npx serve ./public                   # a quick static file server
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: typos run strangers' code.</strong> <code>npx</code> will happily download and run whatever package matches the name you typed. Double-check names (attackers publish look-alike packages, "typosquatting"), and prefer tools listed in your project's devDependencies.</p>
+</div>
+
+<h2 id="publish">Publishing a package</h2>
+<p>Publishing makes your package installable by anyone. The steps:</p>
+<ol>
+  <li>Pick a unique <code>name</code> (or a scope you own: <code>@yourname/slugger</code>) and set <code>"exports"</code>, <code>"type"</code>, <code>"license"</code> and a README.</li>
+  <li>Choose what goes into the package with the <code>"files"</code> field (an allow-list), so tests and secrets stay out.</li>
+  <li>Check the contents with <code>npm pack --dry-run</code>.</li>
+  <li>Bump the version with <code>npm version patch|minor|major</code> (which also creates a git tag), then <code>npm login</code> and <code>npm publish</code> (<code>--access public</code> for scoped packages).</li>
+</ol>
+<script type="text/plain" class="code" data-file="slugger/README.md" data-save>
+# slugger — turns titles into URL slugs
+</script>
+<script type="text/plain" class="code" data-file="slugger/secret-notes.txt" data-save>
+do not publish me
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd slugger && npm pkg set files[]=index.js && npm version minor --no-git-tag-version
+v1.3.0
+$ cd slugger && npm pack --dry-run 2>&1 | grep -E "B (index|package|README|secret)"
+npm notice ...B README.md
+npm notice ...B index.js
+npm notice ...B package.json
+</script>
+<p>Only the allow-listed file plus the always-included <code>package.json</code> and README are packed; <code>secret-notes.txt</code> stays home. (We don't run <code>npm publish</code> here, of course.)</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> npm is Maven/Gradle plus Maven Central. <code>package.json</code> ≈ <code>pom.xml</code>, dependencies ≈ <code>compile</code> scope, devDependencies ≈ <code>test</code>/<code>provided</code> scope, the lockfile ≈ a fully resolved dependency tree with checksums, and npm scripts ≈ Gradle tasks.</p>
+</div>
+
+<h2 id="security">Supply-chain safety</h2>
+<p>Each dependency is code written by strangers that runs with your permissions, and it can pull in dozens of further dependencies. Good habits:</p>
+<ul>
+  <li>Add dependencies deliberately. Check downloads, maintenance and the size of the tree (<code>npm ls --all</code>). Often a few lines of your own code, or a built-in Node feature (Appendix B), are better.</li>
+  <li>Run <strong><code>npm audit</code></strong> to list known vulnerabilities, and keep dependencies updated (<code>npm outdated</code>, Dependabot/Renovate).</li>
+  <li>Install with <code>npm ci</code> from a committed lockfile so nothing changes unexpectedly.</li>
+  <li>Packages may run <strong>install scripts</strong> (<code>preinstall</code>, <code>postinstall</code>). Consider <code>npm ci --ignore-scripts</code> in CI, and be suspicious of new packages that need them.</li>
+  <li>Use two-factor authentication and trusted publishing (provenance) for packages you publish.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A package with a command-line tool</h3>
+<p>The <code>"bin"</code> field maps a command name to a file. When someone installs the package, npm puts a link in <code>node_modules/.bin</code> (or on the global <code>PATH</code> with <code>-g</code>):</p>
+<script type="text/plain" class="code" data-file="sluggy-cli/package.json" data-save>
+{ "name": "sluggy-cli", "version": "1.0.0", "type": "module", "bin": { "sluggy": "./cli.js" } }
+</script>
+<script type="text/plain" class="code" data-file="sluggy-cli/cli.js" data-save>
+#!/usr/bin/env node
+console.log(process.argv.slice(2).join(" ").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd shop && npm install ../sluggy-cli --no-audit --no-fund > /dev/null && npx sluggy Hello Again World
+hello-again-world
+$ cd shop && npm pkg set scripts.slug="sluggy" && npm run slug --silent -- My Post Title
+my-post-title
+</script>
+
+<h3>Reading your own package.json</h3>
+<p>Apps often print their name and version (for <code>--version</code> or logs). Import it as JSON:</p>
+<script type="text/plain" class="code" data-file="tasks/version.js" data-save>
+import pkg from "./package.json" with { type: "json" };
+console.log(`${pkg.name} v${pkg.version}`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node tasks/version.js
+tasks v1.0.0
+</script>
+
+<h3>Workspaces: several packages in one repository</h3>
+<p>Larger projects keep related packages in one repository (a <em>monorepo</em>). npm <strong>workspaces</strong> link them together so they can import each other without publishing:</p>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "name": "acme",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
+</script>
+<p><code>npm install</code> at the root then links <code>packages/api</code>, <code>packages/shared</code> … into <code>node_modules</code>, and <code>npm test --workspaces</code> runs every package's tests.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>package.json</code> describes the project; <code>npm init -y</code> creates it and <code>npm pkg set</code> edits it.</li>
+  <li><code>npm install pkg</code> → <code>dependencies</code>; <code>-D</code> → <code>devDependencies</code>. Never commit <code>node_modules</code>.</li>
+  <li>Semver: MAJOR.MINOR.PATCH. <code>^</code> allows minor+patch, <code>~</code> only patch, and <code>^0.x</code> only patch-level changes within that minor.</li>
+  <li>Commit <code>package-lock.json</code> and use <code>npm ci</code> for reproducible installs.</li>
+  <li>Scripts: <code>npm start</code>, <code>npm test</code>, <code>npm run x -- args</code>, <code>pre</code>/<code>post</code> hooks; <code>node --run</code> is faster. <code>npx</code> runs package binaries.</li>
+  <li>Publish with <code>"files"</code>, <code>npm pack --dry-run</code>, <code>npm version</code>, <code>npm publish</code>; treat every dependency as a security decision.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Put each package in <code>dependencies</code> or <code>devDependencies</code> for a web API: <code>express</code>, <code>vitest</code>, <code>pg</code> (PostgreSQL driver), <code>typescript</code>, <code>eslint</code>, <code>zod</code> (request validation).</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>dependencies:</strong> <code>express</code>, <code>pg</code>, <code>zod</code> — the server needs them at run time. <strong>devDependencies:</strong> <code>vitest</code>, <code>typescript</code>, <code>eslint</code> — only used while developing, testing or building.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">semver</span></h3>
+<p>Which of <code>2.3.0</code>, <code>2.3.7</code>, <code>2.9.1</code>, <code>3.0.0</code> satisfy <code>^2.3.4</code>? And <code>~2.3.4</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>^2.3.4</code>: <code>2.3.7</code> and <code>2.9.1</code> (same major, not below 2.3.4). <code>~2.3.4</code>: only <code>2.3.7</code> (same 2.3 minor, not below 2.3.4). <code>2.3.0</code> is below the minimum; <code>3.0.0</code> is a new major.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">scripts</span></h3>
+<p>Write the <code>"scripts"</code> section for a project where <code>npm start</code> runs <code>src/server.js</code>, <code>npm run dev</code> runs it in watch mode with variables from <code>.env</code>, and <code>npm test</code> runs Node's built-in test runner.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js",
+    "test": "node --test"
+  }
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Your app works on your laptop but crashes on the build server with an error inside a dependency. The lockfile isn't in git and the server runs <code>npm install</code>. What probably happened, and what are the two fixes?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without a lockfile, the server resolved the version ranges on its own and got a newer (broken or incompatible) version of some package — possibly a deep, indirect dependency. Fix: commit <code>package-lock.json</code>, and use <code>npm ci</code> on the server so it installs exactly the locked versions.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Without any npm package, write <code>caret.js</code> with a function <code>satisfiesCaret(version, range)</code> for ranges like <code>^1.4.2</code> (only plain <code>X.Y.Z</code> versions; remember the <code>0.x</code> rule; ignore <code>^0.0.x</code>). Test it on the chapter's examples.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="caret.js">
+const parse = (v) => v.split(".").map(Number);
+const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+function satisfiesCaret(version, range) {
+  const v = parse(version), min = parse(range.slice(1));
+  if (cmp(v, min) < 0) return false;                    // below the minimum
+  if (min[0] > 0) return v[0] === min[0];               // ^1.4.2 → same major
+  return v[0] === 0 && v[1] === min[1];                 // ^0.3.1 → same minor
+}
+
+for (const [v, r] of [["1.9.0", "^1.4.2"], ["2.0.0", "^1.4.2"], ["1.4.1", "^1.4.2"], ["0.3.8", "^0.3.1"], ["0.4.0", "^0.3.1"]]) {
+  console.log(v, r, satisfiesCaret(v, r));
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1.9.0 ^1.4.2 true
+2.0.0 ^1.4.2 false
+1.4.1 ^1.4.2 false
+0.3.8 ^0.3.1 true
+0.4.0 ^0.3.1 false
+</script>
+<p>Comparing arrays of numbers avoids the classic bug of comparing version strings (<code>"1.10.0" &lt; "1.9.0"</code> is <code>true</code> as strings).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Set up the <code>playground</code> project's <code>package.json</code> with npm commands only: ES modules, private, an <code>engines</code> field requiring Node 22+, and scripts <code>check</code> (runs <code>check-node.js</code> from Chapter 1) and <code>notes</code> (runs <code>notes-cli.js</code>). Show the result with <code>npm pkg get</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ mkdir -p playground && cd playground && npm init -y > /dev/null && npm pkg set type=module && npm pkg set private=true --json && npm pkg set "engines.node=>=22" scripts.check="node check-node.js" scripts.notes="node notes-cli.js" && npm pkg get type private engines scripts.check scripts.notes
+{
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts.check": "node check-node.js",
+  "scripts.notes": "node notes-cli.js"
+}
+</script>
+<p><code>--json</code> makes <code>private=true</code> a real boolean instead of the string <code>"true"</code>. It applies to every value in that command, which is why <code>type=module</code> is set separately (<code>module</code> isn't valid JSON).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>With these scripts, what does <code>npm run build</code> print? And <code>node --run build</code>?</p>
+<script type="text/plain" class="code" data-file="hooks/package.json" data-save>
+{
+  "name": "hooks",
+  "scripts": {
+    "prebuild": "echo 1-clean",
+    "build": "echo 2-compile",
+    "postbuild": "echo 3-report"
+  }
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd hooks && npm run build --silent
+1-clean
+2-compile
+3-report
+$ cd hooks && node --run build
+2-compile
+</script>
+<p>npm runs <code>pre</code>/<code>post</code> hooks automatically; <code>node --run</code> runs only the named script.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">security</span></h3>
+<p>You want a function that left-pads a string. Give two reasons not to install a package for it, and show the built-in alternative.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Every dependency adds supply-chain risk (a compromised or abandoned package, install scripts) and maintenance (updates, audits, a bigger <code>node_modules</code>) for very little value. JavaScript already has it:</p>
+<script type="text/plain" class="code" data-file="pad.js">
+console.log("7".padStart(3, "0"), "ab".padEnd(5, ".") + "|");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+007 ab...|
+</script>
+<p>(In 2016, the removal of the tiny <code>left-pad</code> package broke thousands of builds — a famous lesson in dependency risk.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write <code>deps-report.js</code>: read a project's <code>package.json</code> and print each dependency with its kind and the kind of range it uses (<code>caret</code>, <code>tilde</code>, <code>exact</code>, <code>local</code> for <code>file:</code>, or <code>other</code>), sorted by name. Test it with the sample below.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="sample-app/package.json" data-save>
+{
+  "name": "sample-app",
+  "dependencies": { "express": "^5.1.0", "pg": "8.13.1", "slugger": "file:../slugger" },
+  "devDependencies": { "eslint": "~9.20.0", "typescript": ">=5.6 <6" }
+}
+</script>
+<script type="text/plain" class="code" data-file="deps-report.js">
+import { readFile } from "node:fs/promises";
+
+function rangeKind(range) {
+  if (range.startsWith("file:")) return "local";
+  if (range.startsWith("^")) return "caret";
+  if (range.startsWith("~")) return "tilde";
+  if (/^\d+\.\d+\.\d+$/.test(range)) return "exact";
+  return "other";
+}
+
+const pkg = JSON.parse(await readFile("sample-app/package.json", "utf8"));
+const rows = [
+  ...Object.entries(pkg.dependencies ?? {}).map(([name, r]) => ({ name, kind: "prod", range: r })),
+  ...Object.entries(pkg.devDependencies ?? {}).map(([name, r]) => ({ name, kind: "dev", range: r })),
+].toSorted((a, b) => a.name.localeCompare(b.name));
+
+for (const { name, kind, range } of rows) console.log(name.padEnd(11), kind.padEnd(5), rangeKind(range).padEnd(6), range);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+eslint      dev   tilde  ~9.20.0
+express     prod  caret  ^5.1.0
+pg          prod  exact  8.13.1
+slugger     prod  local  file:../slugger
+typescript  dev   other  >=5.6 <6
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project</span></h3>
+<p>Turn <code>slugger</code> into a publishable dual-use package: keep the <code>slug</code> export, add a <code>bin</code> command <code>slugger</code>, an <code>engines</code> field, a <code>files</code> allow-list covering both files, and verify with <code>npm pack --dry-run</code> that the CLI file is included. Then install it into <code>shop</code> and run the command with <code>npx</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="slugger/cli.js" data-save>
+#!/usr/bin/env node
+import { slug } from "./index.js";
+console.log(slug(process.argv.slice(2).join(" ")));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ cd slugger && npm pkg set bin.slugger=./cli.js "engines.node=>=22" files[]=cli.js && npm pkg get files bin
+{
+  "files": [
+    "index.js",
+    "cli.js"
+  ],
+  "bin": {
+    "slugger": "./cli.js"
+  }
+}
+$ cd slugger && npm pack --dry-run 2>&1 | grep -cE "B (cli|index)\.js"
+2
+$ cd shop && npm install ../slugger --no-audit --no-fund > /dev/null && npx slugger Release Notes 2026
+release-notes-2026
+</script>
+<p>Before a real <code>npm publish</code> you'd also add a README, a license and a <code>repository</code> URL, and bump the version with <code>npm version</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/an-introduction-to-the-npm-package-manager">An introduction to the npm package manager</a></li>
+  <li><a href="https://nodejs.org/en/learn/modules/publishing-a-package">Publishing a package</a></li>
+  <li><a href="https://docs.npmjs.com/cli/configuring-npm/package-json">npm docs: package.json</a> · <a href="https://docs.npmjs.com/about-semantic-versioning">About semantic versioning</a> · <a href="https://semver.npmjs.com/">semver calculator</a></li>
+  <li><a href="https://docs.npmjs.com/cli/commands/npm-ci">npm ci</a> · <a href="https://nodejs.org/api/cli.html#--run">node --run</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

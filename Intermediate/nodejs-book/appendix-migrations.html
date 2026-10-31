@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔀&lt;/text&gt;&lt;/svg&gt;">
+<title>Appendix B: From the Browser &amp; Userland Libraries · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B</div>
+<h1>From the Browser &amp; Userland Libraries</h1>
+<p class="lead">Many habits and packages from older Node code or from front-end work have built-in replacements in modern Node. This appendix is a migration guide: browser JavaScript → Node, and the most common npm packages → the features that now ship with Node. Fewer dependencies mean fewer updates, fewer vulnerabilities and faster installs.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How browser concepts map to Node (window, DOM, storage, modules).</li>
+  <li>Built-in replacements for chalk, axios, dotenv, nodemon, Mocha/Jest, uuid, rimraf, glob, yargs and more.</li>
+  <li>How the Node.js "userland migrations" codemods automate some of this.</li>
+  <li>What WebAssembly and Node-API (native addons) are, and when you'd meet them.</li>
+</ul>
+</div>
+
+<h2 id="browser">Browser → Node cheat sheet</h2>
+<div class="table-wrap"><table>
+  <tr><th>In the browser</th><th>In Node</th></tr>
+  <tr><td><code>window</code></td><td><code>globalThis</code> (works in both)</td></tr>
+  <tr><td><code>document</code>, the DOM</td><td>none — use a template string or library (jsdom for tests)</td></tr>
+  <tr><td><code>localStorage</code></td><td>a file (<code>fs</code>), <code>node:sqlite</code> or a database</td></tr>
+  <tr><td><code>&lt;script type="module"&gt;</code></td><td><code>"type": "module"</code> in <code>package.json</code></td></tr>
+  <tr><td><code>location.search</code></td><td><code>new URL(req.url, base).searchParams</code> (server), <code>process.argv</code> (CLI)</td></tr>
+  <tr><td><code>fetch</code>, <code>URL</code>, <code>AbortController</code>, <code>TextEncoder</code>, <code>structuredClone</code>, <code>WebSocket</code>, <code>crypto.subtle</code>, <code>Blob</code>, web streams</td><td>the same globals</td></tr>
+  <tr><td><code>console.log</code> → DevTools</td><td><code>console.log</code> → stdout; <code>--inspect</code> for DevTools</td></tr>
+  <tr><td>user input: forms, events</td><td><code>process.stdin</code>, <code>readline</code>, HTTP request bodies</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: moving from a hotel to your own flat.</strong> In the browser you're a hotel guest: lots is provided (the DOM, storage, a window to look out of), but you can't touch the building (no file system, no raw sockets). Node is your own flat: no room service, but you have the keys to everything — and responsibility for locking the doors (security, Chapter 15).</p>
+</div>
+
+<h2 id="packages">Packages you may not need anymore</h2>
+<div class="table-wrap"><table>
+  <tr><th>Package</th><th>Built-in replacement</th><th>Chapter</th></tr>
+  <tr><td>chalk, kleur, ansi-colors</td><td><code>util.styleText</code></td><td>2</td></tr>
+  <tr><td>dotenv</td><td><code>node --env-file=.env</code>, <code>process.loadEnvFile()</code></td><td>2</td></tr>
+  <tr><td>nodemon</td><td><code>node --watch</code></td><td>2</td></tr>
+  <tr><td>yargs, minimist, commander (simple cases)</td><td><code>util.parseArgs</code></td><td>2</td></tr>
+  <tr><td>axios, node-fetch, got, request</td><td><code>fetch</code></td><td>12</td></tr>
+  <tr><td>ws (client)</td><td><code>WebSocket</code></td><td>12</td></tr>
+  <tr><td>mocha, jest, sinon (basic use)</td><td><code>node:test</code>, <code>node:assert</code>, <code>mock</code></td><td>14</td></tr>
+  <tr><td>nyc, c8</td><td><code>--experimental-test-coverage</code></td><td>14</td></tr>
+  <tr><td>uuid</td><td><code>crypto.randomUUID()</code></td><td>—</td></tr>
+  <tr><td>rimraf, mkdirp, ncp</td><td><code>fs.rm({ recursive })</code>, <code>fs.mkdir({ recursive })</code>, <code>fs.cp</code></td><td>9</td></tr>
+  <tr><td>glob, fast-glob</td><td><code>fs.glob</code></td><td>9</td></tr>
+  <tr><td>lodash.clonedeep</td><td><code>structuredClone</code></td><td>—</td></tr>
+  <tr><td>sqlite3, better-sqlite3 (simple use)</td><td><code>node:sqlite</code></td><td>16</td></tr>
+  <tr><td>ts-node (for erasable TS)</td><td><code>node file.ts</code></td><td>App. A</td></tr>
+</table></div>
+<p>Big frameworks (Express, Fastify, Prisma, Zod…) still earn their place. The candidates for removal are small utilities that only filled gaps Node has since closed.</p>
+
+<h2 id="examples">Before and after</h2>
+<h3>chalk → util.styleText</h3>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Before: a dependency</strong></p>
+<script type="text/plain" class="code" data-file="before-chalk.js" data-norun>
+import chalk from "chalk";
+console.log(chalk.green("ok"), chalk.bold.red("failed"));
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>After: built in</strong></p>
+<script type="text/plain" class="code" data-file="after-chalk.js">
+import { styleText } from "node:util";
+console.log(styleText("green", "ok"), styleText(["bold", "red"], "failed"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok failed
+</script>
+</div>
+</div>
+<p><code>styleText</code> respects <code>NO_COLOR</code>, <code>FORCE_COLOR</code> and whether the output is a terminal (here it's captured, so no colour codes).</p>
+
+<h3>axios → fetch</h3>
+<script type="text/plain" class="code" data-file="axios-to-fetch.js">
+import http from "node:http";
+const server = http.createServer((req, res) => res.writeHead(201, { "Content-Type": "application/json" }).end('{"id":5}'));
+await new Promise((r) => server.listen(0, r));
+const base = `http://localhost:${server.address().port}`;
+
+// Before: const { data } = await axios.post(`${base}/items`, { name: "pen" }, { timeout: 2000 });
+const res = await fetch(`${base}/items`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },       // axios set this for you
+  body: JSON.stringify({ name: "pen" }),                  // …and stringified for you
+  signal: AbortSignal.timeout(2000),                      // timeout option → signal
+});
+if (!res.ok) throw new Error(`HTTP ${res.status}`);      // axios threw on 4xx/5xx; fetch doesn't
+const data = await res.json();                            // axios parsed JSON automatically
+console.log(res.status, data);
+server.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 { id: 5 }
+</script>
+<p>The three differences to remember: stringify bodies and set headers yourself, check <code>res.ok</code>, parse the body explicitly. A 10-line wrapper (Chapter 12) restores the convenience.</p>
+
+<h3>dotenv, uuid, rimraf, structuredClone</h3>
+<script type="text/plain" class="code" data-file="small-swaps.js">
+import { writeFile, mkdir, rm, readdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+
+await writeFile(".env.local", "API_URL=https://api.example.com\nRETRIES=3\n");
+process.loadEnvFile(".env.local");                       // instead of require("dotenv").config()
+console.log(process.env.API_URL, Number(process.env.RETRIES));
+
+console.log(/^[0-9a-f-]{36}$/.test(randomUUID()));        // instead of uuid.v4()
+
+await mkdir("build/assets/img", { recursive: true });     // instead of mkdirp
+await rm("build", { recursive: true, force: true });      // instead of rimraf
+console.log((await readdir(".")).includes("build"));
+
+const original = { user: { name: "Ana", tags: ["a"] }, when: new Date(0) };
+const copy = structuredClone(original);                   // instead of _.cloneDeep
+copy.user.tags.push("b");
+console.log(original.user.tags, copy.when instanceof Date);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+https://api.example.com 3
+true
+false
+[ 'a' ] true
+</script>
+
+<h3>Mocha → node:test</h3>
+<p>Mocha-style code often needs only the imports changed: <code>describe</code>, <code>it</code>, <code>before</code>, <code>after</code>, <code>beforeEach</code> and <code>afterEach</code> exist in <code>node:test</code>. Replace chai's <code>expect(x).to.equal(y)</code> with <code>assert.equal(x, y)</code>, sinon spies with <code>mock.fn()</code>, and the <code>mocha</code> command with <code>node --test</code>. Jest users map <code>jest.fn()</code> → <code>mock.fn()</code>, <code>jest.useFakeTimers()</code> → <code>t.mock.timers.enable()</code>, and <code>expect(...).toEqual</code> → <code>assert.deepEqual</code>.</p>
+<script type="text/plain" class="code" data-file="test/migrated.test.js" data-save>
+// Before: import { expect } from "chai";  (and Mocha's describe/it globals)
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+describe("Array#indexOf()", () => {
+  it("returns -1 when the value is missing", () => {
+    assert.equal([1, 2, 3].indexOf(4), -1);           // was: expect([1,2,3].indexOf(4)).to.equal(-1)
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/migrated.test.js
+▶ Array#indexOf()
+  ✔ returns -1 when the value is missing (...ms)
+✔ Array#indexOf() (...ms)
+...
+</script>
+
+<h2 id="codemods">Automated migrations</h2>
+<p>The Node.js project maintains <strong>userland migrations</strong>: codemods that rewrite your code automatically, for example from chalk to <code>util.styleText</code>, from axios to <code>fetch</code>, from Mocha to the test runner, or to add correct <code>.ts</code> extensions to TypeScript imports. They run with the <code>codemod</code> tool:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx codemod@latest @nodejs/chalk-to-util-styletext
+$ npx codemod@latest @nodejs/correct-ts-specifiers
+</script>
+<p>Always run codemods on a clean git working tree, review the diff, and run your tests afterwards.</p>
+
+<h2 id="wasm">WebAssembly in Node</h2>
+<p><strong>WebAssembly</strong> (Wasm) is a compact binary format that languages like Rust, C and Go can compile to. Node runs it with the same <code>WebAssembly</code> API as browsers, so you can use a fast image codec or parser written in another language without native compilation. This tiny module (written in bytes, normally produced by a compiler) exports an <code>add</code> function:</p>
+<script type="text/plain" class="code" data-file="wasm.js">
+const bytes = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,       // "\0asm", version 1
+  0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // type: (i32, i32) -> i32
+  0x03, 0x02, 0x01, 0x00,                               // one function of that type
+  0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, // export it as "add"
+  0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b, // body: a + b
+]);
+const { instance } = await WebAssembly.instantiate(bytes);
+console.log(instance.exports.add(20, 22));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+</script>
+
+<h2 id="node-api">Native addons and Node-API</h2>
+<p>Some packages include C or C++ code compiled into a <strong>native addon</strong> (a <code>.node</code> file): database drivers, image processing (sharp), cryptography. <strong>Node-API</strong> is the stable C interface they use; its ABI stability means an addon compiled once keeps working across Node versions. As an app developer you mostly meet addons when <code>npm install</code> needs build tools (<code>node-gyp</code>, Python, a C++ compiler) or downloads prebuilt binaries for your platform. Prefer pure-JavaScript or WebAssembly packages when performance allows: they install anywhere. And under the permission model, addons must be explicitly allowed (<code>--allow-addons</code>).</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>yargs-style options with parseArgs</h3>
+<script type="text/plain" class="code" data-file="cli-migrate.js" data-args="build --minify -o dist --target es2024 --target node26">
+import { parseArgs } from "node:util";
+// Before: const argv = yargs(process.argv.slice(2)).option("out", { alias: "o" })...argv
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    out: { type: "string", short: "o", default: "build" },
+    minify: { type: "boolean", default: false },
+    target: { type: "string", multiple: true },
+  },
+});
+console.log(positionals[0], values);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+build [Object: null prototype] {
+  minify: true,
+  out: 'dist',
+  target: [ 'es2024', 'node26' ]
+}
+</script>
+
+<h3>moment → Intl</h3>
+<script type="text/plain" class="code" data-file="dates.js">
+const when = new Date("2026-10-31T14:30:00Z");
+// Before: moment(when).tz("Europe/Lisbon").format("D MMM YYYY, HH:mm")
+console.log(new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Lisbon" }).format(when));
+console.log(new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-1, "day"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+31 Oct 2026, 14:30
+yesterday
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Browser → Node: <code>globalThis</code> instead of <code>window</code>, no DOM or storage, the same web APIs (<code>fetch</code>, <code>URL</code>, streams, <code>WebSocket</code>), files and processes instead.</li>
+  <li>Built-ins replace many small packages: <code>styleText</code>, <code>--env-file</code>, <code>--watch</code>, <code>parseArgs</code>, <code>fetch</code>, <code>node:test</code>, <code>randomUUID</code>, <code>fs.rm/mkdir/cp/glob</code>, <code>structuredClone</code>, <code>node:sqlite</code>.</li>
+  <li>Official codemods automate common migrations; review the diff and run the tests.</li>
+  <li>WebAssembly runs portable compiled code; native addons use Node-API and need build tools or prebuilt binaries.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">map it</span></h3>
+<p>Name the built-in replacement for: (a) <code>nodemon app.js</code>; (b) <code>require("dotenv").config()</code>; (c) <code>uuidv4()</code>; (d) <code>rimraf dist</code>; (e) <code>chalk.yellow("warn")</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>node --watch app.js</code>; (b) <code>node --env-file=.env app.js</code> or <code>process.loadEnvFile()</code>; (c) <code>crypto.randomUUID()</code>; (d) <code>fs.rm("dist", { recursive: true, force: true })</code>; (e) <code>util.styleText("yellow", "warn")</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">browser code</span></h3>
+<p>Which lines of this browser snippet fail in Node, and why? <code>const theme = localStorage.getItem("theme"); const url = new URL(location.href); document.title = "Hi"; const res = await fetch("/api");</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>localStorage</code>, <code>location</code> and <code>document</code> don't exist in Node (ReferenceError). <code>fetch</code> exists, but <code>"/api"</code> is a relative URL with no page to resolve it against, so it throws an "invalid URL" TypeError — Node needs absolute URLs. <code>new URL(...)</code> itself works if given an absolute string.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">convert</span></h3>
+<p>Rewrite with built-ins: <code>const copy = _.cloneDeep(settings); const id = uuid.v4(); console.log(chalk.green(`saved ${id}`));</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3.js">
+import { randomUUID } from "node:crypto";
+import { styleText } from "node:util";
+const settings = { theme: "dark", shortcuts: { save: "ctrl+s" } };
+const copy = structuredClone(settings);
+const id = randomUUID();
+console.log(styleText("green", `saved ${id.length === 36 ? "<uuid>" : id}`), copy.shortcuts !== settings.shortcuts);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+saved <uuid> true
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Give two reasons to remove a small utility dependency when Node has a built-in equivalent, and one reason you might keep it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Remove: fewer packages to audit and update (smaller supply-chain risk), and faster, smaller installs. Keep: when the package does meaningfully more than the built-in (e.g. yargs' generated help and sub-commands, axios interceptors used everywhere), or when you must support older Node versions that lack the built-in.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">axios habits</span></h3>
+<p>Write <code>http.js</code> exporting <code>api.get(url)</code> and <code>api.post(url, body)</code> that behave like axios: JSON in and out, throw on non-2xx with <code>err.response = { status, data }</code>, and a default 5 s timeout. Test it against a local server.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="axios-like.js">
+import http from "node:http";
+
+async function request(method, url, body, { timeout = 5000 } = {}) {
+  const res = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  });
+  const text = await res.text();
+  const data = res.headers.get("content-type")?.includes("json") && text ? JSON.parse(text) : text;
+  if (!res.ok) throw Object.assign(new Error(`Request failed with status code ${res.status}`), { response: { status: res.status, data } });
+  return { status: res.status, data };
+}
+const api = { get: (u, o) => request("GET", u, undefined, o), post: (u, b, o) => request("POST", u, b, o) };
+
+const server = http.createServer((req, res) => {
+  res.writeHead(req.url === "/missing" ? 404 : 200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(req.url === "/missing" ? { error: "nope" } : { method: req.method }));
+});
+await new Promise((r) => server.listen(0, r));
+const base = `http://localhost:${server.address().port}`;
+console.log((await api.post(`${base}/items`, { a: 1 })).data);
+await api.get(`${base}/missing`).catch((e) => console.log(e.message, e.response.data));
+server.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ method: 'POST' }
+Request failed with status code 404 { error: 'nope' }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">Jest → node:test</span></h3>
+<p>Translate this Jest test to <code>node:test</code>: <code>const cb = jest.fn(); jest.useFakeTimers(); setTimeout(cb, 1000); jest.advanceTimersByTime(1000); expect(cb).toHaveBeenCalledTimes(1);</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="test/jest-migrated.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+
+test("calls the callback after one second", (t) => {
+  const cb = mock.fn();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  setTimeout(cb, 1000);
+  t.mock.timers.tick(1000);
+  assert.equal(cb.mock.callCount(), 1);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/jest-migrated.test.js
+✔ calls the callback after one second (...ms)
+...
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">glob</span></h3>
+<p>Replace <code>glob.sync("src/**/*.{js,ts}", { ignore: "**/*.test.*" })</code> with <code>fs.glob</code>, returning a sorted array.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="glob-migrate.js">
+import { glob, mkdir, writeFile } from "node:fs/promises";
+for (const f of ["src/a.js", "src/b.ts", "src/a.test.js", "src/lib/c.ts", "src/lib/c.test.ts", "src/readme.md"]) {
+  await mkdir(f.split("/").slice(0, -1).join("/"), { recursive: true });
+  await writeFile(f, "");
+}
+const files = (await Array.fromAsync(glob("src/**/*.{js,ts}", { exclude: (f) => /\.test\./.test(f) }))).sort();
+console.log(files);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'src/a.js', 'src/b.ts', 'src/lib/c.ts' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">a storage shim</span></h3>
+<p>Browser code uses <code>localStorage</code>. Write a file-backed <code>createStorage(file)</code> for Node with the same <code>getItem</code>/<code>setItem</code>/<code>removeItem</code> API (values are strings), saving synchronously so it behaves like the browser API.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="storage-shim.js">
+import { readFileSync, writeFileSync } from "node:fs";
+
+function createStorage(file) {
+  let data = {};
+  try { data = JSON.parse(readFileSync(file, "utf8")); } catch (err) { if (err.code !== "ENOENT") throw err; }
+  const save = () => writeFileSync(file, JSON.stringify(data));
+  return {
+    getItem: (k) => (Object.hasOwn(data, k) ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v); save(); },
+    removeItem: (k) => { delete data[k]; save(); },
+  };
+}
+
+const s1 = createStorage("storage.json");
+s1.setItem("theme", "dark");
+s1.setItem("visits", 3);
+const s2 = createStorage("storage.json");          // a "new page load"
+console.log(s2.getItem("theme"), s2.getItem("visits"), typeof s2.getItem("visits"), s2.getItem("missing"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dark 3 string null
+</script>
+<p>Sync writes are fine for a CLI or a test helper; in a server you'd use async I/O or a database.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">audit</span></h3>
+<p>You inherit a <code>package.json</code> with: <code>express</code>, <code>dotenv</code>, <code>nodemon</code>, <code>axios</code>, <code>chalk</code>, <code>uuid</code>, <code>mocha</code>, <code>chai</code>, <code>sinon</code>, <code>rimraf</code>, <code>zod</code>, <code>pg</code>. Which would you remove, keep or replace, and in what order would you do it safely?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>Keep:</strong> <code>express</code> (framework), <code>zod</code> (validation), <code>pg</code> (database driver) — no built-in equivalents. <strong>Replace:</strong> <code>dotenv</code> → <code>--env-file</code>; <code>nodemon</code> → <code>--watch</code>; <code>chalk</code> → <code>styleText</code>; <code>uuid</code> → <code>randomUUID</code>; <code>rimraf</code> → <code>fs.rm</code>; <code>axios</code> → <code>fetch</code> (with a small wrapper); <code>mocha</code>/<code>chai</code>/<code>sinon</code> → <code>node:test</code>/<code>assert</code>/<code>mock</code>. <strong>Order:</strong> dev-only tooling first (nodemon, rimraf, dotenv in scripts: zero runtime risk), then trivial runtime swaps (uuid, chalk), then the test stack (migrate files gradually; both runners can coexist), and axios last (most behaviour differences: errors, JSON, timeouts). One change per commit, tests green after each.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">WebAssembly</span></h3>
+<p>Modify the WebAssembly example's bytes so the exported function multiplies instead of adds (the opcode for <code>i32.mul</code> is <code>0x6c</code>), and export it under the name <code>mul</code>. Call it with 6 and 7.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="wasm-mul.js">
+const bytes = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+  0x03, 0x02, 0x01, 0x00,
+  0x07, 0x07, 0x01, 0x03, 0x6d, 0x75, 0x6c, 0x00, 0x00, // export "mul" ("m" "u" "l")
+  0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6c, 0x0b, // a * b
+]);
+const { instance } = await WebAssembly.instantiate(bytes);
+console.log(instance.exports.mul(6, 7));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+</script>
+<p>The name is three bytes long like "add", so no section sizes change. Real projects never write bytes by hand: <code>wat2wasm</code> (text format) or a compiler (Rust's <code>wasm-pack</code>, Emscripten) produces them.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/differences-between-nodejs-and-the-browser">Differences between Node.js and the Browser</a></li>
+  <li><a href="https://nodejs.org/en/learn/userland-migrations/introduction">Introduction to Userland Migrations</a> · <a href="https://nodejs.org/en/learn/userland-migrations/chalk-to-styletext">Chalk to util.styleText</a> · <a href="https://nodejs.org/en/learn/userland-migrations/axios-to-whatwg-fetch">Axios to fetch</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/nodejs-with-webassembly">Node.js with WebAssembly</a> · <a href="https://nodejs.org/en/learn/node-api/what-is-node-api">What is Node-API?</a> · <a href="https://nodejs.org/en/learn/modules/abi-stability">ABI Stability</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

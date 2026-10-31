@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔷&lt;/text&gt;&lt;/svg&gt;">
+<title>Appendix A: TypeScript in Node.js · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A</div>
+<h1>TypeScript in Node.js</h1>
+<p class="lead">TypeScript adds static types to JavaScript: you describe the shape of your data, and the compiler catches mistakes before the code runs. Node can now run <code>.ts</code> files directly by <em>stripping</em> the types. This appendix explains what that means, what syntax works, how type checking fits in, and the other ways to run and publish TypeScript.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What TypeScript adds, and the difference between <em>type checking</em> and <em>running</em>.</li>
+  <li>Running <code>.ts</code> files natively with type stripping, and its rules (erasable syntax, <code>.ts</code> extensions, <code>import type</code>).</li>
+  <li>Type checking with <code>tsc --noEmit</code> and a <code>tsconfig.json</code> suited to Node.</li>
+  <li>The alternatives: transpiling with <code>tsc</code>, and runners like <code>tsx</code>.</li>
+  <li>Publishing a TypeScript package: compiled JavaScript plus <code>.d.ts</code> files.</li>
+</ul>
+</div>
+
+<h2 id="what">What TypeScript adds</h2>
+<p>TypeScript is JavaScript plus <strong>type annotations</strong>: <code>function total(items: Item[]): number</code>. A separate tool, the TypeScript compiler (<code>tsc</code>), reads those annotations and reports errors like "you passed a string where a number is expected" — in your editor as you type, and in CI. The types themselves don't exist at run time: the JavaScript engine never sees them.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a spell-checker with a grammar guide.</strong> Types are notes in the margin of your manuscript: "this word is a noun", "this sentence needs a verb". The proof-reader (<code>tsc</code>) checks the manuscript against those notes before it's printed. The printing press (Node) ignores the margin notes entirely — it prints the text. Node's type stripping is exactly that: it rubs out the margin notes and prints. It does <em>not</em> proof-read.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> TypeScript's types feel familiar (interfaces, generics, union types), with two big differences: they're <em>structural</em> (any object with the right properties fits an interface, no <code>implements</code> needed), and they're <em>erased</em> — there's no runtime type information, no reflection on generics, and a wrong cast isn't checked at run time.</p>
+</div>
+
+<h2 id="native">Running TypeScript natively</h2>
+<p>Since Node 23.6 (and in all current LTS versions), you can run a <code>.ts</code> file directly. Node removes the type annotations (replacing them with whitespace, so line and column numbers stay correct) and runs the JavaScript that remains:</p>
+<script type="text/plain" class="code" data-file="user.ts" data-save>
+export interface User {
+  id: number;
+  name: string;
+  email?: string;
+}
+export type Role = "admin" | "editor" | "viewer";
+
+export function describe(user: User, role: Role = "viewer"): string {
+  return `${user.name} <${user.email ?? "no email"}> as ${role}`;
+}
+</script>
+<script type="text/plain" class="code" data-file="main.ts">
+import { describe, type User } from "./user.ts";
+
+const users: User[] = [{ id: 1, name: "Ana", email: "ana@example.com" }, { id: 2, name: "Ben" }];
+for (const u of users) console.log(describe(u, u.id === 1 ? "admin" : "viewer"));
+
+const total: number = users.reduce((sum, u) => sum + u.id, 0);
+console.log("id total:", total);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana <ana@example.com> as admin
+Ben <no email> as viewer
+id total: 3
+</script>
+<p>Two rules are visible here: the import uses the full file name <strong><code>./user.ts</code></strong> (Node doesn't guess extensions, just like with <code>.js</code> in ES modules), and <strong><code>type User</code></strong> marks an import that exists only for types.</p>
+
+<h3>Stripping does not check types</h3>
+<script type="text/plain" class="code" data-file="wrong.ts">
+function double(n: number): number {
+  return n * 2;
+}
+const input: any = "21";                 // pretend this came from JSON
+console.log(double(input));              // tsc would accept this (any), and it runs
+const price: number = "9.99" as unknown as number;
+console.log(price + 1);                  // a lie to the type system: string concatenation at run time
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+9.991
+</script>
+<p>Node ran code that a careful type checker would flag (or that hides behind <code>any</code> and casts). Types describe your intent; only <code>tsc</code> verifies it, and only validation verifies data coming from outside (requests, files, env vars).</p>
+
+<h2 id="erasable">What syntax works: erasable only</h2>
+<p>Type stripping can only <em>delete</em> TypeScript syntax; it can't generate code. So TypeScript features that produce JavaScript at run time aren't supported:</p>
+<div class="table-wrap"><table>
+  <tr><th>Works (erasable)</th><th>Doesn't work (needs code generation)</th></tr>
+  <tr><td><code>interface</code>, <code>type</code>, annotations, generics, <code>as</code>, <code>satisfies</code>, <code>!</code>, <code>import type</code>, <code>declare</code>, <code>abstract</code>, access modifiers on fields</td><td><code>enum</code>, <code>namespace</code> with values, <strong>parameter properties</strong> (<code>constructor(private x: number)</code>), legacy decorators with metadata, <code>import x = require()</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="enum.ts" data-stderr data-exit>
+enum Status { Active, Archived }
+console.log(Status.Active);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+...
+</script>
+<p>Use plain JavaScript instead, which is what modern TypeScript style recommends anyway:</p>
+<script type="text/plain" class="code" data-file="no-enum.ts">
+export const Status = { Active: "active", Archived: "archived" } as const;
+export type Status = (typeof Status)[keyof typeof Status];   // "active" | "archived"
+
+class Account {
+  private balance: number;                  // a normal field instead of a parameter property
+  constructor(balance: number) { this.balance = balance; }
+  deposit(cents: number): number { return (this.balance += cents); }
+}
+const s: Status = Status.Archived;
+console.log(s, new Account(100).deposit(50));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+archived 150
+</script>
+
+<h3>Import types with the type keyword</h3>
+<p>Because the types are deleted, an import of something that is <em>only</em> a type would point to an export that doesn't exist in the JavaScript. Mark type-only imports with <code>type</code>:</p>
+<script type="text/plain" class="code" data-file="bad-import.ts" data-stderr data-exit>
+import { User } from "./user.ts";          // User is only an interface…
+const u: User = { id: 1, name: "Ana" };
+console.log(u.name);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+SyntaxError: The requested module './user.ts' does not provide an export named 'User'
+...
+</script>
+<p>The fix is <code>import type { User } from "./user.ts"</code> (or <code>import { type User, describe }</code>). The <code>verbatimModuleSyntax</code> compiler option makes <code>tsc</code> enforce this for you.</p>
+
+<h2 id="tsconfig">Type checking with tsc</h2>
+<p>Install TypeScript as a dev dependency and let <code>tsc</code> check (but not emit) your code, in the editor and in CI:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install -D typescript @types/node
+$ npx tsc --noEmit            # type-check the whole project
+src/app.ts:12:22 - error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+</script>
+<p>A <code>tsconfig.json</code> that matches Node's native TypeScript rules:</p>
+<script type="text/plain" class="code" data-file="tsconfig.json" data-norun>
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "noEmit": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "test"]
+}
+</script>
+<ul>
+  <li><code>erasableSyntaxOnly</code> reports enums, parameter properties and other non-erasable syntax as errors.</li>
+  <li><code>verbatimModuleSyntax</code> requires <code>import type</code> for type-only imports.</li>
+  <li><code>allowImportingTsExtensions</code> lets you write <code>./user.ts</code>; <code>rewriteRelativeImportExtensions</code> turns those into <code>.js</code> if you ever compile with <code>tsc</code>.</li>
+  <li><code>@types/node</code> gives types for Node's APIs (<code>fs</code>, <code>http</code>, <code>process</code>…).</li>
+</ul>
+<p>A typical <code>package.json</code>: <code>"start": "node src/server.ts"</code>, <code>"typecheck": "tsc"</code>, <code>"test": "node --test"</code> (the test runner finds <code>*.test.ts</code> files too).</p>
+
+<h2 id="alternatives">Other ways to run TypeScript</h2>
+<div class="table-wrap"><table>
+  <tr><th>Approach</th><th>How</th><th>When</th></tr>
+  <tr><td>Native type stripping</td><td><code>node file.ts</code></td><td>new projects that use erasable syntax; scripts; tests</td></tr>
+  <tr><td>Transpile with <code>tsc</code></td><td><code>tsc</code> → <code>dist/*.js</code>, then <code>node dist/server.js</code></td><td>publishing libraries; projects using enums/decorators; older Node versions</td></tr>
+  <tr><td>A runner (<code>tsx</code>, <code>ts-node</code>)</td><td><code>npx tsx file.ts</code></td><td>full TypeScript syntax without a build step, e.g. existing codebases</td></tr>
+  <tr><td>A bundler (esbuild, Vite…)</td><td>build one optimised file</td><td>front-end code, serverless functions</td></tr>
+</table></div>
+<p>Whatever runs the code, keep <code>tsc --noEmit</code> in CI: runners and type stripping are fast precisely because they skip type checking.</p>
+
+<h2 id="publishing">Publishing a TypeScript package</h2>
+<p>Packages on npm should ship <strong>JavaScript</strong> (so every consumer can run them, whatever their setup) plus <strong>declaration files</strong> (<code>.d.ts</code>) that carry the types for TypeScript users. Node doesn't strip types inside <code>node_modules</code>, which is another reason to compile.</p>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "name": "@acme/money",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.build.json", "prepublishOnly": "npm run build" }
+}
+</script>
+<p>The build config sets <code>"declaration": true</code>, <code>"outDir": "dist"</code> and turns <code>noEmit</code> off. <code>prepublishOnly</code> makes sure <code>npm publish</code> never ships stale files.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Generics and narrowing at run time</h3>
+<script type="text/plain" class="code" data-file="result.ts">
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function parseAge(input: string): Result<number> {
+  const n = Number(input);
+  return Number.isInteger(n) && n >= 0 ? { ok: true, value: n } : { ok: false, error: `not an age: ${input}` };
+}
+
+for (const raw of ["34", "-1", "abc"]) {
+  const r = parseAge(raw);
+  console.log(r.ok ? `age ${r.value}` : r.error);      // TypeScript narrows r by checking r.ok
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+age 34
+not an age: -1
+not an age: abc
+</script>
+
+<h3>Testing TypeScript with node:test</h3>
+<script type="text/plain" class="code" data-file="sum.test.ts" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+function sum(values: readonly number[]): number {
+  return values.reduce((a, b) => a + b, 0);
+}
+test("sums numbers", () => assert.equal(sum([1, 2, 3]), 6));
+test("empty is zero", () => assert.equal(sum([]), 0));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test sum.test.ts
+✔ sums numbers (...ms)
+✔ empty is zero (...ms)
+...
+ℹ pass 2
+...
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>TypeScript = JavaScript + types checked by <code>tsc</code>; types are erased and don't exist at run time.</li>
+  <li><code>node file.ts</code> strips types and runs; it does not type-check. Only erasable syntax works: no enums, parameter properties or value namespaces.</li>
+  <li>Import with full <code>.ts</code> extensions, and use <code>import type</code> for types; <code>erasableSyntaxOnly</code> + <code>verbatimModuleSyntax</code> make <code>tsc</code> enforce the rules.</li>
+  <li>Run <code>tsc --noEmit</code> in CI. Use <code>tsx</code> or compilation for full TypeScript syntax.</li>
+  <li>Publish compiled JavaScript + <code>.d.ts</code> files, with a <code>"types"</code> condition in <code>exports</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">run it</span></h3>
+<p>Write <code>hello.ts</code> with a typed function <code>greet(name: string, times: number): string</code> that repeats a greeting, and run it with <code>node</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="hello.ts">
+function greet(name: string, times: number): string {
+  return Array.from({ length: times }, () => `Hello, ${name}!`).join(" ");
+}
+console.log(greet("Node", 2));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello, Node! Hello, Node!
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Will Node run each line in a <code>.ts</code> file? (a) <code>let id: number = 5;</code> (b) <code>enum Color { Red }</code> (c) <code>type Id = string | number;</code> (d) <code>const x = value as string;</code> (e) <code>class A { constructor(public n: number) {} }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a), (c), (d): yes — erasable. (b) and (e): no — enums and parameter properties need generated code, so Node throws <code>ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix it</span></h3>
+<p>Rewrite <code>enum Level { Low = "low", High = "high" }</code> so it runs under type stripping and still gives you both a value object and a type.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="level.ts">
+const Level = { Low: "low", High: "high" } as const;
+type Level = (typeof Level)[keyof typeof Level];
+const pick = (l: Level): string => `level=${l}`;
+console.log(pick(Level.High), Object.values(Level));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+level=high [ 'low', 'high' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>A teammate says "Node runs TypeScript now, so we don't need <code>tsc</code> anymore." What do you answer?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Node only <em>removes</em> the types; it never checks them. Code with type errors runs (and fails or misbehaves at run time). Keep <code>tsc --noEmit</code> (or the editor's checks) in the workflow and in CI; Node's native support just removes the build step for <em>running</em>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">modules</span></h3>
+<p>Create <code>shapes.ts</code> exporting an interface <code>Shape</code> and a function <code>area(s: Shape)</code> for circles and rectangles (a discriminated union on <code>kind</code>), and import both correctly from <code>use-shapes.ts</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="shapes.ts" data-save>
+export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+export function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle": return Math.PI * s.r ** 2;
+    case "rect": return s.w * s.h;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="use-shapes.ts">
+import { area, type Shape } from "./shapes.ts";
+const shapes: Shape[] = [{ kind: "circle", r: 1 }, { kind: "rect", w: 2, h: 3 }];
+console.log(shapes.map((s) => area(s).toFixed(2)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ '3.14', '6.00' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">validation</span></h3>
+<p>Types don't validate JSON. Write <code>parseUser(json: string): User</code> that checks the parsed data at run time and throws a helpful error, so the <code>User</code> type is actually true.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="parse-user.ts">
+interface User { id: number; name: string }
+
+function parseUser(json: string): User {
+  const data: unknown = JSON.parse(json);
+  if (typeof data !== "object" || data === null) throw new TypeError("user must be an object");
+  const { id, name } = data as Record<string, unknown>;
+  if (typeof id !== "number" || !Number.isInteger(id)) throw new TypeError("id must be an integer");
+  if (typeof name !== "string" || !name) throw new TypeError("name must be a non-empty string");
+  return { id, name };
+}
+
+console.log(parseUser('{"id": 7, "name": "Ana", "extra": true}'));
+try { parseUser('{"id": "7", "name": "Ana"}'); } catch (e) { console.log((e as Error).message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 7, name: 'Ana' }
+id must be an integer
+</script>
+<p>Using <code>unknown</code> (not <code>any</code>) forces you to check before you use. Libraries like Zod generate both the check and the type from one schema.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">tsconfig</span></h3>
+<p>Which <code>tsconfig</code> options would have caught (a) <code>constructor(private db: Db)</code>, (b) <code>import { Config } from "./config.ts"</code> where <code>Config</code> is only a type, before running the code?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>"erasableSyntaxOnly": true</code> reports parameter properties (and enums, namespaces) as errors. (b) <code>"verbatimModuleSyntax": true</code> requires <code>import type</code> for type-only imports, preventing the runtime "does not provide an export named" error.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">a typed server</span></h3>
+<p>Write a tiny typed HTTP server in <code>server.ts</code> using <code>node:http</code> with a typed route table <code>Record&lt;string, (url: URL) =&gt; unknown&gt;</code>, and test it with <code>fetch</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="server.ts">
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+
+const routes: Record<string, (url: URL) => unknown> = {
+  "/hello": (url) => ({ hello: url.searchParams.get("name") ?? "world" }),
+  "/time": () => ({ epoch: 0 }),
+};
+
+const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const route = routes[url.pathname];
+  res.writeHead(route ? 200 : 404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(route ? route(url) : { error: "not found" }));
+});
+
+server.listen(0, async () => {
+  const { port } = server.address() as AddressInfo;
+  console.log(await (await fetch(`http://localhost:${port}/hello?name=TS`)).json());
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ hello: 'TS' }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">migrate</span></h3>
+<p>Plan the migration of the Chapter 16 project to TypeScript: the order of steps, which files change, what to do about <code>import.meta.main</code> and the test files, and how <code>package.json</code> changes.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Add <code>typescript</code> and <code>@types/node</code> as devDependencies and the <code>tsconfig.json</code> above (with <code>noEmit</code>). Add <code>"typecheck": "tsc"</code>.</li>
+  <li>Rename files one by one, leaves first: <code>errors.js</code> → <code>errors.ts</code>, <code>config.ts</code>, <code>logger.ts</code>, <code>router.ts</code>, <code>store.ts</code>, <code>app.ts</code>, <code>server.ts</code>, <code>cli.ts</code>; update every relative import to the <code>.ts</code> extension.</li>
+  <li>Add types: a <code>Note</code> interface, <code>Config</code>, a <code>Logger</code> type, handler context types for the router; use <code>import type</code>. Replace nothing with enums or parameter properties.</li>
+  <li><code>import.meta.main</code> works unchanged. Scripts become <code>node src/server.ts</code>; the CLI's shebang still works with <code>node</code>; <code>"bin"</code> points at <code>src/cli.ts</code> for local use (compile it if you publish).</li>
+  <li>Rename tests to <code>*.test.ts</code>; <code>node --test</code> finds them. Run <code>npm run typecheck</code> and <code>npm test</code> in CI.</li>
+</ol>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">types at the boundary</span></h3>
+<p>Write a generic <code>defineConfig</code> helper in TypeScript that reads environment variables according to a schema object (each entry says the type — <code>"string" | "int" | "bool"</code> — and a default) and returns a correctly <em>typed</em> config object, validated at run time.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="define-config.ts">
+type Kind = "string" | "int" | "bool";
+type Spec = { kind: Kind; default: string };
+type Out<S extends Record<string, Spec>> = {
+  [K in keyof S]: S[K]["kind"] extends "int" ? number : S[K]["kind"] extends "bool" ? boolean : string;
+};
+
+function defineConfig<S extends Record<string, Spec>>(schema: S, env: Record<string, string | undefined>): Out<S> {
+  const result: Record<string, unknown> = {};
+  for (const [name, spec] of Object.entries(schema)) {
+    const raw = env[name] ?? spec.default;
+    if (spec.kind === "int") {
+      const n = Number(raw);
+      if (!Number.isInteger(n)) throw new Error(`${name} must be an integer`);
+      result[name] = n;
+    } else if (spec.kind === "bool") result[name] = raw === "true" || raw === "1";
+    else result[name] = raw;
+  }
+  return result as Out<S>;
+}
+
+const config = defineConfig({
+  PORT: { kind: "int", default: "3000" },
+  DEBUG: { kind: "bool", default: "false" },
+  NAME: { kind: "string", default: "notes" },
+}, { PORT: "8080", DEBUG: "1" });
+
+const port: number = config.PORT;          // typed as number, verified at run time
+console.log(port + 1, config.DEBUG, config.NAME.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+8081 true NOTES
+</script>
+<p>The mapped type <code>Out&lt;S&gt;</code> computes the config's type from the schema, so <code>config.PORT</code> is a <code>number</code> in the editor — and the run-time checks make sure that's true.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/typescript/introduction">Introduction to TypeScript</a> · <a href="https://nodejs.org/en/learn/typescript/run-natively">Running TypeScript Natively</a></li>
+  <li><a href="https://nodejs.org/en/learn/typescript/transpile">Running TypeScript code using transpilation</a> · <a href="https://nodejs.org/en/learn/typescript/run">Running TypeScript with a runner</a></li>
+  <li><a href="https://nodejs.org/en/learn/typescript/publishing-a-ts-package">Publishing a TypeScript package</a> · API: <a href="https://nodejs.org/api/typescript.html">Modules: TypeScript</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

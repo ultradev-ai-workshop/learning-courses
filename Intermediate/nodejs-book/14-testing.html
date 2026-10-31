@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧪&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Testing with node:test · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · Production-Ready Node</div>
+<h1>Testing with node:test</h1>
+<p class="lead">Node ships a complete test runner: test discovery, suites, hooks, assertions, mocking (including timers), coverage and watch mode, all without installing Jest or Mocha. This chapter shows how to write good tests with <code>node:test</code> and <code>node:assert</code>, how to test asynchronous code and HTTP servers, how to fake things you don't control, and how to measure coverage.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Writing tests with <code>test</code>, <code>describe</code>/<code>it</code> and <code>node:assert/strict</code>, and running them with <code>node --test</code>.</li>
+  <li>Testing async code, errors and rejections; hooks; <code>skip</code>, <code>only</code> and <code>todo</code>.</li>
+  <li>Mocking functions, methods (like <code>fetch</code>) and timers with <code>mock</code>.</li>
+  <li>Testing an HTTP server end to end, and designing code to be testable.</li>
+  <li>Coverage, reporters, watch mode, and running tests in CI.</li>
+</ul>
+</div>
+
+<h2 id="why">Why automated tests?</h2>
+<p>A test is a small program that runs a piece of your code and checks the result. Tests let you change code with confidence: if you break something, they tell you in seconds, not when a customer complains. They're also executable documentation of how your code is meant to behave.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a smoke detector.</strong> You don't install a smoke detector because you plan to start fires; you install it so that when something goes wrong while you're busy, you find out immediately and cheaply. Tests are smoke detectors for your code: each one watches a specific room (a function, a route), and an alarm points you straight to the problem.</p>
+</div>
+
+<h2 id="first">Your first test</h2>
+<p>Here's a module to test, and a test file for it:</p>
+<script type="text/plain" class="code" data-file="src/pricing.js" data-save>
+export function applyDiscount(cents, percent) {
+  if (!Number.isInteger(cents) || cents < 0) throw new TypeError("cents must be a non-negative integer");
+  if (percent < 0 || percent > 100) throw new RangeError("percent must be 0–100");
+  return Math.round(cents * (1 - percent / 100));
+}
+
+export function formatPrice(cents, currency = "EUR") {
+  return new Intl.NumberFormat("en-IE", { style: "currency", currency }).format(cents / 100);
+}
+</script>
+<script type="text/plain" class="code" data-file="test/pricing.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { applyDiscount, formatPrice } from "../src/pricing.js";
+
+test("applies a percentage discount", () => {
+  assert.equal(applyDiscount(1000, 25), 750);
+});
+
+test("rounds to whole cents", () => {
+  assert.equal(applyDiscount(999, 10), 899);
+});
+
+test("rejects invalid input", () => {
+  assert.throws(() => applyDiscount(-1, 10), TypeError);
+  assert.throws(() => applyDiscount(100, 120), { name: "RangeError", message: /0–100/ });
+});
+
+test("formats euros", () => {
+  assert.equal(formatPrice(123456), "€1,234.56");
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/pricing.test.js
+✔ applies a percentage discount (...ms)
+✔ rounds to whole cents (...ms)
+✔ rejects invalid input (...ms)
+✔ formats euros (...ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms ...
+</script>
+<ul>
+  <li><code>test(name, fn)</code> defines a test. It passes if <code>fn</code> returns (or its promise resolves) without throwing.</li>
+  <li>Always import <strong><code>node:assert/strict</code></strong>: its <code>equal</code> uses <code>===</code> and <code>deepEqual</code> compares types strictly. (The non-strict versions use <code>==</code> and surprise people.)</li>
+  <li><code>node --test</code> with no arguments finds test files automatically: <code>**/*.test.js</code>, <code>**/test/**/*.js</code>, <code>*-test.js</code>, <code>*_test.js</code> and similar (skipping <code>node_modules</code>). Add it as your <code>"test"</code> script.</li>
+  <li>The process exits with code 1 if any test fails, so CI marks the build red.</li>
+</ul>
+
+<h3>The assertions you'll use most</h3>
+<script type="text/plain" class="code" data-file="asserts.js">
+import assert from "node:assert/strict";
+
+assert.equal(2 + 2, 4);                                     // ===
+assert.notEqual("a", "b");
+assert.deepEqual({ a: [1, 2] }, { a: [1, 2] });             // structure, recursively
+assert.ok([].length === 0, "array should be empty");        // truthy
+assert.match("order-1234", /^order-\d+$/);                  // regex
+assert.throws(() => JSON.parse("{"), SyntaxError);          // sync errors
+await assert.rejects(Promise.reject(new Error("boom")), /boom/);   // async errors
+assert.partialDeepStrictEqual({ id: 1, name: "Ana", tags: ["x"] }, { name: "Ana" });   // a subset
+
+try {
+  assert.deepEqual({ id: 1, tags: ["a"] }, { id: 1, tags: ["b"] });
+} catch (err) {
+  console.log(err.name, "-", err.message.split("\n")[0]);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+AssertionError - Expected values to be strictly deep-equal:
+</script>
+
+<h2 id="structure">Suites, async tests and hooks</h2>
+<p><code>describe</code> groups related tests and <code>it</code> is an alias of <code>test</code>, so Mocha/Jest-style files feel familiar. Test functions can be <code>async</code>. <strong>Hooks</strong> run setup and cleanup around tests:</p>
+<script type="text/plain" class="code" data-file="src/cart.js" data-save>
+export class Cart {
+  #items = new Map();
+  add(sku, qty = 1) {
+    if (qty <= 0) throw new RangeError("qty must be positive");
+    this.#items.set(sku, (this.#items.get(sku) ?? 0) + qty);
+  }
+  remove(sku) { return this.#items.delete(sku); }
+  get count() { return [...this.#items.values()].reduce((a, b) => a + b, 0); }
+  async checkout(pay) {
+    if (this.count === 0) throw new Error("cart is empty");
+    const receipt = await pay(this.count);
+    this.#items.clear();
+    return receipt;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="test/cart.test.js" data-save>
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { Cart } from "../src/cart.js";
+
+describe("Cart", () => {
+  let cart;
+  beforeEach(() => { cart = new Cart(); });          // a fresh cart for every test
+
+  describe("add", () => {
+    it("counts quantities", () => {
+      cart.add("pen", 2);
+      cart.add("pen");
+      cart.add("ink");
+      assert.equal(cart.count, 4);
+    });
+    it("rejects zero quantities", () => {
+      assert.throws(() => cart.add("pen", 0), RangeError);
+    });
+  });
+
+  describe("checkout", () => {
+    it("pays and empties the cart", async () => {
+      cart.add("pen", 3);
+      const receipt = await cart.checkout(async (n) => `paid for ${n} items`);
+      assert.equal(receipt, "paid for 3 items");
+      assert.equal(cart.count, 0);
+    });
+    it("refuses an empty cart", async () => {
+      await assert.rejects(cart.checkout(async () => "never"), { message: "cart is empty" });
+    });
+    it.todo("applies coupons");
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/cart.test.js
+▶ Cart
+  ▶ add
+    ✔ counts quantities (...ms)
+    ✔ rejects zero quantities (...ms)
+  ✔ add (...ms)
+  ▶ checkout
+    ✔ pays and empties the cart (...ms)
+    ✔ refuses an empty cart (...ms)
+    ✔ applies coupons (...ms) # TODO
+  ✔ checkout (...ms)
+✔ Cart (...ms)
+ℹ tests 5
+ℹ suites 3
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms ...
+</script>
+<p>The <code>todo</code> test is listed (marked <code># TODO</code>) but doesn't fail the run.</p>
+<div class="table-wrap"><table>
+  <tr><th>Hook / option</th><th>Runs / does</th></tr>
+  <tr><td><code>before</code> / <code>after</code></td><td>once before / after all tests in the suite (start a server, open a database)</td></tr>
+  <tr><td><code>beforeEach</code> / <code>afterEach</code></td><td>around every test (fresh objects, reset mocks)</td></tr>
+  <tr><td><code>it.skip</code>, <code>{ skip: "reason" }</code></td><td>don't run, report as skipped</td></tr>
+  <tr><td><code>it.todo</code></td><td>a reminder; reported, doesn't fail</td></tr>
+  <tr><td><code>it.only</code> + <code>--test-only</code></td><td>run just this test while debugging</td></tr>
+  <tr><td><code>--test-name-pattern="checkout"</code></td><td>run tests whose name matches</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <strong>Forgetting <code>await</code> in async tests.</strong> <code>assert.rejects(...)</code> returns a promise. Without <code>await</code>, the test function finishes before the assertion runs and the test passes even when it shouldn't. The same goes for any promise you're checking. Make the test <code>async</code> and <code>await</code> everything.</p>
+</div>
+
+<h2 id="good">What makes a good test</h2>
+<ul>
+  <li><strong>Arrange, act, assert.</strong> Set up the inputs, call the code once, check the result. One behaviour per test, named after that behaviour.</li>
+  <li><strong>Independent.</strong> Each test must pass alone and in any order: no shared state that one test leaves for the next (use <code>beforeEach</code>).</li>
+  <li><strong>Deterministic.</strong> No real network, no real clocks, no randomness you don't control. Those make tests "flaky" (sometimes red for no reason). Inject them, or mock them.</li>
+  <li><strong>Test behaviour, not implementation.</strong> Assert on outputs and visible effects, not on private details, so refactoring doesn't break the tests.</li>
+  <li><strong>Include the edge cases:</strong> empty input, zero, negative numbers, huge values, invalid types, failures of dependencies.</li>
+</ul>
+
+<h2 id="mocking">Mocking</h2>
+<p>Real code depends on things you don't want in a unit test: a payment API, the clock, email sending. A <strong>mock</strong> (or test double) is a stand-in that you control and that records how it was used.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a flight simulator.</strong> Pilots don't practise engine failures in a real plane over a real city. A simulator reproduces exactly the situation they want to rehearse, on demand, safely, as often as needed — and records everything they did. Mocks are simulators for your dependencies: "the payment API is down", "it's 23:59 on December 31st", rehearsed in milliseconds.</p>
+</div>
+
+<h3>Mock functions</h3>
+<p><code>mock.fn(implementation)</code> creates a function that records every call:</p>
+<script type="text/plain" class="code" data-file="test/mock-fn.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+import { Cart } from "../src/cart.js";
+
+test("checkout calls the payment function once with the item count", async () => {
+  const pay = mock.fn(async (count) => `rcpt-${count}`);
+  const cart = new Cart();
+  cart.add("pen", 2);
+  const receipt = await cart.checkout(pay);
+  assert.equal(receipt, "rcpt-2");
+  assert.equal(pay.mock.callCount(), 1);
+  assert.deepEqual(pay.mock.calls[0].arguments, [2]);
+});
+
+test("a failed payment keeps the items in the cart", async () => {
+  const pay = mock.fn(async () => { throw new Error("card declined"); });
+  const cart = new Cart();
+  cart.add("ink");
+  await assert.rejects(cart.checkout(pay), /declined/);
+  assert.equal(cart.count, 1);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/mock-fn.test.js
+✔ checkout calls the payment function once with the item count (...ms)
+✔ a failed payment keeps the items in the cart (...ms)
+...
+ℹ pass 2
+ℹ fail 0
+...
+</script>
+<p>This only works because <code>checkout</code> <em>receives</em> its payment function instead of importing a real one. That design choice — passing dependencies in (<strong>dependency injection</strong>) — is the single most useful thing for testability.</p>
+
+<h3>Mocking methods, such as fetch</h3>
+<p><code>mock.method(object, "name", impl)</code> replaces a method on an existing object and restores it afterwards. It's how you test code that calls the global <code>fetch</code> without a network:</p>
+<script type="text/plain" class="code" data-file="src/weather.js" data-save>
+export async function currentTemp(city) {
+  const res = await fetch(`https://api.example.com/weather?city=${encodeURIComponent(city)}`);
+  if (!res.ok) throw new Error(`weather API returned ${res.status}`);
+  const { celsius } = await res.json();
+  return `${city}: ${Math.round(celsius)}°C`;
+}
+</script>
+<script type="text/plain" class="code" data-file="test/weather.test.js" data-save>
+import { test, mock, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import { currentTemp } from "../src/weather.js";
+
+afterEach(() => mock.restoreAll());                  // put the real fetch back
+
+test("formats the temperature", async () => {
+  const fake = mock.method(globalThis, "fetch", async () => Response.json({ celsius: 21.6 }));
+  assert.equal(await currentTemp("São Paulo"), "São Paulo: 22°C");
+  assert.match(fake.mock.calls[0].arguments[0], /city=S%C3%A3o%20Paulo$/);
+});
+
+test("reports API errors", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("down", { status: 503 }));
+  await assert.rejects(currentTemp("Oslo"), /returned 503/);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/weather.test.js
+✔ formats the temperature (...ms)
+✔ reports API errors (...ms)
+...
+</script>
+
+<h3>Mocking time</h3>
+<p>Code with <code>setTimeout</code> or <code>Date.now()</code> is slow or unpredictable to test for real. <code>mock.timers</code> replaces them with a fake clock you advance by hand:</p>
+<script type="text/plain" class="code" data-file="src/session.js" data-save>
+export class Session {
+  constructor({ ttlMs, onExpire }) {
+    this.expired = false;
+    this.timer = setTimeout(() => { this.expired = true; onExpire?.(); }, ttlMs);
+  }
+  touch(ttlMs) { this.timer.refresh?.(); clearTimeout(this.timer); this.constructorArgs = ttlMs; }
+}
+</script>
+<script type="text/plain" class="code" data-file="test/timers.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+import { Session } from "../src/session.js";
+
+test("a session expires after its TTL", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });   // t.mock: restored automatically after the test
+  const onExpire = mock.fn();
+  const s = new Session({ ttlMs: 30 * 60_000, onExpire });
+
+  t.mock.timers.tick(29 * 60_000);                          // 29 minutes pass instantly
+  assert.equal(s.expired, false);
+  t.mock.timers.tick(60_000);                               // one more minute
+  assert.equal(s.expired, true);
+  assert.equal(onExpire.mock.callCount(), 1);
+  assert.equal(Date.now(), 30 * 60_000);                    // the fake clock started at 0
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/timers.test.js
+✔ a session expires after its TTL (...ms)
+...
+</script>
+<p>Thirty minutes of behaviour, tested in a millisecond. Use the test context's <code>t.mock</code> so everything is restored automatically when the test ends.</p>
+
+<h2 id="http">Testing an HTTP server</h2>
+<p>For a server, the most valuable tests send real HTTP requests. Export a function that <em>creates</em> the server (without listening), start it on port <code>0</code> in a <code>before</code> hook, and close it in <code>after</code>:</p>
+<script type="text/plain" class="code" data-file="src/app.js" data-save>
+import http from "node:http";
+
+export function createApp({ now = () => new Date() } = {}) {
+  const todos = [];
+  return http.createServer(async (req, res) => {
+    const send = (status, data) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
+    if (req.url === "/health") return send(200, { ok: true, time: now().toISOString() });
+    if (req.url === "/todos" && req.method === "GET") return send(200, todos);
+    if (req.url === "/todos" && req.method === "POST") {
+      let body = "";
+      for await (const c of req) body += c;
+      const { title } = JSON.parse(body || "{}");
+      if (!title) return send(422, { error: "title is required" });
+      const todo = { id: todos.length + 1, title };
+      todos.push(todo);
+      return send(201, todo);
+    }
+    send(404, { error: "not found" });
+  });
+}
+</script>
+<script type="text/plain" class="code" data-file="test/app.test.js" data-save>
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createApp } from "../src/app.js";
+
+describe("todo API", () => {
+  let server, base;
+  before(async () => {
+    server = createApp({ now: () => new Date("2026-01-01T00:00:00Z") });   // inject a fixed clock
+    server.listen(0);
+    await once(server, "listening");
+    base = `http://localhost:${server.address().port}`;
+  });
+  after(() => server.close());
+
+  const post = (path, data) => fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+
+  it("reports health with the injected time", async () => {
+    const res = await fetch(`${base}/health`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, time: "2026-01-01T00:00:00.000Z" });
+  });
+  it("creates and lists todos", async () => {
+    const created = await post("/todos", { title: "write tests" });
+    assert.equal(created.status, 201);
+    assert.deepEqual(await (await fetch(`${base}/todos`)).json(), [{ id: 1, title: "write tests" }]);
+  });
+  it("validates the title", async () => {
+    const res = await post("/todos", {});
+    assert.equal(res.status, 422);
+    assert.deepEqual(await res.json(), { error: "title is required" });
+  });
+  it("answers unknown routes with 404", async () => {
+    assert.equal((await fetch(`${base}/nope`)).status, 404);
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/app.test.js
+▶ todo API
+  ✔ reports health with the injected time (...ms)
+  ✔ creates and lists todos (...ms)
+  ✔ validates the title (...ms)
+  ✔ answers unknown routes with 404 (...ms)
+✔ todo API (...ms)
+...
+ℹ pass 4
+ℹ fail 0
+...
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>describe</code>/<code>it</code> ≈ a JUnit test class with <code>@Test</code> methods, <code>beforeEach</code> ≈ <code>@BeforeEach</code>, <code>node:assert</code> ≈ JUnit's <code>Assertions</code>, and <code>mock.fn</code>/<code>mock.method</code> ≈ Mockito's <code>mock</code>/<code>spy</code>. Starting the app on port 0 is the equivalent of Spring's <code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code>.</p>
+</div>
+
+<h2 id="coverage">Coverage, reporters and watch mode</h2>
+<p><strong>Coverage</strong> measures which lines, branches and functions your tests executed. It finds untested code; it doesn't prove the tests check the right things. Turn it on with a flag:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test --experimental-test-coverage --test-coverage-include="src/pricing.js" test/pricing.test.js 2>&1 | grep -A 6 "start of coverage"
+ℹ start of coverage report
+ℹ ------------------------------------------------------------
+ℹ file        | line % | branch % | funcs % | uncovered lines
+ℹ ------------------------------------------------------------
+ℹ src         |        |          |         |
+ℹ  pricing.js | 100.00 |   100.00 |  100.00 |
+ℹ ------------------------------------------------------------
+</script>
+<ul>
+  <li><code>--test-coverage-lines=80</code> (and <code>-branches</code>, <code>-functions</code>) fail the run if coverage drops below a threshold.</li>
+  <li><code>--test-reporter=tap|dot|junit|lcov</code> changes the output format; <code>--test-reporter-destination</code> writes it to a file (JUnit XML for CI dashboards, lcov for coverage services). Several reporters can run at once. The coverage table groups files by folder.</li>
+  <li><code>node --test --watch</code> re-runs the affected tests whenever you save a file.</li>
+</ul>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a city map of where the patrol went.</strong> Coverage is a map showing which streets the police patrol drove through. Unvisited streets (uncovered lines) definitely weren't checked. But driving down a street isn't the same as noticing the open window: 100% coverage with weak assertions still misses bugs.</p>
+</div>
+
+<h2 id="ci">Tests in package.json and CI</h2>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=80"
+  }
+}
+</script>
+<p>A CI pipeline (GitHub Actions, GitLab CI…) then just runs <code>npm ci</code> and <code>npm test</code> on every push, ideally on each Node version you support. The non-zero exit code on failure is what turns the build red.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Table-driven tests</h3>
+<p>When many inputs exercise the same logic, loop over a table of cases; each case becomes its own named test:</p>
+<script type="text/plain" class="code" data-file="test/table.test.js" data-save>
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { applyDiscount } from "../src/pricing.js";
+
+const cases = [
+  [1000, 0, 1000], [1000, 100, 0], [1000, 33, 670], [1, 50, 1], [0, 50, 0],
+];
+describe("applyDiscount table", () => {
+  for (const [cents, pct, expected] of cases) {
+    it(`${cents} cents − ${pct}% = ${expected}`, () => assert.equal(applyDiscount(cents, pct), expected));
+  }
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/table.test.js
+▶ applyDiscount table
+  ✔ 1000 cents − 0% = 1000 (...ms)
+  ✔ 1000 cents − 100% = 0 (...ms)
+  ✔ 1000 cents − 33% = 670 (...ms)
+  ✔ 1 cents − 50% = 1 (...ms)
+  ✔ 0 cents − 50% = 0 (...ms)
+✔ applyDiscount table (...ms)
+...
+</script>
+<p><code>1 cents − 50%</code> rounds 0.5 up to 1 (<code>Math.round</code>). Is that what the business wants? Table tests make such decisions visible.</p>
+
+<h3>What a failure looks like</h3>
+<script type="text/plain" class="code" data-file="test/failing.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+test("deliberately wrong expectation", () => {
+  assert.deepEqual({ total: 1299, items: 2 }, { total: 1299, items: 3 });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/failing.test.js; echo "exit code: $?"
+✖ deliberately wrong expectation (...ms)
+...
+✖ failing tests:
+...
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   items: 2,
+  -   items: 3,
+      total: 1299
+    }
+...
+exit code: 1
+</script>
+<p>The diff shows exactly which property differs. Read failures from the top: the test name, the assertion, then the diff.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>node:test</code> + <code>node:assert/strict</code> need no dependencies; run with <code>node --test</code> (auto-discovers <code>*.test.js</code> and <code>test/</code>).</li>
+  <li><code>describe</code>/<code>it</code>, hooks (<code>before</code>, <code>beforeEach</code>, <code>after</code>…), <code>skip</code>/<code>todo</code>/<code>only</code>. Make async tests <code>async</code> and <code>await</code> every assertion.</li>
+  <li>Good tests are independent, deterministic and test behaviour; inject dependencies so they can be replaced.</li>
+  <li>Mock with <code>mock.fn</code>, <code>mock.method(globalThis, "fetch", …)</code> and <code>t.mock.timers</code>; restore with <code>mock.restoreAll()</code> or use <code>t.mock</code>.</li>
+  <li>Test servers end to end: create without listening, <code>listen(0)</code> in <code>before</code>, <code>close</code> in <code>after</code>, send real requests.</li>
+  <li>Coverage with <code>--experimental-test-coverage</code> (+ thresholds), reporters for CI, <code>--watch</code> while coding.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">first test</span></h3>
+<p>Write <code>src/slug.js</code> exporting <code>slugify(text)</code> (lower-case, spaces and punctuation → single dashes, no dashes at the ends) and a test file with three tests, then run it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="src/slug.js" data-save>
+export const slugify = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+</script>
+<script type="text/plain" class="code" data-file="test/slug.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { slugify } from "../src/slug.js";
+
+test("lower-cases and joins words", () => assert.equal(slugify("Hello World"), "hello-world"));
+test("collapses punctuation", () => assert.equal(slugify("Node.js -- Streams!"), "node-js-streams"));
+test("trims dashes at the ends", () => assert.equal(slugify("  ¿Qué?  "), "qu"));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/slug.test.js
+✔ lower-cases and joins words (...ms)
+✔ collapses punctuation (...ms)
+✔ trims dashes at the ends (...ms)
+...
+</script>
+<p>The third test documents a weakness: accented letters are dropped ("Qué" → "qu"). A test that pins current behaviour is useful even when the behaviour isn't ideal yet; improving it means updating the test on purpose.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Does this test pass or fail, and why?</p>
+<script type="text/plain" class="code" data-file="ex2.test.js" data-norun>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+test("rejects", () => {
+  assert.rejects(Promise.resolve("all good"));
+});
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>It <em>passes</em>, wrongly. <code>assert.rejects</code> returns a promise that will reject (the input didn't reject), but the test neither awaits nor returns it, so the test finishes successfully first and the failure is lost (Node may report it later as a stray error). Fix: <code>test("rejects", async () =&gt; { await assert.rejects(...); })</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">assertions</span></h3>
+<p>Which assertion would you use for each? (a) A function returns exactly <code>42</code>. (b) A function returns <code>{ id: 1, tags: ["a"] }</code>. (c) An ID looks like <code>usr_</code> followed by 8 hex characters. (d) Calling with <code>null</code> throws a <code>TypeError</code>. (e) An async function rejects with a message containing "timeout".</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>assert.equal(f(), 42)</code>; (b) <code>assert.deepEqual(f(), { id: 1, tags: ["a"] })</code>; (c) <code>assert.match(id, /^usr_[0-9a-f]{8}$/)</code>; (d) <code>assert.throws(() =&gt; f(null), TypeError)</code>; (e) <code>await assert.rejects(f(), /timeout/)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">hooks</span></h3>
+<p>A test suite opens a database connection in every test and three tests fail randomly because data from one test is seen by another. Which hooks would you use to fix both problems?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Open the connection once in <code>before</code> and close it in <code>after</code> (faster, and nothing leaks). Reset the data in <code>beforeEach</code> (truncate tables, or wrap each test in a transaction that <code>afterEach</code> rolls back) so every test starts from the same known state.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">mock a function</span></h3>
+<p>Write <code>src/notify.js</code> exporting <code>notifyOverdue(invoices, sendEmail)</code> that calls <code>sendEmail(to, subject)</code> for each invoice whose <code>dueDate</code> is before <code>today</code> (passed in) and isn't paid, and returns how many emails were sent. Test it with <code>mock.fn</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="src/notify.js" data-save>
+export async function notifyOverdue(invoices, sendEmail, today = new Date()) {
+  let sent = 0;
+  for (const inv of invoices) {
+    if (!inv.paid && new Date(inv.dueDate) < today) {
+      await sendEmail(inv.email, `Invoice ${inv.id} is overdue`);
+      sent++;
+    }
+  }
+  return sent;
+}
+</script>
+<script type="text/plain" class="code" data-file="test/notify.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+import { notifyOverdue } from "../src/notify.js";
+
+test("emails only unpaid, overdue invoices", async () => {
+  const send = mock.fn(async () => {});
+  const invoices = [
+    { id: 1, email: "a@x.com", dueDate: "2026-01-10", paid: false },
+    { id: 2, email: "b@x.com", dueDate: "2026-01-10", paid: true },
+    { id: 3, email: "c@x.com", dueDate: "2026-02-01", paid: false },
+  ];
+  const count = await notifyOverdue(invoices, send, new Date("2026-01-15"));
+  assert.equal(count, 1);
+  assert.deepEqual(send.mock.calls.map((c) => c.arguments), [["a@x.com", "Invoice 1 is overdue"]]);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/notify.test.js
+✔ emails only unpaid, overdue invoices (...ms)
+...
+</script>
+<p>Injecting <code>today</code> as well makes the test independent of the real date — it will still pass next year.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">mock fetch</span></h3>
+<p>Test the <code>getJson</code> idea from Chapter 12: write <code>src/get-json.js</code> (throws an error with <code>status</code> for non-2xx) and test the success and the 404 case by mocking <code>globalThis.fetch</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="src/get-json.js" data-save>
+export async function getJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.json();
+}
+</script>
+<script type="text/plain" class="code" data-file="test/get-json.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { getJson } from "../src/get-json.js";
+
+test("returns parsed JSON", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ id: 7 }));
+  assert.deepEqual(await getJson("https://api.test/items/7"), { id: 7 });
+});
+
+test("throws with the status on 404", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response("", { status: 404 }));
+  await assert.rejects(getJson("https://api.test/items/9"), { status: 404 });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/get-json.test.js
+✔ returns parsed JSON (...ms)
+✔ throws with the status on 404 (...ms)
+...
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">fake timers</span></h3>
+<p>Write <code>src/debounce.js</code> and test with <code>t.mock.timers</code> that a 100 ms debounced function called three times within 50 ms runs exactly once, with the last argument, only after 100 ms of quiet.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="src/debounce.js" data-save>
+export function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+</script>
+<script type="text/plain" class="code" data-file="test/debounce.test.js" data-save>
+import { test, mock } from "node:test";
+import assert from "node:assert/strict";
+import { debounce } from "../src/debounce.js";
+
+test("runs once with the last arguments after the quiet period", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const save = mock.fn();
+  const debounced = debounce(save, 100);
+  debounced("a"); t.mock.timers.tick(20);
+  debounced("ab"); t.mock.timers.tick(30);
+  debounced("abc");
+  t.mock.timers.tick(99);
+  assert.equal(save.mock.callCount(), 0);
+  t.mock.timers.tick(1);
+  assert.equal(save.mock.callCount(), 1);
+  assert.deepEqual(save.mock.calls[0].arguments, ["abc"]);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/debounce.test.js
+✔ runs once with the last arguments after the quiet period (...ms)
+...
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor for testability</span></h3>
+<p>This function is hard to test. Why? Rewrite it so a test can control everything, and write one test.</p>
+<script type="text/plain" class="code" data-file="ex8-bad.js" data-norun>
+import { readFile } from "node:fs/promises";
+export async function dailyReport() {
+  const orders = JSON.parse(await readFile("/var/data/orders.json", "utf8"));
+  const today = new Date().toISOString().slice(0, 10);
+  return orders.filter((o) => o.date === today).length;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>It reaches out to a fixed file path and the real clock, so a test would need that exact file and would give different answers every day. Separate the pure logic from the I/O and inject the rest:</p>
+<script type="text/plain" class="code" data-file="src/report.js" data-save>
+export function countForDay(orders, day) {
+  return orders.filter((o) => o.date === day).length;
+}
+export async function dailyReport({ loadOrders, now = () => new Date() }) {
+  return countForDay(await loadOrders(), now().toISOString().slice(0, 10));
+}
+</script>
+<script type="text/plain" class="code" data-file="test/report.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { dailyReport } from "../src/report.js";
+
+test("counts only today's orders", async () => {
+  const orders = [{ date: "2026-03-01" }, { date: "2026-03-02" }, { date: "2026-03-02" }];
+  const count = await dailyReport({ loadOrders: async () => orders, now: () => new Date("2026-03-02T12:00:00Z") });
+  assert.equal(count, 2);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/report.test.js
+✔ counts only today's orders (...ms)
+...
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">server tests</span></h3>
+<p>Add tests for the todo API above that check (1) a body that isn't valid JSON gets a 400 (it currently crashes the handler — fix the app first), and (2) the <code>Content-Type</code> header is JSON on every response. Use a fresh server per <code>describe</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With invalid JSON, <code>JSON.parse</code> throws inside the async handler: an unhandled rejection that would crash the server (Chapter 11). Wrap the parse:</p>
+<script type="text/plain" class="code" data-file="src/app2.js" data-save>
+import http from "node:http";
+export function createApp() {
+  const todos = [];
+  return http.createServer(async (req, res) => {
+    const send = (status, data) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
+    if (req.url === "/todos" && req.method === "POST") {
+      let body = "";
+      for await (const c of req) body += c;
+      let data;
+      try { data = JSON.parse(body || "{}"); } catch { return send(400, { error: "invalid JSON" }); }
+      if (!data.title) return send(422, { error: "title is required" });
+      const todo = { id: todos.length + 1, title: data.title };
+      todos.push(todo);
+      return send(201, todo);
+    }
+    send(404, { error: "not found" });
+  });
+}
+</script>
+<script type="text/plain" class="code" data-file="test/app2.test.js" data-save>
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createApp } from "../src/app2.js";
+
+describe("todo API robustness", () => {
+  let server, base;
+  before(async () => { server = createApp().listen(0); await once(server, "listening"); base = `http://localhost:${server.address().port}`; });
+  after(() => server.close());
+
+  it("answers 400 to malformed JSON", async () => {
+    const res = await fetch(`${base}/todos`, { method: "POST", body: "{not json" });
+    assert.equal(res.status, 400);
+  });
+  for (const [method, path, body] of [["POST", "/todos", '{"title":"x"}'], ["POST", "/todos", "{}"], ["GET", "/nope"]]) {
+    it(`sends JSON for ${method} ${path} ${body ?? ""}`.trim(), async () => {
+      const res = await fetch(base + path, { method, body });
+      assert.equal(res.headers.get("content-type"), "application/json");
+    });
+  }
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test test/app2.test.js
+▶ todo API robustness
+  ✔ answers 400 to malformed JSON (...ms)
+  ✔ sends JSON for POST /todos {"title":"x"} (...ms)
+  ✔ sends JSON for POST /todos {} (...ms)
+  ✔ sends JSON for GET /nope (...ms)
+✔ todo API robustness (...ms)
+...
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Write <code>playground/test/notes-store.test.js</code> for the <code>NotesStore</code> from Chapter 8 (copy it to <code>playground/notes-store-lib.js</code> without the demo code). Cover: ids increase, <code>"added"</code> is emitted with the note, removing an unknown id emits <code>"error"</code>, and the size. Check coverage of the store file is 100% for lines.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/notes-store-lib.js" data-save>
+import { EventEmitter } from "node:events";
+
+export class NotesStore extends EventEmitter {
+  #notes = new Map();
+  #nextId = 1;
+  add(text) {
+    const note = { id: this.#nextId++, text };
+    this.#notes.set(note.id, note);
+    this.emit("added", note);
+    return note;
+  }
+  remove(id) {
+    const note = this.#notes.get(id);
+    if (!note) return this.emit("error", new Error(`note ${id} not found`));
+    this.#notes.delete(id);
+    this.emit("removed", note);
+  }
+  get size() { return this.#notes.size; }
+}
+</script>
+<script type="text/plain" class="code" data-file="playground/test/notes-store.test.js" data-save>
+import { describe, it, beforeEach, mock } from "node:test";
+import assert from "node:assert/strict";
+import { once } from "node:events";
+import { NotesStore } from "../notes-store-lib.js";
+
+describe("NotesStore", () => {
+  let store;
+  beforeEach(() => { store = new NotesStore(); });
+
+  it("gives increasing ids", () => {
+    assert.deepEqual([store.add("a").id, store.add("b").id], [1, 2]);
+  });
+  it("emits added with the note", () => {
+    const listener = mock.fn();
+    store.on("added", listener);
+    const note = store.add("hello");
+    assert.deepEqual(listener.mock.calls[0].arguments, [note]);
+  });
+  it("emits removed and updates the size", () => {
+    const { id } = store.add("x");
+    store.add("y");
+    const removed = mock.fn();
+    store.on("removed", removed);
+    store.remove(id);
+    assert.equal(store.size, 1);
+    assert.equal(removed.mock.callCount(), 1);
+  });
+  it("emits error for unknown ids", async () => {
+    const pending = once(store, "error");
+    store.remove(42);
+    const [err] = await pending;
+    assert.match(err.message, /note 42 not found/);
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test --experimental-test-coverage --test-coverage-include="playground/notes-store-lib.js" --test-coverage-lines=100 playground/test/notes-store.test.js 2>&1 | grep -E "^ℹ (pass|fail)|notes-store-lib"
+ℹ pass 4
+ℹ fail 0
+ℹ  notes-store-lib.js | 100.00 |   100.00 |  100.00 |
+</script>
+<p><code>events.once(store, "error")</code> is set up <em>before</em> calling <code>remove</code>, because <code>emit</code> is synchronous: listening afterwards would miss the event (and an unhandled <code>error</code> event would throw).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/test-runner/introduction">Discovering Node.js's test runner</a> · <a href="https://nodejs.org/en/learn/test-runner/using-test-runner">Using Node.js's test runner</a></li>
+  <li><a href="https://nodejs.org/en/learn/test-runner/mocking">Mocking in tests</a> · <a href="https://nodejs.org/en/learn/test-runner/collecting-code-coverage">Collecting code coverage</a></li>
+  <li><a href="https://nodejs.org/en/learn/userland-migrations/mocha-to-node-test-runner">Mocha to Node.js Test Runner</a></li>
+  <li>API: <a href="https://nodejs.org/api/test.html">Test runner</a> · <a href="https://nodejs.org/api/assert.html">Assert</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

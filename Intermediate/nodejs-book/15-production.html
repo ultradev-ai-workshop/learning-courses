@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛡️&lt;/text&gt;&lt;/svg&gt;">
+<title>15. Debugging, Security &amp; Production · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 15 · Production-Ready Node</div>
+<h1>Debugging, Security &amp; Production</h1>
+<p class="lead">Code that works on your laptop still has to survive real users, real attackers and real load. This chapter covers finding bugs with the inspector, diagnosing slowness and memory leaks, the difference between development and production, crash handling and logging, and the security practices recommended by the Node.js team — including Node's permission model.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Debugging with <code>--inspect</code>, Chrome DevTools or VS Code, and the <code>debugger</code> statement.</li>
+  <li>Diagnosing performance (CPU profiles, flame graphs, event-loop delay) and memory (heap snapshots, leaks).</li>
+  <li>Development vs production: <code>NODE_ENV</code>, structured logging, crash handling, health checks.</li>
+  <li>The main threats to Node apps and their defences: DoS, injection, prototype pollution, timing attacks, malicious packages.</li>
+  <li>The permission model: <code>--permission</code> and <code>--allow-*</code>.</li>
+</ul>
+</div>
+
+<h2 id="debugging">Debugging</h2>
+<p><code>console.log</code> debugging works, but a real debugger lets you pause the program, inspect every variable, and step line by line. Node includes the V8 inspector:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --inspect app.js          # run normally; a debugger can attach at any time
+$ node --inspect-brk app.js      # pause on the first line, waiting for a debugger
+$ node --inspect=0.0.0.0:9229 app.js   # ⚠️ listens on all interfaces — never on a public network
+Debugger listening on ws://127.0.0.1:9229/3f1c…
+</script>
+<ul>
+  <li><strong>Chrome</strong>: open <code>chrome://inspect</code> and click "inspect" under your Node target. You get the DevTools you know from the browser: Sources, breakpoints, Console, Memory, Performance.</li>
+  <li><strong>VS Code</strong>: open a "JavaScript Debug Terminal" and run <code>node app.js</code> — it attaches automatically. Click left of a line number to set a breakpoint.</li>
+  <li>A <code>debugger;</code> statement in your code acts as a breakpoint whenever a debugger is attached (and does nothing otherwise).</li>
+  <li><code>node inspect app.js</code> is a minimal command-line debugger (<code>c</code> continue, <code>n</code> next, <code>repl</code> to inspect).</li>
+</ul>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a pause button and a magnifying glass.</strong> <code>console.log</code> is leaving notes around the house and reading them afterwards. A debugger is pausing time in the middle of the action, walking around the frozen scene with a magnifying glass (every variable, the call stack), then letting time run one step at a time.</p>
+</div>
+<div class="pitfall">
+<p>⚠️ <strong>Never expose the inspector.</strong> Anyone who can connect to the inspector port can run arbitrary code in your process. Keep the default <code>127.0.0.1</code>; for a remote server, use an SSH tunnel. (The Node security guide also warns about <em>DNS rebinding</em> attacks against a locally running inspector — don't leave <code>--inspect</code> on when you're not debugging.)</p>
+</div>
+
+<h3>Better stack traces</h3>
+<p>A stack trace shows the chain of calls that led to an error. Node keeps <strong>async stack traces</strong> across <code>await</code>, so you see the whole story:</p>
+<script type="text/plain" class="code" data-file="stack.js">
+async function loadUser(id) {
+  await null;
+  throw new Error(`user ${id} not found`);
+}
+async function handleRequest() {
+  return await loadUser(7);
+}
+try {
+  await handleRequest();
+} catch (err) {
+  console.log(err.stack.split("\n").slice(0, 3).map((l) => l.replace(/\(.*\//, "(").trim()).join("\n"));
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Error: user 7 not found
+at loadUser (...)
+at async handleRequest (...)
+</script>
+<p>For TypeScript or bundled code, run with <code>--enable-source-maps</code> so traces point to your original source lines.</p>
+
+<h2 id="diagnostics">Diagnosing problems</h2>
+<p>The Node docs describe a "user journey" for production problems: first identify the <em>symptom</em> (slow responses, rising memory, crashes), then collect the right data, then analyse it.</p>
+<div class="table-wrap"><table>
+  <tr><th>Symptom</th><th>Collect</th><th>Tools</th></tr>
+  <tr><td>High CPU, slow responses</td><td>a CPU profile</td><td><code>--cpu-prof</code>, DevTools Performance, flame graphs (<code>0x</code>, <code>perf</code>)</td></tr>
+  <tr><td>Everything slow, CPU idle</td><td>event-loop delay, slow dependencies</td><td><code>monitorEventLoopDelay</code>, request timing logs</td></tr>
+  <tr><td>Memory grows until crash</td><td>heap snapshots, GC traces</td><td><code>v8.writeHeapSnapshot()</code>, <code>--heapsnapshot-signal</code>, <code>--trace-gc</code></td></tr>
+  <tr><td>Crash or hang</td><td>a diagnostic report</td><td><code>--report-on-fatalerror</code>, <code>process.report.writeReport()</code></td></tr>
+</table></div>
+
+<h3>CPU profiles and flame graphs</h3>
+<p>A CPU profile samples the call stack thousands of times per second, so the functions where time is spent show up most often. <code>--cpu-prof</code> writes a <code>.cpuprofile</code> file when the process exits; open it in Chrome DevTools (Performance tab) or VS Code:</p>
+<script type="text/plain" class="code" data-file="hot.js" data-save>
+function slowJoin(n) { let s = ""; for (let i = 0; i < n; i++) s += String(i).padStart(6, "0"); return s.length; }
+function fastJoin(n) { return Array.from({ length: n }, (_, i) => String(i).padStart(6, "0")).join("").length; }
+console.log(slowJoin(300_000), fastJoin(300_000));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --cpu-prof --cpu-prof-dir=profiles hot.js && ls profiles | sed -E 's/\.[0-9.]+\./.N./'
+1800000 1800000
+CPU.N.cpuprofile
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a flame graph is a city skyline seen from the side.</strong> Each building is a function, stacked on the functions that called it; the <em>width</em> of a building is how much time was spent in it. You look for the widest buildings at the top of the skyline: that's where the CPU really burns. Narrow tall towers are deep call chains that don't matter much.</p>
+</div>
+<p>For quick measurements inside code, use <code>performance.now()</code> or <code>console.time</code>, and measure repeated runs: the first run includes V8's warm-up (Chapter 1).</p>
+
+<h3>Memory and leaks</h3>
+<p>JavaScript frees memory automatically with a <strong>garbage collector</strong> (GC): objects that nothing references anymore are reclaimed. A <strong>memory leak</strong> in JavaScript means something keeps referencing objects you no longer need, so they can never be collected:</p>
+<script type="text/plain" class="code" data-file="leak.js">
+const cache = new Map();                        // grows forever: a classic leak
+function handleRequest(id) {
+  const payload = { id, data: Buffer.alloc(10_000) };
+  cache.set(id, payload);                       // never removed
+  return payload.id;
+}
+const mb = () => process.memoryUsage().arrayBuffers / 1024 / 1024;
+const before = mb();
+for (let i = 0; i < 5_000; i++) handleRequest(i);
+console.log(`cache holds ${cache.size} entries; buffer memory grew by ~${Math.round(mb() - before)} MB`);
+cache.clear();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cache holds 5000 entries; buffer memory grew by ~48 MB
+</script>
+<p>Common leak sources: caches and maps without a size limit or expiry; event listeners added per request and never removed (Chapter 8); timers and intervals never cleared; closures capturing large objects; global variables. Fixes: bounded caches (LRU), <code>WeakMap</code>/<code>WeakRef</code> for metadata about objects owned elsewhere, and always removing listeners and timers.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a cleaner who only throws away what nobody's holding.</strong> The garbage collector is a cleaner who may throw away anything that no one is holding onto. A leak isn't the cleaner failing; it's you holding on to things "just in case": a drawer (a global map) that keeps every receipt forever. The fix is to stop holding, not to call the cleaner more often.</p>
+</div>
+<p>To find a leak: take a <strong>heap snapshot</strong>, let the app run under load, take another, and compare them in Chrome DevTools (Memory tab, "Comparison" view): the object types whose counts keep growing are the suspects, and the "Retainers" panel shows what's holding them.</p>
+<script type="text/plain" class="code" data-file="snapshot.js">
+import v8 from "node:v8";
+import { stat } from "node:fs/promises";
+
+const file = v8.writeHeapSnapshot();                 // blocks while writing: not on a busy production server
+console.log(file.endsWith(".heapsnapshot"), (await stat(file)).size > 100_000);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true true
+</script>
+<p>In production, start with <code>node --heapsnapshot-signal=SIGUSR2 app.js</code> and send <code>kill -USR2 &lt;pid&gt;</code> when you want a snapshot. Use <code>--max-old-space-size=4096</code> to change the heap limit (in MB) when an app legitimately needs more.</p>
+
+<h2 id="production">Development vs production</h2>
+<p>The same code behaves differently in development and production mainly through configuration. By convention, <code>NODE_ENV=production</code> tells libraries to switch to production mode (Express caches templates and hides error details, React builds drop development checks). Node itself ignores it. Don't use it for your own feature switches; use explicit settings instead (<code>LOG_LEVEL</code>, <code>CACHE_TTL</code>…).</p>
+<div class="table-wrap"><table>
+  <tr><th></th><th>Development</th><th>Production</th></tr>
+  <tr><td>Running</td><td><code>node --watch --env-file=.env</code></td><td>a process manager or container; <code>npm ci --omit=dev</code></td></tr>
+  <tr><td>Errors</td><td>detailed stack traces in the response</td><td>generic messages to clients, details in logs</td></tr>
+  <tr><td>Logs</td><td>pretty, coloured, verbose</td><td>structured JSON to stdout, collected by the platform</td></tr>
+  <tr><td>Config</td><td><code>.env</code> file</td><td>environment variables / secret manager</td></tr>
+  <tr><td>Crashes</td><td>restart by hand</td><td>log, exit, and let the platform restart you</td></tr>
+</table></div>
+
+<h3>Structured logging</h3>
+<p>Production logs are read by machines first (log search, alerts). Write one JSON object per line, to stdout, with a level, a timestamp, a message and context fields. Libraries like <strong>pino</strong> do this very fast; the idea fits in a few lines:</p>
+<script type="text/plain" class="code" data-file="logger.js">
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+function createLogger({ level = "info", base = {}, now = () => new Date().toISOString() } = {}) {
+  const min = LEVELS[level];
+  const log = (lvl) => (msg, fields = {}) => {
+    if (LEVELS[lvl] < min) return;
+    const entry = { level: lvl, time: now(), msg, ...base, ...fields };
+    if (fields.err instanceof Error) entry.err = { name: fields.err.name, message: fields.err.message };
+    process.stdout.write(JSON.stringify(entry) + "\n");
+  };
+  return { debug: log("debug"), info: log("info"), warn: log("warn"), error: log("error"),
+           child: (more) => createLogger({ level, base: { ...base, ...more }, now }) };
+}
+
+const logger = createLogger({ level: "info", base: { service: "notes-api" }, now: () => "2026-10-31T12:00:00.000Z" });
+const reqLog = logger.child({ requestId: "r-81f2" });
+reqLog.debug("parsing body");                                  // below the level: dropped
+reqLog.info("note created", { noteId: 7, ms: 12 });
+reqLog.error("payment failed", { err: new Error("card declined") });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"level":"info","time":"2026-10-31T12:00:00.000Z","msg":"note created","service":"notes-api","requestId":"r-81f2","noteId":7,"ms":12}
+{"level":"error","time":"2026-10-31T12:00:00.000Z","msg":"payment failed","service":"notes-api","requestId":"r-81f2","err":{"name":"Error","message":"card declined"}}
+</script>
+<p>A request id in every line lets you follow one request through all your logs. Never log secrets: passwords, tokens, full card numbers, or entire request bodies.</p>
+
+<h3>Crash handling</h3>
+<p>After an <strong>uncaught exception</strong>, your program is in an unknown state (half-finished operations, locks held, broken invariants). The safe reaction is: log it, finish what you can quickly, and <strong>exit</strong>, letting a supervisor (systemd, Docker, Kubernetes, PM2) restart a fresh process. Don't try to "keep going".</p>
+<script type="text/plain" class="code" data-file="crash.js" data-stderr data-exit>
+function fatal(kind, err) {
+  console.error(JSON.stringify({ level: "fatal", kind, msg: err.message }));
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 1000).unref();   // give logs a moment to flush, then exit for sure
+}
+process.on("uncaughtException", (err) => fatal("uncaughtException", err));
+process.on("unhandledRejection", (reason) => fatal("unhandledRejection", reason instanceof Error ? reason : new Error(String(reason))));
+
+setTimeout(() => { throw new Error("bug in a timer callback"); }, 5);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"level":"fatal","kind":"uncaughtException","msg":"bug in a timer callback"}
+</script>
+
+<h3>Health checks and readiness</h3>
+<p>Platforms decide whether to send traffic to an instance (and whether to restart it) by calling health endpoints: a <strong>liveness</strong> check ("the process responds") and a <strong>readiness</strong> check ("dependencies like the database are reachable; I can take traffic"). Return 503 during startup and shutdown so the load balancer drains traffic before you exit (graceful shutdown, Chapter 11).</p>
+
+<h2 id="security">Security best practices</h2>
+<p>The Node.js security guide lists the threats Node apps face most often. The big ones:</p>
+<div class="table-wrap"><table>
+  <tr><th>Threat</th><th>Example</th><th>Defence</th></tr>
+  <tr><td>Denial of service</td><td>huge bodies, slow clients, ReDoS, unbounded work</td><td>size limits, timeouts, safe regexes, rate limits (Chapters 11, 13)</td></tr>
+  <tr><td>Injection</td><td>SQL/command/path built from user input</td><td>parameterised queries, <code>execFile</code> with arrays, path checks (Chapters 9, 13)</td></tr>
+  <tr><td>Prototype pollution</td><td><code>{"__proto__": {"isAdmin": true}}</code> merged into objects</td><td>validate keys, <code>Object.create(null)</code>, <code>Map</code>, schema validation</td></tr>
+  <tr><td>Timing attacks</td><td>comparing secrets with <code>===</code></td><td><code>crypto.timingSafeEqual</code></td></tr>
+  <tr><td>Malicious or vulnerable packages</td><td>a compromised dependency, typosquatting</td><td>few dependencies, lockfile, <code>npm audit</code>, the permission model</td></tr>
+  <tr><td>Sensitive data exposure</td><td>stack traces, <code>.env</code> in a published package, secrets in logs</td><td>generic errors, <code>"files"</code> allow-list, log hygiene</td></tr>
+  <tr><td>HTTP request smuggling</td><td>proxy and server disagree on where a request ends</td><td>keep Node updated; don't disable its strict HTTP parser</td></tr>
+</table></div>
+
+<h3>Prototype pollution</h3>
+<p>Every ordinary object inherits from <code>Object.prototype</code>. If code copies keys from user input into an object without checking, a key named <code>__proto__</code> can modify the prototype that <em>all</em> objects share:</p>
+<script type="text/plain" class="code" data-file="pollution.js">
+function naiveMerge(target, source) {                       // a typical unsafe "deep merge"
+  for (const key in source) {
+    if (typeof source[key] === "object" && source[key] !== null) {
+      target[key] ??= {};
+      naiveMerge(target[key], source[key]);
+    } else target[key] = source[key];
+  }
+  return target;
+}
+const userInput = JSON.parse('{"theme": "dark", "__proto__": {"isAdmin": true}}');
+naiveMerge({}, userInput);
+console.log("a brand-new object is admin?", ({}).isAdmin);
+
+delete Object.prototype.isAdmin;                            // clean up the damage
+function safeMerge(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    target[key] = value && typeof value === "object" ? safeMerge(target[key] ?? {}, value) : value;
+  }
+  return target;
+}
+safeMerge({}, userInput);
+console.log("after safe merge:", ({}).isAdmin);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+a brand-new object is admin? true
+after safe merge: undefined
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: changing the master key template.</strong> Every new object is cut from the same master key template (the prototype). Prototype pollution is a visitor filling in a form field that quietly edits the <em>template</em> instead of their own key — from then on, every key cut in the building opens the admin office. Defence: never let form fields reach the template (skip those keys), or use containers with no template at all (<code>Map</code>, <code>Object.create(null)</code>).</p>
+</div>
+
+<h3>Passwords and timing-safe comparison</h3>
+<p>Never store passwords: store a slow, salted <strong>hash</strong> (scrypt, argon2, bcrypt). And compare secrets in <em>constant time</em>: <code>===</code> stops at the first different character, and attackers can measure that difference to guess a token one character at a time.</p>
+<script type="text/plain" class="code" data-file="passwords.js">
+import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const hash = await scryptAsync(password, salt, 64);           // runs on the thread pool
+  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+}
+async function verifyPassword(password, stored) {
+  const [saltHex, hashHex] = stored.split(":");
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = await scryptAsync(password, Buffer.from(saltHex, "hex"), 64);
+  return timingSafeEqual(actual, expected);                     // constant-time comparison
+}
+
+const stored = await hashPassword("correct horse battery staple");
+console.log(stored.length, "chars stored; plain text never kept");
+console.log(await verifyPassword("correct horse battery staple", stored), await verifyPassword("Tr0ub4dor&3", stored));
+console.log("same password, different hash:", stored !== await hashPassword("correct horse battery staple"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+161 chars stored; plain text never kept
+true false
+same password, different hash: true
+</script>
+
+<h3>The permission model</h3>
+<p>By default a Node program can do anything its user can: read your SSH keys, start processes, open sockets. The <strong>permission model</strong> (<code>--permission</code>) turns that around: everything is denied unless you allow it. It limits the damage a compromised dependency can do.</p>
+<script type="text/plain" class="code" data-file="data/settings.txt" data-save>
+theme=dark
+</script>
+<script type="text/plain" class="code" data-file="restricted.js" data-save>
+import { readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+
+console.log("may read ./data:", process.permission.has("fs.read", "./data"), "| may write:", process.permission.has("fs.write"));
+console.log(readFileSync("./data/settings.txt", "utf8").trim());
+for (const [what, attempt] of [["write a file", () => writeFileSync("./data/hacked.txt", "x")],
+                               ["read outside ./data", () => readFileSync("/etc/hosts")],
+                               ["spawn a process", () => execSync("ls")]]) {
+  try { attempt(); console.log(`${what}: allowed?!`); } catch (err) { console.log(`${what}: ${err.code} (${err.permission})`); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --permission --allow-fs-read=./ restricted.js
+may read ./data: true | may write: false
+theme=dark
+write a file: ERR_ACCESS_DENIED (FileSystemWrite)
+read outside ./data: ERR_ACCESS_DENIED (FileSystemRead)
+spawn a process: ERR_ACCESS_DENIED (ChildProcess)
+</script>
+<p>Other switches: <code>--allow-fs-write=…</code>, <code>--allow-child-process</code>, <code>--allow-worker</code>, <code>--allow-addons</code>, <code>--allow-net</code>. The permission model is a seat belt, not a sandbox for running untrusted code: combine it with containers and least-privilege OS users.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a hotel key card.</strong> Without the permission model, your app is given the master key to the whole building. With it, the app gets a key card that opens only its own room and the gym (<code>--allow-fs-read=./data</code>). If a thief steals the card (a malicious package runs in your process), they can't get into the other rooms.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Timing a function with performance.timerify</h3>
+<script type="text/plain" class="code" data-file="timerify.js">
+import { performance, PerformanceObserver } from "node:perf_hooks";
+
+function parseCsv(text) { return text.split("\n").map((line) => line.split(",")); }
+const timed = performance.timerify(parseCsv);
+const durations = [];
+const obs = new PerformanceObserver((list) => durations.push(...list.getEntries().map((e) => e.duration)));
+obs.observe({ entryTypes: ["function"] });
+
+const csv = Array.from({ length: 20_000 }, (_, i) => `${i},item${i},${i % 7}`).join("\n");
+for (let i = 0; i < 3; i++) timed(csv);
+setTimeout(() => {
+  obs.disconnect();
+  console.log(`${durations.length} calls measured; all durations positive: ${durations.every((d) => d > 0)}`);
+}, 10);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 calls measured; all durations positive: true
+</script>
+
+<h3>A diagnostic report</h3>
+<p>A diagnostic report is a JSON snapshot of the process: Node version, OS, memory, open handles, the JavaScript and native stacks. Ask for one on a crash with <code>--report-on-fatalerror</code>, or programmatically:</p>
+<script type="text/plain" class="code" data-file="report.js">
+const report = process.report.getReport();
+console.log(Object.keys(report).slice(0, 4));
+console.log("node", report.header.nodejsVersion.split(".")[0], "| has JS stack:", Array.isArray(report.javascriptStack.stack));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'header', 'javascriptStack', 'javascriptHeap', 'nativeStack' ]
+node v26 | has JS stack: true
+</script>
+
+<h3>Security headers for HTTP responses</h3>
+<script type="text/plain" class="code" data-file="security-headers.js">
+import http from "node:http";
+
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": "default-src 'self'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+};
+const server = http.createServer((req, res) => {
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+  res.removeHeader("X-Powered-By");
+  res.end("secure hello");
+});
+server.listen(0, async () => {
+  const r = await fetch(`http://localhost:${server.address().port}`);
+  console.log(r.headers.get("x-content-type-options"), "|", r.headers.get("content-security-policy"));
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+nosniff | default-src 'self'
+</script>
+<p>Libraries like <code>helmet</code> set a well-maintained default set of these headers for Express-style apps.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Debug with <code>--inspect</code>/<code>--inspect-brk</code> + Chrome DevTools or VS Code; keep the inspector on localhost. Use <code>--enable-source-maps</code> for compiled code.</li>
+  <li>Slow? CPU profile (<code>--cpu-prof</code>, flame graphs) and event-loop delay. Growing memory? Heap snapshots compared over time; look for unbounded caches, listeners and timers.</li>
+  <li>Production: <code>NODE_ENV=production</code> for libraries, structured JSON logs to stdout, crash = log + exit + restart, health/readiness endpoints, graceful shutdown.</li>
+  <li>Defend against DoS, injection, prototype pollution (<code>__proto__</code> keys), timing attacks (<code>timingSafeEqual</code>), leaking secrets, and risky dependencies. Hash passwords with scrypt.</li>
+  <li><code>--permission</code> with <code>--allow-fs-read</code>/<code>--allow-fs-write</code>/<code>--allow-child-process</code>… limits what code in the process can do.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">debugger</span></h3>
+<p>You want to pause a script at its very first line to set breakpoints before anything runs. Which command do you use, and how do you then connect from Chrome?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>node --inspect-brk script.js</code>. Then open <code>chrome://inspect</code> in Chrome and click "inspect" under the Remote Target (or use "Open dedicated DevTools for Node"). The script is paused on line 1; set breakpoints and press resume.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Which tool would you reach for first? (a) Memory grows by 50 MB per hour until the process is killed. (b) CPU is at 100% and responses are slow. (c) Responses are slow but CPU is low. (d) The process crashed at night with "FATAL ERROR: Reached heap limit".</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Heap snapshots taken some time apart, compared. (b) A CPU profile / flame graph. (c) Event-loop delay plus timing of external calls (a slow database or API, or pool exhaustion). (d) <code>--heapsnapshot-near-heap-limit</code> or <code>--report-on-fatalerror</code> to capture data next time, then heap analysis as in (a).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">find the leak</span></h3>
+<p>Why does this server's memory grow with every request?</p>
+<script type="text/plain" class="code" data-file="ex3.js" data-norun>
+const seenUsers = [];
+http.createServer((req, res) => {
+  seenUsers.push({ ip: req.socket.remoteAddress, at: Date.now(), headers: req.headers });
+  res.end("hi");
+}).listen(3000);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>seenUsers</code> is a module-level array that only ever grows: each request adds an object (with all its headers) that stays referenced forever, so the GC can never free it. Keep only what you need (a counter, or a bounded structure such as the last 100 entries), or send the data to a log/metrics system instead of keeping it in memory.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">secrets</span></h3>
+<p>List three ways an API key can leak from a Node project, and the fix for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>1. Committed in code or in <code>.env</code> → load from environment variables, add <code>.env</code> to <code>.gitignore</code>, rotate any key that was committed. 2. Printed in logs (logging <code>process.env</code> or whole request headers) → log only chosen fields and redact authorisation headers. 3. Shipped in a published npm package → use a <code>"files"</code> allow-list and check <code>npm pack --dry-run</code>. (Also: sent to a browser bundle, or returned in error responses.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">bounded cache</span></h3>
+<p>Fix the leak in <code>leak.js</code> by writing an <code>LruCache</code> with a maximum size: when full, adding a new key evicts the least recently used one (use a <code>Map</code>, which remembers insertion order).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lru.js">
+class LruCache {
+  #max; #map = new Map();
+  constructor(max) { this.#max = max; }
+  get(key) {
+    if (!this.#map.has(key)) return undefined;
+    const value = this.#map.get(key);
+    this.#map.delete(key);
+    this.#map.set(key, value);                      // move to the "most recent" end
+    return value;
+  }
+  set(key, value) {
+    this.#map.delete(key);
+    this.#map.set(key, value);
+    if (this.#map.size > this.#max) this.#map.delete(this.#map.keys().next().value);   // evict the oldest
+  }
+  get size() { return this.#map.size; }
+}
+
+const cache = new LruCache(3);
+["a", "b", "c"].forEach((k) => cache.set(k, k.toUpperCase()));
+cache.get("a");                                     // "a" is now most recent
+cache.set("d", "D");                                // evicts "b"
+console.log(cache.size, cache.get("b"), cache.get("a"), cache.get("d"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 undefined A D
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">timing-safe</span></h3>
+<p>Write <code>checkApiKey(provided, expected)</code> that compares two strings in constant time. <code>timingSafeEqual</code> throws if the buffers have different lengths, so handle that without leaking the length through an early return... as well as you reasonably can.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="api-key.js">
+import { timingSafeEqual, createHash } from "node:crypto";
+
+function checkApiKey(provided, expected) {
+  const digest = (s) => createHash("sha256").update(String(s)).digest();   // always 32 bytes
+  return timingSafeEqual(digest(provided), digest(expected));
+}
+const KEY = "sk_live_7f3a91c2";
+console.log(checkApiKey("sk_live_7f3a91c2", KEY), checkApiKey("sk_live_7f3a91c3", KEY), checkApiKey("short", KEY));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true false false
+</script>
+<p>Hashing both values first gives equal-length buffers, so the comparison takes the same time whatever the input length.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">prototype pollution</span></h3>
+<p>A settings endpoint stores user preferences with <code>Object.assign(prefs[userId] ??= {}, body)</code>, where <code>prefs = {}</code>. Show how a user id of <code>"__proto__"</code> causes trouble, and fix it with a <code>Map</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="prefs.js">
+const prefs = {};
+const userId = "__proto__";
+Object.assign(prefs[userId] ??= {}, { theme: "dark" });   // prefs["__proto__"] IS Object.prototype
+console.log("every object now has a theme:", ({}).theme);
+delete Object.prototype.theme;
+
+const safePrefs = new Map();
+const update = (id, body) => safePrefs.set(id, { ...safePrefs.get(id), ...body });
+update("__proto__", { theme: "dark" });
+console.log("with a Map:", ({}).theme, "| stored:", safePrefs.get("__proto__"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+every object now has a theme: dark
+with a Map: undefined | stored: { theme: 'dark' }
+</script>
+<p><code>Map</code> keys are just keys: no inheritance, no special names. <code>Object.create(null)</code> is the other option when you need a plain object.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/logger.js</code> exporting <code>createLogger({ level, base })</code> as in this chapter (JSON lines to stdout, levels, <code>child</code>), plus <code>redact</code>: any field named <code>password</code>, <code>token</code> or <code>authorization</code> (at the top level) is replaced by <code>"[redacted]"</code>. The Chapter 16 project logs with it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/logger.js">
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+const SECRET = new Set(["password", "token", "authorization"]);
+
+export function createLogger({ level = "info", base = {}, now = () => new Date().toISOString(), out = process.stdout } = {}) {
+  const min = LEVELS[level];
+  const write = (lvl, msg, fields = {}) => {
+    if (LEVELS[lvl] < min) return;
+    const entry = { level: lvl, time: now(), msg, ...base };
+    for (const [k, v] of Object.entries(fields)) {
+      entry[k] = SECRET.has(k.toLowerCase()) ? "[redacted]" : v instanceof Error ? { name: v.name, message: v.message } : v;
+    }
+    out.write(JSON.stringify(entry) + "\n");
+  };
+  return {
+    debug: (m, f) => write("debug", m, f), info: (m, f) => write("info", m, f),
+    warn: (m, f) => write("warn", m, f), error: (m, f) => write("error", m, f),
+    child: (more) => createLogger({ level, base: { ...base, ...more }, now, out }),
+  };
+}
+
+const log = createLogger({ base: { app: "notes" }, now: () => "T" });
+log.child({ requestId: "r1" }).info("login", { user: "ana", password: "hunter2", Authorization: "Bearer x" });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"level":"info","time":"T","msg":"login","app":"notes","requestId":"r1","user":"ana","password":"[redacted]","Authorization":"[redacted]"}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">permissions</span></h3>
+<p>Run a script that writes a report into <code>out/</code> and reads input from <code>in/</code> under the permission model, allowing exactly those two folders. Show that writing into <code>in/</code> is denied.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="in/sales.csv" data-save>
+day,total
+mon,120
+tue,80
+</script>
+<script type="text/plain" class="code" data-file="make-report.js" data-save>
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+const rows = (await readFile("in/sales.csv", "utf8")).trim().split("\n").slice(1);
+const total = rows.reduce((sum, r) => sum + Number(r.split(",")[1]), 0);
+await mkdir("out", { recursive: true });
+await writeFile("out/report.txt", `total=${total}\n`);
+console.log("report written:", total);
+try {
+  await writeFile("in/tampered.csv", "x");
+} catch (err) {
+  console.log("writing into in/:", err.code);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ mkdir -p out && node --permission --allow-fs-read=./ --allow-fs-write=./out make-report.js && cat out/report.txt
+report written: 200
+writing into in/: ERR_ACCESS_DENIED
+total=200
+</script>
+<p>The script can read the project (it needs to load itself and its input) but can write only into <code>out/</code>. A dependency trying to drop a file anywhere else would fail the same way.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/health.js</code>: an HTTP server with <code>/healthz</code> (always 200 while the process runs) and <code>/readyz</code> (200 only after a fake 30 ms "database connect" and before shutdown starts; 503 otherwise). On <code>SIGTERM</code>, readiness turns 503, the server closes gracefully and the process exits with 0. Simulate the sequence and print the statuses.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/health.js">
+import http from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
+
+let ready = false, shuttingDown = false;
+const server = http.createServer((req, res) => {
+  if (req.url === "/healthz") return res.writeHead(200).end("ok");
+  if (req.url === "/readyz") return res.writeHead(ready && !shuttingDown ? 200 : 503).end();
+  res.writeHead(404).end();
+});
+
+async function connectDatabase() {
+  await sleep(30);                                   // pretend to connect to the database
+  ready = true;
+}
+process.once("SIGTERM", () => {
+  shuttingDown = true;                               // load balancer stops sending traffic
+  server.close(() => console.log("closed cleanly"));
+  server.closeIdleConnections();
+});
+
+server.listen(0);
+await new Promise((r) => server.once("listening", r));
+const base = `http://localhost:${server.address().port}`;
+const status = async (p) => (await fetch(base + p)).status;
+const starting = connectDatabase();
+console.log("during start:", await status("/healthz"), await status("/readyz"));
+await starting;
+console.log("after start: ", await status("/healthz"), await status("/readyz"));
+process.kill(process.pid, "SIGTERM");
+await sleep(5);
+console.log("after SIGTERM: exit code", process.exitCode ?? 0);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+during start: 200 503
+after start:  200 200
+closed cleanly
+after SIGTERM: exit code 0
+</script>
+<p>Liveness says "don't restart me", readiness says "send me traffic". Separating them avoids restart loops while a slow dependency recovers, and lets deploys drain traffic before the old process exits.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/debugging">Debugging Node.js</a> · <a href="https://nodejs.org/en/learn/getting-started/profiling">Profiling Node.js Applications</a></li>
+  <li><a href="https://nodejs.org/en/learn/diagnostics/user-journey">Diagnostics: user journey</a> · <a href="https://nodejs.org/en/learn/diagnostics/memory">Memory</a> · <a href="https://nodejs.org/en/learn/diagnostics/flame-graphs">Flame graphs</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/nodejs-the-difference-between-development-and-production">Development vs production</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/security-best-practices">Security Best Practices</a> · API: <a href="https://nodejs.org/api/permissions.html">Permissions</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

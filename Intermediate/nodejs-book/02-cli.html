@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⌨️&lt;/text&gt;&lt;/svg&gt;">
+<title>2. The Command Line: Run, REPL, Input &amp; Output · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Getting Started</div>
+<h1>The Command Line: Run, REPL, Input &amp; Output</h1>
+<p class="lead">Every Node program starts from a terminal. This chapter covers the ways to run code, the interactive REPL, writing output (and where it goes), reading input from arguments, the keyboard and pipes, environment variables, and the exit codes that tell other programs whether yours succeeded.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Running files, one-liners (<code>-e</code>, <code>-p</code>), shebang scripts and <code>--watch</code> mode.</li>
+  <li>Using the REPL: special commands, <code>_</code>, multi-line input and the editor mode.</li>
+  <li>stdout vs stderr, <code>console</code> formatting, <code>util.inspect</code>, colours with <code>util.styleText</code>.</li>
+  <li>Reading input: <code>process.argv</code>, <code>util.parseArgs</code>, <code>readline</code> and piped stdin.</li>
+  <li>Environment variables, <code>--env-file</code>, and exit codes with <code>process.exitCode</code>.</li>
+</ul>
+</div>
+
+<h2 id="run">Running Node code</h2>
+<p>The usual way is to pass a file name. Node runs the file from top to bottom and exits when there's nothing left to do (no pending timers, open servers or I/O):</p>
+<script type="text/plain" class="code" data-file="app.js" data-save>
+console.log("running app.js with", process.argv.length - 2, "extra argument(s)");
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node app.js
+running app.js with 0 extra argument(s)
+$ node app.js one two
+running app.js with 2 extra argument(s)
+</script>
+<p>For tiny experiments you don't need a file at all:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node -e "console.log(6 * 7)"
+42
+$ node -p "[1, 2, 3].map((n) => n * 10)"
+[ 10, 20, 30 ]
+$ node -p "require('node:os').EOL === '\n'"
+true
+</script>
+<p><code>-e</code> (<em>eval</em>) runs the code; <code>-p</code> (<em>print</em>) runs it and prints the result. Both run as CommonJS, which is why <code>require</code> works there.</p>
+
+<h3>Shebang scripts</h3>
+<p>On macOS and Linux, a first line starting with <code>#!</code> (a "shebang") tells the shell which program runs the file. Make it executable once, and run it like any command:</p>
+<script type="text/plain" class="code" data-file="hello-cli" data-save>
+#!/usr/bin/env node
+console.log("I am a command-line tool");
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ chmod +x hello-cli
+$ ./hello-cli
+I am a command-line tool
+</script>
+<p><code>/usr/bin/env node</code> finds <code>node</code> on your <code>PATH</code>, so the script works with any version manager. (On Windows, run <code>node hello-cli</code> instead; npm creates wrappers for package bins automatically, Chapter 4.)</p>
+
+<h3>Watch mode</h3>
+<p>While developing, <code>node --watch app.js</code> runs the file and <strong>restarts it whenever the file or anything it imports changes</strong>. It replaces the old <code>nodemon</code> tool for most uses. Use <code>--watch-path=src</code> to watch a specific folder.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --watch server.js
+Restarting 'server.js'
+listening on http://localhost:3000
+</script>
+
+<h2 id="repl">The REPL</h2>
+<p>Run <code>node</code> with no arguments to start the <strong>REPL</strong> (Read–Eval–Print Loop): type an expression, Node evaluates it and prints the value. It's the fastest way to try an API.</p>
+<script type="text/plain" class="code" data-lang="repl">
+> 2 ** 10
+1024
+> const langs = ["js", "ts", "py"]
+> langs.map((l) => l.toUpperCase())
+[ 'JS', 'TS', 'PY' ]
+> console.log("hi")
+hi
+> JSON.parse("{bad json}")
+Uncaught SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+</script>
+<p>Things worth knowing:</p>
+<ul>
+  <li>Declarations like <code>const langs = …</code> print <code>undefined</code> (omitted above). An error prints <code>Uncaught …</code> and the REPL keeps going.</li>
+  <li><code>_</code> holds the last result, <code>_error</code> the last error. Press <kbd>Tab</kbd> to autocomplete (try <code>langs.</code> + <kbd>Tab</kbd>), <kbd>↑</kbd> for history.</li>
+  <li>Unfinished input (an open <code>{</code> or <code>(</code>) continues on a <code>...</code> line.</li>
+  <li>Dot-commands: <code>.help</code>, <code>.editor</code> (paste or type several lines, finish with <kbd>Ctrl</kbd>+<kbd>D</kbd>), <code>.save file.js</code>, <code>.load file.js</code>, <code>.exit</code> (or <kbd>Ctrl</kbd>+<kbd>D</kbd>, or <kbd>Ctrl</kbd>+<kbd>C</kbd> twice).</li>
+  <li>Core modules are preloaded: type <code>fs.existsSync(".")</code> without importing anything. Top-level <code>await</code> works too.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="repl" data-norun>
+> 6 * 7
+42
+> _ + 1
+43
+> function area(r) {
+... return Math.PI * r ** 2;
+... }
+> area(2).toFixed(2)
+'12.57'
+> await new Promise((r) => setTimeout(() => r("done"), 100))
+'done'
+> .exit
+</script>
+
+<h2 id="output">Writing output</h2>
+<h3>stdout and stderr</h3>
+<p>Every process has three standard streams: <strong>stdin</strong> (input), <strong>stdout</strong> (normal output) and <strong>stderr</strong> (errors and diagnostics). <code>console.log</code> and <code>console.info</code> write to stdout; <code>console.error</code> and <code>console.warn</code> write to stderr. In a terminal both appear on screen, but they can be redirected separately:</p>
+<script type="text/plain" class="code" data-file="report.js" data-save>
+console.log("total: 42");                   // the result → stdout
+console.error("warning: 3 rows skipped");   // a diagnostic → stderr
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node report.js > result.txt
+warning: 3 rows skipped
+$ cat result.txt
+total: 42
+$ node report.js 2> /dev/null
+total: 42
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: two mail slots.</strong> A program has two outgoing mail slots: one for the <em>letters</em> you meant to send (stdout) and one for <em>complaints</em> (stderr). Whoever runs the program can collect them in different boxes — save the letters to a file, show the complaints on screen. That's why a well-behaved tool prints its result to stdout and everything else (progress, warnings, errors) to stderr: piping its output into another program then passes only the real data.</p>
+</div>
+
+<h3>Formatting with console</h3>
+<script type="text/plain" class="code" data-file="console-tour.js">
+const user = { name: "Ana", roles: ["admin", "dev"], address: { city: "Lisbon", geo: { lat: 38.7, lng: -9.1 } } };
+
+console.log("%s has %d roles", user.name, user.roles.length);   // printf-style placeholders
+console.log("user:", user);                                      // objects are inspected
+console.table([{ id: 1, item: "pen", qty: 3 }, { id: 2, item: "ink", qty: 1 }]);
+console.group("Order 17");
+console.log("2 × pen");
+console.log("1 × ink");
+console.groupEnd();
+console.count("retry");
+console.count("retry");
+console.assert(1 + 1 === 3, "math is broken");                   // prints only when false (to stderr)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana has 2 roles
+user: {
+  name: 'Ana',
+  roles: [ 'admin', 'dev' ],
+  address: { city: 'Lisbon', geo: { lat: 38.7, lng: -9.1 } }
+}
+┌─────────┬────┬───────┬─────┐
+│ (index) │ id │ item  │ qty │
+├─────────┼────┼───────┼─────┤
+│ 0       │ 1  │ 'pen' │ 3   │
+│ 1       │ 2  │ 'ink' │ 1   │
+└─────────┴────┴───────┴─────┘
+Order 17
+  2 × pen
+  1 × ink
+retry: 1
+retry: 2
+</script>
+<p>The <code>console.assert</code> message went to stderr, so it isn't in this (stdout) output. Other useful methods: <code>console.time("label")</code>/<code>console.timeEnd("label")</code> to measure durations, and <code>console.trace()</code> to print a stack trace.</p>
+
+<h3>How objects are printed: util.inspect</h3>
+<p><code>console.log</code> formats objects with <code>util.inspect</code>, which stops at <strong>depth 2</strong> by default and shows deeper objects as <code>[Object]</code>. Call it yourself to control the format:</p>
+<script type="text/plain" class="code" data-file="inspect.js">
+import { inspect } from "node:util";
+
+const tree = { a: { b: { c: { d: { e: "deep" } } } } };
+console.log(tree);
+console.log(inspect(tree, { depth: null, compact: true }));
+console.log(JSON.stringify(tree));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ a: { b: { c: [Object] } } }
+{ a: { b: { c: { d: { e: 'deep' } } } } }
+{"a":{"b":{"c":{"d":{"e":"deep"}}}}}
+</script>
+
+<h3>Writing without a newline, and colours</h3>
+<p><code>process.stdout.write</code> writes exactly the string you give it, with no newline added. That's how progress indicators update a line in place. For colours, Node has <code>util.styleText</code> built in; it automatically drops the colour codes when the output isn't a terminal (for example when it's piped to a file) or when the <code>NO_COLOR</code> environment variable is set.</p>
+<script type="text/plain" class="code" data-file="colors.js">
+import { styleText } from "node:util";
+
+process.stdout.write("Downloading");
+for (let i = 0; i < 3; i++) process.stdout.write(".");
+process.stdout.write(" done\n");
+
+console.log(styleText("green", "✔ 12 tests passed"));
+console.log(styleText(["bold", "red"], "✘ 1 test failed"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Downloading... done
+✔ 12 tests passed
+✘ 1 test failed
+</script>
+<p>In a terminal the last two lines are green and bold red; captured into this book's checker (not a terminal) they're plain text. Libraries like chalk did this before <code>styleText</code> existed (Appendix B).</p>
+
+<h2 id="input">Reading input</h2>
+<h3>Command-line arguments: process.argv</h3>
+<p><code>process.argv</code> is an array of strings: the path to the <code>node</code> executable, the path to your script, then the arguments the user typed:</p>
+<script type="text/plain" class="code" data-file="argv.js" data-args="orders.csv --limit 5">
+const [nodePath, scriptPath, ...args] = process.argv;
+console.log(nodePath.endsWith("node"), scriptPath.endsWith(".mjs") || scriptPath.endsWith(".js"));
+console.log(args);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true true
+[ 'orders.csv', '--limit', '5' ]
+</script>
+<p>Arguments are always <strong>strings</strong> — <code>"5"</code>, not <code>5</code> — so convert them yourself.</p>
+
+<h3>Parsing options: util.parseArgs</h3>
+<p>Splitting <code>--limit 5</code> and <code>-v</code> by hand gets messy. <code>util.parseArgs</code> does it for you, with types, short aliases, defaults and errors for unknown options:</p>
+<script type="text/plain" class="code" data-file="parse.js" data-args="orders.csv -l 5 --verbose">
+import { parseArgs } from "node:util";
+
+const { values, positionals } = parseArgs({
+  options: {
+    limit: { type: "string", short: "l", default: "10" },
+    verbose: { type: "boolean", short: "v", default: false },
+  },
+  allowPositionals: true,
+});
+const limit = Number(values.limit);
+console.log({ file: positionals[0], limit, verbose: values.verbose });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ file: 'orders.csv', limit: 5, verbose: true }
+</script>
+<p>An unknown option like <code>--limt</code> throws a <code>TypeError</code> with code <code>ERR_PARSE_ARGS_UNKNOWN_OPTION</code>, so typos don't pass silently.</p>
+
+<h3>Asking questions: readline</h3>
+<p>To read what the user types, use <code>node:readline/promises</code>. <code>question</code> prints a prompt and resolves with the next line of input:</p>
+<script type="text/plain" class="code" data-file="ask.js" data-stdin="Ana\n">
+import * as readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+
+const rl = readline.createInterface({ input, output });
+const name = await rl.question("What's your name? ");
+rl.close();                                     // otherwise the program waits for more input
+console.log(`\nHi ${name}!`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+What's your name?
+Hi Ana!
+</script>
+<p>Here the answer came from a pipe (<code>echo Ana | node ask.js</code>), so the typed text doesn't appear after the prompt; in a terminal, it does.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: several <code>question()</code> calls with piped input.</strong> In a terminal, asking two questions in a row works. But when input is <em>piped</em>, readline reads all the lines at once, and a line that arrives before you ask the next question is lost; the program then waits forever (Node warns about an "unsettled top-level await"). If your tool must also work with pipes, read answers from the line iterator instead:</p>
+</div>
+<script type="text/plain" class="code" data-file="ask-many.js" data-stdin="Ana\n29\n">
+import * as readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin });
+const lines = rl[Symbol.asyncIterator]();          // lines are buffered, none get lost
+async function ask(prompt) {
+  process.stdout.write(prompt);
+  const { value } = await lines.next();
+  return value ?? "";
+}
+
+const name = await ask("What's your name? ");
+const age = Number(await ask("How old are you? "));
+rl.close();
+console.log(`\nHi ${name}, next year you'll be ${age + 1}.`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+What's your name? How old are you?
+Hi Ana, next year you'll be 30.
+</script>
+
+<h3>Reading piped input</h3>
+<p>Tools often read data from stdin, so they can be combined with pipes: <code>cat data.txt | node count.js</code>. <code>process.stdin</code> is a stream (Chapter 10); the simplest way to read it line by line is <code>readline</code> with <code>for await</code>:</p>
+<script type="text/plain" class="code" data-file="count.js" data-stdin="apple\nbanana\n\ncherry\n">
+import { createInterface } from "node:readline";
+
+let lines = 0, words = 0;
+for await (const line of createInterface({ input: process.stdin })) {
+  lines++;
+  words += line.split(/\s+/).filter(Boolean).length;
+}
+console.log(`${lines} lines, ${words} words`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 lines, 3 words
+</script>
+<p>This is exactly the pattern for the <a href="../../problems/index.html">Problem Set</a>, where every problem reads its input from stdin.</p>
+
+<h2 id="env">Environment variables</h2>
+<p><strong>Environment variables</strong> are named string settings that a process inherits from whoever started it (your shell, Docker, a hosting platform). Node exposes them as <code>process.env</code>. They're the standard place for configuration that changes between machines: ports, database URLs, API keys, <code>NODE_ENV</code>.</p>
+<script type="text/plain" class="code" data-file="config.js" data-save>
+const port = Number(process.env.PORT ?? 3000);           // values are strings (or undefined)
+const debug = process.env.DEBUG === "1";
+console.log(`port=${port} debug=${debug} env=${process.env.NODE_ENV ?? "development"}`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node config.js
+port=3000 debug=false env=development
+$ PORT=8080 DEBUG=1 NODE_ENV=production node config.js
+port=8080 debug=true env=production
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: notes on the fridge.</strong> Environment variables are like notes stuck on the fridge before you leave the house: "dinner at 8", "the key is under the mat". Everyone who comes in (every child process) can read them, nobody has to ask, and the same family (program) behaves differently in different houses (machines) because the notes are different. You don't rewrite the family; you change the notes.</p>
+</div>
+
+<h3>.env files</h3>
+<p>Typing variables on every command is tedious, so projects keep them in a <code>.env</code> file. Node can load it itself — no <code>dotenv</code> package needed:</p>
+<script type="text/plain" class="code" data-file=".env" data-save>
+# local settings — never commit real secrets
+PORT=4000
+DEBUG=1
+GREETING="Hello, team"
+</script>
+<script type="text/plain" class="code" data-file="greet.js" data-save>
+console.log(process.env.GREETING, "on port", process.env.PORT);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --env-file=.env greet.js
+Hello, team on port 4000
+$ PORT=5000 node --env-file=.env greet.js
+Hello, team on port 5000
+</script>
+<p>Variables already set in the real environment win over the file. Use <code>--env-file-if-exists</code> when the file is optional, or call <code>process.loadEnvFile(".env")</code> from code.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfalls:</strong> every value is a string, so <code>process.env.DEBUG = false</code> stores <code>"false"</code>, which is truthy. Add <code>.env</code> to <code>.gitignore</code> and commit a <code>.env.example</code> with dummy values instead. And never print the whole <code>process.env</code> in logs: it contains secrets.</p>
+</div>
+
+<h2 id="exit">Exit codes</h2>
+<p>When a process ends it reports a number to whoever started it: <strong>0 means success</strong>, anything else means failure. Shells, CI pipelines and tools like <code>npm test</code> rely on it. Node exits with:</p>
+<ul>
+  <li><code>0</code> when the program simply runs out of work;</li>
+  <li><code>1</code> when an exception or promise rejection is never handled;</li>
+  <li>whatever you set with <code>process.exitCode = n</code> (exit normally, later) or <code>process.exit(n)</code> (exit immediately).</li>
+</ul>
+<script type="text/plain" class="code" data-file="validate.js" data-save>
+const [file] = process.argv.slice(2);
+if (!file) {
+  console.error("usage: node validate.js <file>");
+  process.exitCode = 2;          // 2 is a common code for "wrong usage"
+} else {
+  console.log(`validating ${file}…`);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node validate.js data.csv; echo "exit code: $?"
+validating data.csv…
+exit code: 0
+$ node validate.js; echo "exit code: $?"
+usage: node validate.js <file>
+exit code: 2
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Prefer <code>process.exitCode</code> over <code>process.exit()</code>.</strong> <code>process.exit()</code> stops the process right away, even if output is still being written or a file is half-saved. Setting <code>exitCode</code> lets Node finish its pending work and then exit with your code.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>process.argv.slice(2)</code> is <code>String[] args</code>, <code>process.env</code> is <code>System.getenv()</code>, <code>process.exit(n)</code> is <code>System.exit(n)</code>, and <code>console.error</code> is <code>System.err.println</code>.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A tiny grep</h3>
+<p>Prints the lines from stdin that contain a word given as an argument, with line numbers, and exits with 1 when nothing matched (like the real <code>grep</code>):</p>
+<script type="text/plain" class="code" data-file="mini-grep.js" data-args="error" data-stdin="ok: started\nerror: disk full\nok: retry\nERROR: gave up\n">
+import { createInterface } from "node:readline";
+
+const [word] = process.argv.slice(2);
+let n = 0, hits = 0;
+for await (const line of createInterface({ input: process.stdin })) {
+  n++;
+  if (line.toLowerCase().includes(word.toLowerCase())) {
+    hits++;
+    console.log(`${n}: ${line}`);
+  }
+}
+process.exitCode = hits ? 0 : 1;
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2: error: disk full
+4: ERROR: gave up
+</script>
+
+<h3>A progress bar</h3>
+<p><code>\r</code> (carriage return) moves the cursor back to the start of the line, so the next write overwrites it. On a terminal this animates; here we print only the final state:</p>
+<script type="text/plain" class="code" data-file="progress.js">
+function bar(done, total, width = 20) {
+  const filled = Math.round((done / total) * width);
+  return `[${"#".repeat(filled)}${"-".repeat(width - filled)}] ${done}/${total}`;
+}
+const frames = [0, 5, 10].map((d) => bar(d, 10));
+if (process.stdout.isTTY) for (const f of frames) process.stdout.write("\r" + f);
+else console.log(frames.join("\n"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[--------------------] 0/10
+[##########----------] 5/10
+[####################] 10/10
+</script>
+<p><code>process.stdout.isTTY</code> is <code>true</code> only when output goes to a real terminal: a good test for "should I animate or use colours?".</p>
+
+<h3>Typed configuration with defaults</h3>
+<script type="text/plain" class="code" data-file="env-config.js">
+function readConfig(env = process.env) {
+  const num = (name, def) => {
+    const raw = env[name];
+    if (raw === undefined || raw === "") return def;
+    const n = Number(raw);
+    if (!Number.isInteger(n)) throw new Error(`${name} must be an integer, got "${raw}"`);
+    return n;
+  };
+  return {
+    port: num("PORT", 3000),
+    retries: num("RETRIES", 3),
+    production: env.NODE_ENV === "production",
+  };
+}
+console.log(readConfig({ PORT: "8080" }));
+try { readConfig({ RETRIES: "three" }); } catch (e) { console.log(e.message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ port: 8080, retries: 3, production: false }
+RETRIES must be an integer, got "three"
+</script>
+<p>Passing <code>env</code> as a parameter (defaulting to <code>process.env</code>) makes the function easy to test, a trick you'll reuse in Chapter 14.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Run code with <code>node file.js</code>, <code>node -e</code>/<code>-p</code>, shebang scripts, and <code>node --watch</code> while developing. The REPL is for quick experiments (<code>.editor</code>, <code>_</code>, <kbd>Tab</kbd>).</li>
+  <li>Results go to stdout (<code>console.log</code>), diagnostics to stderr (<code>console.error</code>). <code>util.inspect</code> controls object formatting; <code>util.styleText</code> adds colours only on terminals.</li>
+  <li>Input: <code>process.argv</code> (strings!), <code>util.parseArgs</code> for options, <code>readline/promises</code> for questions, <code>readline</code> + <code>for await</code> for piped stdin.</li>
+  <li>Configuration comes from <code>process.env</code> (strings or <code>undefined</code>); load <code>.env</code> files with <code>--env-file</code>.</li>
+  <li>Exit code 0 means success. Set <code>process.exitCode</code> rather than calling <code>process.exit()</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">one-liner</span></h3>
+<p>Without creating a file, print how many seconds are in a week, and print today's day of the week as a number (0–6).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node -p "7 * 24 * 60 * 60"
+604800
+$ node -p "new Date().getDay() >= 0"
+true
+</script>
+<p><code>node -p "new Date().getDay()"</code> prints the day number; the check above just keeps this book's output stable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>You run <code>node args.js 10 20</code>. What does this print?</p>
+<script type="text/plain" class="code" data-file="args.js" data-args="10 20">
+const [a, b] = process.argv.slice(2);
+console.log(a + b, Number(a) + Number(b), process.argv.length);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+1020 30 4
+</script>
+<p>Arguments are strings, so <code>a + b</code> concatenates. <code>argv</code> holds node, the script and the two arguments.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix it</span></h3>
+<p>This script is meant to send its warnings to stderr and the CSV data to stdout, so <code>node export.js &gt; out.csv</code> produces a clean file. Fix it.</p>
+<script type="text/plain" class="code" data-file="export-bad.js" data-norun>
+console.log("warning: 2 rows had no email");
+console.log("id,email");
+console.log("1,ana@example.com");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="export.js">
+console.error("warning: 2 rows had no email");
+console.log("id,email");
+console.log("1,ana@example.com");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+id,email
+1,ana@example.com
+</script>
+<p>The warning now goes to stderr: still visible in the terminal, but not inside <code>out.csv</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">environment</span></h3>
+<p>Write <code>hello-env.js</code> that greets <code>process.env.USER_NAME</code>, or <code>"stranger"</code> when it isn't set or is empty.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="hello-env.js">
+const name = process.env.USER_NAME || "stranger";
+console.log(`Hello, ${name}!`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello, stranger!
+</script>
+<p>Here <code>||</code> is right (not <code>??</code>) because an empty string should also fall back. Try <code>USER_NAME=Ana node hello-env.js</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>sum.js</code> that reads numbers from stdin (any whitespace between them) and prints their sum and average with two decimals. Example input: <code>3 4\n5</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="sum.js" data-stdin="3 4\n5\n">
+let text = "";
+for await (const chunk of process.stdin) text += chunk;
+const nums = text.split(/\s+/).filter(Boolean).map(Number);
+const sum = nums.reduce((a, b) => a + b, 0);
+console.log(`sum ${sum} average ${(sum / nums.length).toFixed(2)}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sum 12 average 4.00
+</script>
+<p><code>process.stdin</code> is an async iterable of chunks, so <code>for await</code> collects the whole input. This is the "read everything" template for the Problem Set.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/notes-cli.js</code> using <code>parseArgs</code>: <code>node notes-cli.js add "Buy milk" --tag home</code> prints <code>added: Buy milk [home]</code>; the <code>--tag</code> option is optional (default <code>general</code>, short <code>-t</code>); an unknown command prints a usage line to stderr and sets exit code 2.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/notes-cli.js" data-args="add Buy-milk -t home">
+import { parseArgs } from "node:util";
+
+const { values, positionals } = parseArgs({
+  options: { tag: { type: "string", short: "t", default: "general" } },
+  allowPositionals: true,
+});
+const [command, ...words] = positionals;
+
+if (command === "add" && words.length) {
+  console.log(`added: ${words.join(" ")} [${values.tag}]`);
+} else {
+  console.error("usage: notes-cli add <text> [--tag name]");
+  process.exitCode = 2;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+added: Buy-milk [home]
+</script>
+<p>In a shell, quoting <code>"Buy milk"</code> passes it as one argument. This CLI grows into the Chapter 16 project's command-line client.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>What is printed, and what is the exit code?</p>
+<script type="text/plain" class="code" data-file="ex7.js" data-stderr data-exit>
+process.exitCode = 3;
+console.log("start");
+setTimeout(() => console.log("timer"), 10);
+process.exit();
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+start
+</script>
+<p>Exit code <strong>3</strong>: <code>process.exit()</code> without an argument uses <code>process.exitCode</code>. The timer never runs because <code>process.exit()</code> ends the process immediately — the reason to prefer just setting <code>exitCode</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>quiz.js</code>: ask "What is 7 × 8?" with <code>readline/promises</code>, then print <code>correct!</code> or <code>wrong, it's 56</code>. Ignore spaces around the answer.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="quiz.js" data-stdin=" 56 \n">
+import * as readline from "node:readline/promises";
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const answer = (await rl.question("What is 7 × 8? ")).trim();
+rl.close();
+console.log(answer === "56" ? "correct!" : "wrong, it's 56");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+What is 7 × 8? correct!
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write <code>wc.js</code>, a mini <code>wc</code>: read stdin and print lines, words and characters. With <code>-l</code>, <code>-w</code> or <code>-c</code> print only the chosen counts (several flags may be combined), in that order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="wc.js" data-args="-l -c" data-stdin="one two\nthree\n">
+import { parseArgs } from "node:util";
+
+const { values } = parseArgs({
+  options: { lines: { type: "boolean", short: "l" }, words: { type: "boolean", short: "w" }, chars: { type: "boolean", short: "c" } },
+});
+let text = "";
+for await (const chunk of process.stdin) text += chunk;
+
+const counts = {
+  lines: text.split("\n").length - 1,
+  words: text.split(/\s+/).filter(Boolean).length,
+  chars: text.length,
+};
+const chosen = ["lines", "words", "chars"].filter((k) => values[k]);
+const show = chosen.length ? chosen : ["lines", "words", "chars"];
+console.log(show.map((k) => counts[k]).join(" "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 14
+</script>
+<p>Like the real <code>wc</code>, lines are counted as newline characters. Note that <code>text.length</code> counts UTF-16 code units, not bytes; <code>Buffer.byteLength(text)</code> would count bytes (Chapter 10).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>A deploy script runs <code>node migrate.js &amp;&amp; node server.js</code>. <code>migrate.js</code> catches every error and logs it with <code>console.log</code>. Last night a migration failed, but the server started anyway on a broken database. Explain the two mistakes and fix them.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&amp;&amp;</code> runs the second command only if the first <strong>exits with 0</strong>. Because <code>migrate.js</code> caught the error and finished normally, it exited with 0, so the server started. Fix 1: after logging, set <code>process.exitCode = 1</code> (or rethrow). Fix 2: log errors with <code>console.error</code> so they go to stderr, where deploy logs and monitoring look for problems.</p>
+<script type="text/plain" class="code" data-file="migrate.js" data-stderr data-exit>
+async function migrate() { throw new Error("column 'email' already exists"); }
+try {
+  await migrate();
+  console.log("migrations done");
+} catch (err) {
+  console.error("migration failed:", err.message);
+  process.exitCode = 1;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+migration failed: column 'email' already exists
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/command-line/run-nodejs-scripts-from-the-command-line">Run Node.js scripts from the command line</a></li>
+  <li><a href="https://nodejs.org/en/learn/command-line/how-to-use-the-nodejs-repl">How to use the Node.js REPL</a></li>
+  <li><a href="https://nodejs.org/en/learn/command-line/output-to-the-command-line-using-nodejs">Output to the command line</a> · <a href="https://nodejs.org/en/learn/command-line/accept-input-from-the-command-line-in-nodejs">Accept input from the command line</a></li>
+  <li><a href="https://nodejs.org/en/learn/command-line/how-to-read-environment-variables-from-nodejs">How to read environment variables</a></li>
+  <li>API: <a href="https://nodejs.org/api/process.html">process</a> · <a href="https://nodejs.org/api/util.html#utilparseargsconfig">util.parseArgs</a> · <a href="https://nodejs.org/api/readline.html">readline</a> · <a href="https://nodejs.org/api/cli.html">Command-line options</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

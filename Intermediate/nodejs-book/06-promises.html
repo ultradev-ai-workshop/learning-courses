@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🤝&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Promises &amp; async/await in Node · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Asynchronous Work</div>
+<h1>Promises &amp; async/await in Node</h1>
+<p class="lead">Promises turned Node's callback pyramids into flat, readable code, and <code>async</code>/<code>await</code> made asynchronous code look almost synchronous. This chapter focuses on how to use them <em>in Node</em>: the promise-based core APIs, running work in sequence or in parallel, handling errors and unhandled rejections, cleaning up, and cancelling work with <code>AbortSignal</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a promise is, and the promise versions of Node's core modules (<code>fs/promises</code>, <code>timers/promises</code>…).</li>
+  <li><code>async</code>/<code>await</code> with <code>try</code>/<code>catch</code>/<code>finally</code>, and cleaning up resources.</li>
+  <li>Sequential vs parallel: <code>Promise.all</code>, <code>allSettled</code>, <code>any</code>, <code>race</code>, and a concurrency limit.</li>
+  <li>Unhandled rejections: why Node exits, and the "floating promise" bug.</li>
+  <li>Cancellation and timeouts with <code>AbortController</code>, <code>AbortSignal.timeout</code> and <code>AbortSignal.any</code>.</li>
+</ul>
+</div>
+
+<h2 id="promise">Promises in one page</h2>
+<p>A <strong>promise</strong> is an object that stands for a result that isn't ready yet. It starts <em>pending</em> and settles exactly once: <em>fulfilled</em> with a value, or <em>rejected</em> with an error. You react to it with <code>.then()</code>/<code>.catch()</code>, or wait for it with <code>await</code> inside an <code>async</code> function (or at the top level of an ES module).</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a parcel tracking number.</strong> When you order online you don't get the parcel, you get a tracking number. You can hand that number to someone else, ask "tell me when it arrives" (<code>then</code>), or wait at the door (<code>await</code>). The parcel either arrives (fulfilled) or the shop says it's lost (rejected), and once that's decided it never changes. A callback, by comparison, is you handing the shop your house key and hoping they use it only once.</p>
+</div>
+<p>The <a href="../javascript-book/12-async.html">JavaScript Study Book, Chapter 12</a> covers promises from the language side (chaining, combinators, microtasks). Here we use them with Node's APIs.</p>
+
+<h2 id="core">Promise-based core APIs</h2>
+<p>Most Node modules have a promise flavour. Import from the <code>/promises</code> path:</p>
+<div class="table-wrap"><table>
+  <tr><th>Callback API</th><th>Promise API</th></tr>
+  <tr><td><code>node:fs</code> (<code>fs.readFile(path, cb)</code>)</td><td><code>node:fs/promises</code> (<code>await readFile(path)</code>)</td></tr>
+  <tr><td><code>setTimeout(fn, ms)</code></td><td><code>node:timers/promises</code> (<code>await setTimeout(ms, value)</code>)</td></tr>
+  <tr><td><code>stream.pipeline(a, b, cb)</code></td><td><code>node:stream/promises</code> (<code>await pipeline(a, b)</code>)</td></tr>
+  <tr><td><code>dns.lookup(host, cb)</code></td><td><code>node:dns/promises</code></td></tr>
+  <tr><td><code>emitter.once("ready", cb)</code></td><td><code>await events.once(emitter, "ready")</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="core-promises.js">
+import { writeFile, readFile, unlink } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
+
+await writeFile("todo.txt", "learn promises\n");
+await sleep(20);                                   // pause without blocking the thread
+const text = await readFile("todo.txt", "utf8");
+console.log(text.trim());
+await unlink("todo.txt");
+console.log(await sleep(5, "sleep can resolve with a value"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+learn promises
+sleep can resolve with a value
+</script>
+<p>Compare this with the callback pyramid in Chapter 5: the same steps, top to bottom, without nesting.</p>
+
+<h2 id="await">async/await and errors</h2>
+<p>Inside an <code>async</code> function, <code>await</code> pauses <em>that function</em> until the promise settles: a fulfilled value is returned, and a rejection is <strong>thrown</strong> as an exception. So ordinary <code>try</code>/<code>catch</code>/<code>finally</code> works again — the big win over callbacks.</p>
+<script type="text/plain" class="code" data-file="config-loader.js">
+import { readFile } from "node:fs/promises";
+
+async function loadConfig(path) {
+  try {
+    const raw = await readFile(path, "utf8");      // may reject: ENOENT
+    return JSON.parse(raw);                        // may throw: SyntaxError
+  } catch (err) {
+    if (err.code === "ENOENT") return { theme: "light" };          // missing file → defaults
+    throw new Error(`bad config in ${path}`, { cause: err });      // anything else → wrap & rethrow
+  }
+}
+
+import { writeFile } from "node:fs/promises";
+await writeFile("broken.json", "{ theme: dark }");
+console.log(await loadConfig("missing.json"));
+try {
+  await loadConfig("broken.json");
+} catch (err) {
+  console.log(err.message, "| cause:", err.cause.name);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ theme: 'light' }
+bad config in broken.json | cause: SyntaxError
+</script>
+<p>One <code>try</code> covered both the asynchronous failure (missing file) and the synchronous one (bad JSON). Note the pattern: handle the errors you <em>expect</em> and can recover from; wrap and rethrow the rest with a <code>cause</code> so the original error isn't lost.</p>
+
+<h3>Cleaning up with finally</h3>
+<p>Resources like open files, database connections and timers must be released whether the work succeeds or fails. <code>finally</code> runs in both cases:</p>
+<script type="text/plain" class="code" data-file="filehandle.js">
+import { open, writeFile } from "node:fs/promises";
+await writeFile("data.csv", "id,qty\n1,3\n2,5\n");
+
+async function firstLine(path) {
+  const file = await open(path, "r");             // a FileHandle: must be closed
+  try {
+    for await (const line of file.readLines()) return line;
+  } finally {
+    await file.close();
+    console.log("file closed");
+  }
+}
+console.log(await firstLine("data.csv"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+file closed
+id,qty
+</script>
+<p>(<code>readLines()</code> closes the handle itself when the loop ends; the explicit <code>finally</code> shows the general pattern you need for any resource. Chapter 15 of the JavaScript book also covers <code>await using</code>, which automates it.)</p>
+
+<h2 id="parallel">Sequential vs parallel</h2>
+<p>The most common performance bug with <code>await</code> is waiting for independent things one at a time:</p>
+<script type="text/plain" class="code" data-file="seq-vs-par.js">
+import { setTimeout as sleep } from "node:timers/promises";
+const fetchUser = async () => { await sleep(50); return "user"; };
+const fetchOrders = async () => { await sleep(50); return "orders"; };
+const fetchStats = async () => { await sleep(50); return "stats"; };
+
+let t = Date.now();
+const a = await fetchUser();
+const b = await fetchOrders();
+const c = await fetchStats();
+console.log("sequential:", Date.now() - t >= 150 ? "≥ 150 ms" : "?");
+
+t = Date.now();
+const [u, o, s] = await Promise.all([fetchUser(), fetchOrders(), fetchStats()]);
+console.log("parallel:  ", Date.now() - t < 120 ? "≈ 50 ms" : "?", u, o, s);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sequential: ≥ 150 ms
+parallel:   ≈ 50 ms user orders stats
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: making breakfast.</strong> You can boil the kettle, wait for it, then toast the bread, wait, then fry the egg. Or you start all three and wait for the slowest. <code>await</code> in a row is the first way; <code>Promise.all</code> the second. Only cook sequentially when a step needs the previous one (you can't butter toast that isn't toasted).</p>
+</div>
+
+<h3>The combinators</h3>
+<div class="table-wrap"><table>
+  <tr><th>Combinator</th><th>Resolves when</th><th>Rejects when</th><th>Use for</th></tr>
+  <tr><td><code>Promise.all</code></td><td>all fulfil (array of values)</td><td>the first one rejects</td><td>"I need every result"</td></tr>
+  <tr><td><code>Promise.allSettled</code></td><td>all settle (array of <code>{status, value|reason}</code>)</td><td>never</td><td>"try everything, report each outcome"</td></tr>
+  <tr><td><code>Promise.any</code></td><td>the first one fulfils</td><td>all reject (<code>AggregateError</code>)</td><td>"first mirror that works"</td></tr>
+  <tr><td><code>Promise.race</code></td><td colspan="2">the first one settles, either way</td><td>timeouts (but prefer AbortSignal)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="combinators.js">
+import { setTimeout as sleep } from "node:timers/promises";
+const ok = (ms, v) => sleep(ms, v);
+const fail = async (ms, msg) => { await sleep(ms); throw new Error(msg); };
+
+const settled = await Promise.allSettled([ok(10, "a.jpg"), fail(5, "b.jpg too big"), ok(1, "c.jpg")]);
+console.log(settled.map((r) => (r.status === "fulfilled" ? `✔ ${r.value}` : `✘ ${r.reason.message}`)));
+
+console.log(await Promise.any([fail(5, "mirror 1 down"), ok(20, "mirror 2"), ok(30, "mirror 3")]));
+
+try {
+  await Promise.all([ok(10, 1), fail(5, "one failed"), ok(15, 3)]);
+} catch (err) {
+  console.log("all rejected:", err.message);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ '✔ a.jpg', '✘ b.jpg too big', '✔ c.jpg' ]
+mirror 2
+all rejected: one failed
+</script>
+<div class="pitfall">
+<p>⚠️ <strong><code>Promise.all</code> doesn't cancel the others.</strong> When one promise rejects, <code>all</code> rejects immediately, but the other operations keep running in the background. If they must stop, give them an <code>AbortSignal</code> (below).</p>
+</div>
+
+<h3>A concurrency limit with promises</h3>
+<p>Chapter 5's limited-parallel pattern is much shorter with promises. Start <code>limit</code> "workers" that each take the next item from a shared index until none are left:</p>
+<script type="text/plain" class="code" data-file="pool.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;                   // safe: no other code runs between these lines
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+let running = 0, peak = 0;
+const resize = async (name) => {
+  running++; peak = Math.max(peak, running);
+  await sleep(10);
+  running--;
+  return name.replace(".png", ".webp");
+};
+const out = await mapLimit(["a.png", "b.png", "c.png", "d.png", "e.png"], 2, resize);
+console.log(out, "peak concurrency:", peak);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp' ] peak concurrency: 2
+</script>
+<p><code>i = next++</code> is safe without locks because JavaScript runs one piece of code at a time: two workers can't interleave between reading and incrementing <code>next</code>.</p>
+
+<h2 id="unhandled">Unhandled rejections</h2>
+<p>If a promise rejects and nothing ever handles it (no <code>catch</code>, no <code>await</code> inside a <code>try</code>), Node treats it like an uncaught exception: it prints the error and <strong>exits with code 1</strong>. That's deliberate — silently ignored failures are worse than crashes.</p>
+<script type="text/plain" class="code" data-file="unhandled.js" data-stderr data-exit>
+async function saveOrder() {
+  throw new Error("database unavailable");
+}
+saveOrder();                                       // no await, no catch: a "floating" promise
+setTimeout(() => console.log("never printed"), 100);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+Error: database unavailable
+...
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Floating promises.</strong> Calling an async function without <code>await</code> (or <code>.catch</code>) is the most common source of unhandled rejections — and of code that "finishes" before its work is done. Linters can flag it (<code>@typescript-eslint/no-floating-promises</code>). If you really want fire-and-forget, attach a handler: <code>sendEmail(user).catch(logError)</code>.</p>
+</div>
+<p>You can observe unhandled rejections globally with <code>process.on("unhandledRejection", (reason, promise) =&gt; …)</code>, typically to log them before exiting. Don't use it to keep running as if nothing happened.</p>
+
+<h2 id="abort">Cancellation and timeouts with AbortSignal</h2>
+<p>A promise can't be cancelled from outside. Instead, Node's async APIs accept an <strong><code>AbortSignal</code></strong>: an object that says "please stop". You create one with an <code>AbortController</code> and call <code>controller.abort()</code>, or use <code>AbortSignal.timeout(ms)</code>, which aborts by itself. The same signal works for <code>fetch</code>, <code>fs.readFile</code>, <code>timers/promises</code>, <code>events.once</code>, streams and child processes.</p>
+<script type="text/plain" class="code" data-file="abort.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 20);          // e.g. the user pressed "cancel"
+try {
+  await sleep(1000, "too late", { signal: controller.signal });
+} catch (err) {
+  console.log("cancelled:", err.name);
+}
+
+try {
+  await sleep(1000, null, { signal: AbortSignal.timeout(30) });
+} catch (err) {
+  console.log("timed out:", err.name, "| cause:", err.cause?.name);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cancelled: AbortError
+timed out: AbortError | cause: TimeoutError
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: the "cancel order" button.</strong> An <code>AbortController</code> is the remote control and its <code>signal</code> is the receiver you give to every worker. Pressing the button doesn't magically stop work; each worker that holds a receiver checks it and stops itself. That's why you must <em>pass</em> the signal to every operation you want to be cancellable.</p>
+</div>
+<p>Your own async functions should accept a signal too, and pass it down. <code>AbortSignal.any([a, b])</code> combines signals: abort when the user cancels <em>or</em> a timeout expires.</p>
+<script type="text/plain" class="code" data-file="own-signal.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+async function processAll(items, { signal } = {}) {
+  const done = [];
+  for (const item of items) {
+    signal?.throwIfAborted();                      // check between steps
+    await sleep(15, null, { signal });             // and pass the signal down
+    done.push(item);
+  }
+  return done;
+}
+
+const user = new AbortController();
+const signal = AbortSignal.any([user.signal, AbortSignal.timeout(40)]);
+try {
+  await processAll(["a", "b", "c", "d", "e"], { signal });
+} catch (err) {
+  console.log(err.name, signal.aborted, signal.reason.name);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+AbortError true TimeoutError
+</script>
+
+<h2 id="convert">Converting between callbacks and promises</h2>
+<script type="text/plain" class="code" data-file="convert.js">
+import { promisify, callbackify } from "node:util";
+import { EventEmitter, once } from "node:events";
+
+// 1. wrap a callback API by hand with new Promise
+function legacyLookup(id, cb) { setTimeout(() => (id ? cb(null, `item-${id}`) : cb(new Error("no id"))), 5); }
+const lookup = (id) => new Promise((resolve, reject) => {
+  legacyLookup(id, (err, value) => (err ? reject(err) : resolve(value)));
+});
+console.log(await lookup(7));
+
+// 2. or let promisify do it
+console.log(await promisify(legacyLookup)(8));
+
+// 3. the other direction, for old APIs that want a callback
+callbackify(async (n) => n * 2)(21, (err, v) => console.log("callbackified:", v));
+
+// 4. wait for an event once
+const door = new EventEmitter();
+setTimeout(() => door.emit("open", "front door"), 5);
+const [which] = await once(door, "open");
+console.log(which, "opened");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+item-7
+item-8
+callbackified: 42
+front door opened
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Retry with exponential backoff</h3>
+<script type="text/plain" class="code" data-file="retry.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+async function retry(fn, { attempts = 3, baseMs = 10 } = {}) {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn(i);
+    } catch (err) {
+      if (i >= attempts) throw err;
+      const wait = baseMs * 2 ** (i - 1);            // 10, 20, 40…
+      console.log(`attempt ${i} failed (${err.message}), retrying in ${wait} ms`);
+      await sleep(wait);
+    }
+  }
+}
+
+let calls = 0;
+const flaky = async () => { if (++calls < 3) throw new Error("ECONNRESET"); return "ok on call " + calls; };
+console.log(await retry(flaky));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attempt 1 failed (ECONNRESET), retrying in 10 ms
+attempt 2 failed (ECONNRESET), retrying in 20 ms
+ok on call 3
+</script>
+<p>Retry only errors that may go away (timeouts, connection resets, HTTP 503), never validation errors, and add random jitter to the wait in real systems so many clients don't retry in lockstep.</p>
+
+<h3>Polling with an async interval</h3>
+<p><code>timers/promises</code> also has <code>setInterval</code>, an async iterator you consume with <code>for await</code>, and it stops cleanly on <code>break</code>:</p>
+<script type="text/plain" class="code" data-file="poll.js">
+import { setInterval as every } from "node:timers/promises";
+
+let progress = 0;
+const job = setInterval(() => (progress += 30), 10);      // something making progress
+for await (const _ of every(12)) {
+  console.log(`progress ${Math.min(progress, 100)}%`);
+  if (progress >= 100) break;
+}
+clearInterval(job);
+console.log("job finished");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+progress 100%
+job finished
+</script>
+
+<h3>Caching a promise, not a value</h3>
+<p>If ten requests ask for the same thing at the same moment, caching the <em>promise</em> means the slow work happens once and everyone shares the result:</p>
+<script type="text/plain" class="code" data-file="promise-cache.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+let loads = 0;
+const cache = new Map();
+function getRates(currency) {
+  if (!cache.has(currency)) {
+    const p = (async () => { loads++; await sleep(20); return { currency, rate: 1.08 }; })();
+    p.catch(() => cache.delete(currency));          // don't cache failures
+    cache.set(currency, p);
+  }
+  return cache.get(currency);
+}
+const results = await Promise.all(Array.from({ length: 10 }, () => getRates("USD")));
+console.log(results.length, "results,", loads, "load");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10 results, 1 load
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A promise is a placeholder that settles once. Use the core <code>/promises</code> APIs (<code>fs/promises</code>, <code>timers/promises</code>, <code>stream/promises</code>) and <code>events.once</code>.</li>
+  <li><code>await</code> turns rejections into exceptions: one <code>try</code>/<code>catch</code> covers sync and async failures; <code>finally</code> releases resources; wrap errors with <code>cause</code>.</li>
+  <li>Independent work → <code>Promise.all</code>/<code>allSettled</code>/<code>any</code>; many items → a worker pool with a limit. <code>all</code> doesn't cancel the rest.</li>
+  <li>Unhandled rejections crash Node (exit 1). Never leave floating promises: <code>await</code> or <code>.catch</code> them.</li>
+  <li>Cancel with <code>AbortController</code>, time out with <code>AbortSignal.timeout</code>, combine with <code>AbortSignal.any</code>, and pass <code>{ signal }</code> down to every operation.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">rewrite</span></h3>
+<p>Rewrite with <code>fs/promises</code> and <code>await</code>: write <code>"3,1,2"</code> to <code>nums.txt</code>, read it back, and print the numbers sorted.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="nums.js">
+import { writeFile, readFile } from "node:fs/promises";
+await writeFile("nums.txt", "3,1,2");
+const nums = (await readFile("nums.txt", "utf8")).split(",").map(Number);
+console.log(nums.toSorted((a, b) => a - b));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 1, 2, 3 ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex2.js">
+async function f() { return 42; }
+const p = f();
+console.log(p instanceof Promise);
+console.log(await p);
+console.log(await 7);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+true
+42
+7
+</script>
+<p>An <code>async</code> function always returns a promise. <code>await</code> on a non-promise value just gives you the value (after a microtask).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">sleep</span></h3>
+<p>Print <code>3</code>, <code>2</code>, <code>1</code>, <code>liftoff!</code> with 20 ms between lines, using <code>timers/promises</code> and a <code>for</code> loop.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="countdown.js">
+import { setTimeout as sleep } from "node:timers/promises";
+for (let i = 3; i > 0; i--) {
+  console.log(i);
+  await sleep(20);
+}
+console.log("liftoff!");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3
+2
+1
+liftoff!
+</script>
+<p>Here sequential <code>await</code> in a loop is exactly what we want: each step must wait for the previous one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Which combinator? (a) Load a page's header, body and footer; fail if any fails. (b) Send a newsletter to 50 addresses and report which failed. (c) Ask three DNS servers and use the first successful answer.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>Promise.all</code>. (b) <code>Promise.allSettled</code> (with a concurrency limit in practice). (c) <code>Promise.any</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">fix it</span></h3>
+<p>This code takes about 300 ms. Make it take about 100 ms without changing <code>getPrice</code>, keeping the output identical.</p>
+<script type="text/plain" class="code" data-file="ex5-slow.js" data-norun>
+import { setTimeout as sleep } from "node:timers/promises";
+const getPrice = async (id) => { await sleep(100); return id.length * 100; };
+const total = (await getPrice("pen")) + (await getPrice("book")) + (await getPrice("lamp"));
+console.log(total);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5-fast.js">
+import { setTimeout as sleep } from "node:timers/promises";
+const getPrice = async (id) => { await sleep(100); return id.length * 100; };
+const prices = await Promise.all(["pen", "book", "lamp"].map(getPrice));
+console.log(prices.reduce((a, b) => a + b, 0));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1100
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex6.js">
+const log = [];
+async function step(name) { log.push(`start ${name}`); await null; log.push(`end ${name}`); }
+[1, 2].forEach(async (n) => await step(n));
+log.push("after forEach");
+await new Promise((r) => setTimeout(r, 0));
+console.log(log.join(" | "));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+start 1 | start 2 | after forEach | end 1 | end 2
+</script>
+<p><code>forEach</code> doesn't wait for async callbacks: it starts both and returns immediately. Use <code>for…of</code> with <code>await</code> for sequential work, or <code>Promise.all(items.map(...))</code> for parallel work.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Rewrite Chapter 5's <code>playground/backup.js</code> as <code>playground/backup-async.js</code> using <code>fs/promises</code> and a concurrency limit of 2 (reuse the worker-pool idea). Print the same two lines.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/backup-async.js">
+import { mkdir, writeFile, readdir, copyFile } from "node:fs/promises";
+import { join } from "node:path";
+
+const src = "playground-data", dest = "backup";
+await mkdir(src, { recursive: true });
+await Promise.all([1, 2, 3, 4, 5].map((i) => writeFile(join(src, `note-${i}.txt`), `note ${i}`)));
+await mkdir(dest, { recursive: true });
+
+const files = await readdir(src);
+let next = 0;
+async function worker() {
+  while (next < files.length) {
+    const f = files[next++];
+    await copyFile(join(src, f), join(dest, f));
+  }
+}
+await Promise.all([worker(), worker()]);
+console.log(`copied ${files.length} files`);
+console.log((await readdir(dest)).sort().join(", "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+copied 5 files
+note-1.txt, note-2.txt, note-3.txt, note-4.txt, note-5.txt
+</script>
+<p>Any failure rejects <code>Promise.all</code>, and a single top-level <code>try</code>/<code>catch</code> (or Node's default crash) handles it — no error checks at every level.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">timeout</span></h3>
+<p>Write <code>withTimeout(promiseFactory, ms)</code> that calls <code>promiseFactory(signal)</code> with an <code>AbortSignal.timeout(ms)</code> signal and rethrows a timeout as <code>new Error("timed out after X ms")</code>. Test it with a slow and a fast sleep.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="with-timeout.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+async function withTimeout(factory, ms) {
+  const signal = AbortSignal.timeout(ms);
+  try {
+    return await factory(signal);
+  } catch (err) {
+    if (signal.aborted) throw new Error(`timed out after ${ms} ms`, { cause: err });
+    throw err;
+  }
+}
+console.log(await withTimeout((signal) => sleep(5, "fast", { signal }), 50));
+await withTimeout((signal) => sleep(500, "slow", { signal }), 20).catch((e) => console.log(e.message));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+fast
+timed out after 20 ms
+</script>
+<p>Unlike <code>Promise.race</code> with a timer, the signal really stops the slow operation instead of leaving it running in the background.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why does this script exit with code 1 even though there's a <code>try</code>/<code>catch</code>? Fix it.</p>
+<script type="text/plain" class="code" data-file="ex9.js" data-stderr data-exit>
+async function save() { throw new Error("disk full"); }
+async function main() {
+  try {
+    return save();
+  } catch (err) {
+    console.log("handled:", err.message);
+  }
+}
+main();
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>return save()</code> returns the promise without waiting for it, so the function leaves the <code>try</code> before the rejection happens; the rejection travels to <code>main()</code>'s promise, which nobody handles → unhandled rejection → exit 1. Use <code>return await save()</code> inside <code>try</code> blocks:</p>
+<script type="text/plain" class="code" data-file="ex9-fixed.js">
+async function save() { throw new Error("disk full"); }
+async function main() {
+  try {
+    return await save();
+  } catch (err) {
+    console.log("handled:", err.message);
+  }
+}
+await main();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+handled: disk full
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/batch.js</code> exporting <code>runBatch(jobs, { limit, timeoutMs, signal })</code>: run async jobs (functions receiving a signal) with a concurrency limit; each job gets its own timeout combined with the batch's signal; never reject — return <code>{ ok, value|error }</code> per job in order. Cancel the whole batch after 60 ms in the demo.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/batch.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+export async function runBatch(jobs, { limit = 2, timeoutMs = 1000, signal } = {}) {
+  const results = new Array(jobs.length);
+  let next = 0;
+  async function worker() {
+    while (next < jobs.length) {
+      const i = next++;
+      const jobSignal = AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]);
+      try {
+        if (signal?.aborted) throw new Error("batch cancelled");
+        results[i] = { ok: true, value: await jobs[i](jobSignal) };
+      } catch (err) {
+        const why = signal?.aborted ? "batch cancelled" : jobSignal.aborted ? "timeout" : err.message;
+        results[i] = { ok: false, error: why };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker));
+  return results;
+}
+
+const job = (ms, v) => (signal) => sleep(ms, v, { signal });
+const failing = () => async () => { throw new Error("bad input"); };
+const cancel = new AbortController();
+setTimeout(() => cancel.abort(), 60);
+const results = await runBatch([job(10, "a"), job(100, "slow"), failing(), job(20, "d"), job(20, "e"), job(30, "f")],
+  { limit: 2, timeoutMs: 50, signal: cancel.signal });
+for (const r of results) console.log(r.ok ? `ok ${r.value}` : `failed: ${r.error}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok a
+failed: timeout
+failed: bad input
+ok d
+ok e
+failed: batch cancelled
+</script>
+<p>Timeline: worker 1 runs "a" (0–10 ms), the failing job, "d" (10–30) and "e" (30–50); worker 2 is stuck on "slow" until it times out at 50 ms, then starts "f", which is still running at 60 ms when the batch is cancelled. Checking <code>signal.aborted</code> distinguishes the reasons reliably.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/asynchronous-work/discover-promises-in-nodejs">Discover Promises in Node.js</a></li>
+  <li><a href="https://nodejs.org/api/fs.html#promises-api">fs promises API</a> · <a href="https://nodejs.org/api/timers.html#timers-promises-api">timers promises API</a></li>
+  <li><a href="https://nodejs.org/api/globals.html#class-abortcontroller">AbortController</a> · <a href="https://nodejs.org/api/process.html#event-unhandledrejection">process 'unhandledRejection'</a></li>
+  <li><a href="../javascript-book/12-async.html">JavaScript Study Book, Chapter 12: Promises, async/await &amp; the Event Loop</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

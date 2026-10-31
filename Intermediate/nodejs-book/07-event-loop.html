@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔁&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Timers &amp; the Event Loop · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Asynchronous Work</div>
+<h1>Timers &amp; the Event Loop</h1>
+<p class="lead">The event loop is the heart of Node: it decides <em>when</em> each of your callbacks runs. Knowing its phases explains puzzles like "why did <code>setImmediate</code> run before <code>setTimeout(…, 0)</code>?" and "why did my server stop responding?". This chapter covers timers, the loop's phases, <code>process.nextTick</code>, promise microtasks and <code>setImmediate</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The timer functions: <code>setTimeout</code>, <code>setInterval</code>, <code>setImmediate</code>, clearing them, and <code>unref()</code>.</li>
+  <li>The six phases of Node's event loop and what runs in each.</li>
+  <li>The two "jump the queue" lanes: the <code>process.nextTick</code> queue and the promise microtask queue.</li>
+  <li><code>setImmediate</code> vs <code>setTimeout(fn, 0)</code>, and when their order is guaranteed.</li>
+  <li>How the loop decides when the program exits, and how starvation happens.</li>
+</ul>
+</div>
+
+<h2 id="timers">Timers</h2>
+<p>Node provides the same timer functions as browsers, plus <code>setImmediate</code>:</p>
+<script type="text/plain" class="code" data-file="timers.js">
+const t0 = Date.now();
+const elapsed = () => `${Math.round((Date.now() - t0) / 10) * 10} ms`;
+
+const once = setTimeout((who) => console.log("timeout fired for", who, "after ~", elapsed()), 45, "Ana");
+
+let n = 0;
+const every = setInterval(() => {
+  n++;
+  console.log(`tick ${n}`);
+  if (n === 3) clearInterval(every);              // stop repeating
+}, 10);
+
+const cancelled = setTimeout(() => console.log("never runs"), 5);
+clearTimeout(cancelled);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+tick 1
+tick 2
+tick 3
+timeout fired for Ana after ~ 50 ms
+</script>
+<ul>
+  <li>Extra arguments after the delay are passed to the callback (<code>"Ana"</code> above).</li>
+  <li>The delay is a <strong>minimum</strong>, not a promise: the callback runs <em>at the earliest</em> after that time, when the loop gets to it. A delay of <code>0</code> becomes 1 ms.</li>
+  <li>In Node, timers return <code>Timeout</code> objects (not numbers as in browsers), with extra methods like <code>unref()</code> and <code>refresh()</code>.</li>
+</ul>
+
+<h3>setTimeout chains vs setInterval</h3>
+<p><code>setInterval</code> fires every N ms no matter how long the callback takes. If you need a gap <em>between</em> runs (polling an API that sometimes responds slowly), schedule the next run when the current one finishes:</p>
+<script type="text/plain" class="code" data-file="poll-chain.js">
+let runs = 0;
+async function poll() {
+  runs++;
+  await new Promise((r) => setTimeout(r, 15));   // pretend the request took 15 ms
+  console.log(`poll ${runs} done`);
+  if (runs < 3) setTimeout(poll, 10);            // wait 10 ms AFTER finishing
+}
+poll();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+poll 1 done
+poll 2 done
+poll 3 done
+</script>
+
+<h3>unref: timers that don't keep the process alive</h3>
+<p>Node exits when there's nothing left to do. A pending timer counts as "something to do", so an active <code>setInterval</code> keeps a script running forever. Calling <code>.unref()</code> tells Node "don't stay alive just for this timer" — handy for background housekeeping:</p>
+<script type="text/plain" class="code" data-file="unref.js">
+const heartbeat = setInterval(() => console.log("heartbeat"), 1000);
+heartbeat.unref();                       // won't keep the process running
+setTimeout(() => console.log("main work done, exiting"), 20);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+main work done, exiting
+</script>
+
+<h2 id="loop">The event loop's phases</h2>
+<p>When you run <code>node app.js</code>, Node first executes your file from top to bottom (registering timers, starting I/O). Then it enters the <strong>event loop</strong>, which goes round and round through a fixed series of <strong>phases</strong>. Each phase has a queue of callbacks; the loop runs that phase's callbacks, then moves on:</p>
+<figure class="diagram">
+<svg viewBox="0 0 600 330" role="img" aria-label="The event loop phases in a circle: timers, pending callbacks, idle/prepare, poll, check, close callbacks, back to timers">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ar" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <rect class="hi" x="190" y="10" width="220" height="44" rx="10"/><text x="300" y="30" text-anchor="middle">① timers</text><text class="mut" x="300" y="46" text-anchor="middle">expired setTimeout / setInterval</text>
+  <rect class="bx" x="410" y="80" width="180" height="44" rx="10"/><text x="500" y="100" text-anchor="middle">② pending callbacks</text><text class="mut" x="500" y="116" text-anchor="middle">some deferred system errors</text>
+  <rect class="bx" x="410" y="150" width="180" height="44" rx="10"/><text x="500" y="170" text-anchor="middle">③ idle, prepare</text><text class="mut" x="500" y="186" text-anchor="middle">internal only</text>
+  <rect class="hi" x="190" y="220" width="220" height="50" rx="10"/><text x="300" y="241" text-anchor="middle">④ poll</text><text class="mut" x="300" y="258" text-anchor="middle">I/O callbacks; waits here when idle</text>
+  <rect class="hi" x="10" y="150" width="180" height="44" rx="10"/><text x="100" y="170" text-anchor="middle">⑤ check</text><text class="mut" x="100" y="186" text-anchor="middle">setImmediate callbacks</text>
+  <rect class="bx" x="10" y="80" width="180" height="44" rx="10"/><text x="100" y="100" text-anchor="middle">⑥ close callbacks</text><text class="mut" x="100" y="116" text-anchor="middle">socket.on("close")</text>
+  <path class="ln" d="M410,32 Q500,40 500,78" marker-end="url(#ah)"/>
+  <path class="ln" d="M500,124 L500,148" marker-end="url(#ah)"/>
+  <path class="ln" d="M500,194 Q500,245 412,245" marker-end="url(#ah)"/>
+  <path class="ln" d="M190,245 Q100,245 100,196" marker-end="url(#ah)"/>
+  <path class="ln" d="M100,150 L100,126" marker-end="url(#ah)"/>
+  <path class="ln" d="M100,80 Q100,32 188,32" marker-end="url(#ah)"/>
+  <text class="mut" x="300" y="300" text-anchor="middle">Between every callback: drain the process.nextTick queue, then the promise microtask queue.</text>
+  <text class="mut" x="300" y="318" text-anchor="middle">After close callbacks, exit if nothing is pending (no timers, sockets, servers, I/O).</text>
+</svg>
+<figcaption>One trip around the circle is one "tick" of the loop. The three phases you'll care about are highlighted.</figcaption>
+</figure>
+<ol>
+  <li><strong>timers</strong>: callbacks of <code>setTimeout</code>/<code>setInterval</code> whose time has come.</li>
+  <li><strong>pending callbacks</strong>: a few system operations deferred from the previous round (e.g. some TCP errors).</li>
+  <li><strong>idle, prepare</strong>: internal housekeeping.</li>
+  <li><strong>poll</strong>: retrieve new I/O events and run their callbacks (file reads, incoming connections, data on sockets). If there's nothing else to do, the loop <em>waits here</em> for I/O, but not past the next timer's due time.</li>
+  <li><strong>check</strong>: <code>setImmediate</code> callbacks — they run right after the poll phase.</li>
+  <li><strong>close callbacks</strong>: <code>close</code> events, such as <code>socket.on("close", …)</code>.</li>
+</ol>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a bus on a circular route.</strong> The event loop is a single bus driving round a loop with six stops. At each stop it picks up only the passengers (callbacks) waiting <em>at that stop</em>, then drives on. "Timers" is the stop for people whose alarm has rung; "poll" is the big station where people arriving from I/O wait, and where the bus parks if nobody is around; "check" is right after it, for people who said "take me on the very next round, after the station" (<code>setImmediate</code>). There's only one bus, so if one passenger takes ages to board (a slow callback), everyone at every stop waits.</p>
+</div>
+
+<h2 id="microtasks">nextTick and microtasks: jumping the queue</h2>
+<p>Two special queues aren't phases at all. They're drained <strong>after every single callback</strong> (and after the main script), before the loop continues:</p>
+<ol>
+  <li>the <strong><code>process.nextTick</code> queue</strong>, drained first;</li>
+  <li>then the <strong>promise microtask queue</strong>: <code>.then</code>/<code>.catch</code>/<code>.finally</code> callbacks, code after <code>await</code>, and <code>queueMicrotask</code>.</li>
+</ol>
+<script type="text/plain" class="code" data-file="order.cjs">
+console.log("1 script start");
+setTimeout(() => console.log("7 timeout (timers phase, 5 ms)"), 5);
+setImmediate(() => console.log("6 immediate (check phase)"));
+Promise.resolve().then(() => console.log("4 promise microtask"));
+queueMicrotask(() => console.log("5 queueMicrotask"));
+process.nextTick(() => console.log("3 nextTick"));
+console.log("2 script end");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 script start
+2 script end
+3 nextTick
+4 promise microtask
+5 queueMicrotask
+6 immediate (check phase)
+7 timeout (timers phase, 5 ms)
+</script>
+<p>This example is a CommonJS file (<code>.cjs</code>) on purpose; ES modules have a twist, explained just below.</p>
+<div class="pitfall">
+<p>⚠️ <strong><code>setTimeout(fn, 0)</code> vs <code>setImmediate</code> in the main module: no guaranteed order.</strong> We used a 5 ms timer above. With 0 ms (really 1 ms), the timer may or may not be due when the loop reaches its first timers phase — it depends on how quickly the process started. Run it ten times and you'll see both orders. Inside an I/O callback, the order <em>is</em> guaranteed (see below).</p>
+</div>
+
+<h3>A twist: ES modules run inside a promise</h3>
+<p>An ES module's top-level code is itself evaluated as part of a promise job (that's what makes top-level <code>await</code> possible). So when the module body finishes, Node is still <em>inside the microtask queue</em>: the promise callbacks queued by the module run first, and only then is the <code>nextTick</code> queue processed. Same code, two module systems, two orders:</p>
+<script type="text/plain" class="code" data-file="queues.cjs">
+process.nextTick(() => console.log("nextTick"));
+Promise.resolve().then(() => console.log("promise"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+nextTick
+promise
+</script>
+<script type="text/plain" class="code" data-file="queues.mjs">
+process.nextTick(() => console.log("nextTick"));
+Promise.resolve().then(() => console.log("promise"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+promise
+nextTick
+</script>
+<p>Inside callbacks (timers, I/O, event handlers) both module systems behave the same: nextTick queue first, then promises. The lesson: never write code whose correctness depends on the relative order of <code>nextTick</code> and promise callbacks.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: finishing your sentence.</strong> Microtasks are like "finish what you're saying before you hand over the microphone". After any callback, Node first handles everything pushed with <code>nextTick</code> (the urgent whisper from the stage manager), then all the promise reactions (the end of your sentence), and only then lets the bus move on to the next stop.</p>
+</div>
+
+<h3>Microtasks can starve the loop</h3>
+<p>Because these queues are drained completely — including entries added while draining — a nextTick or promise callback that keeps scheduling another one never lets the loop move on. Timers and I/O starve:</p>
+<script type="text/plain" class="code" data-file="starve.js">
+let ticks = 0;
+setTimeout(() => console.log(`timer finally ran after ${ticks} nextTicks`), 0);
+function spin() {
+  if (++ticks < 100_000) process.nextTick(spin);   // always adds another tick
+}
+spin();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+timer finally ran after 100000 nextTicks
+</script>
+<p>With an infinite chain, the timer would never run at all. <code>setImmediate</code> doesn't have this problem: immediates scheduled while running the check phase wait for the <em>next</em> round, so I/O gets its turn.</p>
+
+<h2 id="immediate">setImmediate vs setTimeout(0)</h2>
+<p>Inside an I/O callback you're in the poll phase. The next phase is <em>check</em>, so <code>setImmediate</code> always runs before a timer, which must wait for the next round's timers phase:</p>
+<script type="text/plain" class="code" data-file="io-order.js">
+import { readFile } from "node:fs";
+
+readFile(import.meta.filename, () => {          // we're now in the poll phase
+  setTimeout(() => console.log("timeout"), 0);
+  setImmediate(() => console.log("immediate"));
+  process.nextTick(() => console.log("nextTick"));
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+nextTick
+immediate
+timeout
+</script>
+<div class="table-wrap"><table>
+  <tr><th>API</th><th>Runs</th><th>Use it to</th></tr>
+  <tr><td><code>process.nextTick(fn)</code></td><td>right after the current operation, before promises and before the loop continues</td><td>emit events after a constructor returns; make callbacks always-async (Chapter 5)</td></tr>
+  <tr><td><code>queueMicrotask(fn)</code> / <code>Promise.then</code></td><td>after the nextTick queue, before the loop continues</td><td>standard (also in browsers) "do this right after"</td></tr>
+  <tr><td><code>setImmediate(fn)</code></td><td>in the check phase of this or the next round</td><td>yield to I/O, split long work into chunks (Chapter 13)</td></tr>
+  <tr><td><code>setTimeout(fn, ms)</code></td><td>in a timers phase, at least <code>ms</code> later</td><td>real delays</td></tr>
+</table></div>
+<div class="tip">
+<p>💡 <strong>The names are backwards.</strong> <code>process.nextTick</code> runs <em>immediately</em> (before the loop moves at all), while <code>setImmediate</code> runs on the next <em>tick</em> (iteration) of the loop. The Node docs admit it; it's too late to rename them. When in doubt, prefer <code>setImmediate</code> or <code>queueMicrotask</code>; use <code>nextTick</code> only when you specifically need "before anything else".</p>
+</div>
+
+<h3>Why nextTick exists: events after construction</h3>
+<p>A classic use: an object wants to emit an event "as soon as it's created", but the caller can't attach a listener until the constructor has returned. Deferring the emit with <code>nextTick</code> gives the caller that chance:</p>
+<script type="text/plain" class="code" data-file="nexttick-emit.js">
+import { EventEmitter } from "node:events";
+
+class Connection extends EventEmitter {
+  constructor() {
+    super();
+    process.nextTick(() => this.emit("ready"));   // emitting directly here would be too early
+  }
+}
+const conn = new Connection();
+conn.on("ready", () => console.log("listener attached in time: ready!"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+listener attached in time: ready!
+</script>
+
+<h2 id="alive">When does Node exit?</h2>
+<p>After each round, the loop checks whether anything could still produce a callback: active timers, open servers or sockets, pending file operations, child processes, <em>ref'd</em> handles. If nothing remains, the process exits (with <code>process.exitCode</code>). A promise that's pending forever does <strong>not</strong> keep Node alive by itself:</p>
+<script type="text/plain" class="code" data-file="exit.js" data-stderr data-exit>
+process.on("exit", (code) => console.log("exiting with code", code));
+await new Promise(() => {});        // never resolves, and nothing else is scheduled
+console.log("unreachable");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+exiting with code 13
+</script>
+<p>Code 13 means "unsettled top-level await": the module was still waiting when the loop ran out of work. In a plain function (not top-level), the program would simply exit with 0 and skip the rest — another reason to make sure every promise is eventually settled.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A complete ordering puzzle</h3>
+<script type="text/plain" class="code" data-file="puzzle.cjs">
+const { readFile } = require("node:fs");
+
+const out = [];
+readFile(__filename, () => {
+  out.push("B I/O callback");
+  setTimeout(() => {
+    out.push("C timeout from I/O");
+    console.log(out.join("\n"));
+  }, 0);
+  setImmediate(() => out.push("D immediate from I/O"));
+  Promise.resolve().then(() => out.push("E promise from I/O"));
+});
+process.nextTick(() => out.push("F nextTick"));
+out.push("G sync");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+G sync
+F nextTick
+B I/O callback
+E promise from I/O
+D immediate from I/O
+C timeout from I/O
+</script>
+<p>Synchronous code first, then the nextTick queue. When the file read completes (poll phase), its callback runs, then the promise it queued (microtasks run after every callback), then the check phase (D), and only on the next round the timers phase (C). Note that an <code>setImmediate</code> scheduled in the main script would race with the file read: a tiny file is often read before the first check phase, but not always.</p>
+
+<h3>Debouncing: run once after things go quiet</h3>
+<p><code>timeout.refresh()</code> restarts a timer without creating a new one — ideal for "save 50 ms after the last keystroke":</p>
+<script type="text/plain" class="code" data-file="debounce.js">
+function debounce(fn, ms) {
+  let timer = null, lastArgs;
+  return (...args) => {
+    lastArgs = args;
+    if (timer) timer.refresh();                  // push the deadline back
+    else timer = setTimeout(() => { timer = null; fn(...lastArgs); }, ms);
+  };
+}
+const save = debounce((text) => console.log("saving:", text), 30);
+for (const [i, text] of ["H", "He", "Hel", "Hello"].entries()) setTimeout(() => save(text), i * 10);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+saving: Hello
+</script>
+
+<h3>Measuring event-loop delay</h3>
+<p>A healthy server's loop comes round every few milliseconds. <code>perf_hooks.monitorEventLoopDelay</code> measures how late it is, a key production metric (Chapter 15):</p>
+<script type="text/plain" class="code" data-file="loop-delay.js">
+import { monitorEventLoopDelay } from "node:perf_hooks";
+
+const h = monitorEventLoopDelay({ resolution: 10 });
+h.enable();
+setTimeout(() => {
+  const t = Date.now();
+  while (Date.now() - t < 80) {}                 // simulate an 80 ms blocking task
+}, 20);
+setTimeout(() => {
+  h.disable();
+  const maxMs = h.max / 1e6;                     // nanoseconds → ms
+  console.log(maxMs >= 70 ? "max loop delay ≥ 70 ms: something blocked!" : `max ${maxMs} ms`);
+}, 200);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+max loop delay ≥ 70 ms: something blocked!
+</script>
+
+<div class="browser">
+<p>🌐 <strong>Browser:</strong> browsers also have a task queue and a microtask queue, but no "phases"; between tasks they may render the page. <code>setImmediate</code> and <code>process.nextTick</code> are Node-only. Code meant for both should use <code>queueMicrotask</code> and <code>setTimeout</code>.</p>
+</div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Timer delays are minimums. <code>setInterval</code> repeats regardless of how long callbacks take; chain <code>setTimeout</code> for gaps. <code>unref()</code> stops a timer from keeping the process alive.</li>
+  <li>The loop's phases: timers → pending → idle/prepare → <strong>poll</strong> (I/O, waits here) → <strong>check</strong> (<code>setImmediate</code>) → close.</li>
+  <li>After every callback: drain <code>process.nextTick</code>, then promise microtasks (at the top level of an ES module, promises come first). Recursive ones can starve the loop.</li>
+  <li>Inside I/O callbacks, <code>setImmediate</code> always beats <code>setTimeout(0)</code>; in the main module, their order isn't guaranteed.</li>
+  <li>Node exits when no timers, handles or I/O remain; a pending promise alone doesn't keep it alive.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex1.js">
+setTimeout(() => console.log("timeout"), 0);
+Promise.resolve().then(() => console.log("promise"));
+console.log("sync");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+sync
+promise
+timeout
+</script>
+<p>Synchronous code first, then microtasks (the promise), then the timers phase.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Print <code>tick</code> every 10 ms with <code>setInterval</code> and stop after the fifth tick, then print <code>stopped</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="five-ticks.js">
+let count = 0;
+const id = setInterval(() => {
+  console.log("tick");
+  if (++count === 5) {
+    clearInterval(id);
+    console.log("stopped");
+  }
+}, 10);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+tick
+tick
+tick
+tick
+tick
+stopped
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>A script sets up <code>setInterval(sendMetrics, 60_000)</code> for background metrics, finishes its real work, but never exits. Why? Give a one-line fix.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>An active interval is pending work, so the event loop never runs out of things to do and Node stays alive. Fix: <code>setInterval(sendMetrics, 60_000).unref();</code> (or <code>clearInterval</code> when the work is done).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">phases</span></h3>
+<p>In which phase does each callback run? (a) a <code>setTimeout</code> callback; (b) the callback of <code>fs.readFile</code>; (c) a <code>setImmediate</code> callback; (d) <code>socket.on("close")</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) timers; (b) poll; (c) check; (d) close callbacks.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex5.cjs">
+Promise.resolve().then(() => {
+  console.log("promise 1");
+  process.nextTick(() => console.log("nextTick inside promise"));
+}).then(() => console.log("promise 2"));
+process.nextTick(() => console.log("nextTick 1"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+nextTick 1
+promise 1
+promise 2
+nextTick inside promise
+</script>
+<p>After the script, the nextTick queue runs first ("nextTick 1"). Then the microtask queue is drained completely, including "promise 2", which was queued while draining. Only then does Node look at the nextTick queue again. (This is a CommonJS file; in an ES module, "nextTick 1" would come after the promises, as explained above.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex6.js">
+import { readFile } from "node:fs";
+readFile(import.meta.filename, () => {
+  setTimeout(() => console.log("T"), 0);
+  setImmediate(() => {
+    console.log("I");
+    process.nextTick(() => console.log("N"));
+    Promise.resolve().then(() => console.log("P"));
+  });
+});
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+I
+N
+P
+T
+</script>
+<p>From the poll phase, the check phase comes first (I). After that callback, Node drains the nextTick queue (N), then the promise microtasks (P). The timer has to wait for the next round's timers phase (T).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/throttle.js</code> exporting <code>throttle(fn, ms)</code>: <code>fn</code> runs at most once per <code>ms</code> (the first call runs immediately, calls during the waiting period are dropped). Show it with calls every 5 ms for 50 ms and a 22 ms throttle.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/throttle.js">
+export function throttle(fn, ms) {
+  let waiting = false;
+  return (...args) => {
+    if (waiting) return;
+    waiting = true;
+    fn(...args);
+    setTimeout(() => { waiting = false; }, ms);
+  };
+}
+
+const seen = [];
+const log = throttle((i) => seen.push(i), 22);
+for (let i = 0; i < 10; i++) setTimeout(() => log(i), i * 5);
+setTimeout(() => console.log(`ran ${seen.length} times: calls ${seen.join(" and ")}`), 80);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ran 2 times: calls 0 and 5
+</script>
+<p>Debounce waits until calls stop; throttle limits the rate while calls continue (scroll handlers, log flushing, rate-limited APIs).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix it</span></h3>
+<p>This loop is supposed to log "still alive" while it processes, but the timer never fires until the end. Make the processing yield to the event loop every 100,000 items using <code>setImmediate</code> (promisified), so the timer can run.</p>
+<script type="text/plain" class="code" data-file="ex8-bad.js" data-norun>
+setTimeout(() => console.log("still alive"), 5);
+let sum = 0;
+for (let i = 0; i < 20_000_000; i++) sum += i % 7;
+console.log("done", sum);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex8-good.js">
+import { setImmediate as yieldToLoop } from "node:timers/promises";
+
+setTimeout(() => console.log("still alive"), 5);
+let sum = 0;
+for (let i = 0; i < 20_000_000; i++) {
+  sum += i % 7;
+  if (i % 100_000 === 0) await yieldToLoop();   // let timers and I/O in
+}
+console.log("done", sum);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+still alive
+done 59999997
+</script>
+<p>Each <code>await setImmediate()</code> lets the loop complete a round (timers, I/O) before continuing. Chapter 13 discusses this "partitioning" technique and its alternative, worker threads.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>Why is replacing every <code>setImmediate</code> in a library with <code>process.nextTick</code> a dangerous "optimisation" for a server? Show the problem with a tiny example.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>nextTick</code> callbacks run before the loop moves on, so a recursive chain of them never lets the poll phase run: incoming requests, timers and I/O completions all starve. <code>setImmediate</code> callbacks added during the check phase wait for the next round, so I/O gets a turn in between.</p>
+<script type="text/plain" class="code" data-file="ex9.js">
+let viaTick = 0, viaImmediate = 0, timerSeen = "";
+setTimeout(() => (timerSeen = `timer saw ${viaTick} ticks and ${viaImmediate} immediates`), 0);
+(function tick() { if (++viaTick < 50_000) process.nextTick(tick); })();
+(function imm() { if (++viaImmediate < 50_000) setImmediate(imm); })();
+setTimeout(() => console.log(timerSeen.includes("50000 ticks") && !timerSeen.includes("50000 immediates") ? "all ticks ran before the timer; immediates were interleaved" : timerSeen), 300);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+all ticks ran before the timer; immediates were interleaved
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/scheduler.js</code>: a <code>Scheduler</code> class with <code>every(name, ms, fn)</code>, <code>after(name, ms, fn)</code>, <code>cancel(name)</code> and <code>stopAll()</code>. Recurring jobs must not overlap: if an async job is still running when it's due, skip that run and count it. All timers must be <code>unref</code>'d except while a job is running.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/scheduler.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+export class Scheduler {
+  #jobs = new Map();
+  every(name, ms, fn) {
+    const job = { running: false, skipped: 0, runs: 0 };
+    job.timer = setInterval(async () => {
+      if (job.running) return void job.skipped++;
+      job.running = true;
+      job.timer.ref();                                // keep alive while working
+      try { await fn(); job.runs++; } finally { job.running = false; job.timer?.unref(); }
+    }, ms).unref();
+    this.#jobs.set(name, job);
+    return this;
+  }
+  after(name, ms, fn) {
+    const job = { timer: setTimeout(() => { this.#jobs.delete(name); fn(); }, ms) };
+    this.#jobs.set(name, job);
+    return this;
+  }
+  cancel(name) {
+    const job = this.#jobs.get(name);
+    if (!job) return false;
+    clearInterval(job.timer); clearTimeout(job.timer);
+    this.#jobs.delete(name);
+    return true;
+  }
+  stats(name) { const { runs, skipped } = this.#jobs.get(name) ?? {}; return { runs, skipped }; }
+  stopAll() { for (const name of [...this.#jobs.keys()]) this.cancel(name); }
+}
+
+const s = new Scheduler();
+s.every("sync", 10, () => sleep(25));               // slower than its interval → skips
+s.after("report", 120, () => {
+  const { runs, skipped } = s.stats("sync");
+  console.log(runs >= 2 && skipped >= 2 ? "sync ran and skipped overlapping runs" : { runs, skipped });
+  s.stopAll();
+  console.log("cancelled missing job?", s.cancel("nope"));
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sync ran and skipped overlapping runs
+cancelled missing job? false
+</script>
+<p>Here <code>after</code> keeps the process alive (its timer is ref'd), and once <code>stopAll</code> clears the interval, nothing remains and Node exits.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick">The Node.js Event Loop</a></li>
+  <li><a href="https://nodejs.org/en/learn/asynchronous-work/discover-javascript-timers">Discover JavaScript Timers</a></li>
+  <li><a href="https://nodejs.org/en/learn/asynchronous-work/understanding-processnexttick">Understanding process.nextTick()</a> · <a href="https://nodejs.org/en/learn/asynchronous-work/understanding-setimmediate">Understanding setImmediate()</a></li>
+  <li>API: <a href="https://nodejs.org/api/timers.html">Timers</a> · <a href="https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions">monitorEventLoopDelay</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

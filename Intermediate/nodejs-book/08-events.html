@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📣&lt;/text&gt;&lt;/svg&gt;">
+<title>8. The Event Emitter · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Asynchronous Work</div>
+<h1>The Event Emitter</h1>
+<p class="lead">Servers emit <code>request</code>, streams emit <code>data</code>, processes emit <code>exit</code>. All of them are built on one small class: <code>EventEmitter</code>. Learning it well means understanding half of Node's APIs, and gives you a clean way to decouple parts of your own programs.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The publish/subscribe idea, and the core API: <code>on</code>, <code>once</code>, <code>emit</code>, <code>off</code>.</li>
+  <li>That <code>emit</code> is <strong>synchronous</strong>, and what that means for ordering and errors.</li>
+  <li>The special <code>error</code> event, and why an emitter without an error listener can crash your app.</li>
+  <li>Extending <code>EventEmitter</code> in your own classes, and avoiding listener leaks.</li>
+  <li>Bridging to promises: <code>events.once</code>, <code>events.on</code>, and async listeners.</li>
+</ul>
+</div>
+
+<h2 id="idea">The idea: publish and subscribe</h2>
+<p>An <strong>event emitter</strong> is an object that announces things ("an order was paid", "a chunk of data arrived") by name. Other code <strong>subscribes</strong> to those names by registering <em>listener</em> functions. The emitter doesn't know or care who listens; listeners don't need to know how the event came about.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a radio station.</strong> The station (emitter) broadcasts on named channels: "news", "traffic", "weather". Anyone with a radio (a listener) tunes in to the channels they care about. The station doesn't keep a list of who's listening on paper, doesn't wait for anyone, and keeps broadcasting even if nobody's tuned in. Adding a new listener — the traffic app, a delivery company — doesn't change the station at all.</p>
+</div>
+<script type="text/plain" class="code" data-file="first-emitter.js">
+import { EventEmitter } from "node:events";
+
+const shop = new EventEmitter();
+
+shop.on("order", (id, total) => console.log(`email: order ${id} received (€${total})`));
+shop.on("order", (id) => console.log(`stock: reserve items for ${id}`));
+
+shop.emit("order", "o-17", 42.5);       // calls every "order" listener, with these arguments
+shop.emit("refund", "o-3");             // nobody listens: nothing happens
+console.log("listeners:", shop.listenerCount("order"), "| events:", shop.eventNames());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+email: order o-17 received (€42.5)
+stock: reserve items for o-17
+listeners: 2 | events: [ 'order' ]
+</script>
+
+<h2 id="api">The core API</h2>
+<div class="table-wrap"><table>
+  <tr><th>Method</th><th>What it does</th></tr>
+  <tr><td><code>on(name, fn)</code> (alias <code>addListener</code>)</td><td>add a listener, called every time</td></tr>
+  <tr><td><code>once(name, fn)</code></td><td>add a listener that removes itself after the first call</td></tr>
+  <tr><td><code>prependListener(name, fn)</code></td><td>add to the <em>front</em> of the list</td></tr>
+  <tr><td><code>off(name, fn)</code> (alias <code>removeListener</code>)</td><td>remove that exact function</td></tr>
+  <tr><td><code>removeAllListeners(name?)</code></td><td>remove all (for one event or all events)</td></tr>
+  <tr><td><code>emit(name, ...args)</code></td><td>call the listeners synchronously, in order; returns <code>true</code> if there were any</td></tr>
+  <tr><td><code>listenerCount(name)</code>, <code>eventNames()</code>, <code>listeners(name)</code></td><td>inspect</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="api.js">
+import { EventEmitter } from "node:events";
+const door = new EventEmitter();
+
+function ring(who) { console.log(`ding dong: ${who}`); }
+door.on("bell", ring);
+door.once("bell", (who) => console.log(`first visitor today: ${who}`));
+door.prependListener("bell", () => console.log("(lights on)"));
+
+console.log(door.emit("bell", "postman"));
+console.log(door.emit("bell", "neighbour"));
+door.off("bell", ring);                          // must be the same function reference
+console.log(door.listenerCount("bell"), door.emit("bell", "nobody hears this?"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+(lights on)
+ding dong: postman
+first visitor today: postman
+true
+(lights on)
+ding dong: neighbour
+true
+(lights on)
+1 true
+</script>
+<p>Look at the last two lines: "(lights on)" appears <em>before</em> "1 true". JavaScript evaluates all the arguments of <code>console.log</code> before printing anything, and evaluating <code>door.emit(…)</code> runs the remaining listener right there, inside the call. That's the key fact of the next section: <code>emit</code> runs listeners immediately.</p>
+<div class="pitfall">
+<p>⚠️ <strong><code>off</code> needs the same function.</strong> <code>door.off("bell", (who) =&gt; …)</code> with a fresh arrow function removes nothing, because it's a different function object. Keep a reference to listeners you'll want to remove.</p>
+</div>
+
+<h2 id="sync">emit is synchronous</h2>
+<p>Despite living in an "asynchronous" chapter, <code>emit</code> itself is plain synchronous code: it loops over the listeners and calls each one before returning. Events are a way to <em>organise</em> code, not to make it asynchronous. Any slowness in a listener slows down the emitter.</p>
+<script type="text/plain" class="code" data-file="sync-emit.js">
+import { EventEmitter } from "node:events";
+const bus = new EventEmitter();
+
+bus.on("save", () => console.log("  listener runs"));
+console.log("before emit");
+bus.emit("save");
+console.log("after emit");
+
+bus.on("async-save", () => setImmediate(() => console.log("  deferred listener work")));
+bus.emit("async-save");
+console.log("emit returned immediately");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+before emit
+  listener runs
+after emit
+emit returned immediately
+  deferred listener work
+</script>
+<p>If a listener throws, the exception propagates out of <code>emit</code> to the code that called it, and later listeners don't run.</p>
+
+<h2 id="this">Listeners and this</h2>
+<p>A regular <code>function</code> listener is called with <code>this</code> set to the emitter. Arrow functions keep the <code>this</code> of where they were written, as always:</p>
+<script type="text/plain" class="code" data-file="this.js">
+import { EventEmitter } from "node:events";
+const timer = new EventEmitter();
+timer.name = "kitchen timer";
+timer.on("done", function () { console.log("function:", this.name); });
+timer.on("done", () => console.log("arrow:", typeof this));
+timer.emit("done");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+function: kitchen timer
+arrow: undefined
+</script>
+
+<h2 id="error">The error event</h2>
+<p>The event name <code>"error"</code> is special. When an emitter emits <code>error</code> and <strong>no listener</strong> is registered for it, <code>emit</code> <strong>throws</strong> the error — which, in an asynchronous callback, crashes the process. Streams, sockets and servers report failures this way, so <em>always</em> listen for <code>error</code> on them.</p>
+<script type="text/plain" class="code" data-file="error-event.js">
+import { EventEmitter } from "node:events";
+
+const unsafe = new EventEmitter();
+try {
+  unsafe.emit("error", new Error("connection lost"));   // no listener → throws
+} catch (err) {
+  console.log("thrown by emit:", err.message);
+}
+
+const safe = new EventEmitter();
+safe.on("error", (err) => console.log("handled:", err.message));
+safe.emit("error", new Error("connection lost"));        // handled, no throw
+</script>
+<script type="text/plain" class="code" data-lang="text">
+thrown by emit: connection lost
+handled: connection lost
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a fire alarm.</strong> Normal events are announcements: if nobody's listening, nothing happens. The <code>error</code> event is a fire alarm: if no one is assigned to respond, the alarm escalates to the whole building (the process crashes). Registering an <code>error</code> listener is naming the fire warden.</p>
+</div>
+<p>To <em>observe</em> errors (for logging) without counting as a handler, listen to <code>events.errorMonitor</code>; the error still throws if there's no real <code>error</code> listener.</p>
+
+<h2 id="extend">Extending EventEmitter</h2>
+<p>Most of the time you don't create bare emitters; your own classes <strong>extend</strong> <code>EventEmitter</code> and emit events about their own lifecycle, exactly like Node's <code>http.Server</code> or streams do:</p>
+<script type="text/plain" class="code" data-file="order.js">
+import { EventEmitter } from "node:events";
+
+class Order extends EventEmitter {
+  #status = "new";
+  constructor(id, total) {
+    super();
+    this.id = id;
+    this.total = total;
+  }
+  get status() { return this.#status; }
+  #set(status) {
+    const from = this.#status;
+    this.#status = status;
+    this.emit("status", { id: this.id, from, to: status });
+    this.emit(status, this);                       // e.g. "paid", "shipped"
+  }
+  pay() {
+    if (this.#status !== "new") return this.emit("error", new Error(`cannot pay a ${this.#status} order`));
+    this.#set("paid");
+  }
+  ship() { this.#set("shipped"); }
+}
+
+const order = new Order("o-42", 99.9);
+order.on("status", ({ id, from, to }) => console.log(`[audit] ${id}: ${from} → ${to}`));
+order.once("paid", (o) => console.log(`[mail] thanks for paying €${o.total}`));
+order.on("error", (err) => console.log(`[error] ${err.message}`));
+
+order.pay();
+order.ship();
+order.pay();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[audit] o-42: new → paid
+[mail] thanks for paying €99.9
+[audit] o-42: paid → shipped
+[error] cannot pay a shipped order
+</script>
+<p>The <code>Order</code> class knows nothing about emails or audit logs, and new features (analytics, webhooks) can be added by registering more listeners, without touching <code>Order</code>. That's the Observer pattern.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> this is the Observer pattern (like <code>PropertyChangeSupport</code> and <code>PropertyChangeListener</code>), but events are identified by strings and listeners are just functions — no listener interfaces to implement.</p>
+</div>
+
+<h2 id="leaks">Listener leaks</h2>
+<p>Every listener is kept alive by the emitter. Code that adds a listener on every request (and never removes it) slowly fills memory and runs ever more listeners. To catch this, Node prints a warning when more than <strong>10</strong> listeners are added for one event:</p>
+<script type="text/plain" class="code" data-file="leak.js" data-stderr>
+import { EventEmitter } from "node:events";
+const config = new EventEmitter();
+
+function handleRequest(id) {
+  config.on("change", () => {});              // bug: a new listener per request, never removed
+}
+for (let i = 0; i < 11; i++) handleRequest(i);
+console.log("listeners now:", config.listenerCount("change"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+listeners now: 11
+(node:...) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 change listeners added to [EventEmitter]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+</script>
+<p>The warning goes to stderr, printed on the next tick (after the main code). Fix the code (remove listeners when done, or use <code>once</code>) rather than silencing the warning. Raise the limit with <code>emitter.setMaxListeners(n)</code> only when many listeners are genuinely expected.</p>
+
+<h2 id="async">Events and promises</h2>
+<h3>Waiting for one event: events.once</h3>
+<p><code>events.once(emitter, name)</code> returns a promise that resolves with the event's arguments (as an array) — and rejects if the emitter emits <code>error</code> first. It accepts a <code>signal</code> for timeouts:</p>
+<script type="text/plain" class="code" data-file="once-promise.js">
+import { EventEmitter, once } from "node:events";
+
+const db = new EventEmitter();
+setTimeout(() => db.emit("ready", "postgres", 5432), 10);
+const [engine, port] = await once(db, "ready");
+console.log(`connected to ${engine}:${port}`);
+
+const broken = new EventEmitter();
+setTimeout(() => broken.emit("error", new Error("auth failed")), 10);
+try {
+  await once(broken, "ready");
+} catch (err) {
+  console.log("rejected:", err.message);
+}
+
+const giveUp = new AbortController();
+const timer = setTimeout(() => giveUp.abort(), 20);
+try {
+  await once(new EventEmitter(), "ready", { signal: giveUp.signal });
+} catch (err) {
+  console.log("gave up waiting:", err.name);
+} finally {
+  clearTimeout(timer);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+connected to postgres:5432
+rejected: auth failed
+gave up waiting: AbortError
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: <code>AbortSignal.timeout()</code> doesn't keep Node alive.</strong> Its internal timer is <code>unref</code>'d (Chapter 7). Waiting for an event that never comes, with only <code>{ signal: AbortSignal.timeout(20) }</code> as a deadline, makes a script simply <em>exit</em> (code 13, "unsettled top-level await") instead of timing out — because nothing else is pending. In a running server something else keeps the loop alive, so it works there. In scripts, use an <code>AbortController</code> with a normal <code>setTimeout</code>, as above.</p>
+</div>
+
+<h3>A stream of events: events.on</h3>
+<p><code>events.on(emitter, name)</code> gives an <strong>async iterator</strong>, so you can process every event with <code>for await</code>, one at a time, and stop with <code>break</code> (or a signal):</p>
+<script type="text/plain" class="code" data-file="on-iterator.js">
+import { EventEmitter, on } from "node:events";
+
+const sensor = new EventEmitter();
+let n = 0;
+const t = setInterval(() => sensor.emit("reading", 20 + n++ * 0.5), 5);
+
+for await (const [celsius] of on(sensor, "reading")) {
+  console.log(`temperature ${celsius.toFixed(1)}°C`);
+  if (celsius >= 21) break;                       // stops listening and removes the listener
+}
+clearInterval(t);
+console.log("listeners left:", sensor.listenerCount("reading"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+temperature 20.0°C
+temperature 20.5°C
+temperature 21.0°C
+listeners left: 0
+</script>
+
+<h3>Async listeners</h3>
+<p><code>emit</code> ignores what listeners return. An <code>async</code> listener returns a promise, and if that promise rejects, nobody catches it: an unhandled rejection (Chapter 6). Either catch inside the listener, or create the emitter with <code>{ captureRejections: true }</code>, which routes such rejections to the <code>error</code> event:</p>
+<script type="text/plain" class="code" data-file="capture.js">
+import { EventEmitter } from "node:events";
+
+const jobs = new EventEmitter({ captureRejections: true });
+jobs.on("run", async (name) => {
+  await new Promise((r) => setTimeout(r, 5));
+  throw new Error(`${name} failed`);
+});
+jobs.on("error", (err) => console.log("caught via error event:", err.message));
+jobs.emit("run", "nightly-backup");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+caught via error event: nightly-backup failed
+</script>
+
+<h2 id="eventtarget">EventTarget: the web-standard cousin</h2>
+<p>Node also implements the browser's <code>EventTarget</code> (<code>addEventListener</code>, <code>dispatchEvent</code>), used by web APIs like <code>AbortSignal</code> and <code>WebSocket</code>. Its listeners receive an <code>Event</code> object and there's no special <code>error</code> behaviour. In Node-specific code, <code>EventEmitter</code> is the norm.</p>
+<script type="text/plain" class="code" data-file="eventtarget.js">
+const controller = new AbortController();
+controller.signal.addEventListener("abort", (event) => {
+  console.log(event.type, "→", controller.signal.reason.message);
+}, { once: true });
+setTimeout(() => controller.abort(new Error("user pressed cancel")), 10);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+abort → user pressed cancel
+</script>
+<div class="browser">
+<p>🌐 <strong>Browser:</strong> DOM events (<code>button.addEventListener("click", …)</code>) bubble through the page tree and have <code>preventDefault</code>; EventEmitter events don't bubble and are just function calls.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A typed event bus with unsubscribe functions</h3>
+<p>Returning an "unsubscribe" function from <code>subscribe</code> makes leaks much less likely:</p>
+<script type="text/plain" class="code" data-file="bus.js">
+import { EventEmitter } from "node:events";
+
+class Bus {
+  #ee = new EventEmitter();
+  subscribe(topic, fn) {
+    this.#ee.on(topic, fn);
+    return () => this.#ee.off(topic, fn);          // unsubscribe
+  }
+  publish(topic, payload) { return this.#ee.emit(topic, payload); }
+}
+
+const bus = new Bus();
+const stop = bus.subscribe("user.created", (u) => console.log("welcome mail to", u.email));
+bus.publish("user.created", { email: "ana@example.com" });
+stop();
+console.log("delivered after unsubscribe?", bus.publish("user.created", { email: "ben@example.com" }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+welcome mail to ana@example.com
+delivered after unsubscribe? false
+</script>
+
+<h3>Node's own emitters</h3>
+<p><code>process</code> is an emitter too. Here it reports the moment it's about to exit, and a warning:</p>
+<script type="text/plain" class="code" data-file="process-events.js">
+process.on("warning", (w) => console.log("warning event:", w.name, "-", w.message));
+process.on("exit", (code) => console.log("exit event, code", code));
+process.emitWarning("cache is almost full", "CacheWarning");
+console.log("main code done");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+main code done
+warning event: CacheWarning - cache is almost full
+exit event, code 0
+</script>
+<p>Warnings are emitted on <code>process.nextTick</code>, so the main code finishes first. Other frequent emitters: <code>http.Server</code> (<code>request</code>, <code>listening</code>, <code>close</code>), streams (<code>data</code>, <code>end</code>, <code>error</code>, <code>finish</code>), child processes (<code>exit</code>), <code>readline</code> (<code>line</code>).</p>
+
+<h3>Progress events from a long task</h3>
+<script type="text/plain" class="code" data-file="progress-events.js">
+import { EventEmitter } from "node:events";
+import { setTimeout as sleep } from "node:timers/promises";
+
+class Importer extends EventEmitter {
+  async run(rows) {
+    for (const [i, row] of rows.entries()) {
+      await sleep(2);                                       // pretend to save the row
+      this.emit("progress", { done: i + 1, total: rows.length, row });
+    }
+    this.emit("done", rows.length);
+  }
+}
+const imp = new Importer();
+imp.on("progress", ({ done, total }) => { if (done % 2 === 0) console.log(`${done}/${total}`); });
+imp.on("done", (n) => console.log(`imported ${n} rows`));
+await imp.run(["a", "b", "c", "d"]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2/4
+4/4
+imported 4 rows
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>EventEmitter</code> = publish/subscribe: <code>on</code>/<code>once</code>/<code>prependListener</code> to subscribe, <code>emit</code> to publish, <code>off</code> (same function!) to unsubscribe.</li>
+  <li><code>emit</code> is synchronous: listeners run in order, inside the call. Exceptions propagate to the emitter.</li>
+  <li>An <code>error</code> event with no listener throws. Always handle <code>error</code> on streams, sockets and servers.</li>
+  <li>Extend <code>EventEmitter</code> to let classes announce their lifecycle without knowing who listens (Observer pattern).</li>
+  <li>More than 10 listeners per event triggers a leak warning; remove listeners you add per request.</li>
+  <li><code>events.once</code> → promise, <code>events.on</code> → async iterator, <code>captureRejections</code> → async listener errors become <code>error</code> events.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Create an emitter <code>kettle</code>. Register a listener for <code>"boiled"</code> that prints <code>Tea time at 100°C</code> using an argument, and emit it once.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="kettle.js">
+import { EventEmitter } from "node:events";
+const kettle = new EventEmitter();
+kettle.on("boiled", (temp) => console.log(`Tea time at ${temp}°C`));
+kettle.emit("boiled", 100);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tea time at 100°C
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex2.js">
+import { EventEmitter } from "node:events";
+const e = new EventEmitter();
+e.once("hi", () => console.log("once"));
+e.on("hi", () => console.log("on"));
+e.emit("hi");
+e.emit("hi");
+console.log(e.emit("bye"));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+once
+on
+on
+false
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">find the bug</span></h3>
+<p>Why does this server crash the whole process when a client disconnects abruptly, and what's the fix?</p>
+<script type="text/plain" class="code" data-file="ex3.js" data-norun>
+server.on("connection", (socket) => {
+  socket.on("data", (chunk) => handle(chunk));
+});
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Sockets emit <code>error</code> (for example <code>ECONNRESET</code>) when a client disappears. With no <code>error</code> listener, <code>emit("error")</code> throws inside an I/O callback and crashes the process. Add <code>socket.on("error", (err) =&gt; log(err))</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix it</span></h3>
+<p>This code tries to stop listening after the first message but keeps printing. Fix it in two different ways.</p>
+<script type="text/plain" class="code" data-file="ex4.js" data-norun>
+chat.on("message", (m) => console.log(m));
+chat.off("message", (m) => console.log(m));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex4-fixed.js">
+import { EventEmitter } from "node:events";
+const chat = new EventEmitter();
+
+const print = (m) => console.log("A:", m);       // 1. keep a reference
+chat.on("message", print);
+chat.emit("message", "hello");
+chat.off("message", print);
+
+chat.once("message", (m) => console.log("B:", m)); // 2. or use once
+chat.emit("message", "hi");
+chat.emit("message", "nobody hears this");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+A: hello
+B: hi
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/notes-store.js</code>: a <code>NotesStore</code> class extending <code>EventEmitter</code> with <code>add(text)</code> (emits <code>"added"</code> with the note <code>{ id, text }</code>, ids 1, 2, 3…) and <code>remove(id)</code> (emits <code>"removed"</code>, or <code>"error"</code> for an unknown id). This becomes part of the Chapter 16 project.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/notes-store.js">
+import { EventEmitter } from "node:events";
+
+export class NotesStore extends EventEmitter {
+  #notes = new Map();
+  #nextId = 1;
+  add(text) {
+    const note = { id: this.#nextId++, text };
+    this.#notes.set(note.id, note);
+    this.emit("added", note);
+    return note;
+  }
+  remove(id) {
+    const note = this.#notes.get(id);
+    if (!note) return this.emit("error", new Error(`note ${id} not found`));
+    this.#notes.delete(id);
+    this.emit("removed", note);
+  }
+  get size() { return this.#notes.size; }
+}
+
+const store = new NotesStore();
+store.on("added", (n) => console.log("added", n));
+store.on("removed", (n) => console.log("removed", n.id));
+store.on("error", (e) => console.log("error:", e.message));
+store.add("buy milk");
+store.add("call Ana");
+store.remove(1);
+store.remove(9);
+console.log("size", store.size);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+added { id: 1, text: 'buy milk' }
+added { id: 2, text: 'call Ana' }
+removed 1
+error: note 9 not found
+size 1
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex6.js">
+import { EventEmitter } from "node:events";
+const e = new EventEmitter();
+e.on("x", () => { console.log("1"); e.emit("y"); console.log("3"); });
+e.on("y", () => console.log("2"));
+e.on("x", () => console.log("4"));
+e.emit("x");
+console.log("5");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+1
+2
+3
+4
+5
+</script>
+<p>Everything is synchronous: emitting <code>y</code> from inside an <code>x</code> listener runs <code>y</code>'s listener immediately, before the first <code>x</code> listener continues.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">promises</span></h3>
+<p>Write <code>waitForReady(emitter, ms)</code> that resolves with the first argument of the <code>"ready"</code> event, or rejects with <code>Error("not ready after X ms")</code> on timeout, using <code>events.once</code> with a signal. It must also work in a script where nothing else keeps Node alive.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="wait-ready.js">
+import { EventEmitter, once } from "node:events";
+
+async function waitForReady(emitter, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);   // a ref'd timer keeps Node alive
+  try {
+    const [value] = await once(emitter, "ready", { signal: controller.signal });
+    return value;
+  } catch (err) {
+    if (controller.signal.aborted) throw new Error(`not ready after ${ms} ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);                                       // don't keep it alive afterwards
+  }
+}
+
+const fast = new EventEmitter();
+setTimeout(() => fast.emit("ready", "cache warmed"), 5);
+console.log(await waitForReady(fast, 50));
+await waitForReady(new EventEmitter(), 20).catch((e) => console.log(e.message));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cache warmed
+not ready after 20 ms
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Extend <code>EventEmitter</code> with a <code>Countdown</code> class: <code>start(n)</code> emits <code>"tick"</code> with n, n−1, … 1 every 10 ms, then <code>"done"</code>; <code>stop()</code> cancels and emits <code>"stopped"</code> with the remaining count.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="countdown.js">
+import { EventEmitter } from "node:events";
+
+class Countdown extends EventEmitter {
+  #timer = null;
+  #left = 0;
+  start(n) {
+    this.#left = n;
+    this.#timer = setInterval(() => {
+      this.emit("tick", this.#left);
+      if (--this.#left === 0) { clearInterval(this.#timer); this.emit("done"); }
+    }, 10);
+  }
+  stop() {
+    clearInterval(this.#timer);
+    this.emit("stopped", this.#left);
+  }
+}
+
+const c = new Countdown();
+c.on("tick", (n) => console.log("tick", n));
+c.on("done", () => console.log("done"));
+c.on("stopped", (left) => console.log("stopped with", left, "left"));
+c.start(3);
+const c2 = new Countdown();
+c2.on("stopped", (left) => console.log("second countdown stopped with", left, "left"));
+c2.start(10);
+setTimeout(() => c2.stop(), 15);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+tick 3
+second countdown stopped with 9 left
+tick 2
+tick 1
+done
+</script>
+<p>The two countdowns are separate emitters with separate listeners, which is why their output interleaves but never mixes up.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain why</span></h3>
+<p>A route handler does <code>priceFeed.on("update", (p) =&gt; res.write(p))</code> for every client using server-sent events, and never removes it. After a day, memory is high and there are warnings in the log. Explain what's happening and how to fix it properly.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each request adds a listener to a long-lived emitter. When the client disconnects, the listener (and the closure holding <code>res</code>, the socket and buffers) stays registered forever: a leak, and every update now tries to write to dead connections. Node warns after 10 listeners (<code>MaxListenersExceededWarning</code>). Fix: remove the listener when the response closes — <code>const send = (p) =&gt; res.write(p); priceFeed.on("update", send); res.on("close", () =&gt; priceFeed.off("update", send));</code> — or use <code>events.on</code> with a signal that aborts on close. Raise <code>setMaxListeners</code> only after fixing, if hundreds of concurrent clients are expected.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/job-queue.js</code>: a <code>JobQueue</code> (extends <code>EventEmitter</code>) that runs async jobs one at a time. Events: <code>"queued"</code> (with id), <code>"start"</code>, <code>"success"</code> (id, result), <code>"failure"</code> (id, error message), and <code>"drain"</code> when the queue becomes empty. A failing job must not stop the queue. Use <code>events.once(queue, "drain")</code> to wait for the end.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/job-queue.js">
+import { EventEmitter, once } from "node:events";
+import { setTimeout as sleep } from "node:timers/promises";
+
+export class JobQueue extends EventEmitter {
+  #jobs = [];
+  #running = false;
+  #nextId = 1;
+  add(fn) {
+    const id = this.#nextId++;
+    this.#jobs.push({ id, fn });
+    this.emit("queued", id);
+    if (!this.#running) setImmediate(() => this.#run());
+    this.#running = true;
+    return id;
+  }
+  async #run() {
+    while (this.#jobs.length) {
+      const { id, fn } = this.#jobs.shift();
+      this.emit("start", id);
+      try {
+        this.emit("success", id, await fn());
+      } catch (err) {
+        this.emit("failure", id, err.message);
+      }
+    }
+    this.#running = false;
+    this.emit("drain");
+  }
+}
+
+const q = new JobQueue();
+q.on("start", (id) => console.log(`start #${id}`));
+q.on("success", (id, r) => console.log(`  #${id} ok: ${r}`));
+q.on("failure", (id, msg) => console.log(`  #${id} failed: ${msg}`));
+q.add(async () => { await sleep(10); return "report built"; });
+q.add(async () => { throw new Error("bad CSV"); });
+q.add(async () => "mail sent");
+await once(q, "drain");
+console.log("queue empty");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+start #1
+  #1 ok: report built
+start #2
+  #2 failed: bad CSV
+start #3
+  #3 ok: mail sent
+queue empty
+</script>
+<p>Starting the run with <code>setImmediate</code> lets the caller add several jobs and attach listeners first, the same reason Node defers events after construction (Chapter 7).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/asynchronous-work/the-nodejs-event-emitter">The Node.js Event Emitter</a></li>
+  <li>API: <a href="https://nodejs.org/api/events.html">Events</a> · <a href="https://nodejs.org/api/events.html#eventsonceemitter-name-options">events.once</a> · <a href="https://nodejs.org/api/events.html#eventsonemitter-eventname-options">events.on</a> · <a href="https://nodejs.org/api/events.html#capture-rejections-of-promises">captureRejections</a></li>
+  <li><a href="https://nodejs.org/api/events.html#eventtarget-and-event-api">EventTarget and Event API</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🟩&lt;/text&gt;&lt;/svg&gt;">
+<title>1. Introduction to Node.js · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Getting Started</div>
+<h1>Introduction to Node.js</h1>
+<p class="lead">Node.js lets you run JavaScript outside the browser: on your laptop, on a server, in a build tool or a command-line app. This chapter explains what Node actually is (and isn't), how it can serve thousands of users with a single thread, how it differs from the browser, and how its versions work.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a JavaScript <strong>runtime</strong> is: V8 + libuv + the core modules.</li>
+  <li>Why Node uses a single thread with <strong>non-blocking I/O</strong>, and why that scales.</li>
+  <li>How Node differs from the browser: globals, APIs, modules and who controls the version.</li>
+  <li>What V8 does with your code, and how much JavaScript you need to know.</li>
+  <li>Node's release lines (Current vs LTS), version managers, and checking versions in code.</li>
+</ul>
+</div>
+
+<h2 id="what">What is Node.js?</h2>
+<p><strong>Node.js is a JavaScript runtime</strong>: a program that runs JavaScript files and gives them extra powers the language itself doesn't have, such as reading files, opening network connections and starting other programs. It's open source, cross-platform (Linux, macOS, Windows) and was created by Ryan Dahl in 2009.</p>
+<p>Node is made of three main layers:</p>
+<ul>
+  <li><strong>V8</strong>, Google's JavaScript engine (the same one inside Chrome). It parses and runs your JavaScript, very fast.</li>
+  <li><strong>libuv</strong>, a C library that talks to the operating system: files, sockets, timers, child processes. It provides the <em>event loop</em> and a small thread pool.</li>
+  <li><strong>Core modules</strong> written in JavaScript and C++: <code>node:fs</code>, <code>node:http</code>, <code>node:path</code>, <code>node:events</code>… They are the bridge between your code and libuv.</li>
+</ul>
+<figure class="diagram">
+<svg viewBox="0 0 560 250" role="img" aria-label="Layers of Node.js: your code on top, core modules, then V8 and libuv side by side, then the operating system">
+  <rect class="hi" x="20" y="10" width="520" height="40" rx="8"/><text x="280" y="35" text-anchor="middle">Your JavaScript (app.js, npm packages)</text>
+  <rect class="bx" x="20" y="65" width="520" height="40" rx="8"/><text x="280" y="90" text-anchor="middle">Core modules: node:fs · node:http · node:events · node:stream · …</text>
+  <rect class="bx" x="20" y="120" width="250" height="56" rx="8"/><text x="145" y="143" text-anchor="middle">V8</text><text class="mut" x="145" y="163" text-anchor="middle">runs JavaScript, manages memory</text>
+  <rect class="bx" x="290" y="120" width="250" height="56" rx="8"/><text x="415" y="143" text-anchor="middle">libuv</text><text class="mut" x="415" y="163" text-anchor="middle">event loop, async I/O, thread pool</text>
+  <rect class="bx" x="20" y="192" width="520" height="40" rx="8"/><text x="280" y="217" text-anchor="middle">Operating system: files, network, processes, clock</text>
+</svg>
+<figcaption>Node = V8 (the engine) + libuv (the I/O machinery) + core modules (the API you call).</figcaption>
+</figure>
+<div class="analogy">
+<p>🧠 <strong>Analogy: engine and car.</strong> V8 is an <em>engine</em>. On its own it can't take you anywhere: it has no wheels, doors or dashboard. Chrome puts that engine in one car (with a DOM, tabs and a window), and Node puts the same engine in a different car (with a file system, network sockets and processes). Same engine, same JavaScript, very different vehicles.</p>
+</div>
+
+<h3>Your first Node program</h3>
+<p>Save this as <code>hello.js</code> and run it with <code>node hello.js</code>:</p>
+<script type="text/plain" class="code" data-file="hello.js">
+const name = "Node";
+console.log(`Hello from ${name}!`);
+console.log("2 + 3 =", 2 + 3);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello from Node!
+2 + 3 = 5
+</script>
+<p>There's no HTML page and no browser: <code>console.log</code> writes straight to your terminal (to <em>standard output</em>).</p>
+
+<h3>The classic example: a web server</h3>
+<p>The first example on nodejs.org is a web server in a few lines. Here's a version that starts a server, sends itself one request with <code>fetch</code>, prints the answer and shuts down, so it runs to completion:</p>
+<script type="text/plain" class="code" data-file="server.js">
+import { createServer } from "node:http";
+
+const server = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end(`Hello World (you asked for ${req.url})`);
+});
+
+server.listen(0, async () => {                    // port 0 = "pick any free port"
+  const { port } = server.address();
+  const reply = await fetch(`http://localhost:${port}/hi`);
+  console.log(reply.status, await reply.text());
+  server.close();                                 // let the program end
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 Hello World (you asked for /hi)
+</script>
+<p>In a real app you'd use a fixed port, like <code>server.listen(3000)</code>, and the server would keep running until you stop it with <kbd>Ctrl</kbd>+<kbd>C</kbd>. Chapter 11 builds servers properly.</p>
+
+<h2 id="non-blocking">One thread, non-blocking I/O</h2>
+<p>A Node program runs your JavaScript on <strong>one main thread</strong>. Yet a single Node process can serve thousands of connections at once. How?</p>
+<p>Most of a server's time is spent <em>waiting</em>: for the disk, a database or the network. In Node, I/O operations are <strong>non-blocking</strong>: you start them, give a callback (or get a promise), and Node keeps running other code. When the operating system says "the data is ready", Node queues your callback, and the <strong>event loop</strong> runs it as soon as the thread is free.</p>
+<script type="text/plain" class="code" data-file="non-blocking.js">
+import { readFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
+
+writeFileSync("menu.txt", "soup, salad, pasta");
+
+console.log("1. ask the disk for menu.txt");
+const pending = readFile("menu.txt", "utf8");     // starts the read, doesn't wait
+console.log("2. keep working while the disk is busy");
+const menu = await pending;                       // now wait for the result
+console.log("3. menu:", menu);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1. ask the disk for menu.txt
+2. keep working while the disk is busy
+3. menu: soup, salad, pasta
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: one waiter, many tables.</strong> A restaurant with one waiter could work in two ways. A <em>blocking</em> waiter takes an order, walks to the kitchen and stands there until the dish is ready, ignoring every other table. A <em>non-blocking</em> waiter takes the order, pins it in the kitchen, and goes on to the next table; when the bell rings, the waiter carries the finished dish out. Node is the second waiter: the kitchen (the operating system and libuv) does the slow work, and the single waiter (your JavaScript thread) never stands still.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> a classic Java servlet server uses <em>one thread per request</em>; a request waiting on the database blocks its thread. Node instead uses one thread plus asynchronous I/O, like Java's NIO/Netty or virtual threads in spirit. You don't share memory between request handlers on different threads, so there are no data races or locks, but a slow <em>CPU</em> computation blocks everyone (Chapter 13).</p>
+</div>
+<div class="pitfall">
+<p>⚠️ <strong>Pitfall: non-blocking is about I/O, not CPU.</strong> A loop that computes for two seconds blocks the only thread: no other request, timer or callback runs meanwhile. Node is great for I/O-heavy work (APIs, proxies, real-time apps, tools) and needs extra care (worker threads) for heavy computation.</p>
+</div>
+
+<h2 id="browser">Node vs the browser</h2>
+<p>Both run JavaScript with V8-class engines and both use an event loop, so the language is identical. The <em>environment</em> is different:</p>
+<div class="table-wrap"><table>
+  <tr><th></th><th>Browser</th><th>Node.js</th></tr>
+  <tr><td>Global object</td><td><code>window</code> (and <code>globalThis</code>)</td><td><code>globalThis</code> (no <code>window</code>)</td></tr>
+  <tr><td>Page APIs</td><td><code>document</code>, DOM, <code>localStorage</code>, cookies</td><td>none of these</td></tr>
+  <tr><td>System APIs</td><td>sandboxed: no file system</td><td><code>node:fs</code>, <code>node:net</code>, <code>node:child_process</code>, <code>process</code></td></tr>
+  <tr><td>Shared web APIs</td><td colspan="2"><code>fetch</code>, <code>URL</code>, <code>setTimeout</code>, <code>AbortController</code>, <code>TextEncoder</code>, <code>structuredClone</code>, <code>WebSocket</code>, <code>crypto.randomUUID</code>…</td></tr>
+  <tr><td>Modules</td><td>ES modules (<code>&lt;script type="module"&gt;</code>)</td><td>ES modules <em>and</em> CommonJS (<code>require</code>)</td></tr>
+  <tr><td>JavaScript version</td><td>whatever your users' browsers support</td><td>you choose the Node version, so you know exactly</td></tr>
+  <tr><td>Security model</td><td>the page is untrusted, heavily sandboxed</td><td>your program has your user's full permissions</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="where-am-i.js">
+console.log("window:", typeof window);
+console.log("document:", typeof document);
+console.log("process:", typeof process);
+console.log("fetch:", typeof fetch);
+console.log("globalThis has setTimeout:", typeof globalThis.setTimeout === "function");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+window: undefined
+document: undefined
+process: object
+fetch: function
+globalThis has setTimeout: true
+</script>
+<div class="browser">
+<p>🌐 <strong>Browser habit to unlearn:</strong> in the browser you never control your users' browser versions, so you transpile and polyfill. In Node, the version is a deployment decision. If your server runs Node 26, you can use every feature Node 26 supports — no Babel needed.</p>
+</div>
+
+<h2 id="javascript">How much JavaScript do you need?</h2>
+<p>Node is JavaScript, so the more you know the language, the easier Node becomes. Before going deep, be comfortable with these topics (the links go to the <a href="../javascript-book/index.html">JavaScript Study Book</a>):</p>
+<ul>
+  <li>Variables, types, functions, arrow functions, <code>this</code> and closures (Chapters 2–4).</li>
+  <li>Objects, arrays, classes, destructuring and spread (Chapters 5, 8–11).</li>
+  <li>Strict mode and modules (Chapters 1 and 14).</li>
+  <li>Most importantly, <strong>asynchronous JavaScript</strong>: callbacks, promises, <code>async</code>/<code>await</code> and the event loop (<a href="../javascript-book/12-async.html">Chapter 12</a>). Node is asynchronous all the way down; Part II of this book revisits these ideas from Node's point of view.</li>
+</ul>
+
+<h2 id="v8">The V8 engine</h2>
+<p>V8 is written in C++ and turns JavaScript into machine code <strong>while the program runs</strong> (just-in-time compilation). It starts by interpreting your code quickly (the <em>Ignition</em> interpreter), watches which functions run often ("hot" code) and recompiles those with an optimising compiler (<em>TurboFan</em>, with mid-tier compilers in between). It also manages memory with a garbage collector.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: an interpreter who becomes a translator.</strong> On day one, a conference interpreter translates each sentence as it comes. After hearing the same phrases a hundred times, they write a polished translation of those phrases and just read it out. That's V8: it interprets first, then optimises the code you run most. It's also why <em>micro-benchmarks</em> in JavaScript are tricky: the first runs are slower than later ones.</p>
+</div>
+<p>You can see which engine and library versions your Node uses:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node -p "process.versions.v8"
+14.6.202.34-node.40
+$ node -p "process.version"
+v26.13.0
+</script>
+<p><code>node -p</code> ("print") evaluates an expression and prints the result; you'll see it often in this book. Other engines exist (SpiderMonkey in Firefox, JavaScriptCore in Safari and Bun), but Node always uses V8.</p>
+
+<h2 id="versions">Node versions and release lines</h2>
+<p>A new <strong>major</strong> version of Node is released every six months (in April and October). The release schedule works like this:</p>
+<ul>
+  <li><strong>Current</strong>: the newest major version, for six months. Good for trying new features.</li>
+  <li><strong>LTS (Long-Term Support)</strong>: in October, the April release is promoted to LTS and gets a codename. It receives fixes for about 30 months. <strong>Production servers should run an LTS version.</strong></li>
+  <li><strong>End-of-life</strong>: no more security fixes. Upgrade before you get here.</li>
+</ul>
+<p>So Node 24 (codename Krypton) and Node 26 (codename Lithium) are both LTS lines in late 2026. Your code can find out what it's running on:</p>
+<script type="text/plain" class="code" data-file="versions.js">
+const [major] = process.versions.node.split(".").map(Number);
+console.log("major version:", major);
+console.log("LTS codename:", process.release.lts ?? "(not an LTS release)");
+if (major < 22) {
+  console.error("This tool needs Node 22 or newer.");
+  process.exit(1);
+}
+console.log("version check passed");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+major version: 26
+LTS codename: Lithium
+version check passed
+</script>
+
+<h3>Version managers</h3>
+<p>Different projects may need different Node versions. A <strong>version manager</strong> installs several versions side by side and switches between them per project:</p>
+<ul>
+  <li><strong>nvm</strong> (macOS/Linux) and <strong>nvm-windows</strong>: <code>nvm install 26</code>, <code>nvm use 24</code>.</li>
+  <li><strong>fnm</strong> (fast, cross-platform) and <strong>Volta</strong> (pins versions in <code>package.json</code>).</li>
+  <li><strong>Corepack</strong>-style tooling and the <code>"engines"</code> field in <code>package.json</code> document the version a project expects.</li>
+</ul>
+<p>Most version managers read a <code>.nvmrc</code> or <code>.node-version</code> file in the project folder, containing just a version like <code>26</code>, so everyone on the team uses the same one.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ nvm install 26        # download and install the latest Node 26
+$ nvm use 26            # use it in this shell
+$ echo "26" > .nvmrc    # pin the project's version; `nvm use` now picks it up
+$ node --version
+v26.13.0
+</script>
+<div class="tip">
+<p>💡 <strong>Tip:</strong> avoid installing Node with <code>sudo</code> or system package managers that lag behind. A version manager installs Node in your home folder, so global npm packages don't need administrator rights.</p>
+</div>
+
+<h2 id="modern">Modern JavaScript in Node</h2>
+<p>Node follows V8, so new language features arrive in Node a few months after they ship in Chrome. Everything from ES2015 (ES6) on is available in every supported Node version: classes, arrow functions, promises, <code>async</code>/<code>await</code>, optional chaining, private fields, top-level <code>await</code> in modules, and newer features like iterator helpers and <code>Set</code> methods. To check a specific feature, look at <a href="https://node.green">node.green</a> or simply try it:</p>
+<script type="text/plain" class="code" data-file="modern.js">
+const scores = new Map([["ana", 81], ["ben", 67], ["chen", 92]]);
+const passed = scores.entries().filter(([, s]) => s >= 70).map(([n]) => n).toArray();  // iterator helpers (ES2025)
+console.log(passed);
+console.log(new Set(["a", "b"]).union(new Set(["b", "c"])));                          // Set methods (ES2025)
+console.log(Object.groupBy([1, 2, 3, 4], (n) => (n % 2 ? "odd" : "even")));            // ES2024
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'ana', 'chen' ]
+Set(3) { 'a', 'b', 'c' }
+[Object: null prototype] { odd: [ 1, 3 ], even: [ 2, 4 ] }
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Facts about the machine</h3>
+<p>The <code>node:os</code> module describes the computer your program runs on. Your values will differ, so this example only prints the shape of the data:</p>
+<script type="text/plain" class="code" data-file="machine.js">
+import os from "node:os";
+
+const info = {
+  platform: os.platform(),               // 'darwin', 'linux', 'win32'
+  cpus: os.availableParallelism(),       // how many things can truly run at once
+  memoryGB: Math.round(os.totalmem() / 1024 ** 3),
+  home: os.homedir(),
+};
+console.log(Object.keys(info).join(", "));
+console.log(typeof info.cpus === "number" && info.cpus > 0 ? "cpus ok" : "?");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+platform, cpus, memoryGB, home
+cpus ok
+</script>
+
+<h3>One script, two environments</h3>
+<p>Code that should run both in the browser and in Node can check for the features it needs instead of guessing the environment:</p>
+<script type="text/plain" class="code" data-file="universal.js">
+function storageFor(appName) {
+  if (typeof localStorage !== "undefined") return localStorage;   // browser
+  const data = new Map();                                         // Node: an in-memory stand-in
+  return {
+    getItem: (k) => data.get(`${appName}:${k}`) ?? null,
+    setItem: (k, v) => void data.set(`${appName}:${k}`, String(v)),
+  };
+}
+const store = storageFor("notes");
+store.setItem("theme", "dark");
+console.log(store.getItem("theme"), store.getItem("missing"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dark null
+</script>
+
+<h3>Showing that the thread is single</h3>
+<p>Two timers are due after 10 ms, but a busy loop holds the thread for 50 ms first. The timers can only run once the thread is free:</p>
+<script type="text/plain" class="code" data-file="busy.js">
+const start = Date.now();
+setTimeout(() => console.log("timer A ran after at least", Date.now() - start >= 50 ? "50 ms" : "?"), 10);
+setTimeout(() => console.log("timer B ran next"), 10);
+while (Date.now() - start < 50) { /* busy: blocks the only thread */ }
+console.log("busy loop finished");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+busy loop finished
+timer A ran after at least 50 ms
+timer B ran next
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Node.js is a JavaScript runtime: V8 runs the code, libuv does the I/O and runs the event loop, and core modules (<code>node:fs</code>, <code>node:http</code>…) give you system powers.</li>
+  <li>Your JavaScript runs on one thread. I/O is non-blocking, so one process can juggle thousands of connections; CPU-heavy work blocks everyone.</li>
+  <li>Same language as the browser, different environment: no <code>window</code>/<code>document</code>, but <code>process</code>, files, sockets and both module systems. You choose the Node version.</li>
+  <li>V8 compiles hot code just in time. Even-numbered majors become LTS; use LTS in production and a version manager (nvm, fnm, Volta) on your machine.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">run it</span></h3>
+<p>Write <code>greet.js</code> that prints <code>Hello, Node!</code> and the current Node major version on a second line, like <code>running on Node 26</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="greet.js">
+console.log("Hello, Node!");
+console.log(`running on Node ${process.versions.node.split(".")[0]}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello, Node!
+running on Node 26
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<p>What does each line print when run with <code>node</code>?</p>
+<script type="text/plain" class="code" data-file="ex2.js" data-norun>
+console.log(typeof window);
+console.log(typeof globalThis);
+console.log(typeof document === "undefined");
+console.log(typeof process.version);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>undefined</code>, <code>object</code>, <code>true</code>, <code>string</code>. Node has no <code>window</code> or <code>document</code>; <code>globalThis</code> is the standard name for the global object everywhere; <code>process.version</code> is a string like <code>"v26.13.0"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Name the three main layers of Node.js and what each one does, in one sentence each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>V8</strong> parses, compiles and runs JavaScript and manages memory. <strong>libuv</strong> provides the event loop, asynchronous I/O (files, network, timers) and a thread pool. The <strong>core modules</strong> (<code>node:fs</code>, <code>node:http</code>, …) are the JavaScript API that connects your code to libuv and the operating system.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Your company is starting a new production API today. Should it target the newest <em>Current</em> release or an <em>LTS</em> release? And how would you make sure every developer uses the same version?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>An <strong>LTS</strong> release: it gets bug and security fixes for about 30 months, while Current lines change quickly and odd-numbered ones never become LTS. Pin the version in a <code>.nvmrc</code> (or <code>.node-version</code>) file read by version managers, and document it in <code>package.json</code>'s <code>"engines"</code> field.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict the output</span></h3>
+<p>In what order are the lines printed, and why?</p>
+<script type="text/plain" class="code" data-file="ex5.js">
+setTimeout(() => console.log("A"), 0);
+console.log("B");
+const t = Date.now();
+while (Date.now() - t < 20) {}
+console.log("C");
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+B
+C
+A
+</script>
+<p>The timer is due almost immediately, but its callback can only run when the main thread is free. The synchronous code (B, the 20 ms loop, C) runs to completion first; then the event loop runs the timer.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/check-node.js</code>: exit with code 1 and an error message on stderr if the Node major version is lower than a minimum given in a constant <code>MIN = 22</code>; otherwise print <code>OK: Node 26 ≥ 22</code> (with the real numbers).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/check-node.js">
+const MIN = 22;
+const major = Number(process.versions.node.split(".")[0]);
+if (major < MIN) {
+  console.error(`Error: Node ${MIN}+ required, found ${process.version}`);
+  process.exit(1);
+}
+console.log(`OK: Node ${major} ≥ ${MIN}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+OK: Node 26 ≥ 22
+</script>
+<p>Errors go to <code>console.error</code> (stderr) and a non-zero exit code tells scripts and CI that something failed (Chapter 2).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>A colleague says: "Node is single-threaded, so it can only handle one HTTP request at a time." Explain what's right and what's wrong with this statement, using the waiter analogy.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Right: your JavaScript runs on one thread, so only one callback executes at any instant. Wrong: requests are not handled "one at a time" from start to finish. While one request waits for the database or the disk, Node starts on others, like a waiter who pins an order in the kitchen and serves the next table. Thousands of requests can be <em>in progress</em> at once; only the short bursts of JavaScript between waits take turns. (Behind the scenes, libuv also uses OS facilities and a thread pool to do the actual I/O.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>runtime.js</code> with a function <code>describeRuntime()</code> that returns <code>"browser"</code> if <code>window</code> and <code>document</code> exist, <code>"node"</code> if <code>process.versions.node</code> exists, and <code>"unknown"</code> otherwise. Print the result.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="runtime.js">
+function describeRuntime() {
+  if (typeof window !== "undefined" && typeof document !== "undefined") return "browser";
+  if (typeof process !== "undefined" && process.versions?.node) return "node";
+  return "unknown";
+}
+console.log(describeRuntime());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+node
+</script>
+<p>Use <code>typeof</code> for the checks: reading an undeclared global like <code>window</code> directly would throw a <code>ReferenceError</code> in Node.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">measure it</span></h3>
+<p>Show the cost of blocking: start a <code>setInterval</code> that should tick every 10 ms, block the thread for 100 ms after 25 ms, and print how many ticks happened in the first 200 ms. Explain why it's fewer than 20.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ticks.js">
+let ticks = 0;
+const timer = setInterval(() => ticks++, 10);
+setTimeout(() => {
+  const t = Date.now();
+  while (Date.now() - t < 100) {}            // block for 100 ms
+}, 25);
+setTimeout(() => {
+  clearInterval(timer);
+  console.log(ticks < 15 ? "fewer than 15 ticks" : `unexpected: ${ticks}`);
+}, 200);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+fewer than 15 ticks
+</script>
+<p>An interval doesn't "catch up" on missed ticks. During the 100 ms block no callbacks can run, so roughly ten ticks are simply lost. In a server, the same block would delay every request in flight by 100 ms.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/hello-server.js</code>: an HTTP server that answers <code>/</code> with <code>Hello!</code>, <code>/time</code> with JSON <code>{ "uptimeSeconds": … }</code> (use <code>process.uptime()</code>), and anything else with status 404. Make the script test itself with <code>fetch</code> on a free port and print the three status codes, then close.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/hello-server.js">
+import { createServer } from "node:http";
+
+const server = createServer((req, res) => {
+  if (req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/plain" }).end("Hello!");
+  } else if (req.url === "/time") {
+    res.writeHead(200, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ uptimeSeconds: Math.round(process.uptime()) }));
+  } else {
+    res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found");
+  }
+});
+
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const path of ["/", "/time", "/nope"]) {
+    const r = await fetch(base + path);
+    console.log(path, r.status, r.headers.get("content-type"));
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/ 200 text/plain
+/time 200 application/json
+/nope 404 text/plain
+</script>
+<p><code>writeHead</code> returns the response object, so you can chain <code>.end()</code>. You'll build a proper router with JSON bodies in Chapter 11.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/introduction-to-nodejs">Introduction to Node.js</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/how-much-javascript-do-you-need-to-know-to-use-nodejs">How much JavaScript do you need to know to use Node.js?</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/differences-between-nodejs-and-the-browser">Differences between Node.js and the Browser</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/the-v8-javascript-engine">The V8 JavaScript Engine</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/node-version-managers">Node version managers</a> · <a href="https://nodejs.org/en/about/previous-releases">Node.js releases</a></li>
+  <li><a href="https://nodejs.org/en/learn/getting-started/ecmascript-2015-es6-and-beyond">ECMAScript 2015 (ES6) and beyond</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

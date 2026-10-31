@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌐&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Building HTTP Servers · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Networking</div>
+<h1>Building HTTP Servers</h1>
+<p class="lead">Node became famous for HTTP servers, and the built-in <code>node:http</code> module is what frameworks like Express and Fastify are built on. This chapter follows the life of one HTTP transaction — request in, response out — and builds up to a small JSON API with routing, request bodies, validation, errors, static files and graceful shutdown, using no dependencies.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The anatomy of an HTTP transaction: method, URL, headers, body, status code.</li>
+  <li>The request (a Readable stream) and the response (a Writable stream).</li>
+  <li>Reading and limiting request bodies, parsing JSON and query strings.</li>
+  <li>Routing by method and path, and returning proper status codes and errors.</li>
+  <li>Serving files with streams, and shutting a server down gracefully.</li>
+</ul>
+</div>
+
+<h2 id="anatomy">The anatomy of an HTTP transaction</h2>
+<p>HTTP is a text-based conversation: the client sends a <strong>request</strong>, the server sends back a <strong>response</strong>. Here's what travels over the wire for a request to create a note:</p>
+<script type="text/plain" class="code" data-lang="http" data-norun>
+POST /notes?draft=true HTTP/1.1          ← method, path + query, version
+Host: localhost:3000                     ← headers: name: value
+Content-Type: application/json
+Content-Length: 22
+
+{"text":"buy oat milk"}                  ← body (optional)
+</script>
+<script type="text/plain" class="code" data-lang="http" data-norun>
+HTTP/1.1 201 Created                     ← version, status code, reason
+Content-Type: application/json
+Location: /notes/7
+
+{"id":7,"text":"buy oat milk"}
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: posting a letter at a counter.</strong> The request is a letter: the <em>envelope</em> has the method ("please deliver" / "please return"), the address (URL) and stickers with instructions (headers like "fragile", "contains JSON"); the <em>contents</em> are the body. The server is the clerk at the counter: it reads the envelope first, maybe opens the letter, then hands back a receipt with a status code — 2xx "done", 4xx "you made a mistake", 5xx "we made a mistake".</p>
+</div>
+<div class="table-wrap"><table>
+  <tr><th>Methods</th><th>Meaning</th><th>Status codes you'll use</th></tr>
+  <tr><td><code>GET</code></td><td>read something (no body)</td><td><code>200 OK</code>, <code>404 Not Found</code></td></tr>
+  <tr><td><code>POST</code></td><td>create, or perform an action</td><td><code>201 Created</code>, <code>400 Bad Request</code>, <code>422</code></td></tr>
+  <tr><td><code>PUT</code> / <code>PATCH</code></td><td>replace / partially update</td><td><code>200 OK</code>, <code>204 No Content</code></td></tr>
+  <tr><td><code>DELETE</code></td><td>remove</td><td><code>204 No Content</code>, <code>404</code></td></tr>
+  <tr><td colspan="2">any</td><td><code>401</code>/<code>403</code> auth, <code>405</code> wrong method, <code>413</code> body too large, <code>500</code> server bug</td></tr>
+</table></div>
+
+<h2 id="server">Creating a server</h2>
+<p><code>http.createServer(handler)</code> creates a server; the handler runs once per request with two objects: <code>req</code> (an <code>IncomingMessage</code>) and <code>res</code> (a <code>ServerResponse</code>). <code>listen(port)</code> starts accepting connections.</p>
+<script type="text/plain" class="code" data-file="hello-server.js">
+import http from "node:http";
+
+const server = http.createServer((req, res) => {
+  console.log(`server got: ${req.method} ${req.url} (UA: ${req.headers["user-agent"]})`);
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end("Hello from Node ✓");
+});
+
+server.listen(0, async () => {
+  const url = `http://localhost:${server.address().port}/greeting?lang=en`;
+  const reply = await fetch(url, { headers: { "User-Agent": "study-book" } });
+  console.log("client got:", reply.status, reply.headers.get("content-type"), "|", await reply.text());
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+server got: GET /greeting?lang=en (UA: study-book)
+client got: 200 text/plain; charset=utf-8 | Hello from Node ✓
+</script>
+<p>Every example in this chapter follows this pattern so it can run on its own: listen on port <code>0</code> (any free port), send requests with <code>fetch</code> (Chapter 12), then <code>close()</code>. In a real app you'd <code>listen(3000)</code> and test with a browser or <code>curl</code>.</p>
+<ul>
+  <li><code>req.method</code>, <code>req.url</code> (path + query string, no host) and <code>req.headers</code> (lower-case names).</li>
+  <li><code>res.statusCode</code> + <code>res.setHeader</code>, or both at once with <code>res.writeHead(status, headers)</code>.</li>
+  <li><code>res.write(chunk)</code> any number of times, then <strong><code>res.end()</code> exactly once</strong>. Forgetting <code>end()</code> leaves the client waiting until it times out.</li>
+</ul>
+
+<h2 id="url">Parsing the URL and query string</h2>
+<p><code>req.url</code> is just the path and query (<code>/search?q=node&amp;page=2</code>). Turn it into a <code>URL</code> object to get the pieces safely, with decoding handled for you:</p>
+<script type="text/plain" class="code" data-file="parse-url.js">
+const url = new URL("/search?q=node%20streams&page=2&tag=io&tag=fs", "http://localhost");
+console.log(url.pathname);
+console.log(url.searchParams.get("q"), Number(url.searchParams.get("page") ?? 1));
+console.log(url.searchParams.getAll("tag"), url.searchParams.has("sort"));
+console.log(Object.fromEntries(url.searchParams));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/search
+node streams 2
+[ 'io', 'fs' ] false
+{ q: 'node streams', page: '2', tag: 'fs' }
+</script>
+<p>The second argument is a dummy base, because <code>req.url</code> is relative. Note that <code>Object.fromEntries</code> keeps only the last value of a repeated key.</p>
+
+<h2 id="body">Reading the request body</h2>
+<p>The body doesn't arrive with the request object: <code>req</code> is a <strong>Readable stream</strong> (Chapter 10), and the body arrives in chunks. Collect them, and — because clients can send anything — <strong>limit the size</strong> and handle bad JSON:</p>
+<script type="text/plain" class="code" data-file="body.js">
+import http from "node:http";
+
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+async function readJson(req, limit = 1_000_000) {
+  if (!req.headers["content-type"]?.startsWith("application/json")) throw new HttpError(415, "expected JSON");
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, "body too large");
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpError(400, "invalid JSON");
+  }
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const data = await readJson(req, 100);
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ received: data }));
+  } catch (err) {
+    res.writeHead(err.status ?? 500, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err.message }));
+  }
+});
+
+server.listen(0, async () => {
+  const url = `http://localhost:${server.address().port}/echo`;
+  const send = (body, type = "application/json") => fetch(url, { method: "POST", headers: { "Content-Type": type }, body });
+  for (const r of [await send('{"text":"hi"}'), await send("{oops"), await send("x".repeat(500)), await send("hello", "text/plain")]) {
+    console.log(r.status, await r.text());
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 {"received":{"text":"hi"}}
+400 {"error":"invalid JSON"}
+413 {"error":"body too large"}
+415 {"error":"expected JSON"}
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Never trust the body.</strong> Without a size limit, one client sending a 5 GB body can exhaust your server's memory. Always cap the size, check the <code>Content-Type</code>, wrap <code>JSON.parse</code>, and validate the <em>shape</em> of the data (types, required fields, lengths) before using it.</p>
+</div>
+
+<h2 id="routing">Routing</h2>
+<p>A <strong>router</strong> chooses the code to run based on the method and the path. Frameworks give you <code>app.get("/notes/:id", …)</code>; underneath it's a lookup like this. Node's <code>URLPattern</code> <span class="es">Node 24</span> matches path parameters for you:</p>
+<script type="text/plain" class="code" data-file="router.js">
+import http from "node:http";
+
+const routes = [];
+const route = (method, path, handler) => routes.push({ method, pattern: new URLPattern({ pathname: path }), handler });
+
+route("GET", "/", () => ({ status: 200, body: { hello: "world" } }));
+route("GET", "/users/:id", ({ params }) => ({ status: 200, body: { user: params.id } }));
+route("GET", "/users/:id/orders/:orderId", ({ params }) => ({ status: 200, body: params }));
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, "http://localhost");
+  const matches = routes.map((r) => ({ ...r, m: r.pattern.exec({ pathname: url.pathname }) })).filter((r) => r.m);
+  let result;
+  if (!matches.length) result = { status: 404, body: { error: "not found" } };
+  else {
+    const r = matches.find((x) => x.method === req.method);
+    result = r ? r.handler({ req, url, params: r.m.pathname.groups })
+               : { status: 405, body: { error: `method ${req.method} not allowed` } };
+  }
+  res.writeHead(result.status, { "Content-Type": "application/json" }).end(JSON.stringify(result.body));
+});
+
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const [method, path] of [["GET", "/"], ["GET", "/users/42"], ["GET", "/users/42/orders/7"], ["DELETE", "/users/42"], ["GET", "/nope"]]) {
+    const r = await fetch(base + path, { method });
+    console.log(method.padEnd(6), path.padEnd(19), r.status, await r.text());
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+GET    /                   200 {"hello":"world"}
+GET    /users/42           200 {"user":"42"}
+GET    /users/42/orders/7  200 {"orderId":"7","id":"42"}
+DELETE /users/42           405 {"error":"method DELETE not allowed"}
+GET    /nope               404 {"error":"not found"}
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a hotel reception.</strong> Every visitor (request) comes to the same desk (the handler). The receptionist reads the room number (path) and the purpose of the visit (method) and sends them to the right person (the route handler). "That room doesn't exist" is a 404; "the room exists, but you can't do <em>that</em> there" is a 405.</p>
+</div>
+
+<h2 id="api">A small JSON API</h2>
+<p>Putting it together: a CRUD API for notes, kept in memory. The handler is <code>async</code>, every error becomes a JSON response with the right status, and unexpected errors become a 500 without leaking details to the client:</p>
+<script type="text/plain" class="code" data-file="notes-api.js">
+import http from "node:http";
+
+class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+const notes = new Map();
+let nextId = 1;
+
+async function body(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  try { return JSON.parse(Buffer.concat(chunks).toString() || "{}"); } catch { throw new HttpError(400, "invalid JSON"); }
+}
+function validNote(data) {
+  if (typeof data.text !== "string" || !data.text.trim()) throw new HttpError(422, "text is required");
+  if (data.text.length > 200) throw new HttpError(422, "text is too long");
+  return { text: data.text.trim(), done: Boolean(data.done) };
+}
+function send(res, status, data) {
+  if (status === 204) return res.writeHead(204).end();
+  res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const { pathname } = new URL(req.url, "http://localhost");
+    const id = Number(pathname.match(/^\/notes\/(\d+)$/)?.[1]);
+    if (pathname === "/notes" && req.method === "GET") return send(res, 200, [...notes.values()]);
+    if (pathname === "/notes" && req.method === "POST") {
+      const note = { id: nextId++, ...validNote(await body(req)) };
+      notes.set(note.id, note);
+      res.setHeader("Location", `/notes/${note.id}`);
+      return send(res, 201, note);
+    }
+    if (id) {
+      const note = notes.get(id);
+      if (!note) throw new HttpError(404, `note ${id} not found`);
+      if (req.method === "GET") return send(res, 200, note);
+      if (req.method === "PUT") { Object.assign(note, validNote(await body(req))); return send(res, 200, note); }
+      if (req.method === "DELETE") { notes.delete(id); return send(res, 204); }
+      throw new HttpError(405, "method not allowed");
+    }
+    throw new HttpError(404, "not found");
+  } catch (err) {
+    if (!(err instanceof HttpError)) console.error("unexpected:", err);   // log details server-side only
+    send(res, err.status ?? 500, { error: err instanceof HttpError ? err.message : "internal error" });
+  }
+});
+
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  const call = async (method, path, data) => {
+    const r = await fetch(base + path, { method, headers: { "Content-Type": "application/json" }, body: data && JSON.stringify(data) });
+    console.log(method.padEnd(6), path.padEnd(9), r.status, r.status === 204 ? "" : await r.text());
+  };
+  await call("POST", "/notes", { text: "buy milk" });
+  await call("POST", "/notes", { text: "  " });
+  await call("PUT", "/notes/1", { text: "buy oat milk", done: true });
+  await call("GET", "/notes");
+  await call("DELETE", "/notes/1");
+  await call("GET", "/notes/1");
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+POST   /notes    201 {"id":1,"text":"buy milk","done":false}
+POST   /notes    422 {"error":"text is required"}
+PUT    /notes/1  200 {"id":1,"text":"buy oat milk","done":true}
+GET    /notes    200 [{"id":1,"text":"buy oat milk","done":true}]
+DELETE /notes/1  204
+GET    /notes/1  404 {"error":"note 1 not found"}
+</script>
+<p>This is the skeleton of the Chapter 16 project, which adds persistence, logging, tests and a cleaner router.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> <code>createServer</code>'s handler is like a single servlet's <code>service(request, response)</code> method, or a Spring controller without annotations. The difference: all requests share one thread, so an <code>await</code> lets other requests run while this one waits for its body or the database — no thread pool needed.</p>
+</div>
+
+<h2 id="static">Serving files</h2>
+<p>To send a file, stream it into the response (the response is a Writable). Set the right <code>Content-Type</code>, handle missing files, and — essential — make sure the requested path stays inside your public folder (path traversal, Chapter 9):</p>
+<script type="text/plain" class="code" data-file="static.js">
+import http from "node:http";
+import { createReadStream } from "node:fs";
+import { stat, mkdir, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import path from "node:path";
+
+const ROOT = path.resolve("public");
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".png": "image/png" };
+await mkdir("public", { recursive: true });
+await writeFile("public/index.html", "<h1>Welcome</h1>");
+
+const server = http.createServer(async (req, res) => {
+  const { pathname } = new URL(req.url, "http://localhost");
+  const file = path.join(ROOT, decodeURIComponent(pathname === "/" ? "/index.html" : pathname));
+  if (!file.startsWith(ROOT + path.sep)) return res.writeHead(403).end("forbidden");
+  try {
+    const info = await stat(file);
+    res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream", "Content-Length": info.size });
+    await pipeline(createReadStream(file), res);
+  } catch (err) {
+    if (err.code === "ENOENT") res.writeHead(404).end("not found");
+    else if (!res.headersSent) res.writeHead(500).end("error");
+  }
+});
+
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const p of ["/", "/missing.css", "/..%2f..%2fetc%2fpasswd"]) {
+    const r = await fetch(base + p);
+    console.log(p, r.status, r.headers.get("content-type"), await r.text());
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/ 200 text/html; charset=utf-8 <h1>Welcome</h1>
+/missing.css 404 null not found
+/..%2f..%2fetc%2fpasswd 403 null forbidden
+</script>
+<p>Clients like <code>fetch</code> normalise <code>/../</code> segments before sending, but encoded slashes (<code>%2f</code>) pass through — and <code>decodeURIComponent</code> turns them back into real <code>../</code> on the server. That's why the check happens <em>after</em> decoding and joining. In production, static files are usually served by a CDN or a reverse proxy (nginx), but the technique — stream, set headers, guard the path — is the same.</p>
+
+<h2 id="errors">Errors and robustness</h2>
+<ul>
+  <li>Wrap each request's work in <code>try</code>/<code>catch</code> (an <code>async</code> handler's rejection is otherwise an unhandled rejection that crashes the server).</li>
+  <li>Return 4xx for client mistakes and 500 for your bugs; log the details on the server, send a generic message to the client.</li>
+  <li>Listen for <code>error</code> on the server (e.g. <code>EADDRINUSE</code> when the port is taken).</li>
+  <li>A client may disconnect mid-response: <code>res.on("close")</code> fires, and writes after that are ignored. Stop expensive work when <code>req.signal</code>-like cues say nobody is listening (Exercise 9).</li>
+  <li>Set timeouts: <code>server.requestTimeout</code> and <code>server.headersTimeout</code> protect against slow-loris attacks (Node sets sensible defaults).</li>
+</ul>
+<script type="text/plain" class="code" data-file="port-in-use.js">
+import http from "node:http";
+
+const first = http.createServer().listen(0, () => {
+  const port = first.address().port;
+  const second = http.createServer();
+  second.on("error", (err) => {
+    console.log("second server:", err.code);
+    first.close();
+  });
+  second.listen(port);
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+second server: EADDRINUSE
+</script>
+
+<h2 id="shutdown">Graceful shutdown</h2>
+<p>When you deploy a new version, the old process receives a <code>SIGTERM</code> signal. A graceful server stops accepting <em>new</em> connections, lets requests in progress finish, closes idle keep-alive connections, releases resources (database pools, files), and then exits:</p>
+<script type="text/plain" class="code" data-file="graceful.js">
+import http from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const server = http.createServer(async (req, res) => {
+  await sleep(50);                                     // a request that takes a while
+  res.end("finished properly");
+});
+
+function shutdown(signal) {
+  console.log(`${signal} received: closing`);
+  server.close(() => console.log("all connections closed, exiting"));   // waits for in-flight requests
+  server.closeIdleConnections();                       // drop idle keep-alive sockets now
+  setTimeout(() => { server.closeAllConnections(); process.exitCode = 1; }, 5000).unref();   // hard limit
+}
+process.once("SIGTERM", shutdown);
+
+server.listen(0, async () => {
+  const pending = fetch(`http://localhost:${server.address().port}/slow`).then((r) => r.text());
+  await sleep(10);
+  process.kill(process.pid, "SIGTERM");                // simulate the deploy tool
+  console.log("in-flight request got:", await pending);
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SIGTERM received: closing
+in-flight request got: finished properly
+all connections closed, exiting
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: closing time at a café.</strong> At closing time you lock the door (no new customers), let the people inside finish their coffee, politely ask the ones just sitting around to leave (idle connections), and if someone is still there after 30 minutes, you turn off the lights anyway (the hard timeout).</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Middleware-style request logging</h3>
+<p>Frameworks call functions that run before every handler "middleware". The simplest version wraps a handler:</p>
+<script type="text/plain" class="code" data-file="logging.js">
+import http from "node:http";
+
+const withLogging = (handler) => async (req, res) => {
+  const start = process.hrtime.bigint();
+  res.on("finish", () => {
+    const ms = Number(process.hrtime.bigint() - start) / 1e6;
+    console.log(`${req.method} ${req.url} → ${res.statusCode} ${ms < 1000 ? "fast" : "slow"}`);
+  });
+  return handler(req, res);
+};
+
+const server = http.createServer(withLogging((req, res) => {
+  res.statusCode = req.url === "/" ? 200 : 404;
+  res.end();
+}));
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  await fetch(base + "/");
+  await fetch(base + "/admin");
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+GET / → 200 fast
+GET /admin → 404 fast
+</script>
+
+<h3>Streaming a response: server-sent events</h3>
+<p>A response doesn't have to end quickly. Server-sent events keep it open and write a message whenever something happens — live dashboards, notifications:</p>
+<script type="text/plain" class="code" data-file="sse.js">
+import http from "node:http";
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+  let n = 0;
+  const timer = setInterval(() => {
+    res.write(`data: tick ${++n}\n\n`);
+    if (n === 3) { clearInterval(timer); res.end(); }
+  }, 10);
+  res.on("close", () => clearInterval(timer));          // client went away: stop the timer
+});
+
+server.listen(0, async () => {
+  const r = await fetch(`http://localhost:${server.address().port}/events`);
+  const text = await r.text();
+  console.log(text.trim().split("\n\n"));
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'data: tick 1', 'data: tick 2', 'data: tick 3' ]
+</script>
+
+<h3>CORS headers for browser clients</h3>
+<p>A web page on <code>https://app.example.com</code> calling your API on another origin needs CORS headers, and browsers send an <code>OPTIONS</code> "preflight" request first:</p>
+<script type="text/plain" class="code" data-file="cors.js">
+import http from "node:http";
+
+const ALLOWED = new Set(["https://app.example.com"]);
+const server = http.createServer((req, res) => {
+  const origin = req.headers.origin;
+  if (ALLOWED.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE", "Access-Control-Allow-Headers": "Content-Type" });
+    return res.end();
+  }
+  res.end("data");
+});
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const origin of ["https://app.example.com", "https://evil.example"]) {
+    const r = await fetch(base, { headers: { Origin: origin } });
+    console.log(origin, "→ allow-origin:", r.headers.get("access-control-allow-origin"));
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+https://app.example.com → allow-origin: https://app.example.com
+https://evil.example → allow-origin: null
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>An HTTP transaction is a request (method, URL, headers, body) and a response (status, headers, body).</li>
+  <li><code>http.createServer((req, res) =&gt; …)</code>: <code>req</code> is a Readable (read the body with <code>for await</code>, with a size limit), <code>res</code> is a Writable (<code>writeHead</code>, <code>write</code>, exactly one <code>end</code>).</li>
+  <li>Parse <code>req.url</code> with <code>new URL(req.url, base)</code>; route on method + path (<code>URLPattern</code> for parameters); 404 vs 405.</li>
+  <li>Validate input, map errors to status codes (4xx client, 500 server), never leak internals, and catch errors in async handlers.</li>
+  <li>Stream files into responses with <code>pipeline</code> and guard against path traversal.</li>
+  <li>Shut down gracefully: <code>server.close()</code>, <code>closeIdleConnections()</code>, a hard timeout, and clean up resources.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">status codes</span></h3>
+<p>Which status code? (a) Created a new user. (b) The user ID in the URL doesn't exist. (c) The JSON body is malformed. (d) A database query threw an unexpected error. (e) Deleted successfully, nothing to return. (f) <code>DELETE</code> sent to a read-only resource.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) 201 Created; (b) 404 Not Found; (c) 400 Bad Request; (d) 500 Internal Server Error; (e) 204 No Content; (f) 405 Method Not Allowed.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write a server that answers <code>GET /time</code> with JSON <code>{ "iso": "…" }</code> (the current time) and every other path with 404 text. Test both paths with <code>fetch</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="time-server.js">
+import http from "node:http";
+
+const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/time") {
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ iso: new Date().toISOString() }));
+  } else {
+    res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
+  }
+});
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  const t = await (await fetch(`${base}/time`)).json();
+  console.log("has iso:", /^\d{4}-\d\d-\d\dT/.test(t.iso));
+  console.log((await fetch(`${base}/other`)).status);
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+has iso: true
+404
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">query strings</span></h3>
+<p>Write a handler for <code>/add?a=2&amp;b=3</code> that responds with the sum as text, or 400 if <code>a</code> or <code>b</code> isn't a number.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="add-server.js">
+import http from "node:http";
+
+const server = http.createServer((req, res) => {
+  const { searchParams } = new URL(req.url, "http://localhost");
+  const a = Number(searchParams.get("a")), b = Number(searchParams.get("b"));
+  if (!searchParams.has("a") || !searchParams.has("b") || Number.isNaN(a) || Number.isNaN(b)) {
+    return res.writeHead(400).end("a and b must be numbers");
+  }
+  res.end(String(a + b));
+});
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const q of ["?a=2&b=3", "?a=2&b=x", "?a=1.5&b=-4"]) {
+    const r = await fetch(base + "/add" + q);
+    console.log(q, r.status, await r.text());
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+?a=2&b=3 200 5
+?a=2&b=x 400 a and b must be numbers
+?a=1.5&b=-4 200 -2.5
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">find the bug</span></h3>
+<p>Requests to this server hang until the client times out. Why?</p>
+<script type="text/plain" class="code" data-file="ex4.js" data-norun>
+http.createServer((req, res) => {
+  if (req.url === "/health") res.write("ok");
+  else { res.statusCode = 404; res.end(); }
+}).listen(3000);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>The <code>/health</code> branch writes but never calls <code>res.end()</code>, so the response is never finished and the client keeps waiting for more data. Use <code>res.end("ok")</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/router.js</code> exporting a tiny <code>Router</code> class: <code>router.get(path, handler)</code>, <code>router.post(…)</code>, <code>router.delete(…)</code> with <code>:params</code>, and <code>router.handle(req, res)</code> that sends 404 or 405 automatically. Handlers receive <code>{ req, res, params, query }</code>. The Chapter 16 project uses it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/router.js">
+import http from "node:http";
+
+export class Router {
+  #routes = [];
+  #add(method, path, handler) { this.#routes.push({ method, pattern: new URLPattern({ pathname: path }), handler }); return this; }
+  get(p, h) { return this.#add("GET", p, h); }
+  post(p, h) { return this.#add("POST", p, h); }
+  put(p, h) { return this.#add("PUT", p, h); }
+  delete(p, h) { return this.#add("DELETE", p, h); }
+
+  async handle(req, res) {
+    const url = new URL(req.url, "http://localhost");
+    let pathMatched = false;
+    for (const r of this.#routes) {
+      const m = r.pattern.exec({ pathname: url.pathname });
+      if (!m) continue;
+      pathMatched = true;
+      if (r.method !== req.method) continue;
+      return r.handler({ req, res, params: m.pathname.groups, query: url.searchParams });
+    }
+    res.writeHead(pathMatched ? 405 : 404, { "Content-Type": "application/json" })
+      .end(JSON.stringify({ error: pathMatched ? "method not allowed" : "not found" }));
+  }
+}
+
+const router = new Router()
+  .get("/hello/:name", ({ res, params, query }) => res.end(`hello ${params.name}${query.get("excited") ? "!" : ""}`))
+  .delete("/hello/:name", ({ res }) => res.writeHead(204).end());
+const server = http.createServer((req, res) => router.handle(req, res));
+server.listen(0, async () => {
+  const base = `http://localhost:${server.address().port}`;
+  for (const [m, p] of [["GET", "/hello/ana?excited=1"], ["DELETE", "/hello/ana"], ["POST", "/hello/ana"], ["GET", "/bye"]]) {
+    const r = await fetch(base + p, { method: m });
+    console.log(m, p, r.status, await r.text());
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+GET /hello/ana?excited=1 200 hello ana!
+DELETE /hello/ana 204
+POST /hello/ana 405 {"error":"method not allowed"}
+GET /bye 404 {"error":"not found"}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">validation</span></h3>
+<p>Write <code>validateSignup(body)</code> that returns a list of error messages for: <code>email</code> must contain <code>@</code>; <code>password</code> at least 8 characters; <code>age</code>, if present, an integer 13–120. Respond 422 with <code>{ errors: [...] }</code> when the list isn't empty. Test the function directly.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="validate.js">
+function validateSignup(body) {
+  const errors = [];
+  if (typeof body.email !== "string" || !body.email.includes("@")) errors.push("email is invalid");
+  if (typeof body.password !== "string" || body.password.length < 8) errors.push("password must have at least 8 characters");
+  if (body.age !== undefined && !(Number.isInteger(body.age) && body.age >= 13 && body.age <= 120)) errors.push("age must be an integer from 13 to 120");
+  return errors;
+}
+console.log(validateSignup({ email: "ana@example.com", password: "correct horse" }));
+console.log(validateSignup({ email: "ana", password: "123", age: 7.5 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[]
+[
+  'email is invalid',
+  'password must have at least 8 characters',
+  'age must be an integer from 13 to 120'
+]
+</script>
+<p>Returning <em>all</em> errors at once, rather than the first one, lets a form show every problem in one round trip. Libraries like Zod or Ajv (JSON Schema) do this declaratively.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>A handler is <code>async (req, res) =&gt; { const user = await db.find(id); res.end(user.name); }</code> and <code>db.find</code> rejects for one request. What happens to that request, and to the server? How do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>http</code> doesn't look at the promise the handler returns, so the rejection is unhandled. That request never gets a response (the client hangs), and Node's default for unhandled rejections crashes the whole process — taking every other in-flight request down with it. Fix: <code>try</code>/<code>catch</code> inside the handler (or a wrapper like <code>withErrors(handler)</code>) that sends a 500 response, as in the notes API above.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">headers</span></h3>
+<p>Write a server that responds to <code>GET /download</code> with a CSV generated on the fly, sent with <code>Content-Disposition: attachment; filename="report.csv"</code>, and written row by row with <code>res.write</code>. Check the header and the number of lines on the client.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="download.js">
+import http from "node:http";
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/csv", "Content-Disposition": 'attachment; filename="report.csv"' });
+  res.write("day,visits\n");
+  for (let d = 1; d <= 7; d++) res.write(`${d},${100 + d * 7}\n`);
+  res.end();
+});
+server.listen(0, async () => {
+  const r = await fetch(`http://localhost:${server.address().port}/download`);
+  console.log(r.headers.get("content-disposition"));
+  console.log((await r.text()).trim().split("\n").length, "lines");
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attachment; filename="report.csv"
+8 lines
+</script>
+<p>Without a <code>Content-Length</code>, Node uses chunked transfer encoding, so you can start sending before you know the total size.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">cancellation</span></h3>
+<p>A handler runs an expensive report (simulate with 10 steps of 20 ms). If the client disconnects, stop the work early. Use an <code>AbortController</code> aborted from <code>res.on("close")</code> when the response hasn't finished, and show that the work stops when the client aborts after 50 ms.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="abort-on-close.js">
+import http from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
+
+let stepsDone = 0;
+const server = http.createServer(async (req, res) => {
+  const ac = new AbortController();
+  res.on("close", () => { if (!res.writableFinished) ac.abort(); });   // client left early
+  try {
+    for (let i = 0; i < 10; i++) {
+      await sleep(20, null, { signal: ac.signal });
+      stepsDone++;
+    }
+    res.end("report ready");
+  } catch (err) {
+    if (err.name !== "AbortError") throw err;
+  }
+});
+
+server.listen(0, async () => {
+  const client = new AbortController();
+  setTimeout(() => client.abort(), 50);
+  await fetch(`http://localhost:${server.address().port}/report`, { signal: client.signal }).catch((e) => console.log("client:", e.name));
+  await sleep(100);
+  console.log(stepsDone < 10 ? `server stopped early after ${stepsDone < 4 ? "a few" : "some"} steps` : "server did all the work");
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+client: AbortError
+server stopped early after a few steps
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/rate-limit.js</code>: middleware <code>rateLimit({ limit, windowMs })</code> that allows each client IP at most <code>limit</code> requests per window, answering 429 with a <code>Retry-After</code> header (seconds) when exceeded, and adding <code>X-RateLimit-Remaining</code> to allowed responses. Old windows must not leak memory.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/rate-limit.js">
+import http from "node:http";
+
+export function rateLimit({ limit = 60, windowMs = 60_000 } = {}) {
+  const hits = new Map();                                  // ip → { count, resetAt }
+  setInterval(() => {                                      // forget expired windows
+    const now = Date.now();
+    for (const [ip, w] of hits) if (w.resetAt <= now) hits.delete(ip);
+  }, windowMs).unref();
+
+  return (handler) => (req, res) => {
+    const ip = req.socket.remoteAddress;
+    const now = Date.now();
+    let w = hits.get(ip);
+    if (!w || w.resetAt <= now) hits.set(ip, (w = { count: 0, resetAt: now + windowMs }));
+    if (++w.count > limit) {
+      res.writeHead(429, { "Retry-After": Math.ceil((w.resetAt - now) / 1000) }).end("too many requests");
+      return;
+    }
+    res.setHeader("X-RateLimit-Remaining", limit - w.count);
+    return handler(req, res);
+  };
+}
+
+const limited = rateLimit({ limit: 3, windowMs: 2000 });
+const server = http.createServer(limited((req, res) => res.end("ok")));
+server.listen(0, async () => {
+  const url = `http://localhost:${server.address().port}/`;
+  for (let i = 1; i <= 5; i++) {
+    const r = await fetch(url);
+    console.log(i, r.status, r.headers.get("x-ratelimit-remaining") ?? `retry after ${r.headers.get("retry-after")}s`);
+  }
+  server.close();
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 200 2
+2 200 1
+3 200 0
+4 429 retry after 2s
+5 429 retry after 2s
+</script>
+<p>This "fixed window" limiter lives in one process's memory; behind a load balancer with several instances you'd keep the counters in a shared store such as Redis. And behind a proxy, the real client IP comes from the <code>X-Forwarded-For</code> header — only trust it if your own proxy sets it.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/http/anatomy-of-an-http-transaction">Anatomy of an HTTP Transaction</a></li>
+  <li>API: <a href="https://nodejs.org/api/http.html">HTTP</a> · <a href="https://nodejs.org/api/url.html">URL</a> · <a href="https://nodejs.org/api/url.html#class-urlpattern">URLPattern</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status">MDN: HTTP response status codes</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS">MDN: CORS</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

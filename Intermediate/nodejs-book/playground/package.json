@@ -1,0 +1,11 @@
+{
+  "name": "nodejs-book-playground",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test",
+    "check": "node check-node.js"
+  }
+}

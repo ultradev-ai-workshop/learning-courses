@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📡&lt;/text&gt;&lt;/svg&gt;">
+<title>12. fetch, HTTP Clients &amp; WebSockets · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 12 · Networking</div>
+<h1>fetch, HTTP Clients &amp; WebSockets</h1>
+<p class="lead">Servers also talk to other servers: payment providers, weather APIs, your own microservices. Node has the browser's <code>fetch</code> built in, so you no longer need a package like axios. This chapter covers making requests, handling errors and timeouts correctly, streaming large downloads, retries, proxies in corporate networks, and the built-in <code>WebSocket</code> client for real-time connections.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><code>fetch</code> in Node: GET and POST, headers, JSON, and reading responses.</li>
+  <li>The trap that <code>fetch</code> doesn't reject on 404 or 500, and how to handle errors properly.</li>
+  <li>Timeouts and cancellation with <code>AbortSignal</code>, and retrying safely.</li>
+  <li>Streaming large responses to disk, and limiting parallel requests.</li>
+  <li>Proxies (enterprise networks) and the <code>WebSocket</code> client.</li>
+</ul>
+</div>
+
+<p>To keep every example runnable offline, this chapter starts a small local test server first and talks to it. It answers a few routes: JSON data, an echo of what you send, slow responses, errors and a big download.</p>
+<script type="text/plain" class="code" data-file="test-server.js" data-save>
+// A local API for the examples: start it with `const api = await startTestServer()`.
+import http from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
+
+export function startTestServer() {
+  let flakyCalls = 0;
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://x");
+    const json = (status, data, headers = {}) =>
+      res.writeHead(status, { "Content-Type": "application/json", ...headers }).end(JSON.stringify(data));
+    if (url.pathname === "/users/1") return json(200, { id: 1, name: "Ana", city: "Lisbon" });
+    if (url.pathname === "/echo") {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      return json(200, { method: req.method, contentType: req.headers["content-type"] ?? null, auth: req.headers.authorization ?? null, body });
+    }
+    if (url.pathname === "/slow") { await sleep(Number(url.searchParams.get("ms") ?? 200)); return json(200, { slow: true }); }
+    if (url.pathname === "/flaky") return ++flakyCalls < 3 ? json(503, { error: "busy" }, { "Retry-After": "0" }) : json(200, { ok: true, calls: flakyCalls });
+    if (url.pathname === "/big") { for (let i = 0; i < 100; i++) res.write("x".repeat(10_000)); return res.end(); }
+    json(404, { error: "not found" });
+  });
+  return new Promise((resolve) => server.listen(0, () => resolve({
+    base: `http://localhost:${server.address().port}`,
+    close: () => server.close(),
+  })));
+}
+</script>
+
+<h2 id="fetch">fetch basics</h2>
+<p><code>fetch(url, options)</code> returns a promise for a <code>Response</code>. The response's <strong>headers</strong> arrive first; the <strong>body</strong> is read separately, with <code>.json()</code>, <code>.text()</code>, <code>.arrayBuffer()</code> or as a stream (<code>response.body</code>):</p>
+<script type="text/plain" class="code" data-file="get.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const res = await fetch(`${api.base}/users/1`);
+console.log(res.status, res.ok, res.headers.get("content-type"));
+const user = await res.json();                 // read and parse the body
+console.log(user.name, "from", user.city);
+
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 true application/json
+Ana from Lisbon
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: ordering by mail.</strong> <code>await fetch()</code> is the moment the parcel arrives at your door: you can read the label (status, headers) right away. Opening the box (<code>await res.json()</code>) is a second step — and a body can only be opened once. Calling <code>res.json()</code> and then <code>res.text()</code> fails because the box is already empty.</p>
+</div>
+
+<h3>Sending data</h3>
+<p>Pass a <code>method</code>, <code>headers</code> and a <code>body</code>. For JSON, stringify it and set the <code>Content-Type</code> yourself; for forms, pass a <code>URLSearchParams</code> or <code>FormData</code> and fetch sets the type for you:</p>
+<script type="text/plain" class="code" data-file="post.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const json = await fetch(`${api.base}/echo`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: "Bearer secret-token" },
+  body: JSON.stringify({ text: "buy milk", done: false }),
+});
+console.log(await json.json());
+
+const form = await fetch(`${api.base}/echo`, { method: "POST", body: new URLSearchParams({ q: "node streams", page: "2" }) });
+console.log((await form.json()).body);
+
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{
+  method: 'POST',
+  contentType: 'application/json',
+  auth: 'Bearer secret-token',
+  body: '{"text":"buy milk","done":false}'
+}
+q=node+streams&page=2
+</script>
+
+<h2 id="errors">Errors: fetch only rejects on network failures</h2>
+<p>This is the most common <code>fetch</code> bug. A 404 or 500 response is still a successful <em>HTTP exchange</em>, so the promise <strong>fulfils</strong>. It only <strong>rejects</strong> when there's no response at all: DNS failure, connection refused, aborted, invalid URL. Always check <code>res.ok</code> (true for 200–299):</p>
+<script type="text/plain" class="code" data-file="fetch-errors.js">
+import http from "node:http";
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const notFound = await fetch(`${api.base}/users/999`);
+console.log("no exception! status:", notFound.status, "ok:", notFound.ok);
+
+const closed = http.createServer();
+await new Promise((r) => closed.listen(0, r));
+const deadPort = closed.address().port;
+closed.close();                                            // nobody listens there now
+try {
+  await fetch(`http://localhost:${deadPort}/`);
+} catch (err) {
+  console.log("rejected:", err.name, err.message, "| cause:", err.cause?.code);
+}
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no exception! status: 404 ok: false
+rejected: TypeError fetch failed | cause: ECONNREFUSED
+</script>
+<p>The real reason sits in <code>err.cause</code> (<code>ECONNREFUSED</code>, <code>ENOTFOUND</code>, <code>ECONNRESET</code>…). A small wrapper turns HTTP errors into exceptions too, so callers handle both kinds the same way:</p>
+<script type="text/plain" class="code" data-file="get-json.js" data-save>
+export class HttpError extends Error {
+  constructor(res, body) {
+    super(`HTTP ${res.status} for ${res.url}`);
+    this.status = res.status;
+    this.body = body;
+  }
+}
+
+export async function getJson(url, options = {}) {
+  const res = await fetch(url, { ...options, headers: { Accept: "application/json", ...options.headers } });
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new HttpError(res, body);
+  return body;
+}
+</script>
+<script type="text/plain" class="code" data-file="use-get-json.js">
+import { startTestServer } from "./test-server.js";
+import { getJson, HttpError } from "./get-json.js";
+const api = await startTestServer();
+
+console.log(await getJson(`${api.base}/users/1`));
+try {
+  await getJson(`${api.base}/users/999`);
+} catch (err) {
+  if (err instanceof HttpError) console.log(err.status, err.body);
+}
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 1, name: 'Ana', city: 'Lisbon' }
+404 { error: 'not found' }
+</script>
+
+<h2 id="timeouts">Timeouts and cancellation</h2>
+<p><code>fetch</code> waits a long time by default. A slow upstream API then makes <em>your</em> server slow, and requests pile up. Always set a timeout with a signal (Chapter 6):</p>
+<script type="text/plain" class="code" data-file="timeout.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+try {
+  await fetch(`${api.base}/slow?ms=500`, { signal: AbortSignal.timeout(100) });
+} catch (err) {
+  console.log("gave up:", err.name);             // TimeoutError
+}
+
+const user = new AbortController();
+setTimeout(() => user.abort(), 50);
+try {
+  await fetch(`${api.base}/slow?ms=500`, { signal: user.signal });
+} catch (err) {
+  console.log("cancelled:", err.name);           // AbortError
+}
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+gave up: TimeoutError
+cancelled: AbortError
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: waiting on hold.</strong> Calling a support line without a time limit means you might sit on hold all afternoon while your own customers queue behind you. A timeout is deciding up front: "if they don't pick up within 5 seconds, I hang up and tell my customer to try again later." Failing fast is kinder than hanging forever.</p>
+</div>
+
+<h2 id="retries">Retrying safely</h2>
+<p>Some failures are temporary: <code>503 Service Unavailable</code>, <code>429 Too Many Requests</code>, connection resets. Retrying them with a growing delay often succeeds. But only retry requests that are safe to repeat (<code>GET</code>, <code>PUT</code>, <code>DELETE</code> — "idempotent"); retrying a <code>POST /payments</code> could charge a card twice, unless the API supports an idempotency key.</p>
+<script type="text/plain" class="code" data-file="retry-fetch.js">
+import { setTimeout as sleep } from "node:timers/promises";
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+async function fetchWithRetry(url, { attempts = 4, baseMs = 20, timeoutMs = 2000, ...options } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+      if (!RETRYABLE.has(res.status) || attempt === attempts) return res;
+      console.log(`attempt ${attempt}: ${res.status}, retrying`);
+    } catch (err) {
+      if (attempt === attempts) throw err;
+      console.log(`attempt ${attempt}: ${err.name}, retrying`);
+    }
+    await sleep(baseMs * 2 ** (attempt - 1) + Math.random() * baseMs);   // backoff + jitter
+  }
+}
+
+const res = await fetchWithRetry(`${api.base}/flaky`);
+console.log(res.status, await res.json());
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attempt 1: 503, retrying
+attempt 2: 503, retrying
+200 { ok: true, calls: 3 }
+</script>
+
+<h2 id="streaming">Streaming large responses</h2>
+<p><code>res.json()</code> and <code>res.text()</code> load the whole body into memory. For a large download, stream <code>res.body</code> (a web <code>ReadableStream</code>) straight to disk, converting it with <code>Readable.fromWeb</code> (Chapter 10):</p>
+<script type="text/plain" class="code" data-file="download.js">
+import { createWriteStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const res = await fetch(`${api.base}/big`);
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+await pipeline(Readable.fromWeb(res.body), createWriteStream("download.bin"));
+console.log("saved", (await stat("download.bin")).size, "bytes");
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+saved 1000000 bytes
+</script>
+<p>You can also iterate <code>res.body</code> with <code>for await</code> to show progress, or pipe it through <code>createGunzip()</code> or a parser. If you don't need the body, call <code>await res.body?.cancel()</code> so the connection can be reused.</p>
+
+<h2 id="parallel">Many requests</h2>
+<p>Fetching 500 URLs with <code>Promise.all(urls.map(fetch))</code> opens hundreds of connections at once and may get you rate-limited or blocked. Use the worker-pool pattern from Chapter 6 to keep a fixed number in flight, and <code>allSettled</code>-style results so one failure doesn't hide the rest:</p>
+<script type="text/plain" class="code" data-file="many.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+async function fetchAll(urls, limit = 4) {
+  const results = new Array(urls.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: limit }, async () => {
+    while (next < urls.length) {
+      const i = next++;
+      try {
+        const res = await fetch(urls[i], { signal: AbortSignal.timeout(1000) });
+        results[i] = { url: urls[i], status: res.status };
+        await res.body?.cancel();
+      } catch (err) {
+        results[i] = { url: urls[i], error: err.name };
+      }
+    }
+  }));
+  return results;
+}
+
+const paths = ["/users/1", "/users/2", "/slow?ms=10", "/users/1", "/nope"];
+for (const r of await fetchAll(paths.map((p) => api.base + p), 2)) {
+  console.log(r.url.replace(api.base, ""), r.status ?? r.error);
+}
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/users/1 200
+/users/2 404
+/slow?ms=10 200
+/users/1 200
+/nope 404
+</script>
+
+<h2 id="low-level">http.request: the lower-level client</h2>
+<p>Before <code>fetch</code>, Node code used <code>http.request</code> / <code>https.request</code>. You'll still see it in older code and libraries. It's callback- and stream-based: the response is a Readable you consume yourself:</p>
+<script type="text/plain" class="code" data-file="http-request.js">
+import http from "node:http";
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const req = http.request(`${api.base}/users/1`, { method: "GET" }, async (res) => {
+  let body = "";
+  res.setEncoding("utf8");
+  for await (const chunk of res) body += chunk;
+  console.log(res.statusCode, JSON.parse(body).name);
+  api.close();
+});
+req.on("error", (err) => console.error("request failed:", err.code));
+req.end();                                       // send the request (no body)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 Ana
+</script>
+<p>Under the hood, Node's <code>fetch</code> is powered by <strong>undici</strong>, a fast HTTP client maintained by the Node team. For advanced needs (connection pools, HTTP/2 to upstreams, mocking) you can install the <code>undici</code> package and use its <code>Agent</code> and <code>MockAgent</code>.</p>
+
+<h2 id="proxies">Proxies and enterprise networks</h2>
+<p>In many companies, outgoing traffic must go through an HTTP proxy, and TLS traffic may be inspected with a company certificate authority. Typical symptoms: requests time out, or fail with <code>UNABLE_TO_VERIFY_LEAF_SIGNATURE</code> / <code>SELF_SIGNED_CERT_IN_CHAIN</code>. Node supports the standard environment variables:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ export HTTPS_PROXY=http://proxy.corp.example:8080
+$ export NO_PROXY=localhost,127.0.0.1,.corp.example
+$ node --use-env-proxy app.js                       # or NODE_USE_ENV_PROXY=1 node app.js
+$ NODE_EXTRA_CA_CERTS=/etc/ssl/corp-root-ca.pem node app.js   # trust the company CA
+$ node --use-system-ca app.js                       # or use the operating system's trust store
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Never "fix" certificate errors with <code>NODE_TLS_REJECT_UNAUTHORIZED=0</code>.</strong> It turns off certificate checking for <em>every</em> connection, making man-in-the-middle attacks trivial. Add the company CA with <code>NODE_EXTRA_CA_CERTS</code> or <code>--use-system-ca</code> instead. Remember to configure npm too (<code>npm config set proxy …</code> and <code>cafile</code>).</p>
+</div>
+
+<h2 id="websocket">WebSockets</h2>
+<p>HTTP is request → response. A <strong>WebSocket</strong> is a long-lived, two-way connection: after an HTTP "upgrade" handshake, either side can send messages at any time. Chat apps, live prices, multiplayer games and notifications use it. Node includes the browser's <code>WebSocket</code> <strong>client</strong>; for a server you'd normally install the <code>ws</code> package. To stay dependency-free, here's a deliberately minimal echo server (text messages only) for the client to talk to:</p>
+<script type="text/plain" class="code" data-file="ws-echo-server.js" data-save>
+// Minimal WebSocket echo server for local testing only (small text frames, no extensions).
+// Real apps: npm install ws
+import http from "node:http";
+import { createHash } from "node:crypto";
+
+const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const frame = (text) => {
+  const payload = Buffer.from(text);
+  return Buffer.concat([Buffer.from([0x81, payload.length]), payload]);   // FIN + text, length < 126
+};
+
+export function startEchoServer() {
+  const server = http.createServer((req, res) => res.writeHead(426).end("use WebSocket"));
+  server.on("upgrade", (req, socket) => {
+    const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + GUID).digest("base64");
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    socket.write(frame("welcome"));
+    socket.on("data", (buf) => {
+      // TCP is a byte stream: one chunk may hold several frames, so loop over them.
+      for (let off = 0; off + 6 <= buf.length; ) {
+        const opcode = buf[off] & 0x0f, len = buf[off + 1] & 0x7f, mask = buf.subarray(off + 2, off + 6);
+        const payload = buf.subarray(off + 6, off + 6 + len);
+        off += 6 + len;
+        if (opcode === 0x8) return socket.end(Buffer.from([0x88, 0]));   // close frame
+        const text = Buffer.from(payload.map((b, i) => b ^ mask[i % 4])).toString();
+        socket.write(frame(`echo: ${text}`));
+      }
+    });
+    socket.on("error", () => {});
+  });
+  return new Promise((resolve) => server.listen(0, () => resolve({ url: `ws://localhost:${server.address().port}`, close: () => server.close() })));
+}
+</script>
+<script type="text/plain" class="code" data-file="ws-client.js">
+import { startEchoServer } from "./ws-echo-server.js";
+const server = await startEchoServer();
+
+const ws = new WebSocket(server.url);
+const received = [];
+ws.addEventListener("open", () => {
+  ws.send("hello");
+  ws.send("how are you?");
+});
+ws.addEventListener("message", (event) => {
+  received.push(event.data);
+  console.log("received:", event.data);
+  if (received.length === 3) ws.close();
+});
+ws.addEventListener("close", () => {
+  console.log("connection closed");
+  server.close();
+});
+ws.addEventListener("error", (event) => console.log("error:", event.message));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+received: welcome
+received: echo: hello
+received: echo: how are you?
+connection closed
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: letters vs a phone call.</strong> HTTP is exchanging letters: you write, they answer, the exchange is over; to hear news you must write again (polling). A WebSocket is a phone call: once connected, either side can speak whenever it has something to say, and the line stays open until someone hangs up.</p>
+</div>
+<div class="browser">
+<p>🌐 <strong>Same API as the browser.</strong> <code>new WebSocket(url)</code>, <code>send</code>, <code>close</code> and the <code>open</code>/<code>message</code>/<code>close</code>/<code>error</code> events work exactly as in browser code, so client logic can be shared and tested in Node.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A typed API client class</h3>
+<p>Wrapping an API in a small class keeps URLs, headers, timeouts and error handling in one place:</p>
+<script type="text/plain" class="code" data-file="client-class.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+class UsersClient {
+  #base; #token; #timeoutMs;
+  constructor({ baseUrl, token, timeoutMs = 3000 }) { this.#base = baseUrl; this.#token = token; this.#timeoutMs = timeoutMs; }
+  async #request(path, init = {}) {
+    const res = await fetch(new URL(path, this.#base), {
+      ...init,
+      headers: { Authorization: `Bearer ${this.#token}`, "Content-Type": "application/json", ...init.headers },
+      signal: AbortSignal.timeout(this.#timeoutMs),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`users API: HTTP ${res.status}`);
+    return res.json();
+  }
+  get(id) { return this.#request(`/users/${encodeURIComponent(id)}`); }
+}
+
+const users = new UsersClient({ baseUrl: api.base, token: "t0k3n" });
+console.log(await users.get(1), await users.get("../admin"));
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 1, name: 'Ana', city: 'Lisbon' } null
+</script>
+<p><code>encodeURIComponent</code> stops an id like <code>"../admin"</code> from changing the path you call.</p>
+
+<h3>Progress while downloading</h3>
+<script type="text/plain" class="code" data-file="progress.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+
+const res = await fetch(`${api.base}/big`);
+let received = 0, reported = 0;
+for await (const chunk of res.body) {
+  received += chunk.length;
+  const pct = Math.floor((received / 1_000_000) * 100);
+  if (pct >= reported + 25) { reported = pct - (pct % 25); console.log(`${reported}%`); }
+}
+console.log("done:", received, "bytes");
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+25%
+50%
+75%
+100%
+done: 1000000 bytes
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>fetch(url, { method, headers, body, signal })</code> is built in. Read the body once: <code>.json()</code>, <code>.text()</code>, or stream <code>res.body</code>.</li>
+  <li><code>fetch</code> rejects only on network failures (see <code>err.cause.code</code>); check <code>res.ok</code> for HTTP errors.</li>
+  <li>Always set a timeout (<code>AbortSignal.timeout</code>); retry only transient errors and idempotent requests, with backoff and jitter.</li>
+  <li>Stream big downloads with <code>Readable.fromWeb(res.body)</code> + <code>pipeline</code>; limit concurrency for many requests.</li>
+  <li>Behind a proxy: <code>HTTPS_PROXY</code> + <code>--use-env-proxy</code>; trust company CAs with <code>NODE_EXTRA_CA_CERTS</code> — never disable TLS checks.</li>
+  <li><code>WebSocket</code> (client) gives a two-way, long-lived connection with the browser's API.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">GET</span></h3>
+<p>Using the test server, fetch <code>/users/1</code> and print <code>Ana lives in Lisbon</code> from the JSON.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+const { name, city } = await (await fetch(`${api.base}/users/1`)).json();
+console.log(`${name} lives in ${city}`);
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana lives in Lisbon
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A colleague writes <code>try { const r = await fetch(url); data = await r.json(); } catch { data = null; }</code> and says it "handles all errors". The API returns <code>500</code> with an HTML error page. What happens?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>fetch</code> fulfils (a 500 is a valid response), then <code>r.json()</code> throws a <code>SyntaxError</code> on the HTML, so the <code>catch</code> sets <code>data = null</code> — by accident, and indistinguishable from "no data". If the error page happened to be JSON (<code>{"error":"…"}</code>), the code would treat the error body as real data. Check <code>r.ok</code> first.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">POST</span></h3>
+<p>POST <code>{ "title": "Dune", "year": 1965 }</code> as JSON to <code>/echo</code> and print the <code>contentType</code> and the parsed <code>body</code> the server saw.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+const res = await fetch(`${api.base}/echo`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ title: "Dune", year: 1965 }),
+});
+const seen = await res.json();
+console.log(seen.contentType, JSON.parse(seen.body));
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+application/json { title: 'Dune', year: 1965 }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Which of these are safe to retry automatically after a timeout, and why? <code>GET /orders</code>, <code>POST /orders</code>, <code>PUT /orders/7</code>, <code>DELETE /orders/7</code>, <code>POST /payments</code> with header <code>Idempotency-Key: 4f1c…</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Safe: <code>GET</code> (reads only), <code>PUT</code> (sets the same state again), <code>DELETE</code> (deleting twice has the same end result), and the payment POST <em>with an idempotency key</em> (the server recognises the repeat and returns the first result). Not safe: plain <code>POST /orders</code> — a timeout doesn't tell you whether the first attempt was processed, so a retry may create a duplicate order.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">timeout</span></h3>
+<p>Fetch <code>/slow?ms=300</code> with a 100 ms timeout and <code>/slow?ms=20</code> with the same timeout, in parallel, and print each outcome (<code>ok</code> or the error name) using <code>allSettled</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex5.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+const results = await Promise.allSettled(["/slow?ms=300", "/slow?ms=20"].map((p) =>
+  fetch(api.base + p, { signal: AbortSignal.timeout(100) }).then((r) => r.json())));
+console.log(results.map((r) => (r.status === "fulfilled" ? "ok" : r.reason.name)));
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'TimeoutError', 'ok' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/api-client.js</code> exporting <code>request(base, path, { method, json, timeoutMs })</code>: sends JSON when <code>json</code> is given, applies a timeout, parses JSON responses, and throws an error with <code>status</code> and <code>body</code> properties for non-2xx answers. Test it against the test server.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/api-client.js" data-save>
+export async function request(base, path, { method = "GET", json, timeoutMs = 5000, headers = {} } = {}) {
+  const res = await fetch(new URL(path, base), {
+    method,
+    headers: { Accept: "application/json", ...(json !== undefined && { "Content-Type": "application/json" }), ...headers },
+    body: json === undefined ? undefined : JSON.stringify(json),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await res.text();
+  const body = text && res.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text || null;
+  if (!res.ok) throw Object.assign(new Error(`${method} ${path} → ${res.status}`), { status: res.status, body });
+  return body;
+}
+</script>
+<script type="text/plain" class="code" data-file="playground/try-client.js">
+import { request } from "./api-client.js";
+import { startTestServer } from "../test-server.js";
+const api = await startTestServer();
+console.log(await request(api.base, "/users/1"));
+console.log((await request(api.base, "/echo", { method: "PUT", json: { done: true } })).body);
+await request(api.base, "/nope").catch((e) => console.log(e.message, e.body));
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 1, name: 'Ana', city: 'Lisbon' }
+{"done":true}
+GET /nope → 404 { error: 'not found' }
+</script>
+<p>The Chapter 16 project's CLI uses this helper to talk to the notes API.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">find the bug</span></h3>
+<p>This health check sometimes reports "up" for a server that's returning errors, and sometimes hangs. Find both bugs.</p>
+<script type="text/plain" class="code" data-file="ex7.js" data-norun>
+async function isUp(url) {
+  try {
+    await fetch(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>1. A 500 or 503 response doesn't throw, so the function returns <code>true</code>; check <code>res.ok</code>. 2. There's no timeout, so a server that accepts the connection but never answers makes the check hang. Fix: <code>const res = await fetch(url, { signal: AbortSignal.timeout(2000) }); await res.body?.cancel(); return res.ok;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">streaming</span></h3>
+<p>Download <code>/big</code> but stop reading after the first 100,000 bytes (a "preview"), then cancel the rest of the body. Print how many bytes you kept.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex8.js">
+import { startTestServer } from "./test-server.js";
+const api = await startTestServer();
+const res = await fetch(`${api.base}/big`);
+const kept = [];
+let size = 0;
+for await (const chunk of res.body) {
+  const need = 100_000 - size;
+  kept.push(chunk.subarray(0, need));
+  size += Math.min(chunk.length, need);
+  if (size >= 100_000) break;                 // leaving the loop cancels the stream
+}
+console.log("kept", size, "bytes");
+api.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+kept 100000 bytes
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">circuit breaker</span></h3>
+<p>Implement a tiny <strong>circuit breaker</strong> around a fetch function: after 3 consecutive failures (network error or 5xx) it "opens" and fails immediately for <code>coolDownMs</code> without calling the API, then lets one trial request through ("half-open"); a success closes it again. Demonstrate the open state.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="breaker.js">
+import { setTimeout as sleep } from "node:timers/promises";
+
+function circuitBreaker(fn, { threshold = 3, coolDownMs = 100 } = {}) {
+  let failures = 0, openedAt = 0;
+  return async (...args) => {
+    if (failures >= threshold && Date.now() - openedAt < coolDownMs) throw new Error("circuit open: failing fast");
+    try {
+      const res = await fn(...args);
+      if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
+      failures = 0;                                    // success closes the circuit
+      return res;
+    } catch (err) {
+      if (++failures >= threshold) openedAt = Date.now();
+      throw err;
+    }
+  };
+}
+
+let healthy = false, calls = 0;
+const fakeFetch = async () => { calls++; return { status: healthy ? 200 : 503 }; };
+const guarded = circuitBreaker(fakeFetch, { threshold: 3, coolDownMs: 50 });
+
+for (let i = 0; i < 5; i++) await guarded().catch((e) => console.log(e.message));
+console.log("real calls so far:", calls);
+healthy = true;
+await sleep(60);
+console.log("after cool-down:", (await guarded()).status, "| real calls:", calls);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+HTTP 503
+HTTP 503
+HTTP 503
+circuit open: failing fast
+circuit open: failing fast
+real calls so far: 3
+after cool-down: 200 | real calls: 4
+</script>
+<p>When a dependency is down, failing fast protects both sides: your server stops wasting time on doomed requests, and the struggling API gets room to recover.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project</span></h3>
+<p>Write a WebSocket client <code>chat-bot.js</code> for the echo server: it sends the messages <code>["ping", "time", "bye"]</code> one at a time, waiting for each reply before sending the next (use <code>events.once</code> on the <code>WebSocket</code>, which is an <code>EventTarget</code>), and closes after <code>bye</code>. Skip the welcome message.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="chat-bot.js">
+import { once } from "node:events";
+import { startEchoServer } from "./ws-echo-server.js";
+const server = await startEchoServer();
+
+const ws = new WebSocket(server.url);
+await once(ws, "open");
+await once(ws, "message");                           // the welcome message
+for (const text of ["ping", "time", "bye"]) {
+  ws.send(text);
+  const [event] = await once(ws, "message");
+  console.log(`sent ${text} → got "${event.data}"`);
+}
+ws.close();
+await once(ws, "close");
+server.close();
+console.log("chat finished");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sent ping → got "echo: ping"
+sent time → got "echo: time"
+sent bye → got "echo: bye"
+chat finished
+</script>
+<p><code>events.once</code> works with web <code>EventTarget</code>s too, turning event-driven code into a readable sequence of <code>await</code>s.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/getting-started/fetch">Fetching data with Node.js</a> · <a href="https://nodejs.org/en/learn/getting-started/websocket">WebSocket client with Node.js</a></li>
+  <li><a href="https://nodejs.org/en/learn/http/enterprise-network-configuration">Enterprise Network Configuration</a></li>
+  <li>API: <a href="https://nodejs.org/api/globals.html#fetch">fetch</a> · <a href="https://nodejs.org/api/http.html#httprequesturl-options-callback">http.request</a> · <a href="https://undici.nodejs.org/">undici</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

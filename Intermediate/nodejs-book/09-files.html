@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📁&lt;/text&gt;&lt;/svg&gt;">
+<title>9. Working with Files &amp; Folders · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Files &amp; Data</div>
+<h1>Working with Files &amp; Folders</h1>
+<p class="lead">Reading configuration, saving uploads, writing logs, generating reports: almost every Node program touches the file system. This chapter covers building paths safely, the three styles of the <code>fs</code> API, file information, reading and writing (including safe "atomic" writes), file handles, folders, and the differences between operating systems that bite cross-platform code.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <code>node:path</code> module: <code>join</code>, <code>resolve</code>, <code>basename</code>, <code>extname</code>, <code>relative</code>, and why not to concatenate strings.</li>
+  <li>The sync, callback and promise flavours of <code>node:fs</code>, and when each is appropriate.</li>
+  <li>File stats, and checking existence <em>without</em> race conditions.</li>
+  <li>Reading and writing files, flags, appending, and atomic writes with <code>rename</code>.</li>
+  <li>File descriptors and <code>FileHandle</code>, folder operations, <code>fs.glob</code>, and common error codes.</li>
+</ul>
+</div>
+
+<h2 id="paths">File paths</h2>
+<p>A path like <code>/home/ana/notes/todo.txt</code> (macOS, Linux) or <code>C:\Users\Ana\notes\todo.txt</code> (Windows) tells the operating system where a file is. Building paths by gluing strings with <code>"/"</code> breaks on Windows and creates bugs with double or missing slashes. The <code>node:path</code> module does it right for the current platform:</p>
+<script type="text/plain" class="code" data-file="paths.js">
+import path from "node:path";
+
+const file = "/home/ana/projects/shop/reports/2026-q3.final.csv";
+console.log(path.dirname(file));                       // the folder
+console.log(path.basename(file));                      // the file name
+console.log(path.basename(file, ".csv"));              // …without the extension
+console.log(path.extname(file));                       // only the last extension
+console.log(path.parse(file).name);
+
+console.log(path.join("reports", "..", "data", "/users.json"));          // joins and normalises
+console.log(path.relative("/home/ana/projects", file));
+console.log(path.isAbsolute("data/users.json"), path.sep);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/home/ana/projects/shop/reports
+2026-q3.final.csv
+2026-q3.final
+.csv
+2026-q3.final
+data/users.json
+shop/reports/2026-q3.final.csv
+false /
+</script>
+<p><code>path.resolve</code> works like a series of <code>cd</code> commands, starting from the current working directory, and always returns an absolute path:</p>
+<script type="text/plain" class="code" data-file="resolve.js">
+import path from "node:path";
+const cwd = process.cwd();
+
+console.log(path.resolve("data", "users.json") === path.join(cwd, "data", "users.json"));
+console.log(path.resolve("/srv", "app", "../logs"));
+console.log(path.resolve("/srv/app", "/tmp", "x.log"));   // an absolute segment restarts from there
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true
+/srv/logs
+/tmp/x.log
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: giving directions.</strong> A relative path is "two doors down, then left": it only works if you know where the person is standing (the <em>current working directory</em>). An absolute path is a full postal address: it works from anywhere. <code>path.join</code> writes directions down neatly; <code>path.resolve</code> follows them from where you're standing and gives you the full address.</p>
+</div>
+<div class="pitfall">
+<p>⚠️ <strong>Relative paths are relative to where Node was started</strong>, not to your script. <code>readFile("config.json")</code> works when you run <code>node app.js</code> inside the project folder and fails when a service manager starts it from <code>/</code>. For files that belong to your code, build paths from <code>import.meta.dirname</code> (Chapter 3).</p>
+</div>
+<p>Need Windows-style or POSIX-style behaviour regardless of the platform (for URLs or archive paths)? Use <code>path.win32</code> and <code>path.posix</code>:</p>
+<script type="text/plain" class="code" data-file="win32.js">
+import path from "node:path";
+console.log(path.win32.join("C:\\Users", "Ana", "notes.txt"));
+console.log(path.win32.basename("C:\\temp\\report.pdf"), path.posix.join("a", "b"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+C:\Users\Ana\notes.txt
+report.pdf a/b
+</script>
+
+<h2 id="flavours">Three flavours of the fs API</h2>
+<p>Almost every file operation exists three times:</p>
+<script type="text/plain" class="code" data-file="flavours.js">
+import fs from "node:fs";                     // sync + callback
+import fsp from "node:fs/promises";           // promises
+
+fs.writeFileSync("a.txt", "sync");                                   // 1. blocks until done
+console.log("sync write done");
+
+fs.writeFile("b.txt", "callback", (err) => {                          // 2. error-first callback
+  if (err) throw err;
+  console.log("callback write done");
+
+  fsp.writeFile("c.txt", "promise").then(() => {                      // 3. returns a promise
+    console.log("promise write done");
+    console.log(fs.readFileSync("a.txt", "utf8"), fs.readFileSync("b.txt", "utf8"), fs.readFileSync("c.txt", "utf8"));
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sync write done
+callback write done
+promise write done
+sync callback promise
+</script>
+<p>(We started the promise write inside the callback only to get a predictable order for this demo; started side by side, the two asynchronous writes could finish in either order.)</p>
+<div class="table-wrap"><table>
+  <tr><th>Flavour</th><th>Good for</th><th>Avoid in</th></tr>
+  <tr><td><code>readFileSync</code> etc.</td><td>startup code (loading config once), CLI scripts, build tools</td><td>request handlers and anything concurrent: it blocks the event loop</td></tr>
+  <tr><td>callbacks</td><td>older code, maximum performance in hot paths</td><td>new code (harder to compose)</td></tr>
+  <tr><td><code>fs/promises</code></td><td>almost everything new, with <code>async</code>/<code>await</code></td><td>—</td></tr>
+</table></div>
+<p>Under the hood, asynchronous file operations run on <strong>libuv's thread pool</strong> (4 threads by default): the disk work happens off the main thread, and your callback or promise is resolved when it's done. That's why they don't block the event loop, and also why thousands of simultaneous file operations queue up (Chapter 13).</p>
+
+<h2 id="stats">File information: stats</h2>
+<script type="text/plain" class="code" data-file="stats.js">
+import { stat, writeFile, mkdir } from "node:fs/promises";
+
+await writeFile("report.txt", "x".repeat(2048));
+await mkdir("archive", { recursive: true });
+
+const s = await stat("report.txt");
+console.log(s.isFile(), s.isDirectory(), s.size, "bytes");
+console.log(s.mtime instanceof Date, Date.now() - s.mtimeMs < 60_000);   // modified within the last minute
+console.log((await stat("archive")).isDirectory());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true false 2048 bytes
+true true
+true
+</script>
+<p>Other useful fields: <code>birthtime</code> (created), <code>mode</code> (permissions), <code>isSymbolicLink()</code> (use <code>lstat</code>, which doesn't follow links).</p>
+
+<h3>Does the file exist? Don't ask, just try</h3>
+<p>A tempting pattern is "check, then act": <code>if (exists(file)) read(file)</code>. Between the check and the action another process may delete or create the file — a <strong>race condition</strong>. Instead, do the operation and handle the error:</p>
+<div class="compare">
+<div class="bad">
+<p>❌ <strong>Check, then act</strong></p>
+<script type="text/plain" class="code" data-file="racy.js" data-norun>
+if (existsSync("settings.json")) {
+  // the file might be deleted right here
+  settings = JSON.parse(readFileSync("settings.json"));
+}
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>Act, then handle the error</strong></p>
+<script type="text/plain" class="code" data-file="try-it.js">
+import { readFile } from "node:fs/promises";
+let settings;
+try {
+  settings = JSON.parse(await readFile("settings.json", "utf8"));
+} catch (err) {
+  if (err.code !== "ENOENT") throw err;
+  settings = { theme: "light" };     // defaults
+}
+console.log(settings);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ theme: 'light' }
+</script>
+</div>
+</div>
+<p><code>fs.existsSync</code> is fine for quick decisions in CLI scripts where no one else touches the files; avoid it in servers.</p>
+
+<h2 id="read">Reading files</h2>
+<p><code>readFile</code> loads the <strong>whole file into memory</strong>. Pass an encoding (<code>"utf8"</code>) to get a string; without one you get a <code>Buffer</code> of raw bytes (Chapter 10):</p>
+<script type="text/plain" class="code" data-file="read.js">
+import { readFile, writeFile } from "node:fs/promises";
+
+await writeFile("menu.txt", "soup\nsalad\npasta\n");
+const text = await readFile("menu.txt", "utf8");
+const bytes = await readFile("menu.txt");
+console.log(JSON.stringify(text));
+console.log(bytes.length, "bytes, first byte:", bytes[0], "=", String.fromCharCode(bytes[0]));
+console.log(text.trimEnd().split("\n").map((dish, i) => `${i + 1}. ${dish}`).join(" | "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+"soup\nsalad\npasta\n"
+17 bytes, first byte: 115 = s
+1. soup | 2. salad | 3. pasta
+</script>
+<div class="tip">
+<p>💡 <strong>Big files:</strong> <code>readFile</code> is perfect for configs and documents of a few megabytes. For log files of several gigabytes, reading everything at once wastes memory (and Node refuses files over about 2 GB as one string). Process them piece by piece with streams (Chapter 10) or <code>fileHandle.readLines()</code>.</p>
+</div>
+
+<h2 id="write">Writing files</h2>
+<p><code>writeFile</code> creates the file or <strong>replaces</strong> its contents; <code>appendFile</code> adds to the end. The <code>flag</code> option chooses other behaviours:</p>
+<script type="text/plain" class="code" data-file="write.js">
+import { writeFile, appendFile, readFile } from "node:fs/promises";
+
+await writeFile("log.txt", "line 1\n");                     // create / replace
+await appendFile("log.txt", "line 2\n");                    // add to the end
+await writeFile("log.txt", "line 3\n", { flag: "a" });      // same as appendFile
+console.log(await readFile("log.txt", "utf8"));
+
+try {
+  await writeFile("log.txt", "oops", { flag: "wx" });      // "x": fail if it already exists
+} catch (err) {
+  console.log("refused:", err.code);
+}
+await writeFile("data.json", JSON.stringify({ users: 2, ok: true }, null, 2));
+console.log(await readFile("data.json", "utf8"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+line 1
+line 2
+line 3
+
+refused: EEXIST
+{
+  "users": 2,
+  "ok": true
+}
+</script>
+<div class="table-wrap"><table>
+  <tr><th>Flag</th><th>Meaning</th></tr>
+  <tr><td><code>"w"</code> (default for writes)</td><td>write; create or truncate</td></tr>
+  <tr><td><code>"a"</code></td><td>append; create if missing</td></tr>
+  <tr><td><code>"wx"</code> / <code>"ax"</code></td><td>like <code>w</code>/<code>a</code> but fail with <code>EEXIST</code> if the file exists</td></tr>
+  <tr><td><code>"r"</code> (default for reads)</td><td>read; fail if missing</td></tr>
+  <tr><td><code>"r+"</code></td><td>read and write, without truncating</td></tr>
+</table></div>
+
+<h3>Atomic writes: never leave a half-written file</h3>
+<p>If the process crashes (or the power fails) in the middle of <code>writeFile("db.json", …)</code>, the file can be left empty or truncated, and the old data is gone. The standard fix: write to a temporary file in the same folder, then <code>rename</code> it over the original. On the same disk, a rename is <em>atomic</em>: other readers see either the old file or the new one, never a mix.</p>
+<script type="text/plain" class="code" data-file="atomic.js">
+import { writeFile, rename, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+
+async function writeFileAtomic(file, data) {
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(tmp, data);
+  await rename(tmp, file);                       // the switch happens in one step
+}
+
+await writeFileAtomic("notes.json", JSON.stringify([{ id: 1, text: "buy milk" }]));
+console.log(JSON.parse(await readFile("notes.json", "utf8")));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ { id: 1, text: 'buy milk' } ]
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: replacing a shop sign.</strong> You don't scrape the old sign off and paint the new one letter by letter while customers watch (if you're interrupted, the sign says "BAK"). You paint the new sign in the workshop, then swap it in one move. The temporary file is the workshop; <code>rename</code> is the swap.</p>
+</div>
+
+<h2 id="fd">File descriptors and FileHandle</h2>
+<p>When a program opens a file, the operating system gives it a small number called a <strong>file descriptor</strong> (fd) that identifies the open file. <code>readFile</code> and <code>writeFile</code> open, work and close for you. For more control — reading part of a file, writing many times, keeping a file open — open it yourself. With promises you get a <code>FileHandle</code> object:</p>
+<script type="text/plain" class="code" data-file="filehandle.js">
+import { open, writeFile } from "node:fs/promises";
+await writeFile("alphabet.txt", "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+
+const fh = await open("alphabet.txt", "r");
+try {
+  const buf = Buffer.alloc(5);
+  const { bytesRead } = await fh.read(buf, 0, 5, 10);      // read 5 bytes starting at position 10
+  console.log(bytesRead, buf.toString(), "| fd is a number:", typeof fh.fd);
+} finally {
+  await fh.close();                                         // always close
+}
+
+const out = await open("journal.txt", "a");
+try {
+  for (const entry of ["woke up", "learned fs", "slept"]) await out.write(`${entry}\n`);
+} finally {
+  await out.close();
+}
+console.log((await open("journal.txt")).readFile ? "journal written" : "");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 KLMNO | fd is a number: number
+journal written
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Leaking file descriptors.</strong> Every process has a limit on open files (often 256 or 1024). Forgetting <code>close()</code> in a server leaks one descriptor per request until <code>EMFILE: too many open files</code>. Always close in <code>finally</code> (or use <code>await using fh = await open(…)</code>, which closes automatically). The last line of the example above, which opens a file just to check a method exists, is exactly such a leak — harmless in a script that ends, a bug in a server.</p>
+</div>
+
+<h2 id="folders">Working with folders</h2>
+<script type="text/plain" class="code" data-file="folders.js">
+import { mkdir, writeFile, readdir, rename, rm, cp } from "node:fs/promises";
+
+await mkdir("site/assets/img", { recursive: true });      // creates all missing parents, no error if it exists
+await writeFile("site/index.html", "<h1>Hi</h1>");
+await writeFile("site/assets/app.css", "h1 { color: green }");
+await writeFile("site/assets/img/logo.svg", "<svg/>");
+
+const entries = await readdir("site", { withFileTypes: true });
+console.log(entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort());
+console.log((await readdir("site", { recursive: true })).sort());
+
+await rename("site/index.html", "site/home.html");        // move or rename
+await cp("site", "site-backup", { recursive: true });      // copy a whole tree
+await rm("site", { recursive: true, force: true });        // delete a tree (careful!)
+console.log((await readdir(".")).filter((n) => n.startsWith("site")));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'assets/', 'index.html' ]
+[
+  'assets',
+  'assets/app.css',
+  'assets/img',
+  'assets/img/logo.svg',
+  'index.html'
+]
+[ 'site-backup' ]
+</script>
+<div class="pitfall">
+<p>⚠️ <strong><code>rm(path, { recursive: true, force: true })</code> is <code>rm -rf</code>.</strong> Never pass it a path built from user input or from a variable that might be empty or <code>"/"</code>. Validate the path, and keep it inside a known base folder.</p>
+</div>
+
+<h3>Finding files with glob</h3>
+<p><code>fs.glob</code> <span class="es">Node 22</span> matches shell-style patterns: <code>*</code> (any name), <code>**</code> (any number of folders), <code>{a,b}</code> (alternatives):</p>
+<script type="text/plain" class="code" data-file="glob.js">
+import { glob, mkdir, writeFile } from "node:fs/promises";
+
+for (const f of ["src/app.js", "src/lib/db.js", "src/lib/db.test.js", "docs/readme.md", "src/style.css"]) {
+  await mkdir(f.split("/").slice(0, -1).join("/"), { recursive: true });
+  await writeFile(f, "");
+}
+const js = [];
+for await (const file of glob("src/**/*.js", { exclude: (f) => f.endsWith(".test.js") })) js.push(file);
+console.log(js.sort());
+console.log((await Array.fromAsync(glob("{docs,src}/**/*.{md,css}"))).sort());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'src/app.js', 'src/lib/db.js' ]
+[ 'docs/readme.md', 'src/style.css' ]
+</script>
+
+<h2 id="errors">Common error codes</h2>
+<p>File errors carry a <code>code</code> property. Check it to decide what to do:</p>
+<div class="table-wrap"><table>
+  <tr><th>Code</th><th>Meaning</th><th>Typical cause</th></tr>
+  <tr><td><code>ENOENT</code></td><td>no such file or directory</td><td>wrong path, wrong working directory, missing parent folder</td></tr>
+  <tr><td><code>EEXIST</code></td><td>already exists</td><td><code>mkdir</code> without <code>recursive</code>, <code>wx</code> flag</td></tr>
+  <tr><td><code>EACCES</code> / <code>EPERM</code></td><td>permission denied</td><td>writing to a system folder, read-only file</td></tr>
+  <tr><td><code>EISDIR</code> / <code>ENOTDIR</code></td><td>is (not) a directory</td><td>reading a folder as a file, a file in the middle of a path</td></tr>
+  <tr><td><code>ENOTEMPTY</code></td><td>directory not empty</td><td><code>rmdir</code> on a folder with files (use <code>rm</code> with <code>recursive</code>)</td></tr>
+  <tr><td><code>EMFILE</code></td><td>too many open files</td><td>leaked descriptors, thousands of parallel operations</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="codes.js">
+import { readFile, mkdir } from "node:fs/promises";
+for (const attempt of [() => readFile("nope.txt"), () => readFile("."), () => mkdir(".")]) {
+  try { await attempt(); } catch (err) { console.log(err.code, "-", err.syscall); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ENOENT - open
+EISDIR - read
+EEXIST - mkdir
+</script>
+
+<h2 id="platforms">Different file systems</h2>
+<p>Code that works on your Mac can fail on a Linux server or a Windows laptop. The usual suspects:</p>
+<ul>
+  <li><strong>Case sensitivity.</strong> macOS and Windows usually treat <code>Readme.md</code> and <code>README.md</code> as the same file; Linux doesn't. An import of <code>./Utils.js</code> for a file named <code>utils.js</code> works locally and breaks in production. Keep names lower-case and consistent.</li>
+  <li><strong>Separators and drive letters.</strong> Use <code>path.join</code>, never <code>"/"</code> concatenation; convert to URLs with <code>pathToFileURL</code> for <code>import()</code>.</li>
+  <li><strong>Line endings.</strong> Windows text files may use <code>\r\n</code>. Split lines with <code>/\r?\n/</code>, and use <code>os.EOL</code> when writing files meant for the local platform.</li>
+  <li><strong>Unicode file names.</strong> "café" can be stored as one character <code>é</code> or as <code>e</code> + an accent. Compare names with <code>name.normalize()</code>.</li>
+  <li><strong>Forbidden names and characters.</strong> Windows rejects <code>:</code>, <code>?</code>, <code>*</code> and names like <code>CON</code> or <code>NUL</code>. Sanitise user-supplied file names.</li>
+</ul>
+<script type="text/plain" class="code" data-file="platform-safe.js">
+const text = "first\r\nsecond\nthird";
+console.log(text.split(/\r?\n/));
+
+const a = "caf\u00e9", b = "cafe\u0301";             // the same word, two encodings
+console.log(a === b, a.normalize() === b.normalize());
+
+const safeName = (s) => s.normalize("NFC").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 100);
+console.log(safeName("Q3: sales/marketing?.csv"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'first', 'second', 'third' ]
+false true
+Q3_ sales_marketing_.csv
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Total size of a folder</h3>
+<script type="text/plain" class="code" data-file="du.js">
+import { readdir, stat, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+await mkdir("photos/2026/summer", { recursive: true });
+await writeFile("photos/a.jpg", Buffer.alloc(1500));
+await writeFile("photos/2026/b.jpg", Buffer.alloc(2500));
+await writeFile("photos/2026/summer/c.jpg", Buffer.alloc(1000));
+
+async function folderSize(dir) {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    total += entry.isDirectory() ? await folderSize(full) : (await stat(full)).size;
+  }
+  return total;
+}
+console.log(`${await folderSize("photos")} bytes`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5000 bytes
+</script>
+
+<h3>Read, modify, write JSON safely</h3>
+<script type="text/plain" class="code" data-file="json-update.js">
+import { readFile, writeFile, rename } from "node:fs/promises";
+
+async function updateJson(file, change, fallback = {}) {
+  let data;
+  try { data = JSON.parse(await readFile(file, "utf8")); }
+  catch (err) { if (err.code !== "ENOENT") throw err; data = fallback; }
+  const next = change(structuredClone(data));
+  await writeFile(`${file}.tmp`, JSON.stringify(next, null, 2) + "\n");
+  await rename(`${file}.tmp`, file);
+  return next;
+}
+
+await updateJson("counter.json", (d) => ({ ...d, visits: (d.visits ?? 0) + 1 }));
+const result = await updateJson("counter.json", (d) => ({ ...d, visits: d.visits + 1 }));
+console.log(result);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ visits: 2 }
+</script>
+<p>This is safe against crashes, but not against two processes updating at the same time (each could overwrite the other's change). For that you need a lock or a real database — one reason apps use SQLite (<code>node:sqlite</code>) or a database server instead of JSON files.</p>
+
+<h3>Watching for changes</h3>
+<p><code>fs.watch</code> notifies you when files change, the basis of tools like <code>node --watch</code>. Its exact events differ per platform — on macOS a new file may even be reported with the <em>folder's</em> name — so treat events as "something changed, go and look":</p>
+<script type="text/plain" class="code" data-file="watch.js">
+import { watch, writeFile, mkdir, readdir } from "node:fs/promises";
+
+await mkdir("inbox", { recursive: true });
+setTimeout(() => writeFile("inbox/order-1.json", "{}"), 50);
+for await (const event of watch("inbox")) {
+  const files = await readdir("inbox");          // don't trust the event: look at the folder
+  if (files.length === 0) continue;              // spurious or early event: keep waiting
+  console.log("new files:", files);
+  break;                                         // leaving the loop closes the watcher
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+new files: [ 'order-1.json' ]
+</script>
+<p>On macOS this loop typically sees an extra event for the freshly created folder before the file exists, which is exactly why it re-reads the folder instead of trusting <code>event.filename</code>. Stop watching with <code>break</code>; aborting a <code>signal</code> also stops it, but makes the loop throw an <code>AbortError</code> you then have to catch.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Build paths with <code>path.join</code>/<code>resolve</code>; relative paths depend on the working directory, so anchor code-related files to <code>import.meta.dirname</code>.</li>
+  <li><code>fs</code> comes in sync (startup/CLI), callback and <code>fs/promises</code> (default) flavours; async file I/O runs on libuv's thread pool.</li>
+  <li>Don't check-then-act: try the operation and handle <code>ENOENT</code>/<code>EEXIST</code>. <code>stat</code> gives size, times and type.</li>
+  <li><code>readFile</code>/<code>writeFile</code> handle whole files; flags (<code>a</code>, <code>wx</code>) change behaviour; write to a temp file and <code>rename</code> for atomic saves.</li>
+  <li>Open files with <code>open()</code> for partial reads or many writes, and always <code>close()</code>. Folders: <code>mkdir</code>/<code>readdir</code>/<code>rm</code>/<code>cp</code> with <code>recursive</code>, and <code>fs.glob</code>.</li>
+  <li>Watch out for case sensitivity, line endings, Unicode normalisation and forbidden characters across platforms.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">paths</span></h3>
+<p>For <code>/var/www/shop/public/img/logo.min.svg</code>, print the folder, the file name without extension, the extension, and the path relative to <code>/var/www/shop</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex1.js">
+import path from "node:path";
+const p = "/var/www/shop/public/img/logo.min.svg";
+console.log(path.dirname(p));
+console.log(path.basename(p, path.extname(p)));
+console.log(path.extname(p));
+console.log(path.relative("/var/www/shop", p));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/var/www/shop/public/img
+logo.min
+.svg
+public/img/logo.min.svg
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write and read</span></h3>
+<p>Write the lines <code>apples</code>, <code>pears</code>, <code>plums</code> to <code>fruit.txt</code> (one per line), then append <code>figs</code>, then read the file and print how many lines it has.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="fruit.js">
+import { writeFile, appendFile, readFile } from "node:fs/promises";
+await writeFile("fruit.txt", ["apples", "pears", "plums"].join("\n") + "\n");
+await appendFile("fruit.txt", "figs\n");
+const lines = (await readFile("fruit.txt", "utf8")).trimEnd().split("\n");
+console.log(lines.length, lines.at(-1));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 figs
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Sync or async? (a) Reading <code>config.json</code> once when a CLI tool starts. (b) Reading a user's avatar file in an HTTP request handler. (c) Writing a build artefact in a build script that does nothing else at the same time.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Sync is fine: it happens once, before any concurrent work. (b) Async (<code>fs/promises</code> or a stream): sync would block every other request while the disk works. (c) Sync is acceptable; async is equally easy with <code>await</code> and keeps the habit consistent.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">errors</span></h3>
+<p>Write <code>readOrDefault(file, fallback)</code> that returns the file's text, or <code>fallback</code> if the file doesn't exist, but rethrows every other error.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="read-default.js">
+import { readFile } from "node:fs/promises";
+async function readOrDefault(file, fallback) {
+  try {
+    return await readFile(file, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return fallback;
+    throw err;
+  }
+}
+console.log(await readOrDefault("missing.txt", "(empty)"));
+await readOrDefault(".", "x").catch((e) => console.log("rethrown:", e.code));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+(empty)
+rethrown: EISDIR
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/json-db.js</code> exporting <code>loadNotes(file)</code> (returns <code>[]</code> if missing) and <code>saveNotes(file, notes)</code> (atomic write, pretty JSON, creates the folder if needed). The Chapter 16 project will store its notes with it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/json-db.js">
+import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+
+export async function loadNotes(file) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
+}
+
+export async function saveNotes(file, notes) {
+  await mkdir(dirname(file), { recursive: true });
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(tmp, JSON.stringify(notes, null, 2) + "\n");
+  await rename(tmp, file);
+}
+
+const file = "playground-data/notes.json";
+const notes = await loadNotes(file);
+notes.push({ id: notes.length + 1, text: "learn fs" });
+await saveNotes(file, notes);
+console.log(await loadNotes(file));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ { id: 1, text: 'learn fs' } ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">folders</span></h3>
+<p>Create a folder <code>downloads</code> with files <code>a.pdf</code>, <code>b.jpg</code>, <code>c.pdf</code>, <code>d.png</code>, <code>notes</code> (no extension). Then sort them into subfolders by extension (<code>pdf/</code>, <code>jpg/</code>, <code>png/</code>, <code>other/</code>) and print the resulting tree, sorted.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="organise.js">
+import { mkdir, writeFile, readdir, rename } from "node:fs/promises";
+import { join, extname } from "node:path";
+
+await mkdir("downloads", { recursive: true });
+for (const f of ["a.pdf", "b.jpg", "c.pdf", "d.png", "notes"]) await writeFile(join("downloads", f), "");
+
+for (const entry of await readdir("downloads", { withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  const folder = extname(entry.name).slice(1) || "other";
+  await mkdir(join("downloads", folder), { recursive: true });
+  await rename(join("downloads", entry.name), join("downloads", folder, entry.name));
+}
+console.log((await readdir("downloads", { recursive: true })).sort());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[
+  'jpg',       'jpg/b.jpg',
+  'other',     'other/notes',
+  'pdf',       'pdf/a.pdf',
+  'pdf/c.pdf', 'png',
+  'png/d.png'
+]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>A server saves uploaded files to <code>path.join("uploads", req.headers["x-filename"])</code>. An attacker sends <code>x-filename: ../../.ssh/authorized_keys</code>. What happens, and how do you prevent it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>path.join</code> resolves the <code>..</code> segments, so the file is written <em>outside</em> the uploads folder — a <strong>path traversal</strong> attack that can overwrite any file the server can write. Prevention: never use client-supplied names directly; generate your own (e.g. <code>randomUUID()</code>); or at least resolve the final path and check that it's still inside the base folder:</p>
+<script type="text/plain" class="code" data-file="safe-join.js">
+import path from "node:path";
+function safeJoin(base, name) {
+  const root = path.resolve(base);
+  const target = path.resolve(root, name);
+  if (target !== root && !target.startsWith(root + path.sep)) throw new Error(`blocked path: ${name}`);
+  return target;
+}
+console.log(path.basename(safeJoin("uploads", "photo.jpg")));
+try { safeJoin("uploads", "../../.ssh/authorized_keys"); } catch (e) { console.log(e.message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+photo.jpg
+blocked path: ../../.ssh/authorized_keys
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">file handle</span></h3>
+<p>Write <code>tail(file, n)</code> that returns the last <code>n</code> bytes of a file as a string, by opening it and reading from position <code>size - n</code> (don't read the whole file).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="tail.js">
+import { open, writeFile } from "node:fs/promises";
+
+async function tail(file, n) {
+  const fh = await open(file, "r");
+  try {
+    const { size } = await fh.stat();
+    const len = Math.min(n, size);
+    const buf = Buffer.alloc(len);
+    await fh.read(buf, 0, len, size - len);
+    return buf.toString("utf8");
+  } finally {
+    await fh.close();
+  }
+}
+await writeFile("server.log", "boot ok\nrequest 1\nrequest 2\nshutdown\n");
+console.log(JSON.stringify(await tail("server.log", 9)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+"shutdown\n"
+</script>
+<p>For a multi-gigabyte log this reads 9 bytes instead of the whole file. (Cutting a multi-byte UTF-8 character in half is possible with arbitrary byte counts; real tools read a bit more and start at the next newline.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write <code>findLargest(dir, n)</code>: walk a folder tree and return the <code>n</code> largest files as <code>{ path, size }</code>, largest first. Skip symbolic links, and limit the number of <code>stat</code> calls in flight to 8.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="largest.js">
+import { readdir, lstat, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+async function findLargest(dir, n) {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const files = entries.filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name));
+  const results = [];
+  let next = 0;
+  async function worker() {
+    while (next < files.length) {
+      const file = files[next++];
+      const s = await lstat(file);
+      if (!s.isSymbolicLink()) results.push({ path: file, size: s.size });
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, worker));
+  return results.toSorted((a, b) => b.size - a.size).slice(0, n);
+}
+
+await mkdir("media/videos", { recursive: true });
+await writeFile("media/small.txt", Buffer.alloc(10));
+await writeFile("media/videos/clip.mp4", Buffer.alloc(9000));
+await writeFile("media/cover.jpg", Buffer.alloc(3000));
+console.log(await findLargest("media", 2));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[
+  { path: 'media/videos/clip.mp4', size: 9000 },
+  { path: 'media/cover.jpg', size: 3000 }
+]
+</script>
+<p><code>Dirent.parentPath</code> tells you which folder each entry of a recursive <code>readdir</code> came from.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/rotate-log.js</code> exporting <code>appendLog(file, line, { maxBytes, keep })</code>: before appending, if the file would grow beyond <code>maxBytes</code>, rotate: <code>app.log.2</code> → deleted when <code>keep = 2</code>, <code>app.log.1</code> → <code>app.log.2</code>, <code>app.log</code> → <code>app.log.1</code>, then start a fresh <code>app.log</code>. Demonstrate with a tiny <code>maxBytes</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/rotate-log.js">
+import { appendFile, stat, rename, rm, readdir, mkdir } from "node:fs/promises";
+import { dirname, basename } from "node:path";
+
+async function sizeOf(file) {
+  try { return (await stat(file)).size; } catch (err) { if (err.code === "ENOENT") return 0; throw err; }
+}
+
+export async function appendLog(file, line, { maxBytes = 1_000_000, keep = 3 } = {}) {
+  const entry = line + "\n";
+  if ((await sizeOf(file)) + Buffer.byteLength(entry) > maxBytes) {
+    await rm(`${file}.${keep}`, { force: true });
+    for (let i = keep - 1; i >= 1; i--) {
+      await rename(`${file}.${i}`, `${file}.${i + 1}`).catch((err) => { if (err.code !== "ENOENT") throw err; });
+    }
+    await rename(file, `${file}.1`).catch((err) => { if (err.code !== "ENOENT") throw err; });
+  }
+  await appendFile(file, entry);
+}
+
+const file = "playground-logs/app.log";
+await mkdir(dirname(file), { recursive: true });
+for (let i = 1; i <= 7; i++) await appendLog(file, `event ${i}`, { maxBytes: 20, keep: 2 });
+console.log((await readdir(dirname(file))).filter((f) => f.startsWith(basename(file))).sort());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'app.log', 'app.log.1', 'app.log.2' ]
+</script>
+<p>Each "event N\n" is 8 bytes, so a file holds two lines before rotating; the oldest events were deleted when <code>app.log.2</code> was dropped. Real loggers do this by date or size, often in a separate process (logrotate) — and only one process should rotate a given file.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/manipulating-files/nodejs-file-paths">Node.js File Paths</a> · <a href="https://nodejs.org/en/learn/manipulating-files/nodejs-file-stats">File stats</a></li>
+  <li><a href="https://nodejs.org/en/learn/manipulating-files/reading-files-with-nodejs">Reading files</a> · <a href="https://nodejs.org/en/learn/manipulating-files/writing-files-with-nodejs">Writing files</a></li>
+  <li><a href="https://nodejs.org/en/learn/manipulating-files/working-with-file-descriptors-in-nodejs">File descriptors</a> · <a href="https://nodejs.org/en/learn/manipulating-files/working-with-folders-in-nodejs">Working with folders</a></li>
+  <li><a href="https://nodejs.org/en/learn/manipulating-files/working-with-different-filesystems">How to work with different filesystems</a></li>
+  <li>API: <a href="https://nodejs.org/api/fs.html">File system</a> · <a href="https://nodejs.org/api/path.html">Path</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

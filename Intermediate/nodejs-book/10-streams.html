@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌊&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Buffers &amp; Streams · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Files &amp; Data</div>
+<h1>Buffers &amp; Streams</h1>
+<p class="lead">Files, network connections and compressed data are sequences of <em>bytes</em>, and they're often far too big to hold in memory at once. Buffers are Node's way to hold bytes; streams are its way to process data <strong>piece by piece</strong> as it flows. Streams are behind HTTP requests and responses, file copies, compression and <code>process.stdin</code>. This chapter explains both, including the subtle but vital idea of <strong>backpressure</strong>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a <code>Buffer</code> is: bytes, encodings (UTF-8, hex, base64), and byte length vs string length.</li>
+  <li>Why streams exist, and the four kinds: Readable, Writable, Duplex and Transform.</li>
+  <li>Consuming streams with <code>for await</code>, and connecting them with <code>pipeline</code> (not <code>pipe</code>).</li>
+  <li>Writing your own Transform streams, and object mode.</li>
+  <li>Backpressure: <code>highWaterMark</code>, <code>write()</code> returning <code>false</code>, and <code>drain</code>.</li>
+</ul>
+</div>
+
+<h2 id="buffers">Buffers: raw bytes</h2>
+<p>Computers store everything as <strong>bytes</strong> — numbers from 0 to 255. Text is bytes interpreted with an <em>encoding</em> (usually UTF-8); images and zip files are bytes with their own formats. JavaScript strings are text only, so Node adds the <code>Buffer</code> class: a fixed-size sequence of bytes (it's a subclass of <code>Uint8Array</code>).</p>
+<script type="text/plain" class="code" data-file="buffers.js">
+const buf = Buffer.from("Hi €", "utf8");
+console.log(buf);                                   // shown as hex bytes
+console.log(buf.length, "bytes, but", "Hi €".length, "characters");
+console.log([...buf]);                              // the byte values
+console.log(buf.toString("utf8"), "|", buf.toString("hex"), "|", buf.toString("base64"));
+console.log(Buffer.from("SGkg4oKs", "base64").toString());
+console.log(Buffer.byteLength("naïve café"), "naïve café".length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+<Buffer 48 69 20 e2 82 ac>
+6 bytes, but 4 characters
+[ 72, 105, 32, 226, 130, 172 ]
+Hi € | 486920e282ac | SGkg4oKs
+Hi €
+12 10
+</script>
+<p>UTF-8 uses 1 byte for ASCII letters and 2–4 bytes for others: <code>€</code> is 3 bytes. That's why a file's size in bytes and its length in characters differ, and why HTTP's <code>Content-Length</code> must use <code>Buffer.byteLength</code>, not <code>.length</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: an egg carton.</strong> A Buffer is an egg carton with a fixed number of slots, each holding one byte. The carton doesn't know whether the eggs spell a word or make up a photo; the <em>encoding</em> is the recipe that says how to read them. Read the same carton with a different recipe (hex, base64) and you get a different-looking result from the same eggs.</p>
+</div>
+<script type="text/plain" class="code" data-file="buffer-ops.js">
+const a = Buffer.alloc(4);                          // 4 zero bytes
+a.writeUInt16BE(500, 0);                            // write a number as 2 bytes (big-endian)
+console.log(a, a.readUInt16BE(0));
+
+const whole = Buffer.from("HELLO WORLD");
+const part = whole.subarray(0, 5);                  // a VIEW, not a copy
+part[0] = 0x4a;                                     // 'J'
+console.log(whole.toString());                      // the original changed too!
+
+const joined = Buffer.concat([Buffer.from("ab"), Buffer.from("cd")]);
+console.log(joined.toString(), joined.equals(Buffer.from("abcd")));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+<Buffer 01 f4 00 00> 500
+JELLO WORLD
+abcd true
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Two buffer pitfalls.</strong> <code>subarray</code> (and the older <code>slice</code>) shares memory with the original: copy with <code>Buffer.from(view)</code> when you need independence. And never decode a <em>chunk</em> of UTF-8 on its own: a multi-byte character can be split across two chunks. Use <code>setEncoding("utf8")</code> on a stream, or a <code>TextDecoder</code> with <code>{ stream: true }</code>, which keep partial characters until the rest arrives.</p>
+</div>
+
+<h2 id="why">Why streams?</h2>
+<p>Suppose you want to send a 2 GB video file to a client. With <code>readFile</code>, Node reads all 2 GB into memory before sending the first byte. With ten clients at once, that's 20 GB. A <strong>stream</strong> reads a small chunk (64 KB), sends it, reads the next, and so on: memory stays tiny and the client starts receiving immediately.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: water through pipes.</strong> <code>readFile</code> is filling a bathtub with all the water first and then carrying the bathtub to its destination — you need a bathtub as big as the whole supply. A stream is a <em>pipe</em>: water flows from the source to the destination continuously, and at any moment only a little is in the pipe. You can also add filters along the pipe (decompress, convert, count) without ever storing all the water.</p>
+</div>
+<p>There are four kinds of streams:</p>
+<div class="table-wrap"><table>
+  <tr><th>Kind</th><th>Data flows</th><th>Examples</th></tr>
+  <tr><td><strong>Readable</strong></td><td>out of it (a source)</td><td><code>fs.createReadStream</code>, <code>process.stdin</code>, an HTTP request on the server</td></tr>
+  <tr><td><strong>Writable</strong></td><td>into it (a destination)</td><td><code>fs.createWriteStream</code>, <code>process.stdout</code>, an HTTP response</td></tr>
+  <tr><td><strong>Duplex</strong></td><td>both ways, independently</td><td>a TCP socket</td></tr>
+  <tr><td><strong>Transform</strong></td><td>in, changed, out</td><td><code>zlib.createGzip()</code>, encryption, your own converters</td></tr>
+</table></div>
+<p>All streams are EventEmitters (Chapter 8): they emit <code>data</code>, <code>end</code>, <code>finish</code>, <code>error</code> and <code>close</code>.</p>
+
+<h2 id="readable">Reading a stream</h2>
+<p>The modern way to consume a Readable stream is <code>for await</code>: each iteration gives you the next chunk, and the loop ends when the stream ends.</p>
+<script type="text/plain" class="code" data-file="read-stream.js">
+import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+
+await writeFile("big.txt", "x".repeat(200_000));               // 200 KB
+
+let chunks = 0, bytes = 0;
+for await (const chunk of createReadStream("big.txt")) {       // chunks of up to 64 KB
+  chunks++;
+  bytes += chunk.length;
+}
+console.log(`${chunks} chunks, ${bytes} bytes`);
+
+const small = createReadStream("big.txt", { highWaterMark: 50_000, encoding: "utf8", start: 0, end: 99_999 });
+const sizes = [];
+for await (const chunk of small) sizes.push(chunk.length);
+console.log(sizes);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 chunks, 200000 bytes
+[ 50000, 50000 ]
+</script>
+<p>Before async iteration existed, you listened to events: <code>stream.on("data", chunk =&gt; …)</code>, <code>stream.on("end", …)</code> and <code>stream.on("error", …)</code>. You'll see that in older code; it works, but error handling and early stopping are easier with <code>for await</code> (a <code>break</code> destroys the stream).</p>
+<p>Reading <strong>lines</strong> is so common that <code>readline</code> wraps a stream for you (we used it on stdin in Chapter 2):</p>
+<script type="text/plain" class="code" data-file="lines.js">
+import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
+
+await writeFile("access.log", "GET / 200\nGET /admin 403\nPOST /login 200\nGET /missing 404\n");
+const counts = {};
+for await (const line of createInterface({ input: createReadStream("access.log"), crlfDelay: Infinity })) {
+  const status = line.split(" ").at(-1);
+  counts[status] = (counts[status] ?? 0) + 1;
+}
+console.log(counts);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ '200': 2, '403': 1, '404': 1 }
+</script>
+
+<h2 id="writable">Writing to a stream</h2>
+<p>A Writable has <code>write(chunk)</code> and <code>end()</code>. After <code>end()</code> and once everything has been flushed, it emits <code>finish</code>:</p>
+<script type="text/plain" class="code" data-file="write-stream.js">
+import { createWriteStream } from "node:fs";
+import { once } from "node:events";
+import { readFile } from "node:fs/promises";
+
+const out = createWriteStream("report.csv");
+out.write("id,item,qty\n");
+for (const [i, item] of ["pen", "ink", "paper"].entries()) out.write(`${i + 1},${item},${i + 2}\n`);
+out.end("# end of report\n");                 // last chunk, then close
+await once(out, "finish");
+console.log((await readFile("report.csv", "utf8")).trimEnd());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+id,item,qty
+1,pen,2
+2,ink,3
+3,paper,4
+# end of report
+</script>
+
+<h2 id="pipeline">Connecting streams: pipeline</h2>
+<p>The real power of streams is chaining them: source → transforms → destination. Use <code>pipeline</code> from <code>node:stream/promises</code>. It connects the streams, handles backpressure, forwards errors from <em>any</em> stage, and destroys all of them if one fails:</p>
+<script type="text/plain" class="code" data-file="gzip.js">
+import { createReadStream, createWriteStream } from "node:fs";
+import { writeFile, stat } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { createGzip, createGunzip } from "node:zlib";
+
+await writeFile("server.log", "GET /index.html 200 12ms\n".repeat(10_000));
+
+await pipeline(createReadStream("server.log"), createGzip(), createWriteStream("server.log.gz"));
+const [orig, zipped] = await Promise.all([stat("server.log"), stat("server.log.gz")]);
+console.log(`${orig.size} → ${zipped.size} bytes (${(orig.size / zipped.size).toFixed(0)}× smaller)`);
+
+await pipeline(createReadStream("server.log.gz"), createGunzip(), createWriteStream("restored.log"));
+console.log("restored size:", (await stat("restored.log")).size);
+
+try {
+  await pipeline(createReadStream("no-such-file.log"), createGzip(), createWriteStream("x.gz"));
+} catch (err) {
+  console.log("pipeline failed cleanly:", err.code);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+250000 → ... bytes (...× smaller)
+restored size: 250000
+pipeline failed cleanly: ENOENT
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Avoid <code>.pipe()</code> for anything important.</strong> The older <code>source.pipe(dest)</code> handles backpressure but <em>not errors</em>: if the source fails, the destination is never closed (leaking a file descriptor or socket), and errors on each stream need their own listener. <code>pipeline</code> was added to fix exactly this.</p>
+</div>
+
+<h2 id="transform">Writing your own Transform</h2>
+<p>A Transform receives chunks, and pushes zero or more output chunks for each one. Implement <code>transform(chunk, encoding, callback)</code>, and optionally <code>flush(callback)</code> to emit anything left at the end:</p>
+<script type="text/plain" class="code" data-file="upper.js">
+import { Transform, Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const upperCase = new Transform({
+  transform(chunk, encoding, callback) {
+    callback(null, chunk.toString().toUpperCase());      // error-first: (err, output)
+  },
+});
+
+await pipeline(Readable.from(["hello ", "streaming ", "world\n"]), upperCase, process.stdout);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+HELLO STREAMING WORLD
+</script>
+<p>Chunks don't respect line boundaries, so a line-based transform must keep the incomplete last part of each chunk until the next one arrives:</p>
+<script type="text/plain" class="code" data-file="split-lines.js">
+import { Transform, Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+function splitLines() {
+  let rest = "";
+  return new Transform({
+    readableObjectMode: true,                       // output: one string per line
+    transform(chunk, enc, cb) {
+      const parts = (rest + chunk).split("\n");
+      rest = parts.pop();                           // incomplete line: keep for later
+      for (const line of parts) this.push(line);
+      cb();
+    },
+    flush(cb) {
+      if (rest) this.push(rest);
+      cb();
+    },
+  });
+}
+
+const lines = [];
+await pipeline(Readable.from(["first li", "ne\nsecond line\nthi", "rd"]), splitLines(), async function (source) {
+  for await (const line of source) lines.push(line);
+});
+console.log(lines);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'first line', 'second line', 'third' ]
+</script>
+<p>The last stage here is an <code>async function</code> that receives the previous stage as an async iterable — <code>pipeline</code> accepts those as convenient sinks (and async generator functions as transforms).</p>
+
+<h3>Object mode</h3>
+<p>Normally streams carry Buffers or strings. In <strong>object mode</strong> they carry any JavaScript values — handy for processing records. <code>Readable.from(iterable)</code> creates an object-mode stream from any (async) iterable, and async generators make neat transforms:</p>
+<script type="text/plain" class="code" data-file="objects.js">
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const orders = [{ id: 1, total: 120 }, { id: 2, total: 15 }, { id: 3, total: 300 }];
+
+await pipeline(
+  Readable.from(orders),
+  async function* bigOnly(source) {
+    for await (const order of source) if (order.total >= 100) yield order;
+  },
+  async function* toCsv(source) {
+    yield "id,total\n";
+    for await (const o of source) yield `${o.id},${o.total}\n`;
+  },
+  process.stdout,
+);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+id,total
+1,120
+3,300
+</script>
+
+<h2 id="backpressure">Backpressure</h2>
+<p>What happens when the source is faster than the destination? A disk can read at 2 GB/s, but a mobile client receives at 2 MB/s. If Node kept reading at full speed, the unsent data would pile up in memory until the process crashes. <strong>Backpressure</strong> is the mechanism that slows the producer down to the consumer's speed.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a kitchen sink.</strong> The tap (Readable) pours water into a sink (the Writable's internal buffer) that drains through a narrow pipe (the slow destination). The sink has a "fill line" (<code>highWaterMark</code>, 16 KB for byte streams by default). When the water reaches the fill line, the sink shouts "stop!" (<code>write()</code> returns <code>false</code>) and the tap is turned off. When the sink has drained, it shouts "go on!" (the <code>drain</code> event) and the tap opens again. Ignore the shout and the kitchen floods: that's memory exhaustion.</p>
+</div>
+<figure class="diagram">
+<svg viewBox="0 0 600 175" role="img" aria-label="A fast Readable source writes into a Writable buffer with a high-water mark; when full, write returns false and the source pauses until drain">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ar" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <rect class="hi" x="10" y="40" width="140" height="56" rx="10"/><text x="80" y="64" text-anchor="middle">Readable</text><text class="mut" x="80" y="82" text-anchor="middle">fast source</text>
+  <path class="ln" d="M150,68 L228,68" marker-end="url(#a2)"/><text class="mut" x="190" y="58" text-anchor="middle">write()</text>
+  <rect class="bx" x="230" y="20" width="140" height="96" rx="10"/><text x="300" y="42" text-anchor="middle">Writable buffer</text>
+  <line x1="240" y1="62" x2="360" y2="62" stroke="currentColor" stroke-dasharray="4 4" class="ln"/><text class="mut" x="300" y="56" text-anchor="middle">highWaterMark</text>
+  <rect class="hi" x="240" y="72" width="120" height="36" rx="4"/><text class="mut" x="300" y="95" text-anchor="middle">queued chunks</text>
+  <path class="ln" d="M370,68 L448,68" marker-end="url(#a2)"/>
+  <rect class="hi" x="450" y="40" width="140" height="56" rx="10"/><text x="520" y="64" text-anchor="middle">Destination</text><text class="mut" x="520" y="82" text-anchor="middle">slow (network)</text>
+  <path class="ln" d="M300,116 Q300,140 80,140 L80,98" marker-end="url(#a2)"/><text class="mut" x="190" y="164" text-anchor="middle">write() returns false → pause … "drain" → resume</text>
+</svg>
+<figcaption>When the queue passes the high-water mark, <code>write()</code> returns <code>false</code>; the source pauses until <code>drain</code>.</figcaption>
+</figure>
+<p><code>pipeline</code> (and <code>for await</code> + <code>pipeline</code>) handle all of this for you. You only deal with it by hand when you call <code>write()</code> yourself in a loop:</p>
+<script type="text/plain" class="code" data-file="backpressure.js">
+import { Writable } from "node:stream";
+import { once } from "node:events";
+
+let maxQueued = 0;
+const slowDisk = new Writable({
+  highWaterMark: 1024,                                   // fill line: 1 KB
+  write(chunk, enc, cb) { setTimeout(cb, 1); },          // pretend each write takes 1 ms
+});
+
+async function writeMany(stream, respectBackpressure) {
+  maxQueued = 0;
+  for (let i = 0; i < 200; i++) {
+    const ok = stream.write(Buffer.alloc(100));          // 100-byte chunks
+    maxQueued = Math.max(maxQueued, stream.writableLength);
+    if (!ok && respectBackpressure) await once(stream, "drain");
+  }
+  return maxQueued;
+}
+
+console.log("ignoring backpressure, max queued:", await writeMany(slowDisk, false), "bytes");
+await once(slowDisk, "drain");
+console.log("respecting backpressure, max queued:", await writeMany(slowDisk, true), "bytes");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ignoring backpressure, max queued: 20000 bytes
+respecting backpressure, max queued: 1100 bytes
+</script>
+<p>Ignoring the signal queued all 20 KB in memory; respecting it never let the queue go much past the 1 KB fill line. With a 10 GB source instead of 20 KB, that's the difference between a healthy server and a crash.</p>
+
+<h2 id="web">Web streams</h2>
+<p>Browsers have their own stream API (<code>ReadableStream</code>, <code>WritableStream</code>), which Node also supports; <code>fetch</code> responses use it (Chapter 12). Convert between the two with <code>Readable.fromWeb()</code> and <code>Readable.toWeb()</code>. Node streams remain the norm for files, sockets and most npm packages.</p>
+<script type="text/plain" class="code" data-file="web-streams.js">
+import { Readable } from "node:stream";
+const web = new ReadableStream({ start(c) { c.enqueue("from "); c.enqueue("a web stream"); c.close(); } });
+let text = "";
+for await (const chunk of Readable.fromWeb(web, { encoding: "utf8" })) text += chunk;
+console.log(text);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+from a web stream
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Hashing a big file without loading it</h3>
+<script type="text/plain" class="code" data-file="hash.js">
+import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { pipeline } from "node:stream/promises";
+
+await writeFile("installer.bin", Buffer.alloc(1_000_000, 7));
+const hash = createHash("sha256");                    // a Transform-like Writable
+await pipeline(createReadStream("installer.bin"), hash);
+console.log("sha256:", hash.digest("hex").slice(0, 16) + "…");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sha256: ...…
+</script>
+
+<h3>Counting bytes as they flow past</h3>
+<script type="text/plain" class="code" data-file="counter.js">
+import { PassThrough, Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createWriteStream } from "node:fs";
+
+function byteCounter() {
+  const pt = new PassThrough();                         // passes data through unchanged
+  pt.bytes = 0;
+  pt.on("data", (chunk) => (pt.bytes += chunk.length));
+  return pt;
+}
+const counter = byteCounter();
+await pipeline(Readable.from(["abc", "defgh", "ij"]), counter, createWriteStream("copy.txt"));
+console.log(`${counter.bytes} bytes copied`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10 bytes copied
+</script>
+
+<h3>A CSV-to-JSON-lines converter</h3>
+<script type="text/plain" class="code" data-file="csv-to-ndjson.js">
+import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
+
+await writeFile("people.csv", "name,age\nAna,34\nBen,27\n");
+
+async function* rows(file) {
+  let header;
+  for await (const line of createInterface({ input: createReadStream(file) })) {
+    const cells = line.split(",");
+    if (!header) { header = cells; continue; }
+    yield Object.fromEntries(header.map((h, i) => [h, cells[i]]));
+  }
+}
+await pipeline(
+  Readable.from(rows("people.csv")),
+  async function* (source) { for await (const row of source) yield JSON.stringify({ ...row, age: Number(row.age) }) + "\n"; },
+  process.stdout,
+);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"name":"Ana","age":34}
+{"name":"Ben","age":27}
+</script>
+<p>Each record is processed and written as soon as it's read, so the same code handles a 10-row file and a 10-million-row file with the same small memory footprint.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A <code>Buffer</code> holds bytes; encodings (utf8, hex, base64) turn them into text. Byte length ≠ character length. <code>subarray</code> shares memory.</li>
+  <li>Streams process data in chunks: low memory, fast first byte. Four kinds: Readable, Writable, Duplex, Transform; all are EventEmitters.</li>
+  <li>Read with <code>for await</code> (or <code>readline</code> for lines); write with <code>write</code>/<code>end</code> and wait for <code>finish</code>.</li>
+  <li>Connect stages with <code>pipeline</code> from <code>node:stream/promises</code>: it handles errors, cleanup and backpressure. Avoid bare <code>.pipe()</code>.</li>
+  <li>Custom transforms: <code>new Transform({ transform, flush })</code> or async generator functions; object mode carries JavaScript values.</li>
+  <li>Backpressure: when <code>write()</code> returns <code>false</code>, wait for <code>drain</code>. Ignoring it fills memory.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">buffers</span></h3>
+<p>Encode <code>"user:secret"</code> as base64 (as used in HTTP Basic auth), print it, then decode it back.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="basic-auth.js">
+const encoded = Buffer.from("user:secret").toString("base64");
+console.log(encoded);
+console.log(Buffer.from(encoded, "base64").toString("utf8"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dXNlcjpzZWNyZXQ=
+user:secret
+</script>
+<p>Base64 is an <em>encoding</em>, not encryption: anyone can decode it. Basic auth must only be used over HTTPS.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict the output</span></h3>
+<script type="text/plain" class="code" data-file="ex2.js">
+const s = "😀 ok";
+console.log(s.length, Buffer.byteLength(s), [...s].length);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text">
+5 7 4
+</script>
+<p>The emoji is 2 UTF-16 code units (<code>.length</code> counts those), 4 UTF-8 bytes, and 1 character (code point) when spread. So: 2 + 3 = 5 code units, 4 + 3 = 7 bytes, 1 + 3 = 4 characters.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">copy a file</span></h3>
+<p>Copy <code>big.txt</code> to <code>big-copy.txt</code> with streams and <code>pipeline</code>, then print <code>copied</code> and the new file's size.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="copy.js">
+import { createReadStream, createWriteStream } from "node:fs";
+import { writeFile, stat } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+
+await writeFile("big.txt", "y".repeat(300_000));
+await pipeline(createReadStream("big.txt"), createWriteStream("big-copy.txt"));
+console.log("copied", (await stat("big-copy.txt")).size);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+copied 300000
+</script>
+<p>(For a plain copy, <code>fs.copyFile</code> is simpler and faster; streams shine when you transform data on the way.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Which stream type? (a) <code>process.stdout</code>; (b) <code>zlib.createGzip()</code>; (c) a TCP socket; (d) an incoming HTTP request on the server; (e) <code>fs.createReadStream</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Writable; (b) Transform; (c) Duplex; (d) Readable (you read the body from it); (e) Readable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">transform</span></h3>
+<p>Write a Transform <code>redact()</code> that replaces every digit with <code>#</code> (for logs that may contain card numbers), and run text through it into stdout.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="redact.js">
+import { Transform, Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const redact = () => new Transform({
+  transform(chunk, enc, cb) { cb(null, chunk.toString().replace(/\d/g, "#")); },
+});
+await pipeline(Readable.from(["card 4111 1111 ", "1111 1234 paid 42.50\n"]), redact(), process.stdout);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+card #### #### #### #### paid ##.##
+</script>
+<p>Replacing single characters is safe across chunk boundaries; replacing multi-character patterns (like full card numbers) needs the "keep the rest" technique from <code>splitLines</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it · playground</span></h3>
+<p>Create <code>playground/log-stats.js</code>: stream a log file line by line and print the number of requests per status code and the slowest request. Lines look like <code>GET /notes 200 12ms</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/log-stats.js">
+import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
+
+await writeFile("playground-access.log", ["GET /notes 200 12ms", "POST /notes 201 40ms", "GET /notes/9 404 3ms", "GET /notes 200 95ms"].join("\n") + "\n");
+
+const byStatus = {};
+let slowest = { ms: -1 };
+for await (const line of createInterface({ input: createReadStream("playground-access.log") })) {
+  const [method, path, status, time] = line.split(" ");
+  byStatus[status] = (byStatus[status] ?? 0) + 1;
+  const ms = parseInt(time, 10);
+  if (ms > slowest.ms) slowest = { ms, request: `${method} ${path}` };
+}
+console.log(byStatus);
+console.log(`slowest: ${slowest.request} (${slowest.ms} ms)`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ '200': 2, '201': 1, '404': 1 }
+slowest: GET /notes (95 ms)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain why</span></h3>
+<p>This code works on small files but crashes with "JavaScript heap out of memory" on a 4 GB file. Explain why and rewrite it with streams.</p>
+<script type="text/plain" class="code" data-file="ex7-bad.js" data-norun>
+const data = await readFile("huge.log", "utf8");
+await writeFile("huge.log.upper", data.toUpperCase());
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p><code>readFile</code> loads the entire 4 GB into memory (as a string, over V8's maximum string length), and <code>toUpperCase</code> needs another copy. Streams process 64 KB at a time:</p>
+<script type="text/plain" class="code" data-file="ex7-good.js">
+import { createReadStream, createWriteStream } from "node:fs";
+import { writeFile, readFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+
+await writeFile("huge.log", "abc\n".repeat(1000));
+await pipeline(
+  createReadStream("huge.log", { encoding: "utf8" }),
+  async function* (source) { for await (const chunk of source) yield chunk.toUpperCase(); },
+  createWriteStream("huge.log.upper"),
+);
+console.log((await readFile("huge.log.upper", "utf8")).slice(0, 8).trimEnd());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ABC
+ABC
+</script>
+<p><code>encoding: "utf8"</code> makes the stream decode safely across chunk boundaries.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">object mode</span></h3>
+<p>Using <code>Readable.from</code> and async generator stages in a <code>pipeline</code>, take the numbers 1–10, keep the even ones, square them, and collect them into an array in the final stage.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="numbers.js">
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const result = [];
+await pipeline(
+  Readable.from(Array.from({ length: 10 }, (_, i) => i + 1)),
+  async function* (src) { for await (const n of src) if (n % 2 === 0) yield n; },
+  async function* (src) { for await (const n of src) yield n * n; },
+  async function (src) { for await (const n of src) result.push(n); },
+);
+console.log(result);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 4, 16, 36, 64, 100 ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">backpressure</span></h3>
+<p>Write <code>writeLines(stream, count)</code> that writes <code>count</code> lines like <code>line 1\n</code> to a Writable, respecting backpressure, and resolves when everything is flushed. Test it against a slow Writable with a 64-byte <code>highWaterMark</code> and check that the internal queue never exceeds 64 bytes plus one line.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="write-lines.js">
+import { Writable } from "node:stream";
+import { once } from "node:events";
+
+async function writeLines(stream, count) {
+  for (let i = 1; i <= count; i++) {
+    if (!stream.write(`line ${i}\n`)) await once(stream, "drain");
+  }
+  stream.end();
+  await once(stream, "finish");
+}
+
+let peak = 0, received = 0;
+const slow = new Writable({
+  highWaterMark: 64,
+  write(chunk, enc, cb) {
+    peak = Math.max(peak, this.writableLength);
+    received++;
+    setImmediate(cb);
+  },
+});
+await writeLines(slow, 500);
+console.log(received, "lines received; peak queue within limit:", peak <= 64 + "line 500\n".length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+500 lines received; peak queue within limit: true
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create <code>playground/export-notes.js</code>: stream an array of 10,000 note objects to a gzip-compressed NDJSON file (<code>notes.ndjson.gz</code>, one JSON object per line) with <code>pipeline</code>, then read it back through <code>createGunzip</code> + <code>readline</code> and print the count and the last note's text. Memory use must not depend on the number of notes.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="playground/export-notes.js">
+import { createReadStream, createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGzip, createGunzip } from "node:zlib";
+import { createInterface } from "node:readline";
+
+function* generateNotes(n) {
+  for (let id = 1; id <= n; id++) yield { id, text: `note number ${id}`, done: id % 3 === 0 };
+}
+
+await pipeline(
+  Readable.from(generateNotes(10_000)),
+  async function* (notes) { for await (const note of notes) yield JSON.stringify(note) + "\n"; },
+  createGzip(),
+  createWriteStream("notes.ndjson.gz"),
+);
+
+let count = 0, last;
+const lines = createInterface({ input: createReadStream("notes.ndjson.gz").pipe(createGunzip()) });
+for await (const line of lines) {
+  count++;
+  last = JSON.parse(line);
+}
+console.log(count, "notes; last:", last.text);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10000 notes; last: note number 10000
+</script>
+<p>A generator produces notes on demand, so neither side ever holds all 10,000 in memory. (Reading back, <code>.pipe()</code> is acceptable for a demo; in production use <code>pipeline</code> and consume its output, or wrap errors on both streams.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nodejs.org/en/learn/modules/how-to-use-streams">How to use streams</a> · <a href="https://nodejs.org/en/learn/modules/backpressuring-in-streams">Backpressuring in Streams</a></li>
+  <li>API: <a href="https://nodejs.org/api/buffer.html">Buffer</a> · <a href="https://nodejs.org/api/stream.html">Stream</a> · <a href="https://nodejs.org/api/zlib.html">Zlib</a> · <a href="https://nodejs.org/api/webstreams.html">Web Streams</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛝&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · Node.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here</div>
+<h1>Using the Playground</h1>
+<p class="lead">The <code>playground/</code> folder next to this book is your workspace. Exercises marked <strong>playground</strong> ask you to create files there, and together they grow into the Chapter 16 project. This page shows how to set it up, run files, use watch mode and the REPL, run tests, and fix the most common problems.</p>
+
+<div class="learn">
+<h2>On this page</h2>
+<ul>
+  <li>Installing Node and checking the version.</li>
+  <li>The playground layout and its <code>package.json</code>.</li>
+  <li>Running files, watch mode, the REPL, and tests.</li>
+  <li>Using the finished reference project.</li>
+  <li>Troubleshooting common errors.</li>
+</ul>
+</div>
+
+<h2 id="install">1. Install Node</h2>
+<p>Install Node 26 LTS (or 24 LTS) with a version manager — <code>nvm</code>, <code>fnm</code> or Volta (Chapter 1) — or the installer from nodejs.org. Then check:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --version
+v26.13.0
+$ npm --version
+11.20.0
+</script>
+<p>Any editor works; VS Code has excellent Node support (debugging, a JavaScript Debug Terminal, test integration).</p>
+
+<h2 id="layout">2. The playground folder</h2>
+<script type="text/plain" class="code" data-lang="text" data-norun>
+playground/
+├── package.json     "type": "module", "test": "node --test"
+├── README.md
+├── (your exercise files: hello-server.js, notes-cli.js, flow.js, …)
+└── reference/       the finished Chapter 16 project (notes API) — look after trying!
+</script>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "name": "nodejs-book-playground",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test", "check": "node check-node.js" }
+}
+</script>
+<p><code>"type": "module"</code> makes every <code>.js</code> file an ES module, so <code>import</code>/<code>export</code> and top-level <code>await</code> work everywhere, as in the book. <code>"private": true</code> prevents accidental publishing.</p>
+
+<h2 id="run">3. Running code</h2>
+<script type="text/plain" class="code" data-file="hello.js" data-save>
+const who = process.argv[2] ?? "playground";
+console.log(`Hello, ${who}!`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node hello.js
+Hello, playground!
+$ node hello.js Ana
+Hello, Ana!
+</script>
+<ul>
+  <li><code>node --watch hello.js</code> re-runs the file every time you save it (or anything it imports). Stop with <kbd>Ctrl</kbd>+<kbd>C</kbd>.</li>
+  <li><code>node --env-file=.env app.js</code> loads environment variables from a file (Chapter 2).</li>
+  <li><code>node -p "expression"</code> prints the value of a one-liner.</li>
+  <li>Servers keep running until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>; the book's examples close themselves so they can be checked automatically.</li>
+</ul>
+
+<h2 id="repl">4. Experimenting in the REPL</h2>
+<p>Type <code>node</code> to open the REPL. Core modules are available without imports, and top-level <code>await</code> works:</p>
+<script type="text/plain" class="code" data-lang="repl" data-norun>
+> path.extname("report.final.csv")
+'.csv'
+> await fs.promises.readdir(".")
+[ 'README.md', 'hello.js', 'package.json', 'reference' ]
+> .exit
+</script>
+
+<h2 id="tests">5. Running tests</h2>
+<p>Name test files <code>something.test.js</code> (or put them in a <code>test/</code> folder) and run <code>npm test</code> (Chapter 14):</p>
+<script type="text/plain" class="code" data-file="hello.test.js" data-save>
+import { test } from "node:test";
+import assert from "node:assert/strict";
+test("the playground works", () => assert.equal(1 + 1, 2));
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ node --test hello.test.js
+✔ the playground works (...ms)
+...
+ℹ pass 1
+...
+</script>
+
+<h2 id="reference">6. The reference project</h2>
+<p><code>playground/reference/</code> is the complete Chapter 16 notes API with its tests. Use it to compare your solution, or to see a feature working before you build it:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ cd playground/reference
+$ npm test                   # 8 tests: validation, CRUD, errors, persistence, live events
+$ node scripts/smoke.js      # starts the server and drives it with the CLI
+$ npm start                  # run the API on http://localhost:3000 (Ctrl+C to stop)
+$ node src/cli.js add "try the API" -t demo    # in a second terminal
+</script>
+
+<h2 id="trouble">7. Troubleshooting</h2>
+<div class="table-wrap"><table>
+  <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td><code>SyntaxError: Cannot use import statement outside a module</code></td><td>the file is treated as CommonJS</td><td>run it inside <code>playground/</code> (which has <code>"type": "module"</code>) or rename to <code>.mjs</code></td></tr>
+  <tr><td><code>ERR_MODULE_NOT_FOUND</code></td><td>missing file extension in a relative import, or wrong path</td><td>write <code>"./lib/util.js"</code>, not <code>"./lib/util"</code> (Chapter 3)</td></tr>
+  <tr><td><code>ReferenceError: __dirname is not defined</code></td><td>CommonJS variable in an ES module</td><td>use <code>import.meta.dirname</code></td></tr>
+  <tr><td><code>ENOENT: no such file or directory</code></td><td>path relative to the wrong working directory</td><td>run from the right folder, or build paths from <code>import.meta.dirname</code> (Chapter 9)</td></tr>
+  <tr><td><code>EADDRINUSE: address already in use</code></td><td>another server (often your previous run) holds the port</td><td>stop it (<kbd>Ctrl</kbd>+<kbd>C</kbd>) or use another <code>PORT</code></td></tr>
+  <tr><td>The program never exits</td><td>an open server, interval or stdin listener</td><td>close it, <code>clearInterval</code>, or <code>.unref()</code> (Chapter 7)</td></tr>
+  <tr><td>The program exits too early (code 13)</td><td>top-level <code>await</code> on something nothing will ever settle</td><td>check that a timer/server keeps the loop alive; <code>AbortSignal.timeout</code> alone doesn't (Chapter 8)</td></tr>
+  <tr><td><code>ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX</code></td><td>enum or parameter property in a <code>.ts</code> file</td><td>use erasable syntax (Appendix A)</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Ready?</h2>
+<p>Start with <a href="01-intro.html">Chapter 1: Introduction to Node.js</a>. Run every example yourself, change it, break it, and read the error messages — they're usually precise.</p>
+</div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
