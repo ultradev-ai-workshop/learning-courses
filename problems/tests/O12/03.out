@@ -1,0 +1,8 @@
+SUBSCRIBED z *
+SUBSCRIBED a *
+PUBLISHED x to 2
+  z <- x: hi
+  a <- x: hi
+UNSUBSCRIBED z *
+PUBLISHED x to 1
+  a <- x: bye

@@ -1,0 +1,1149 @@
+ADDED a1 the penguin
+ADDED a2 the penguin
+ADDED a3 the eagle
+ERROR unknown species
+ADDED a5 the penguin
+SWIM: a1 a2 a5
+ADDED a7 the duck
+FLY: a3 a7
+ADDED a9 the dog
+ERROR unknown species
+ADDED a11 the cat
+ADDED a12 the duck
+ADDED a13 the eagle
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+ADDED a15 the penguin
+ADDED a16 the fish
+ADDED a17 the dog
+ADDED a18 the duck
+ADDED a19 the cat
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+ADDED a23 the penguin
+ADDED a24 the dog
+ADDED a25 the penguin
+ERROR unknown species
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25
+ADDED a28 the penguin
+ADDED a29 the duck
+ADDED a30 the fish
+ADDED a31 the cat
+ADDED a32 the cat
+ADDED a33 the dog
+ADDED a34 the fish
+ADDED a35 the duck
+ADDED a36 the fish
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+ADDED a38 the fish
+ADDED a39 the cat
+ADDED a40 the penguin
+FLY: a3 a7 a12 a13 a18 a29 a35
+ADDED a42 the penguin
+ADDED a43 the penguin
+ADDED a44 the penguin
+ADDED a45 the penguin
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+ADDED a47 the dog
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47
+ADDED a49 the eagle
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49
+ADDED a51 the penguin
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+ADDED a53 the duck
+ADDED a54 the duck
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49 a51 a53 a54
+SWIM: a1 a2 a5 a7 a9 a12 a15 a16 a17 a18 a23 a24 a25 a28 a29 a30 a33 a34 a35 a36 a38 a40 a42 a43 a44 a45 a47 a51 a53 a54
+ERROR unknown species
+ADDED a58 the penguin
+FLY: a3 a7 a12 a13 a18 a29 a35 a49 a53 a54
+ERROR unknown species
+ADDED a61 the dog
+ADDED a62 the dog
+ADDED a63 the cat
+ADDED a64 the duck
+ADDED a65 the dog
+SWIM: a1 a2 a5 a7 a9 a12 a15 a16 a17 a18 a23 a24 a25 a28 a29 a30 a33 a34 a35 a36 a38 a40 a42 a43 a44 a45 a47 a51 a53 a54 a58 a61 a62 a64 a65
+ADDED a67 the eagle
+ADDED a68 the eagle
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+ADDED a71 the duck
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+SWIM: a1 a2 a5 a7 a9 a12 a15 a16 a17 a18 a23 a24 a25 a28 a29 a30 a33 a34 a35 a36 a38 a40 a42 a43 a44 a45 a47 a51 a53 a54 a58 a61 a62 a64 a65 a71
+ADDED a74 the fish
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+ERROR unknown species
+ADDED a78 the penguin
+ADDED a79 the cat
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49 a51 a53 a54 a58 a61 a62 a63 a64 a65 a67 a68 a71 a78 a79
+ADDED a81 the penguin
+ADDED a82 the duck
+SWIM: a1 a2 a5 a7 a9 a12 a15 a16 a17 a18 a23 a24 a25 a28 a29 a30 a33 a34 a35 a36 a38 a40 a42 a43 a44 a45 a47 a51 a53 a54 a58 a61 a62 a64 a65 a71 a74 a78 a81 a82
+ERROR unknown species
+ADDED a85 the dog
+ADDED a86 the eagle
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+a47: woof
+a49: screech
+a51: honk
+a53: quack
+a54: quack
+a58: honk
+a61: woof
+a62: woof
+a63: meow
+a64: quack
+a65: woof
+a67: screech
+a68: screech
+a71: quack
+a74: ...
+a78: honk
+a79: meow
+a81: honk
+a82: quack
+a85: woof
+a86: screech
+ADDED a88 the eagle
+SWIM: a1 a2 a5 a7 a9 a12 a15 a16 a17 a18 a23 a24 a25 a28 a29 a30 a33 a34 a35 a36 a38 a40 a42 a43 a44 a45 a47 a51 a53 a54 a58 a61 a62 a64 a65 a71 a74 a78 a81 a82 a85
+ERROR unknown species
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+ADDED a92 the cat
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+a47: woof
+a49: screech
+a51: honk
+a53: quack
+a54: quack
+a58: honk
+a61: woof
+a62: woof
+a63: meow
+a64: quack
+a65: woof
+a67: screech
+a68: screech
+a71: quack
+a74: ...
+a78: honk
+a79: meow
+a81: honk
+a82: quack
+a85: woof
+a86: screech
+a88: screech
+a92: meow
+ADDED a94 the dog
+ADDED a95 the duck
+FLY: a3 a7 a12 a13 a18 a29 a35 a49 a53 a54 a64 a67 a68 a71 a82 a86 a88 a95
+ERROR unknown species
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+a47: woof
+a49: screech
+a51: honk
+a53: quack
+a54: quack
+a58: honk
+a61: woof
+a62: woof
+a63: meow
+a64: quack
+a65: woof
+a67: screech
+a68: screech
+a71: quack
+a74: ...
+a78: honk
+a79: meow
+a81: honk
+a82: quack
+a85: woof
+a86: screech
+a88: screech
+a92: meow
+a94: woof
+a95: quack
+ADDED a99 the duck
+ADDED a100 the cat
+FLY: a3 a7 a12 a13 a18 a29 a35 a49 a53 a54 a64 a67 a68 a71 a82 a86 a88 a95 a99
+ADDED a102 the cat
+ADDED a103 the cat
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49 a51 a53 a54 a58 a61 a62 a63 a64 a65 a67 a68 a71 a78 a79 a81 a82 a85 a86 a88 a92 a94 a95 a99 a100 a102 a103
+FLY: a3 a7 a12 a13 a18 a29 a35 a49 a53 a54 a64 a67 a68 a71 a82 a86 a88 a95 a99
+ADDED a106 the cat
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+a92 can walk
+a94 can walk, swim
+a95 can walk, swim, fly
+a99 can walk, swim, fly
+a100 can walk
+a102 can walk
+a103 can walk
+a106 can walk
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+a47: woof
+a49: screech
+a51: honk
+a53: quack
+a54: quack
+a58: honk
+a61: woof
+a62: woof
+a63: meow
+a64: quack
+a65: woof
+a67: screech
+a68: screech
+a71: quack
+a74: ...
+a78: honk
+a79: meow
+a81: honk
+a82: quack
+a85: woof
+a86: screech
+a88: screech
+a92: meow
+a94: woof
+a95: quack
+a99: quack
+a100: meow
+a102: meow
+a103: meow
+a106: meow
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49 a51 a53 a54 a58 a61 a62 a63 a64 a65 a67 a68 a71 a78 a79 a81 a82 a85 a86 a88 a92 a94 a95 a99 a100 a102 a103 a106
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+a92 can walk
+a94 can walk, swim
+a95 can walk, swim, fly
+a99 can walk, swim, fly
+a100 can walk
+a102 can walk
+a103 can walk
+a106 can walk
+ADDED a111 the penguin
+ADDED a112 the dog
+a1: honk
+a2: honk
+a3: screech
+a5: honk
+a7: quack
+a9: woof
+a11: meow
+a12: quack
+a13: screech
+a15: honk
+a16: ...
+a17: woof
+a18: quack
+a19: meow
+a23: honk
+a24: woof
+a25: honk
+a28: honk
+a29: quack
+a30: ...
+a31: meow
+a32: meow
+a33: woof
+a34: ...
+a35: quack
+a36: ...
+a38: ...
+a39: meow
+a40: honk
+a42: honk
+a43: honk
+a44: honk
+a45: honk
+a47: woof
+a49: screech
+a51: honk
+a53: quack
+a54: quack
+a58: honk
+a61: woof
+a62: woof
+a63: meow
+a64: quack
+a65: woof
+a67: screech
+a68: screech
+a71: quack
+a74: ...
+a78: honk
+a79: meow
+a81: honk
+a82: quack
+a85: woof
+a86: screech
+a88: screech
+a92: meow
+a94: woof
+a95: quack
+a99: quack
+a100: meow
+a102: meow
+a103: meow
+a106: meow
+a111: honk
+a112: woof
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+a92 can walk
+a94 can walk, swim
+a95 can walk, swim, fly
+a99 can walk, swim, fly
+a100 can walk
+a102 can walk
+a103 can walk
+a106 can walk
+a111 can walk, swim
+a112 can walk, swim
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+a92 can walk
+a94 can walk, swim
+a95 can walk, swim, fly
+a99 can walk, swim, fly
+a100 can walk
+a102 can walk
+a103 can walk
+a106 can walk
+a111 can walk, swim
+a112 can walk, swim
+a1 can walk, swim
+a2 can walk, swim
+a3 can walk, fly
+a5 can walk, swim
+a7 can walk, swim, fly
+a9 can walk, swim
+a11 can walk
+a12 can walk, swim, fly
+a13 can walk, fly
+a15 can walk, swim
+a16 can swim
+a17 can walk, swim
+a18 can walk, swim, fly
+a19 can walk
+a23 can walk, swim
+a24 can walk, swim
+a25 can walk, swim
+a28 can walk, swim
+a29 can walk, swim, fly
+a30 can swim
+a31 can walk
+a32 can walk
+a33 can walk, swim
+a34 can swim
+a35 can walk, swim, fly
+a36 can swim
+a38 can swim
+a39 can walk
+a40 can walk, swim
+a42 can walk, swim
+a43 can walk, swim
+a44 can walk, swim
+a45 can walk, swim
+a47 can walk, swim
+a49 can walk, fly
+a51 can walk, swim
+a53 can walk, swim, fly
+a54 can walk, swim, fly
+a58 can walk, swim
+a61 can walk, swim
+a62 can walk, swim
+a63 can walk
+a64 can walk, swim, fly
+a65 can walk, swim
+a67 can walk, fly
+a68 can walk, fly
+a71 can walk, swim, fly
+a74 can swim
+a78 can walk, swim
+a79 can walk
+a81 can walk, swim
+a82 can walk, swim, fly
+a85 can walk, swim
+a86 can walk, fly
+a88 can walk, fly
+a92 can walk
+a94 can walk, swim
+a95 can walk, swim, fly
+a99 can walk, swim, fly
+a100 can walk
+a102 can walk
+a103 can walk
+a106 can walk
+a111 can walk, swim
+a112 can walk, swim
+WALK: a1 a2 a3 a5 a7 a9 a11 a12 a13 a15 a17 a18 a19 a23 a24 a25 a28 a29 a31 a32 a33 a35 a39 a40 a42 a43 a44 a45 a47 a49 a51 a53 a54 a58 a61 a62 a63 a64 a65 a67 a68 a71 a78 a79 a81 a82 a85 a86 a88 a92 a94 a95 a99 a100 a102 a103 a106 a111 a112
+ADDED a118 the penguin
+ADDED a119 the dog

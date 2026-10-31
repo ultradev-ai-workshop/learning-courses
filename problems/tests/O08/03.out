@@ -1,0 +1,6 @@
+KEYS none
+1
+2
+EVICT c
+EVICT a
+KEYS e d b

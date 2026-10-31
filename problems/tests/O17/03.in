@@ -1,0 +1,11 @@
+10
+MKDIR /a
+MKDIR /a
+TOUCH /a 3
+TOUCH /f 3
+TOUCH /f 7
+LS /f
+MKDIR /f/g
+RM /f
+LS /a
+RM /zzz

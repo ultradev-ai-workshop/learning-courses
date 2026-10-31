@@ -1,0 +1,302 @@
+301
+LS /
+TOUCH /f5.txt 472
+LS /
+DU /missing
+MKDIR /d6
+DU /missing
+LS /
+TREE /d6
+DU /f5.txt
+MKDIR /d6/d1
+TREE /d6
+DU /f5.txt
+TREE /d6/d1
+LS /d6
+LS /d6/d1
+DU /
+RM /d6/d1
+MKDIR /d6/d0
+DU /missing
+MKDIR /d6/d6
+TOUCH /d6/d6/f4.txt 531
+LS /d6/d6/f4.txt
+DU /missing
+TOUCH /f3.txt 16
+LS /f3.txt
+MKDIR /d6/d3
+RM /d6/d6
+TOUCH /d6/d0/f5.txt 713
+RM /f3.txt
+MKDIR /d6/d3/d3
+DU /missing
+LS /d6/d3/d3
+DU /f5.txt
+TREE /d6/d0
+LS /f5.txt
+MKDIR /d6/d0/d0
+MKDIR /d6/d3/d4
+TOUCH /d6/f3.txt 156
+LS /f3.txt
+TOUCH /d6/f4.txt 202
+MKDIR /d6/d0/d0/d0
+TOUCH /d6/d3/f6.txt 55
+TOUCH /d6/f0.txt 412
+MKDIR /d6/d0/d5
+TOUCH /d6/d3/f5.txt 124
+DU /f3.txt
+DU /d6/f0.txt
+RM /d6/f0.txt
+MKDIR /d6/d0/d0/d0/d2
+TOUCH /d6/d3/d3/f6.txt 85
+TOUCH /d6/d3/d3/f1.txt 643
+TOUCH /d6/d0/d0/d0/f6.txt 293
+TREE /d6/d0
+RM /d6/d0/f5.txt
+DU /d6/f4.txt
+TOUCH /d6/d0/d5/f1.txt 464
+TOUCH /d6/d3/d4/f2.txt 758
+TOUCH /d6/d3/d4/f0.txt 529
+RM /d6/d3/d3
+LS /d6/d3/d4/f2.txt
+MKDIR /d6/d0/d0/d0/d0
+TOUCH /d6/d0/d0/d0/f5.txt 615
+DU /d6/d0/d0/d0
+TREE /d6
+LS /d6/d3/d4/f0.txt
+DU /
+TOUCH /d6/f5.txt 112
+TREE /d6/d0/d0
+LS /d6/d0/d0
+MKDIR /d6/d0/d3
+TOUCH /d6/d3/d4/f1.txt 108
+DU /d6/d0/d0/d0/f5.txt
+TOUCH /d6/d0/d3/f3.txt 598
+TOUCH /d6/d0/d0/d0/d2/f6.txt 756
+RM /d6/d0/d5
+TOUCH /d6/f6.txt 353
+TOUCH /d6/f2.txt 442
+DU /d6/f4.txt
+LS /d6/d0/d3
+TOUCH /d6/d0/d0/d0/d2/f2.txt 955
+TOUCH /d6/d0/d0/d0/d2/f3.txt 616
+RM /d6/d0/d0/d0/d2
+MKDIR /d6/d0/d4
+TOUCH /f2.txt 785
+TOUCH /d6/d3/d4/f4.txt 361
+DU /d6/d3/d4/f0.txt
+TOUCH /d6/d0/f3.txt 758
+TOUCH /d6/d0/d0/d0/d0/f2.txt 668
+LS /d6/d0/d0/d0/f5.txt
+LS /d6/d0/d3/f3.txt
+MKDIR /d6/d0/d0/d5
+DU /d6/f4.txt
+DU /f2.txt
+DU /d6/d3/d4/f0.txt
+TOUCH /d6/d0/f5.txt 910
+MKDIR /d6/d0/d0/d0/d0/d2
+RM /d6/d3/d4/f0.txt
+MKDIR /d6/d0/d0/d3
+RM /d6/f0.txt
+TOUCH /f0.txt 490
+DU /f0.txt
+TOUCH /d6/d3/d4/f4.txt 324
+DU /d6/f5.txt
+TOUCH /d6/d3/f6.txt 816
+TREE /d6/d0/d0/d0/d0/d2
+MKDIR /d6/d0/d4/d2
+LS /d6/f3.txt
+TOUCH /d6/d0/d3/f4.txt 540
+MKDIR /d6/d0/d0/d0/d0/d2/d2
+TOUCH /d6/d0/f6.txt 795
+TOUCH /d6/d0/d0/f0.txt 696
+DU /d6/f3.txt
+TOUCH /d6/d0/d0/d0/d0/d2/f3.txt 297
+MKDIR /d6/d0/d4/d2/d4
+TOUCH /d6/d0/d4/d2/f5.txt 604
+MKDIR /d6/d0/d4/d2/d6
+LS /d6/d0/d4/d2/d6
+TOUCH /d6/d0/d0/d0/d0/d2/f1.txt 662
+MKDIR /d6/d0/d4/d2/d4/d0
+DU /d6/d0/d0/d0/d0/d2/d2
+LS /d6/d0/d0/d0/d0/d2/f3.txt
+TREE /d6/d0/d0/d3
+TOUCH /f6.txt 713
+TOUCH /d6/d3/d4/f2.txt 596
+TOUCH /d6/d0/d0/d0/f3.txt 181
+RM /d6/d0/d0/d0/f3.txt
+TOUCH /d6/d0/f6.txt 355
+TOUCH /d6/d3/f5.txt 230
+DU /d6/d3/f6.txt
+DU /missing
+LS /d6/d0/d3/f4.txt
+RM /d6
+MKDIR /d5
+LS /f2.txt
+DU /missing
+TOUCH /d5/f5.txt 199
+TREE /d5
+LS /d5
+MKDIR /d6
+TOUCH /d6/f0.txt 818
+MKDIR /d5/d0
+LS /d5/f5.txt
+TREE /d5/d0
+RM /f0.txt
+MKDIR /d6/d4
+TOUCH /d5/d0/f4.txt 725
+TOUCH /d5/d0/f5.txt 99
+RM /f0.txt
+RM /d5/f5.txt
+TOUCH /d5/d0/f4.txt 92
+DU /f5.txt
+MKDIR /d5
+RM /d5
+RM /d6
+TOUCH /f6.txt 903
+TREE /
+TOUCH /f3.txt 313
+TOUCH /f2.txt 657
+TOUCH /f0.txt 772
+TOUCH /f0.txt 603
+TOUCH /f2.txt 14
+MKDIR /d3
+TREE /d3
+LS /f3.txt
+MKDIR /d3/d0
+TOUCH /d3/d0/f0.txt 380
+DU /
+TOUCH /d3/f2.txt 734
+LS /f6.txt
+TOUCH /d3/d0/f3.txt 597
+TOUCH /d3/f6.txt 503
+TOUCH /f2.txt 952
+RM /d3
+MKDIR /d3
+TOUCH /f3.txt 937
+TOUCH /d3/f5.txt 261
+LS /f2.txt
+LS /f2.txt
+MKDIR /d6
+TOUCH /d3/f5.txt 905
+TOUCH /d3/f5.txt 731
+TOUCH /d3/f3.txt 349
+LS /f2.txt
+TREE /
+TREE /
+TOUCH /d6/f1.txt 629
+LS /f3.txt
+RM /d6
+TOUCH /f6.txt 624
+DU /f2.txt
+TOUCH /d3/f6.txt 410
+TOUCH /d3/f2.txt 813
+DU /f2.txt
+DU /d3/f3.txt
+TOUCH /f1.txt 545
+DU /d3/f2.txt
+LS /d3/f5.txt
+MKDIR /d3/d2
+TOUCH /f0.txt 509
+LS /f2.txt
+DU /f0.txt
+TOUCH /d3/d2/f5.txt 153
+MKDIR /d3/d3
+LS /f2.txt
+TOUCH /f4.txt 211
+TOUCH /d3/f0.txt 53
+MKDIR /d0
+TOUCH /d3/d3/f6.txt 240
+TOUCH /d3/d3/f4.txt 573
+LS /d3/f5.txt
+MKDIR /d3/d2/d1
+MKDIR /d3/d2/d2
+DU /d3/f2.txt
+DU /d3/f5.txt
+TREE /d3/d2
+MKDIR /d0/d0
+MKDIR /d3/d2/d2/d3
+TOUCH /f6.txt 884
+DU /f3.txt
+LS /f6.txt
+MKDIR /d3/d1
+MKDIR /d3/d2/d4
+TREE /d0
+TREE /d0
+TOUCH /d3/d2/d1/f2.txt 331
+LS /d3/d2/d2/d3
+LS /
+LS /f2.txt
+MKDIR /d3/d2/d1/d6
+DU /d3/d2/d1/d6
+LS /d3/d3/f6.txt
+DU /d3/f3.txt
+LS /d3/f5.txt
+DU /d3/d3/f6.txt
+TOUCH /d3/d2/d1/f6.txt 414
+MKDIR /d3/d2/d2/d3/d4
+MKDIR /d3/d6
+TREE /d0/d0
+MKDIR /d3/d3/d4
+TOUCH /d3/d2/d1/f2.txt 838
+MKDIR /d3/d3/d4/d5
+MKDIR /d3/d3/d4/d6
+TREE /d3/d2/d2/d3/d4
+MKDIR /d3/d2/d4/d6
+RM /f6.txt
+TOUCH /d3/d3/d4/d6/f4.txt 207
+TOUCH /d3/d2/d4/f2.txt 879
+LS /d3/d2/d2
+LS /
+RM /d3
+MKDIR /d0/d0/d4
+MKDIR /d0/d0/d4/d1
+RM /d0
+LS /f2.txt
+RM /f3.txt
+TOUCH /f6.txt 996
+DU /missing
+TOUCH /f6.txt 879
+MKDIR /d3
+LS /f6.txt
+TOUCH /d3/f3.txt 936
+RM /f6.txt
+TOUCH /f4.txt 625
+DU /f2.txt
+TOUCH /f0.txt 718
+TREE /d3
+MKDIR /d3/d1
+TOUCH /f5.txt 357
+TOUCH /d3/d1/f2.txt 449
+TREE /
+LS /f6.txt
+DU /f1.txt
+MKDIR /d3
+TOUCH /d3/d1/f0.txt 222
+RM /d3/d1
+LS /f6.txt
+DU /f0.txt
+TOUCH /d3/f4.txt 203
+DU /f0.txt
+DU /f3.txt
+TOUCH /d3/f1.txt 32
+TREE /d3
+LS /f2.txt
+DU /f1.txt
+TOUCH /d3/f1.txt 333
+MKDIR /d3/d2
+LS /f2.txt
+LS /d3/d2
+DU /f3.txt
+TOUCH /d3/f5.txt 823
+DU /f3.txt
+DU /f6.txt
+LS /f3.txt
+TOUCH /f5.txt 67
+TOUCH /d3/d2/f5.txt 294
+MKDIR /d1
+LS /d3/f1.txt
+MKDIR /d3/d2/d2
+TOUCH /d3/f1.txt 553
+DU /f3.txt
+TREE /

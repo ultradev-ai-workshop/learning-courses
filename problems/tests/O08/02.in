@@ -1,0 +1,8 @@
+7
+CAPACITY 1
+GET x
+PUT x 1
+PUT y 2
+GET x
+GET y
+KEYS

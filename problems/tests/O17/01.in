@@ -1,0 +1,12 @@
+11
+MKDIR /docs
+MKDIR /docs/old
+TOUCH /docs/a.txt 120
+TOUCH /docs/old/b.txt 30
+TOUCH /readme 5
+DU /docs
+DU /
+LS /docs
+TREE /
+RM /docs/old
+DU /

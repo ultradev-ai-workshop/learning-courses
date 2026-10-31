@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>Problem Set</title>
+<link rel="stylesheet" href="problems.css">
+</head>
+<body>
+<nav class="topbar">
+  <a href="../index.html">← All courses</a>
+  <span class="brand">🧩 Problem Set</span>
+  <span class="spacer"></span>
+  <a href="guide.html">How to solve &amp; test</a>
+</nav>
+<main>
+  <div class="eyebrow">Practice · any language</div>
+  <h1>🧩 100 Problems to Master a Language</h1>
+  <p class="lead">75 algorithm problems (25 easy, 25 medium, 25 hard) plus 25 object-oriented design problems. Every problem is language-neutral: it reads standard input, writes standard output, and comes with exact expected outputs so you can check your own solution — no solutions are given.</p>
+
+  <ol class="steps">
+    <li><strong>Pick a problem</strong> and read the statement, input/output format and examples.</li>
+    <li><strong>Write a program</strong> in any language that reads from <em>stdin</em> and prints to <em>stdout</em>. <a href="guide.html">Templates →</a></li>
+    <li><strong>Check it</strong>: paste your output into the page's checker, or run all tests at once with <code>runner/run-tests.py</code>.</li>
+  </ol>
+
+  <div class="cards" id="stats"></div>
+
+  <div class="filters" role="group" aria-label="Filter problems">
+    <span id="chips"></span>
+    <input type="search" id="q" placeholder="Search title, tag or concept…" aria-label="Search problems">
+    <select id="tag" aria-label="Filter by tag"><option value="">All tags</option></select>
+    <label><input type="checkbox" id="hide"> Hide solved</label>
+  </div>
+  <ul class="plist" id="list"></ul>
+
+  <footer>
+    Progress is stored in this browser only. <button type="button" class="btn small" id="reset">Reset progress</button>
+    <p>Tip: the test files live in <code>tests/&lt;ID&gt;/NN.in</code> and <code>NN.out</code> — use them with any tool you like.</p>
+  </footer>
+</main>
+<script src="problems.js"></script>
+<script src="app.js"></script>
+<script>
+(function () {
+  var A = window.ProblemApp, el = A.el;
+  var STATE_KEY = 'problems.filters.v1';
+  var state = { diff: 'all', q: '', tag: '', hide: false };
+  try { Object.assign(state, JSON.parse(sessionStorage.getItem(STATE_KEY) || '{}')); } catch (e) { /* ignore */ }
+  function keep() { try { sessionStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
+
+  var tags = {};
+  A.problems.forEach(function (p) { p.tags.forEach(function (t) { tags[t] = (tags[t] || 0) + 1; }); });
+  var sel = document.getElementById('tag');
+  Object.keys(tags).sort().forEach(function (t) { sel.appendChild(el('option', { value: t, text: t + ' (' + tags[t] + ')' })); });
+
+  var q = document.getElementById('q'), hide = document.getElementById('hide');
+  q.value = state.q; sel.value = state.tag; hide.checked = state.hide;
+  q.addEventListener('input', function () { state.q = q.value; keep(); renderList(); });
+  sel.addEventListener('change', function () { state.tag = sel.value; keep(); renderList(); });
+  hide.addEventListener('change', function () { state.hide = hide.checked; keep(); renderList(); });
+  // Two-click reset instead of a native confirm() popup.
+  var reset = document.getElementById('reset');
+  reset.addEventListener('click', function () {
+    if (reset.dataset.armed) { A.progress.resetAll(); reset.textContent = 'Reset progress'; delete reset.dataset.armed; render(); return; }
+    reset.dataset.armed = '1'; reset.textContent = 'Click again to erase all progress';
+    setTimeout(function () { reset.textContent = 'Reset progress'; delete reset.dataset.armed; }, 3000);
+  });
+
+  function renderStats() {
+    var box = document.getElementById('stats'); box.innerHTML = '';
+    A.DIFFS.forEach(function (d) {
+      var list = A.problems.filter(function (p) { return p.difficulty === d[0]; });
+      var solved = list.filter(function (p) { return A.progress.status(p.id) === 'solved'; }).length;
+      var pct = list.length ? Math.round(solved / list.length * 100) : 0;
+      var bar = el('div', { class: 'bar' }, [el('span')]);
+      bar.firstChild.style.width = pct + '%';
+      box.appendChild(el('div', { class: 'stat', style: 'color: var(--' + d[0] + ')' }, [
+        el('div', { class: 'label', text: d[1] }),
+        el('div', { class: 'num', style: 'color: var(--text)', text: solved + ' / ' + list.length }),
+        bar,
+        el('div', { class: 'muted', style: 'font-size: 13px; margin-top: 6px', text: d[2] })
+      ]));
+    });
+  }
+  function renderChips() {
+    var box = document.getElementById('chips'); box.innerHTML = '';
+    [['all', 'All']].concat(A.DIFFS.map(function (d) { return [d[0], d[0] === 'oop' ? 'OOP' : d[1]]; })).forEach(function (c) {
+      box.appendChild(el('button', { type: 'button', class: 'chip', 'aria-pressed': String(state.diff === c[0]), text: c[1],
+        onclick: function () { state.diff = c[0]; keep(); renderChips(); renderList(); } }));
+      box.appendChild(document.createTextNode(' '));
+    });
+  }
+  function matches(p) {
+    if (state.diff !== 'all' && p.difficulty !== state.diff) return false;
+    if (state.tag && p.tags.indexOf(state.tag) < 0) return false;
+    if (state.hide && A.progress.status(p.id) === 'solved') return false;
+    var needle = state.q.trim().toLowerCase();
+    if (!needle) return true;
+    return [p.id, p.title].concat(p.tags, p.concepts).join(' ').toLowerCase().indexOf(needle) >= 0;
+  }
+  function renderList() {
+    var ul = document.getElementById('list'); ul.innerHTML = '';
+    var shown = A.problems.filter(matches);
+    if (!shown.length) { ul.appendChild(el('li', { class: 'empty', text: 'No problems match these filters.' })); return; }
+    shown.forEach(function (p) {
+      var st = A.progress.status(p.id);
+      var icon = st === 'solved' ? '✓' : st === 'tried' ? '◐' : '○';
+      var label = st === 'solved' ? 'solved' : st === 'tried' ? 'some tests passed' : 'not started';
+      ul.appendChild(el('li', null, [el('a', { href: 'problem.html?id=' + p.id }, [
+        el('span', { class: 'status ' + st, title: label, 'aria-label': label, text: icon }),
+        el('span', { class: 'pid', text: p.id }),
+        el('span', { class: 'ptitle', text: p.title }),
+        el('span', { class: 'pbadge' }, [A.badge(p.difficulty)]),
+        el('span', { class: 'ptags' }, p.tags.map(function (t) { return el('span', { class: 'tag', text: t }); }))
+      ])]));
+    });
+  }
+  function render() { renderStats(); renderChips(); renderList(); }
+  window.addEventListener('pageshow', render);   // refresh progress when coming back from a problem
+  render();
+})();
+</script>
+</body>
+</html>

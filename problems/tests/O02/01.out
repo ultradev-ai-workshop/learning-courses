@@ -1,0 +1,6 @@
+ERROR invalid triangle
+1 Circle area=3.14 perimeter=6.28
+2 Rectangle area=12.00 perimeter=14.00
+3 Triangle area=6.00 perimeter=12.00
+TOTAL area=21.14
+LARGEST Rectangle

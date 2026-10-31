@@ -1,0 +1,5 @@
+4
+NOTIFY ana Your order shipped
+PREFER ben SMS,PUSH
+NOTIFY ben Your order o42 has shipped today
+PREFER ben FAX

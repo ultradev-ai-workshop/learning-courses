@@ -1,0 +1,10 @@
+9
+TYPE Hello
+TYPE  world
+DELETE 6
+UNDO
+UNDO
+REDO
+TYPE !
+REDO
+SHOW

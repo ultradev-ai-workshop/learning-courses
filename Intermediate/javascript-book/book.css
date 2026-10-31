@@ -269,3 +269,4 @@ details.check > summary { cursor: pointer; font-weight: 600; }
 }
 .es.es6 { border-color: var(--accent-2); color: var(--accent-2); }
 h2 .es, h3 .es { margin-left: 6px; }
+#sidebar .all-courses + .all-courses { margin-top: -6px; }

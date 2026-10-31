@@ -1,0 +1,5 @@
+4
+RANGE -3 3 1
+RANGE 10 -10 -7
+TAKE 0 0 3
+ZIP p,q,r,s 1,2,3,4

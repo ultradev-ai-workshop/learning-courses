@@ -1,0 +1,385 @@
+(empty)
+FILE /f5.txt 472
+f5.txt
+ERROR not found
+CREATED /d6
+ERROR not found
+d6/ f5.txt
+d6/
+SIZE /f5.txt 472
+CREATED /d6/d1
+d6/
+  d1/
+SIZE /f5.txt 472
+d1/
+d1/
+(empty)
+SIZE / 472
+REMOVED /d6/d1
+CREATED /d6/d0
+ERROR not found
+CREATED /d6/d6
+FILE /d6/d6/f4.txt 531
+f4.txt
+ERROR not found
+FILE /f3.txt 16
+f3.txt
+CREATED /d6/d3
+REMOVED /d6/d6
+FILE /d6/d0/f5.txt 713
+REMOVED /f3.txt
+CREATED /d6/d3/d3
+ERROR not found
+(empty)
+SIZE /f5.txt 472
+d0/
+  f5.txt (713)
+f5.txt
+CREATED /d6/d0/d0
+CREATED /d6/d3/d4
+FILE /d6/f3.txt 156
+ERROR not found
+FILE /d6/f4.txt 202
+CREATED /d6/d0/d0/d0
+FILE /d6/d3/f6.txt 55
+FILE /d6/f0.txt 412
+CREATED /d6/d0/d5
+FILE /d6/d3/f5.txt 124
+ERROR not found
+SIZE /d6/f0.txt 412
+REMOVED /d6/f0.txt
+CREATED /d6/d0/d0/d0/d2
+FILE /d6/d3/d3/f6.txt 85
+FILE /d6/d3/d3/f1.txt 643
+FILE /d6/d0/d0/d0/f6.txt 293
+d0/
+  d0/
+    d0/
+      d2/
+      f6.txt (293)
+  d5/
+  f5.txt (713)
+REMOVED /d6/d0/f5.txt
+SIZE /d6/f4.txt 202
+FILE /d6/d0/d5/f1.txt 464
+FILE /d6/d3/d4/f2.txt 758
+FILE /d6/d3/d4/f0.txt 529
+REMOVED /d6/d3/d3
+f2.txt
+CREATED /d6/d0/d0/d0/d0
+FILE /d6/d0/d0/d0/f5.txt 615
+SIZE /d6/d0/d0/d0 908
+d6/
+  d0/
+    d0/
+      d0/
+        d0/
+        d2/
+        f5.txt (615)
+        f6.txt (293)
+    d5/
+      f1.txt (464)
+  d3/
+    d4/
+      f0.txt (529)
+      f2.txt (758)
+    f5.txt (124)
+    f6.txt (55)
+  f3.txt (156)
+  f4.txt (202)
+f0.txt
+SIZE / 3668
+FILE /d6/f5.txt 112
+d0/
+  d0/
+    d0/
+    d2/
+    f5.txt (615)
+    f6.txt (293)
+d0/
+CREATED /d6/d0/d3
+FILE /d6/d3/d4/f1.txt 108
+SIZE /d6/d0/d0/d0/f5.txt 615
+FILE /d6/d0/d3/f3.txt 598
+FILE /d6/d0/d0/d0/d2/f6.txt 756
+REMOVED /d6/d0/d5
+FILE /d6/f6.txt 353
+FILE /d6/f2.txt 442
+SIZE /d6/f4.txt 202
+f3.txt
+FILE /d6/d0/d0/d0/d2/f2.txt 955
+FILE /d6/d0/d0/d0/d2/f3.txt 616
+REMOVED /d6/d0/d0/d0/d2
+CREATED /d6/d0/d4
+FILE /f2.txt 785
+FILE /d6/d3/d4/f4.txt 361
+SIZE /d6/d3/d4/f0.txt 529
+FILE /d6/d0/f3.txt 758
+FILE /d6/d0/d0/d0/d0/f2.txt 668
+f5.txt
+f3.txt
+CREATED /d6/d0/d0/d5
+SIZE /d6/f4.txt 202
+SIZE /f2.txt 785
+SIZE /d6/d3/d4/f0.txt 529
+FILE /d6/d0/f5.txt 910
+CREATED /d6/d0/d0/d0/d0/d2
+REMOVED /d6/d3/d4/f0.txt
+CREATED /d6/d0/d0/d3
+ERROR not found
+FILE /f0.txt 490
+SIZE /f0.txt 490
+FILE /d6/d3/d4/f4.txt 324
+SIZE /d6/f5.txt 112
+FILE /d6/d3/f6.txt 816
+d2/
+CREATED /d6/d0/d4/d2
+f3.txt
+FILE /d6/d0/d3/f4.txt 540
+CREATED /d6/d0/d0/d0/d0/d2/d2
+FILE /d6/d0/f6.txt 795
+FILE /d6/d0/d0/f0.txt 696
+SIZE /d6/f3.txt 156
+FILE /d6/d0/d0/d0/d0/d2/f3.txt 297
+CREATED /d6/d0/d4/d2/d4
+FILE /d6/d0/d4/d2/f5.txt 604
+CREATED /d6/d0/d4/d2/d6
+(empty)
+FILE /d6/d0/d0/d0/d0/d2/f1.txt 662
+CREATED /d6/d0/d4/d2/d4/d0
+SIZE /d6/d0/d0/d0/d0/d2/d2 0
+f3.txt
+d3/
+FILE /f6.txt 713
+FILE /d6/d3/d4/f2.txt 596
+FILE /d6/d0/d0/d0/f3.txt 181
+REMOVED /d6/d0/d0/d0/f3.txt
+FILE /d6/d0/f6.txt 355
+FILE /d6/d3/f5.txt 230
+SIZE /d6/d3/f6.txt 816
+ERROR not found
+f4.txt
+REMOVED /d6
+CREATED /d5
+f2.txt
+ERROR not found
+FILE /d5/f5.txt 199
+d5/
+  f5.txt (199)
+f5.txt
+CREATED /d6
+FILE /d6/f0.txt 818
+CREATED /d5/d0
+f5.txt
+d0/
+REMOVED /f0.txt
+CREATED /d6/d4
+FILE /d5/d0/f4.txt 725
+FILE /d5/d0/f5.txt 99
+ERROR not found
+REMOVED /d5/f5.txt
+FILE /d5/d0/f4.txt 92
+SIZE /f5.txt 472
+ERROR exists
+REMOVED /d5
+REMOVED /d6
+FILE /f6.txt 903
+/
+  f2.txt (785)
+  f5.txt (472)
+  f6.txt (903)
+FILE /f3.txt 313
+FILE /f2.txt 657
+FILE /f0.txt 772
+FILE /f0.txt 603
+FILE /f2.txt 14
+CREATED /d3
+d3/
+f3.txt
+CREATED /d3/d0
+FILE /d3/d0/f0.txt 380
+SIZE / 2685
+FILE /d3/f2.txt 734
+f6.txt
+FILE /d3/d0/f3.txt 597
+FILE /d3/f6.txt 503
+FILE /f2.txt 952
+REMOVED /d3
+CREATED /d3
+FILE /f3.txt 937
+FILE /d3/f5.txt 261
+f2.txt
+f2.txt
+CREATED /d6
+FILE /d3/f5.txt 905
+FILE /d3/f5.txt 731
+FILE /d3/f3.txt 349
+f2.txt
+/
+  d3/
+    f3.txt (349)
+    f5.txt (731)
+  d6/
+  f0.txt (603)
+  f2.txt (952)
+  f3.txt (937)
+  f5.txt (472)
+  f6.txt (903)
+/
+  d3/
+    f3.txt (349)
+    f5.txt (731)
+  d6/
+  f0.txt (603)
+  f2.txt (952)
+  f3.txt (937)
+  f5.txt (472)
+  f6.txt (903)
+FILE /d6/f1.txt 629
+f3.txt
+REMOVED /d6
+FILE /f6.txt 624
+SIZE /f2.txt 952
+FILE /d3/f6.txt 410
+FILE /d3/f2.txt 813
+SIZE /f2.txt 952
+SIZE /d3/f3.txt 349
+FILE /f1.txt 545
+SIZE /d3/f2.txt 813
+f5.txt
+CREATED /d3/d2
+FILE /f0.txt 509
+f2.txt
+SIZE /f0.txt 509
+FILE /d3/d2/f5.txt 153
+CREATED /d3/d3
+f2.txt
+FILE /f4.txt 211
+FILE /d3/f0.txt 53
+CREATED /d0
+FILE /d3/d3/f6.txt 240
+FILE /d3/d3/f4.txt 573
+f5.txt
+CREATED /d3/d2/d1
+CREATED /d3/d2/d2
+SIZE /d3/f2.txt 813
+SIZE /d3/f5.txt 731
+d2/
+  d1/
+  d2/
+  f5.txt (153)
+CREATED /d0/d0
+CREATED /d3/d2/d2/d3
+FILE /f6.txt 884
+SIZE /f3.txt 937
+f6.txt
+CREATED /d3/d1
+CREATED /d3/d2/d4
+d0/
+  d0/
+d0/
+  d0/
+FILE /d3/d2/d1/f2.txt 331
+(empty)
+d0/ d3/ f0.txt f1.txt f2.txt f3.txt f4.txt f5.txt f6.txt
+f2.txt
+CREATED /d3/d2/d1/d6
+SIZE /d3/d2/d1/d6 0
+f6.txt
+SIZE /d3/f3.txt 349
+f5.txt
+SIZE /d3/d3/f6.txt 240
+FILE /d3/d2/d1/f6.txt 414
+CREATED /d3/d2/d2/d3/d4
+CREATED /d3/d6
+d0/
+CREATED /d3/d3/d4
+FILE /d3/d2/d1/f2.txt 838
+CREATED /d3/d3/d4/d5
+CREATED /d3/d3/d4/d6
+d4/
+CREATED /d3/d2/d4/d6
+REMOVED /f6.txt
+FILE /d3/d3/d4/d6/f4.txt 207
+FILE /d3/d2/d4/f2.txt 879
+d3/
+d0/ d3/ f0.txt f1.txt f2.txt f3.txt f4.txt f5.txt
+REMOVED /d3
+CREATED /d0/d0/d4
+CREATED /d0/d0/d4/d1
+REMOVED /d0
+f2.txt
+REMOVED /f3.txt
+FILE /f6.txt 996
+ERROR not found
+FILE /f6.txt 879
+CREATED /d3
+f6.txt
+FILE /d3/f3.txt 936
+REMOVED /f6.txt
+FILE /f4.txt 625
+SIZE /f2.txt 952
+FILE /f0.txt 718
+d3/
+  f3.txt (936)
+CREATED /d3/d1
+FILE /f5.txt 357
+FILE /d3/d1/f2.txt 449
+/
+  d3/
+    d1/
+      f2.txt (449)
+    f3.txt (936)
+  f0.txt (718)
+  f1.txt (545)
+  f2.txt (952)
+  f4.txt (625)
+  f5.txt (357)
+ERROR not found
+SIZE /f1.txt 545
+ERROR exists
+FILE /d3/d1/f0.txt 222
+REMOVED /d3/d1
+ERROR not found
+SIZE /f0.txt 718
+FILE /d3/f4.txt 203
+SIZE /f0.txt 718
+ERROR not found
+FILE /d3/f1.txt 32
+d3/
+  f1.txt (32)
+  f3.txt (936)
+  f4.txt (203)
+f2.txt
+SIZE /f1.txt 545
+FILE /d3/f1.txt 333
+CREATED /d3/d2
+f2.txt
+(empty)
+ERROR not found
+FILE /d3/f5.txt 823
+ERROR not found
+ERROR not found
+ERROR not found
+FILE /f5.txt 67
+FILE /d3/d2/f5.txt 294
+CREATED /d1
+f1.txt
+CREATED /d3/d2/d2
+FILE /d3/f1.txt 553
+ERROR not found
+/
+  d1/
+  d3/
+    d2/
+      d2/
+      f5.txt (294)
+    f1.txt (553)
+    f3.txt (936)
+    f4.txt (203)
+    f5.txt (823)
+  f0.txt (718)
+  f1.txt (545)
+  f2.txt (952)
+  f4.txt (625)
+  f5.txt (67)

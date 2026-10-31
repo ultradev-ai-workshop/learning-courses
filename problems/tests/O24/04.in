@@ -1,0 +1,201 @@
+200
+PREFER user1 PUSH
+NOTIFY user5 your today ok your
+PREFER user4 PUSH,SMS
+NOTIFY user5 and your shipped soon order ok
+NOTIFY user3 order your has has today order your your ok
+PREFER user0 FAX
+NOTIFY user2 ok your ok shipped and soon will ok
+NOTIFY user4 order arrive
+PREFER user1 SMS,SMS
+NOTIFY user0 order order soon arrive has and today
+NOTIFY user0 and and
+NOTIFY user0 has will arrive arrive arrive arrive
+NOTIFY user6 and shipped your and shipped
+NOTIFY user5 arrive arrive ok today will ok your will
+PREFER user2 SMS,PUSH,PUSH
+NOTIFY user4 your arrive order and will arrive
+NOTIFY user4 will and shipped soon and your soon shipped your
+NOTIFY user0 arrive ok order soon
+NOTIFY user0 ok soon order ok ok will order arrive
+NOTIFY user3 and order will soon arrive your
+PREFER user3 SMS,SMS,EMAIL
+PREFER user1 PUSH,PUSH,FAX
+NOTIFY user5 order order your shipped
+NOTIFY user0 shipped will order
+PREFER user0 FAX,PUSH,SMS
+NOTIFY user5 has and arrive today shipped
+NOTIFY user3 shipped today ok ok and shipped and today
+NOTIFY user1 order ok
+NOTIFY user0 today and
+NOTIFY user3 order soon ok today arrive soon today
+NOTIFY user6 soon your has
+PREFER user4 PUSH,PUSH,PUSH
+NOTIFY user2 order and has has shipped soon arrive shipped
+NOTIFY user5 your and soon will order
+NOTIFY user6 will soon soon today today soon
+NOTIFY user2 order will has shipped and ok
+NOTIFY user4 arrive and arrive has will shipped shipped will
+PREFER user6 PUSH,PUSH,PUSH
+PREFER user0 SMS
+PREFER user4 PUSH,FAX,PUSH
+PREFER user0 PUSH,PUSH
+NOTIFY user5 arrive soon soon ok shipped soon your has arrive
+NOTIFY user6 shipped your order soon shipped will shipped
+PREFER user2 PUSH
+PREFER user2 PUSH
+NOTIFY user2 soon today
+PREFER user0 EMAIL,FAX,PUSH
+NOTIFY user3 will will order
+PREFER user3 PUSH,PUSH
+NOTIFY user4 arrive ok will will today ok will shipped will
+PREFER user6 EMAIL
+NOTIFY user1 has and order soon
+NOTIFY user5 today has ok will soon
+NOTIFY user2 your soon today shipped
+NOTIFY user2 will will ok
+PREFER user2 SMS
+NOTIFY user1 arrive and shipped ok your today soon will
+NOTIFY user1 will ok shipped today and ok will today ok
+NOTIFY user0 arrive order arrive soon arrive soon will ok your
+NOTIFY user3 your has your
+PREFER user4 FAX
+NOTIFY user0 soon and arrive
+NOTIFY user6 order has ok has has arrive will arrive today
+NOTIFY user5 ok
+NOTIFY user3 your and has has and arrive today
+PREFER user0 FAX,PUSH,PUSH
+NOTIFY user6 today
+NOTIFY user4 will
+NOTIFY user5 your
+NOTIFY user5 today order will
+NOTIFY user4 ok today and your and
+NOTIFY user4 arrive shipped order will and and shipped
+NOTIFY user5 order soon your
+PREFER user6 EMAIL,PUSH
+NOTIFY user0 today today
+NOTIFY user6 today ok today and ok has
+PREFER user5 PUSH,PUSH
+PREFER user5 EMAIL,PUSH,FAX
+NOTIFY user1 today soon soon order has your
+NOTIFY user4 today and arrive and ok soon
+PREFER user2 SMS
+NOTIFY user5 shipped ok has will today and order will
+NOTIFY user5 arrive arrive order will
+NOTIFY user4 shipped
+NOTIFY user4 and will
+NOTIFY user3 arrive arrive will order ok
+PREFER user6 SMS,PUSH
+NOTIFY user4 has arrive order and and and your soon soon
+NOTIFY user0 has soon your order will arrive
+NOTIFY user5 shipped
+NOTIFY user4 arrive
+NOTIFY user1 will and will arrive
+NOTIFY user1 ok soon
+NOTIFY user3 today soon will today ok arrive today
+PREFER user5 SMS,PUSH,EMAIL
+PREFER user2 PUSH,PUSH
+PREFER user2 SMS,EMAIL,PUSH
+PREFER user5 SMS,FAX,EMAIL
+NOTIFY user4 order has arrive and ok soon
+NOTIFY user1 soon has shipped arrive and order and
+NOTIFY user2 arrive shipped shipped
+NOTIFY user1 shipped
+NOTIFY user1 shipped shipped will arrive order and
+NOTIFY user1 and and soon shipped today ok
+PREFER user2 FAX
+PREFER user2 PUSH
+NOTIFY user3 soon today will has shipped and ok ok
+NOTIFY user6 your will has arrive your ok arrive has has
+NOTIFY user4 your today
+PREFER user3 FAX,FAX
+NOTIFY user2 ok order arrive will ok and shipped order soon
+NOTIFY user4 soon your arrive today today
+PREFER user2 SMS
+PREFER user5 PUSH,PUSH
+NOTIFY user2 soon your arrive your has ok will your shipped
+PREFER user4 EMAIL,EMAIL,SMS
+NOTIFY user5 ok today arrive has your ok shipped will order
+NOTIFY user6 arrive will has and arrive soon order today soon
+PREFER user1 PUSH,PUSH,SMS
+NOTIFY user5 order your and soon order and arrive ok
+PREFER user5 SMS,FAX,PUSH
+NOTIFY user1 soon and
+NOTIFY user5 your your
+NOTIFY user4 ok arrive shipped order
+NOTIFY user1 today your order will
+NOTIFY user0 arrive order soon
+NOTIFY user2 order has has
+NOTIFY user6 and has soon arrive shipped
+PREFER user0 PUSH,EMAIL
+NOTIFY user4 soon will
+NOTIFY user2 and order arrive arrive will will arrive ok soon
+NOTIFY user5 shipped your ok your soon arrive arrive soon
+PREFER user2 EMAIL,PUSH
+NOTIFY user2 has order shipped has shipped soon ok your
+NOTIFY user4 ok order order arrive has your shipped
+PREFER user5 PUSH
+NOTIFY user3 ok
+PREFER user4 FAX
+NOTIFY user0 arrive will order arrive arrive
+NOTIFY user6 shipped shipped and ok soon order order has ok
+NOTIFY user0 soon
+NOTIFY user1 has and
+NOTIFY user3 has and your your has today and shipped arrive
+PREFER user1 PUSH,PUSH,SMS
+NOTIFY user2 order
+NOTIFY user4 will soon has
+NOTIFY user6 arrive order today
+NOTIFY user6 your soon
+PREFER user5 PUSH,SMS
+NOTIFY user2 soon arrive your shipped your your today has your
+NOTIFY user5 and arrive soon has arrive soon and
+NOTIFY user4 ok arrive
+NOTIFY user3 and and arrive will will shipped
+PREFER user6 PUSH,EMAIL
+NOTIFY user5 arrive order arrive
+NOTIFY user5 will arrive shipped ok order has shipped
+PREFER user4 EMAIL,PUSH,PUSH
+PREFER user1 PUSH,FAX
+PREFER user4 FAX
+NOTIFY user2 ok and ok shipped arrive your your has order
+PREFER user4 SMS
+PREFER user0 PUSH
+PREFER user4 PUSH,SMS
+NOTIFY user3 order today arrive arrive today and will has has
+NOTIFY user4 will order arrive and order shipped your will
+NOTIFY user3 will today soon arrive soon soon and and
+PREFER user0 PUSH
+PREFER user2 PUSH,PUSH,FAX
+NOTIFY user0 ok arrive
+NOTIFY user3 today arrive has soon and will your and and
+NOTIFY user2 and has
+NOTIFY user4 ok ok will will
+NOTIFY user0 arrive today and
+PREFER user6 SMS
+NOTIFY user4 today ok and will your ok
+NOTIFY user1 soon shipped will shipped shipped order
+NOTIFY user3 ok will soon order today
+PREFER user3 PUSH,PUSH,SMS
+NOTIFY user2 today arrive has and today
+PREFER user5 SMS,PUSH
+PREFER user5 PUSH,SMS,EMAIL
+NOTIFY user1 and
+NOTIFY user4 ok soon
+NOTIFY user2 ok ok order shipped ok shipped order will order
+NOTIFY user0 ok and shipped your soon
+PREFER user5 PUSH,FAX,PUSH
+PREFER user0 SMS
+NOTIFY user6 soon soon arrive has ok will
+NOTIFY user6 ok your
+NOTIFY user0 shipped soon soon soon today
+NOTIFY user4 your ok shipped shipped arrive
+NOTIFY user6 order soon shipped
+PREFER user1 SMS,SMS,PUSH
+PREFER user6 PUSH,EMAIL,SMS
+NOTIFY user2 arrive
+NOTIFY user6 soon today order shipped
+NOTIFY user6 shipped
+NOTIFY user6 your today
+NOTIFY user2 your order order will order has will
+NOTIFY user6 your and

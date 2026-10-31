@@ -1,0 +1,8 @@
+7
+ADD p1 pen 150 10 3
+ADD p2 book 1299 2 1
+SELL p1 6
+SELL p1 2
+SELL p2 5
+RESTOCK p1 10
+REPORT

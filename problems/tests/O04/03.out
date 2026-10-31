@@ -1,0 +1,10 @@
+BOOK a A
+BOOK b B
+BOOK c C
+MEMBER r
+BORROWED a r
+BORROWED b r
+ERROR limit reached
+RETURNED a r
+BORROWED c r
+LOANS b c

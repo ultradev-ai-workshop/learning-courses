@@ -1,0 +1,10 @@
+ADDED p1
+ADDED p2
+SOLD p1 6 9.00
+SOLD p1 2 3.00
+ALERT low stock p1 2
+ERROR insufficient stock
+STOCK p1 12
+p1 pen qty=12 value=18.00
+p2 book qty=2 value=25.98
+TOTAL 43.98

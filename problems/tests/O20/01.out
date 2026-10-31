@@ -1,0 +1,8 @@
+CONFIG capacity=2 refill=1/s
+ALLOW ana 0 left=1
+ALLOW ana 0 left=0
+DENY ana 0
+ALLOW ben 0 left=1
+ALLOW ana 1 left=0
+ALLOW ana 5 left=1
+ALLOW ana 5 left=0

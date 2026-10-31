@@ -43,6 +43,7 @@ function buildSidebar() {
   if (!el) return;
   // Back to the course launcher (learning-courses/index.html); outside <details> so it shows on phones too
   let html = '<a class="all-courses" href="../../index.html">← All courses</a>';
+  html += ' <a class="all-courses" href="../../problems/index.html">🧩 Practice problems</a>';
   html += '<details open><summary>Chapters</summary>';
   html += '<a class="book-title" href="index.html">⚛️ React Beginner Book</a>';
   for (const p of PARTS) {

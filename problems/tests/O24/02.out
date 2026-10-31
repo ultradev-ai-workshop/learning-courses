@@ -1,0 +1,4 @@
+PREFS x PUSH,EMAIL,PUSH
+PUSH to x: HI
+EMAIL to x@example.com: hi
+PUSH to x: HI

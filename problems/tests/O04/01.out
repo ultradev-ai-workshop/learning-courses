@@ -1,0 +1,12 @@
+BOOK b1 Dune
+BOOK b2 Emma
+MEMBER ana
+MEMBER ben
+BORROWED b1 ana
+ERROR no copies available
+BORROWED b2 ana
+ERROR already borrowed
+RETURNED b1 ana
+BORROWED b1 ben
+LOANS b2
+AVAILABLE b1 0

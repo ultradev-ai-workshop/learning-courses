@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>Problem</title>
+<link rel="stylesheet" href="problems.css">
+</head>
+<body>
+<nav class="topbar">
+  <a href="../index.html">← All courses</a>
+  <a class="brand" href="index.html">🧩 Problem Set</a>
+  <span class="spacer"></span>
+  <a href="guide.html">How to solve &amp; test</a>
+</nav>
+<main id="app"></main>
+<script src="problems.js"></script>
+<script src="app.js"></script>
+<script>
+(function () {
+  var A = window.ProblemApp, el = A.el;
+  var app = document.getElementById('app');
+  var id = (new URLSearchParams(location.search).get('id') || '').toUpperCase();
+  var p = A.byId[id];
+  if (!p) {
+    document.title = 'Problem not found';
+    app.appendChild(el('h1', { text: 'Problem not found' }));
+    app.appendChild(el('p', null, ['There is no problem called ', el('code', { text: id || '(none)' }), '. ', el('a', { href: 'index.html', text: 'Back to the list' }), '.']));
+    return;
+  }
+  document.title = p.id + ' · ' + p.title;
+
+  // ---------- header ----------
+  var prev = A.problems[p.index - 1], next = A.problems[p.index + 1];
+  function navLink(q, text) { return q ? el('a', { class: 'btn small', href: 'problem.html?id=' + q.id, title: q.title, text: text }) : null; }
+  app.appendChild(el('div', { class: 'crumbs' }, [
+    el('a', { href: 'index.html', text: '← All problems' }),
+    el('span', { class: 'nav' }, [navLink(prev, '← ' + (prev && prev.id)), navLink(next, (next && next.id) + ' →')])
+  ]));
+  var flag = el('span', { class: 'solvedflag', id: 'solvedflag' });
+  app.appendChild(el('div', { class: 'phead' }, [el('h1', { text: p.id + ' · ' + p.title }), A.badge(p.difficulty), flag]));
+  app.appendChild(el('div', { class: 'meta' }, p.tags.map(function (t) { return el('span', { class: 'tag', text: t }); })));
+  app.appendChild(el('p', { class: 'muted' }, ['You’ll practise: ' + p.concepts.join(', ') + '.']));
+
+  // ---------- statement ----------
+  var st = el('section', { class: 'section' }, [
+    el('h2', { text: 'Problem' }), el('div', { html: p.statement }),
+    el('h3', { text: 'Input' }), el('div', { html: p.input }),
+    el('h3', { text: 'Output' }), el('div', { html: p.output }),
+    el('h3', { text: 'Constraints' }), el('ul', { class: 'tight' }, p.constraints.map(function (c) { return el('li', { html: c }); }))
+  ]);
+  if (p.difficulty === 'oop') {
+    st.appendChild(el('div', { class: 'box warn', html: '<strong>Exact output matters.</strong> Print each response exactly as specified — the tests compare text line by line (trailing spaces and the final newline are ignored).' }));
+  }
+  app.appendChild(st);
+
+  if (p.oop) {
+    var box = el('section', { class: 'section' }, [el('h2', { text: 'Suggested design' }),
+      el('p', { class: 'muted', text: 'A starting point, not a rule: the tests only check the output, so feel free to design it differently — but do practise the OOP ideas below.' })]);
+    box.appendChild(el('h3', { text: 'Types to create' }));
+    box.appendChild(el('ul', { class: 'tight' }, p.oop.design.map(function (d) { return el('li', { html: d }); })));
+    if (p.oop.patterns.length) {
+      box.appendChild(el('h3', { text: 'Patterns' }));
+      box.appendChild(el('p', null, p.oop.patterns.map(function (x) { return el('span', { class: 'tag', style: 'margin-right: 6px', text: x }); })));
+    }
+    box.appendChild(el('h3', { text: 'Principles to practise' }));
+    box.appendChild(el('ul', { class: 'tight' }, p.oop.principles.map(function (d) { return el('li', { html: d }); })));
+    box.appendChild(el('p', { class: 'muted', html: 'The driver is always the same: read <code>q</code>, then loop over the command lines, split each one into words and dispatch on the first word. <a href="guide.html#oop">See the command-loop template</a>.' }));
+    app.appendChild(box);
+  }
+
+  // ---------- examples ----------
+  var ex = el('section', { class: 'section' }, [el('h2', { text: p.examples.length > 1 ? 'Examples' : 'Example' })]);
+  p.examples.forEach(function (e, i) {
+    if (p.examples.length > 1) ex.appendChild(el('h3', { text: 'Example ' + (i + 1) }));
+    ex.appendChild(el('div', { class: 'io' }, [A.pane('Input', e.input), A.pane('Expected output', e.output)]));
+    if (e.explanation) ex.appendChild(el('p', { class: 'explain', html: e.explanation }));
+  });
+  app.appendChild(ex);
+
+  // ---------- hints ----------
+  if (p.hints.length) {
+    var hs = el('section', { class: 'section' }, [el('h2', { text: 'Hints' }), el('p', { class: 'muted', text: 'Try on your own first; open one hint at a time.' })]);
+    p.hints.forEach(function (h, i) { hs.appendChild(el('details', { class: 'hint' }, [el('summary', { text: 'Hint ' + (i + 1) }), el('p', { html: h })])); });
+    app.appendChild(hs);
+  }
+
+  // ---------- tests + checker ----------
+  var small = p.tests.filter(function (t) { return !t.large; });
+  var large = p.tests.filter(function (t) { return t.large; });
+  var sec = el('section', { class: 'section', id: 'check' }, [el('h2', { text: 'Test your solution' })]);
+  var summary = el('p', { id: 'summary' });
+  sec.appendChild(summary);
+  sec.appendChild(el('p', { class: 'muted', html: 'Pick a test, run your program with its input, paste what your program printed and press <strong>Check</strong> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd>). Line endings, trailing spaces and the final newline are ignored.' }));
+  var tbar = el('div', { class: 'tests', role: 'group', 'aria-label': 'Tests' });
+  sec.appendChild(tbar);
+  var view = el('div');
+  sec.appendChild(view);
+
+  var cmdSection = el('div', null, [
+    el('h3', { text: 'Run every test at once (recommended)' }),
+    el('p', { class: 'muted', html: 'From the <code>problems</code> folder, put your run command after <code>--</code>:' })
+  ]);
+  ['python3 runner/run-tests.py ' + p.id + ' -- python3 solution.py',
+   'node runner/run-tests.mjs ' + p.id + ' -- java Main'].forEach(function (c) {
+    cmdSection.appendChild(el('div', { class: 'cmd' }, [el('pre', null, [el('code', { text: c })]), A.copyButton(c)]));
+  });
+  cmdSection.appendChild(el('p', { class: 'muted', html: 'The test files are <code>tests/' + p.id + '/01.in</code>, <code>01.out</code>, … (' + p.tests.length + ' tests' +
+    (large.length ? ', including ' + large.length + ' large one' + (large.length > 1 ? 's' : '') + ' that can only be checked this way' : '') + ').' }));
+  var markBtn = el('button', { type: 'button', class: 'btn' });
+  markBtn.addEventListener('click', function () {
+    A.progress.update(p.id, function (e) { e.solved = !e.solved; e.manual = e.solved; });
+    refresh();
+  });
+  cmdSection.appendChild(el('div', { class: 'row' }, [markBtn, el('span', { class: 'muted', text: 'Use this after the runner reports all tests passed.' })]));
+  sec.appendChild(cmdSection);
+  app.appendChild(sec);
+
+  var current = 0;
+  function passedMap() { return A.progress.entry(p.id).passed || {}; }
+  function refresh() {
+    var e = A.progress.entry(p.id), passed = e.passed || {};
+    var n = small.filter(function (t) { return passed[t.name]; }).length;
+    summary.textContent = n + ' of ' + small.length + ' tests passed here' + (large.length ? ' (+' + large.length + ' large test' + (large.length > 1 ? 's' : '') + ' for the runner)' : '') + '.';
+    flag.textContent = e.solved ? '✓ Solved' : '';
+    markBtn.textContent = e.solved ? 'Mark as not solved' : 'Mark as solved';
+    Array.prototype.forEach.call(tbar.children, function (b, i) {
+      var t = p.tests[i];
+      b.className = 'tbtn' + (passed[t.name] ? ' pass' : (b.dataset.failed ? ' fail' : ''));
+      b.setAttribute('aria-pressed', String(i === current));
+    });
+  }
+  p.tests.forEach(function (t, i) {
+    tbar.appendChild(el('button', { type: 'button', class: 'tbtn', text: t.name + (t.large ? ' (large)' : ''),
+      onclick: function () { current = i; showTest(); refresh(); } }));
+  });
+
+  function showTest() {
+    var t = p.tests[current];
+    view.innerHTML = '';
+    if (t.large) {
+      view.appendChild(el('div', { class: 'box', html: '<strong>' + t.name + '</strong> is a large performance test (input ' + Math.round(t.size.input / 1024) +
+        ' KB). Run it with the runner, or redirect the file yourself: <code>python3 solution.py &lt; ' + t.file + '.in</code>, and compare with <code>' + t.file + '.out</code>.' }));
+      return;
+    }
+    view.appendChild(A.pane('Input · ' + t.name, t.input));
+    view.appendChild(el('details', { class: 'hint' }, [el('summary', { text: 'Show expected output' }), A.pane('Expected output', t.output)]));
+    var ta = el('textarea', { 'aria-label': 'Your program’s output for ' + t.name, placeholder: 'Paste your program’s output for ' + t.name + ' here…', spellcheck: 'false' });
+    var result = el('div', { 'aria-live': 'polite' });
+    var check = el('button', { type: 'button', class: 'btn primary', text: 'Check' });
+    function run() {
+      var r = A.compare(ta.value, t.output);
+      result.innerHTML = '';
+      var btn = tbar.children[current];
+      if (r.ok) {
+        delete btn.dataset.failed;
+        var e = A.progress.update(p.id, function (en) {
+          en.passed[t.name] = true;
+          if (small.every(function (s) { return en.passed[s.name]; })) en.solved = true;
+        });
+        var all = small.every(function (s) { return e.passed[s.name]; });
+        result.appendChild(el('div', { class: 'result ok' }, [el('strong', { text: '✓ Correct — all ' + r.lines + ' line' + (r.lines === 1 ? '' : 's') + ' match.' }),
+          el('div', { text: all ? (large.length ? ' Every test on this page passes — the problem is marked solved. Try the large tests with the runner too.' : ' Every test passes — problem solved! 🎉') : ' Pick the next test.' })]));
+        if (!all) {   // move on to the next unpassed test
+          var nxt = p.tests.findIndex(function (s, i) { return i > current && !s.large && !e.passed[s.name]; });
+          if (nxt < 0) nxt = p.tests.findIndex(function (s) { return !s.large && !e.passed[s.name]; });
+          if (nxt >= 0) result.appendChild(el('button', { type: 'button', class: 'btn small', text: 'Go to ' + p.tests[nxt].name + ' →', onclick: function () { current = nxt; showTest(); refresh(); } }));
+        }
+      } else {
+        btn.dataset.failed = '1';
+        var shown = function (s) { return s === null ? '(no line)' : JSON.stringify(s); };
+        var detail = 'Line ' + r.line + '\n  expected: ' + shown(r.want) + '\n  got:      ' + shown(r.got);
+        if (r.gotLines !== r.wantLines) detail += '\n(' + r.wantLines + ' lines expected, ' + r.gotLines + ' pasted)';
+        result.appendChild(el('div', { class: 'result bad' }, [el('strong', { text: ta.value.trim() ? '✗ Not quite — first difference:' : '✗ Paste your program’s output first.' }),
+          ta.value.trim() ? el('pre', { text: detail }) : null]));
+      }
+      refresh();
+    }
+    check.addEventListener('click', run);
+    ta.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); run(); } });
+    view.appendChild(el('h3', { text: 'Your output' }));
+    view.appendChild(ta);
+    view.appendChild(el('div', { class: 'row' }, [check, el('button', { type: 'button', class: 'btn', text: 'Clear', onclick: function () { ta.value = ''; result.innerHTML = ''; ta.focus(); } })]));
+    view.appendChild(result);
+  }
+
+  var firstOpen = p.tests.findIndex(function (t) { return !t.large && !passedMap()[t.name]; });
+  current = firstOpen >= 0 ? firstOpen : 0;
+  showTest();
+  refresh();
+})();
+</script>
+</body>
+</html>

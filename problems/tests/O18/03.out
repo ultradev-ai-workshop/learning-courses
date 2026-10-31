@@ -1,0 +1,8 @@
+ROOM b
+ROOM a
+BOOKING 1 p room a 4.00
+BOOKING 2 q room b 2.00
+NO AVAILABILITY DOUBLE
+CANCELLED 1
+ERROR no such booking
+BOOKING 3 r room a 4.00

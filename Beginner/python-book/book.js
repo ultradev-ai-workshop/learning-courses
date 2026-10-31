@@ -77,6 +77,7 @@
     var here = currentFile();
     // Back to the course launcher (learning-courses/index.html); outside <details> so it shows on phones too
     nav.appendChild(el('a', { href: COURSES_HOME, 'class': 'all-courses' }, '← All courses'));
+    nav.appendChild(el('a', { href: '../../problems/index.html', 'class': 'all-courses' }, '🧩 Practice problems'));
     var det = el('details');
     det.appendChild(el('summary', null, '☰ Python Study Book — chapters'));
     var brand = el('a', { href: 'index.html', 'class': 'brand' });

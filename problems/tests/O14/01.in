@@ -1,0 +1,9 @@
+8
+LET a 1/2
+LET b 2/-6
+ADD c a b
+MUL d a b
+DIV e a b
+CMP a b
+LET f 3/6
+CMP a f

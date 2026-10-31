@@ -1,0 +1,5 @@
+4
+PUBLISH quiet nobody listens
+UNSUBSCRIBE x y
+SUBSCRIBE a t
+SUBSCRIBE a t

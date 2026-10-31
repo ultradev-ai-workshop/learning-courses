@@ -1,0 +1,6 @@
+5
+MKDIR /a/b
+TOUCH /x/y 1
+LS /
+DU /nope
+TREE /

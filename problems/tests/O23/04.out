@@ -1,0 +1,457 @@
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+ERROR occupied
+XOX
+OO.
+..X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+.O.
+.X.
+.XO
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR out of range
+OK O to move
+ERROR occupied
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+.XX
+OXO
+O..
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+OK X to move
+ERROR occupied
+ERROR occupied
+X.X
+OXO
+O..
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+XX.
+..O
+O..
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+ERROR occupied
+ERROR occupied
+ERROR occupied
+X.X
+..O
+XOO
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+ERROR occupied
+OK O to move
+XOX
+.OO
+X.X
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+OK X to move
+O..
+..X
+X.O
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+.XO
+...
+...
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+XX.
+...
+OOX
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+.O.
+X.X
+...
+NEW GAME X to move
+ERROR out of range
+OK O to move
+ERROR out of range
+OK X to move
+OK O to move
+ERROR occupied
+OK X to move
+ERROR occupied
+.OX
+X..
+..O
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+X.X
+O.O
+X..
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+OK O to move
+..O
+XX.
+.XO
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+OK X to move
+X WINS
+ERROR game over
+ERROR game over
+ERROR game over
+ERROR game over
+ERROR game over
+O.X
+..X
+O.X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+X WINS
+OXO
+OXX
+.X.
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+X..
+X..
+.O.
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+OK O to move
+ERROR occupied
+OK X to move
+ERROR occupied
+OK O to move
+.OX
+X..
+OX.
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR out of range
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+.O.
+XX.
+.XO
+NEW GAME X to move
+OK O to move
+ERROR occupied
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+ERROR occupied
+.OX
+X..
+OXO
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+..X
+.X.
+O..
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR occupied
+...
+..X
+.O.
+NEW GAME X to move
+ERROR out of range
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+OX.
+.O.
+..X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+...
+X..
+O.X
+NEW GAME X to move
+ERROR out of range
+OK O to move
+ERROR occupied
+OK X to move
+ERROR occupied
+OK O to move
+OK X to move
+..O
+.X.
+O.X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+ERROR occupied
+X WINS
+.O.
+O..
+XXX
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+ERROR occupied
+OO.
+..X
+OXX
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+.XO
+XO.
+X.O
+NEW GAME X to move
+OK O to move
+ERROR occupied
+OK X to move
+OK O to move
+ERROR occupied
+OK X to move
+OK O to move
+OK X to move
+X WINS
+ERROR game over
+ERROR game over
+ERROR game over
+OX.
+XXX
+O.O
+NEW GAME X to move
+OK O to move
+OK X to move
+ERROR out of range
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR out of range
+ERROR occupied
+OK X to move
+.OX
+XO.
+O.X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR out of range
+ERROR occupied
+OK X to move
+OK O to move
+ERROR occupied
+OXX
+..X
+.O.
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+OK X to move
+ERROR occupied
+ERROR occupied
+X WINS
+ERROR game over
+ERROR game over
+O..
+XXX
+OXO
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+..O
+.XO
+X..
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+X.X
+OO.
+..X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR out of range
+ERROR occupied
+ERROR occupied
+ERROR occupied
+OK X to move
+ERROR occupied
+OO.
+...
+X.X
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+ERROR out of range
+...
+OXX
+OX.
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+ERROR out of range
+O WINS
+ERROR game over
+ERROR game over
+OOO
+.X.
+XX.
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+OK X to move
+ERROR occupied
+OK O to move
+ERROR occupied
+ERROR occupied
+ERROR occupied
+O WINS
+ERROR game over
+ERROR game over
+X..
+OOO
+.XX
+NEW GAME X to move
+OK O to move
+OK X to move
+OK O to move
+ERROR occupied
+ERROR occupied
+OK X to move
+...
+OOX
+X..
+NEW GAME X to move
+OK O to move
+ERROR out of range
+OK X to move
+...
+.O.
+..X

@@ -1,0 +1,9 @@
+8
+SUBSCRIBE ana orders
+SUBSCRIBE log *
+SUBSCRIBE ben orders
+PUBLISH orders new order o1
+UNSUBSCRIBE ana orders
+PUBLISH stock low on b1
+SUBSCRIBE log orders
+PUBLISH orders paid

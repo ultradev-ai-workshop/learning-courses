@@ -69,7 +69,7 @@
 <main>
   <div class="eyebrow">Learning notes</div>
   <h1>📚 Course Launcher</h1>
-  <p class="lead">Pick a level, choose a course, and launch it. Every course is a self-contained study book with exercises and a final assessment.</p>
+  <p class="lead">Pick a level, choose a course, and launch it. Each study book has exercises and a final assessment; the Practice level holds a problem set for any language.</p>
 
   <h2><span class="step">1</span>Choose a level</h2>
   <div class="levels" id="levels" role="group" aria-label="Level"></div>
@@ -87,7 +87,7 @@
 
 <script>
 // Course catalogue: add a new course here. Paths are relative to this page.
-var LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
+var LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Practice'];
 var COURSES = [
   {
     id: 'python', level: 'Beginner', icon: '🐍', title: 'Python Study Book',
@@ -109,6 +109,14 @@ var COURSES = [
     description: 'The MDN JavaScript Guide in depth: everything ES6 changed and everything since (through ES2026), the event loop, modules and metaprogramming.',
     tags: ['16 chapters', '2 appendices', '1000-question assessment', 'Node 26'],
     extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']]
+  },
+  {
+    id: 'problems', level: 'Practice', icon: '🧩', title: 'Problem Set',
+    path: 'problems/',
+    description: '100 language-neutral problems to master any language: 25 easy, 25 medium, 25 hard and 25 object-oriented design problems, with exact test cases and a checker.',
+    tags: ['100 problems', '500+ tests', 'stdin/stdout', 'any language'],
+    extras: [['How to solve & test', 'guide.html']],
+    launchNote: 'Practice · opens the problem list'
   }
 ];
 
@@ -175,7 +183,7 @@ var COURSES = [
     actions.innerHTML = '';
     if (current) {
       info.appendChild(el('strong', null, current.icon + ' ' + current.title));
-      info.appendChild(el('p', null, level + ' level · opens the book\'s contents page'));
+      info.appendChild(el('p', null, current.launchNote || level + ' level · opens the book\'s contents page'));
       var go = el('a', 'btn primary', 'Launch course →');
       go.href = current.path + 'index.html';
       go.id = 'launch-btn';

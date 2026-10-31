@@ -258,3 +258,4 @@ details.check > summary { cursor: pointer; font-weight: 600; }
 #pager .spacer { flex: 1; }
 
 .doclinks li { margin: .2em 0; }
+#sidebar .all-courses + .all-courses { margin-top: -6px; }

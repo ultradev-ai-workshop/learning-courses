@@ -1,0 +1,6 @@
+5
+HANDLER console INFO
+HANDLER pager ERROR
+LOG DEBUG cache warmed
+LOG INFO started
+LOG ERROR disk full

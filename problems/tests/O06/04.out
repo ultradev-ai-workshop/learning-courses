@@ -1,0 +1,859 @@
+ADDED s0
+ADDED s1
+ADDED s2
+ADDED s3
+ADDED s4
+ADDED s5
+ADDED s6
+ADDED s7
+ADDED s8
+ADDED s9
+SOLD s4 2 88.58
+SOLD s8 9 271.89
+ERROR unknown sku
+PRICE s0 72.33
+ERROR unknown sku
+PRICE s1 24.65
+ADDED s13
+PRICE s7 93.86
+SOLD s4 5 221.45
+SOLD s5 1 40.92
+ERROR unknown sku
+STOCK s2 33
+PRICE s8 73.54
+SOLD s1 5 123.25
+s0 item0 qty=11 value=795.63
+s1 item1 qty=31 value=764.15
+s2 item2 qty=33 value=872.85
+s3 item3 qty=16 value=479.68
+s4 item4 qty=16 value=708.64
+s5 item5 qty=9 value=368.28
+s6 item6 qty=40 value=1010.00
+s7 item7 qty=28 value=2628.08
+s8 item8 qty=11 value=808.94
+s9 item9 qty=36 value=1038.60
+s13 extra qty=5 value=5.00
+TOTAL 9479.85
+STOCK s1 33
+STOCK s2 45
+PRICE s8 78.36
+s0 item0 qty=11 value=795.63
+s1 item1 qty=33 value=813.45
+s2 item2 qty=45 value=1190.25
+s3 item3 qty=16 value=479.68
+s4 item4 qty=16 value=708.64
+s5 item5 qty=9 value=368.28
+s6 item6 qty=40 value=1010.00
+s7 item7 qty=28 value=2628.08
+s8 item8 qty=11 value=861.96
+s9 item9 qty=36 value=1038.60
+s13 extra qty=5 value=5.00
+TOTAL 9899.57
+PRICE s5 87.14
+ERROR unknown sku
+SOLD s0 8 578.64
+ALERT low stock s0 3
+s0 item0 qty=3 value=216.99
+s1 item1 qty=33 value=813.45
+s2 item2 qty=45 value=1190.25
+s3 item3 qty=16 value=479.68
+s4 item4 qty=16 value=708.64
+s5 item5 qty=9 value=784.26
+s6 item6 qty=40 value=1010.00
+s7 item7 qty=28 value=2628.08
+s8 item8 qty=11 value=861.96
+s9 item9 qty=36 value=1038.60
+s13 extra qty=5 value=5.00
+TOTAL 9736.91
+s0 item0 qty=3 value=216.99
+s1 item1 qty=33 value=813.45
+s2 item2 qty=45 value=1190.25
+s3 item3 qty=16 value=479.68
+s4 item4 qty=16 value=708.64
+s5 item5 qty=9 value=784.26
+s6 item6 qty=40 value=1010.00
+s7 item7 qty=28 value=2628.08
+s8 item8 qty=11 value=861.96
+s9 item9 qty=36 value=1038.60
+s13 extra qty=5 value=5.00
+TOTAL 9736.91
+ERROR unknown sku
+SOLD s1 10 246.50
+STOCK s6 47
+SOLD s2 8 211.60
+STOCK s7 58
+ERROR unknown sku
+ERROR insufficient stock
+SOLD s7 1 93.86
+STOCK s1 42
+SOLD s7 3 281.58
+PRICE s0 27.19
+PRICE s7 90.70
+ERROR insufficient stock
+STOCK s2 52
+SOLD s4 1 44.29
+SOLD s7 9 816.30
+STOCK s0 8
+STOCK s4 16
+STOCK s4 23
+s0 item0 qty=8 value=217.52
+s1 item1 qty=42 value=1035.30
+s2 item2 qty=52 value=1375.40
+s3 item3 qty=16 value=479.68
+s4 item4 qty=23 value=1018.67
+s5 item5 qty=9 value=784.26
+s6 item6 qty=47 value=1186.75
+s7 item7 qty=45 value=4081.50
+s8 item8 qty=11 value=861.96
+s9 item9 qty=36 value=1038.60
+s13 extra qty=5 value=5.00
+TOTAL 12084.64
+ERROR unknown sku
+ERROR insufficient stock
+ERROR unknown sku
+SOLD s6 12 303.00
+PRICE s3 42.82
+STOCK s8 17
+SOLD s9 7 201.95
+ERROR duplicate sku
+ERROR unknown sku
+ERROR duplicate sku
+ERROR insufficient stock
+STOCK s2 74
+STOCK s5 23
+STOCK s3 28
+ERROR unknown sku
+SOLD s1 11 271.15
+STOCK s5 37
+STOCK s2 100
+PRICE s8 27.77
+STOCK s3 35
+SOLD s0 1 27.19
+ALERT low stock s0 7
+s0 item0 qty=7 value=190.33
+s1 item1 qty=31 value=764.15
+s2 item2 qty=100 value=2645.00
+s3 item3 qty=35 value=1498.70
+s4 item4 qty=23 value=1018.67
+s5 item5 qty=37 value=3224.18
+s6 item6 qty=35 value=883.75
+s7 item7 qty=45 value=4081.50
+s8 item8 qty=17 value=472.09
+s9 item9 qty=29 value=836.65
+s13 extra qty=5 value=5.00
+TOTAL 15620.02
+PRICE s3 89.43
+STOCK s2 101
+SOLD s3 6 536.58
+SOLD s9 12 346.20
+SOLD s9 7 201.95
+s0 item0 qty=7 value=190.33
+s1 item1 qty=31 value=764.15
+s2 item2 qty=101 value=2671.45
+s3 item3 qty=29 value=2593.47
+s4 item4 qty=23 value=1018.67
+s5 item5 qty=37 value=3224.18
+s6 item6 qty=35 value=883.75
+s7 item7 qty=45 value=4081.50
+s8 item8 qty=17 value=472.09
+s9 item9 qty=10 value=288.50
+s13 extra qty=5 value=5.00
+TOTAL 16193.09
+ERROR duplicate sku
+ERROR unknown sku
+SOLD s4 6 265.74
+STOCK s3 57
+STOCK s2 109
+PRICE s9 73.17
+ERROR insufficient stock
+SOLD s6 7 176.75
+SOLD s7 7 634.90
+SOLD s9 6 439.02
+ERROR unknown sku
+STOCK s7 67
+PRICE s7 65.01
+ERROR unknown sku
+PRICE s8 33.72
+ERROR insufficient stock
+ERROR unknown sku
+ERROR unknown sku
+SOLD s9 4 292.68
+ALERT low stock s9 0
+PRICE s5 5.18
+STOCK s9 3
+STOCK s3 59
+PRICE s8 40.88
+SOLD s4 6 265.74
+s0 item0 qty=7 value=190.33
+s1 item1 qty=31 value=764.15
+s2 item2 qty=109 value=2883.05
+s3 item3 qty=59 value=5276.37
+s4 item4 qty=11 value=487.19
+s5 item5 qty=37 value=191.66
+s6 item6 qty=28 value=707.00
+s7 item7 qty=67 value=4355.67
+s8 item8 qty=17 value=694.96
+s9 item9 qty=3 value=219.51
+s13 extra qty=5 value=5.00
+TOTAL 15774.89
+SOLD s2 4 105.80
+s0 item0 qty=7 value=190.33
+s1 item1 qty=31 value=764.15
+s2 item2 qty=105 value=2777.25
+s3 item3 qty=59 value=5276.37
+s4 item4 qty=11 value=487.19
+s5 item5 qty=37 value=191.66
+s6 item6 qty=28 value=707.00
+s7 item7 qty=67 value=4355.67
+s8 item8 qty=17 value=694.96
+s9 item9 qty=3 value=219.51
+s13 extra qty=5 value=5.00
+TOTAL 15669.09
+SOLD s4 11 487.19
+ALERT low stock s4 0
+STOCK s9 22
+SOLD s0 1 27.19
+ALERT low stock s0 6
+SOLD s1 4 98.60
+ERROR insufficient stock
+ERROR insufficient stock
+ERROR unknown sku
+STOCK s3 77
+s0 item0 qty=6 value=163.14
+s1 item1 qty=27 value=665.55
+s2 item2 qty=105 value=2777.25
+s3 item3 qty=77 value=6886.11
+s4 item4 qty=0 value=0.00
+s5 item5 qty=37 value=191.66
+s6 item6 qty=28 value=707.00
+s7 item7 qty=67 value=4355.67
+s8 item8 qty=17 value=694.96
+s9 item9 qty=22 value=1609.74
+s13 extra qty=5 value=5.00
+TOTAL 18056.08
+ERROR insufficient stock
+PRICE s2 97.10
+SOLD s1 6 147.90
+s0 item0 qty=6 value=163.14
+s1 item1 qty=21 value=517.65
+s2 item2 qty=105 value=10195.50
+s3 item3 qty=77 value=6886.11
+s4 item4 qty=0 value=0.00
+s5 item5 qty=37 value=191.66
+s6 item6 qty=28 value=707.00
+s7 item7 qty=67 value=4355.67
+s8 item8 qty=17 value=694.96
+s9 item9 qty=22 value=1609.74
+s13 extra qty=5 value=5.00
+TOTAL 25326.43
+ERROR unknown sku
+ERROR unknown sku
+PRICE s5 82.48
+SOLD s7 1 65.01
+STOCK s3 103
+STOCK s3 114
+SOLD s5 11 907.28
+ERROR unknown sku
+STOCK s8 24
+PRICE s0 85.18
+ERROR insufficient stock
+SOLD s6 1 25.25
+STOCK s2 122
+ERROR unknown sku
+STOCK s2 141
+SOLD s8 10 408.80
+STOCK s5 56
+SOLD s5 1 82.48
+SOLD s7 5 325.05
+PRICE s8 49.15
+ERROR unknown sku
+PRICE s7 51.10
+ERROR insufficient stock
+PRICE s9 19.37
+s0 item0 qty=6 value=511.08
+s1 item1 qty=21 value=517.65
+s2 item2 qty=141 value=13691.10
+s3 item3 qty=114 value=10195.02
+s4 item4 qty=0 value=0.00
+s5 item5 qty=55 value=4536.40
+s6 item6 qty=27 value=681.75
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=14 value=688.10
+s9 item9 qty=22 value=426.14
+s13 extra qty=5 value=5.00
+TOTAL 34369.34
+SOLD s1 12 295.80
+SOLD s8 11 540.65
+ALERT low stock s8 3
+PRICE s4 50.73
+ERROR unknown sku
+SOLD s6 7 176.75
+ERROR unknown sku
+ERROR duplicate sku
+s0 item0 qty=6 value=511.08
+s1 item1 qty=9 value=221.85
+s2 item2 qty=141 value=13691.10
+s3 item3 qty=114 value=10195.02
+s4 item4 qty=0 value=0.00
+s5 item5 qty=55 value=4536.40
+s6 item6 qty=20 value=505.00
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=3 value=147.45
+s9 item9 qty=22 value=426.14
+s13 extra qty=5 value=5.00
+TOTAL 33356.14
+ERROR unknown sku
+PRICE s3 62.38
+STOCK s1 19
+SOLD s0 4 340.72
+ALERT low stock s0 2
+ERROR insufficient stock
+ERROR insufficient stock
+SOLD s9 6 116.22
+SOLD s3 7 436.66
+s0 item0 qty=2 value=170.36
+s1 item1 qty=19 value=468.35
+s2 item2 qty=141 value=13691.10
+s3 item3 qty=107 value=6674.66
+s4 item4 qty=0 value=0.00
+s5 item5 qty=55 value=4536.40
+s6 item6 qty=20 value=505.00
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=3 value=147.45
+s9 item9 qty=16 value=309.92
+s13 extra qty=5 value=5.00
+TOTAL 29625.34
+SOLD s2 2 194.20
+ERROR duplicate sku
+s0 item0 qty=2 value=170.36
+s1 item1 qty=19 value=468.35
+s2 item2 qty=139 value=13496.90
+s3 item3 qty=107 value=6674.66
+s4 item4 qty=0 value=0.00
+s5 item5 qty=55 value=4536.40
+s6 item6 qty=20 value=505.00
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=3 value=147.45
+s9 item9 qty=16 value=309.92
+s13 extra qty=5 value=5.00
+TOTAL 29431.14
+SOLD s9 1 19.37
+STOCK s1 49
+ERROR unknown sku
+PRICE s0 90.88
+STOCK s3 137
+ERROR unknown sku
+PRICE s1 52.71
+s0 item0 qty=2 value=181.76
+s1 item1 qty=49 value=2582.79
+s2 item2 qty=139 value=13496.90
+s3 item3 qty=137 value=8546.06
+s4 item4 qty=0 value=0.00
+s5 item5 qty=55 value=4536.40
+s6 item6 qty=20 value=505.00
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=3 value=147.45
+s9 item9 qty=15 value=290.55
+s13 extra qty=5 value=5.00
+TOTAL 33409.01
+STOCK s2 147
+ERROR unknown sku
+SOLD s9 7 135.59
+STOCK s0 27
+STOCK s5 73
+s0 item0 qty=27 value=2453.76
+s1 item1 qty=49 value=2582.79
+s2 item2 qty=147 value=14273.70
+s3 item3 qty=137 value=8546.06
+s4 item4 qty=0 value=0.00
+s5 item5 qty=73 value=6021.04
+s6 item6 qty=20 value=505.00
+s7 item7 qty=61 value=3117.10
+s8 item8 qty=3 value=147.45
+s9 item9 qty=8 value=154.96
+s13 extra qty=5 value=5.00
+TOTAL 37806.86
+ERROR unknown sku
+ERROR insufficient stock
+STOCK s7 83
+SOLD s1 6 316.26
+ERROR insufficient stock
+PRICE s4 76.50
+STOCK s8 30
+ERROR insufficient stock
+SOLD s0 12 1090.56
+SOLD s2 11 1068.10
+SOLD s0 9 817.92
+ALERT low stock s0 6
+SOLD s2 1 97.10
+SOLD s2 5 485.50
+SOLD s5 6 494.88
+SOLD s5 4 329.92
+ERROR unknown sku
+SOLD s7 1 51.10
+ERROR unknown sku
+STOCK s4 10
+SOLD s7 7 357.70
+STOCK s4 34
+SOLD s8 9 442.35
+ERROR unknown sku
+SOLD s1 10 527.10
+SOLD s5 4 329.92
+SOLD s6 6 151.50
+ERROR unknown sku
+SOLD s1 11 579.81
+SOLD s7 12 613.20
+STOCK s0 12
+SOLD s7 12 613.20
+STOCK s2 145
+SOLD s2 8 776.80
+ERROR unknown sku
+STOCK s9 11
+PRICE s4 72.57
+ERROR duplicate sku
+SOLD s8 12 589.80
+ADDED s12
+SOLD s9 11 213.07
+ALERT low stock s9 0
+SOLD s8 2 98.30
+STOCK s6 41
+STOCK s6 54
+ERROR insufficient stock
+SOLD s3 11 686.18
+SOLD s5 5 412.40
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=22 value=1159.62
+s2 item2 qty=137 value=13302.70
+s3 item3 qty=126 value=7859.88
+s4 item4 qty=34 value=2467.38
+s5 item5 qty=54 value=4453.92
+s6 item6 qty=54 value=1363.50
+s7 item7 qty=51 value=2606.10
+s8 item8 qty=7 value=344.05
+s9 item9 qty=0 value=0.00
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 34657.71
+ERROR insufficient stock
+SOLD s6 8 202.00
+ERROR unknown sku
+SOLD s6 2 50.50
+ERROR insufficient stock
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=22 value=1159.62
+s2 item2 qty=137 value=13302.70
+s3 item3 qty=126 value=7859.88
+s4 item4 qty=34 value=2467.38
+s5 item5 qty=54 value=4453.92
+s6 item6 qty=44 value=1111.00
+s7 item7 qty=51 value=2606.10
+s8 item8 qty=7 value=344.05
+s9 item9 qty=0 value=0.00
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 34405.21
+ERROR duplicate sku
+PRICE s1 42.71
+STOCK s6 45
+SOLD s2 8 776.80
+STOCK s7 81
+ERROR insufficient stock
+STOCK s8 31
+ERROR unknown sku
+PRICE s3 15.83
+PRICE s8 70.76
+STOCK s6 73
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=22 value=939.62
+s2 item2 qty=129 value=12525.90
+s3 item3 qty=126 value=1994.58
+s4 item4 qty=34 value=2467.38
+s5 item5 qty=54 value=4453.92
+s6 item6 qty=73 value=1843.25
+s7 item7 qty=81 value=4139.10
+s8 item8 qty=31 value=2193.56
+s9 item9 qty=0 value=0.00
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 31657.87
+STOCK s8 42
+ERROR unknown sku
+SOLD s1 4 170.84
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=18 value=768.78
+s2 item2 qty=129 value=12525.90
+s3 item3 qty=126 value=1994.58
+s4 item4 qty=34 value=2467.38
+s5 item5 qty=54 value=4453.92
+s6 item6 qty=73 value=1843.25
+s7 item7 qty=81 value=4139.10
+s8 item8 qty=42 value=2971.92
+s9 item9 qty=0 value=0.00
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 32265.39
+ERROR insufficient stock
+STOCK s1 35
+SOLD s6 12 303.00
+ERROR unknown sku
+PRICE s9 78.69
+STOCK s8 45
+SOLD s8 8 566.08
+SOLD s5 12 989.76
+STOCK s6 75
+PRICE s1 3.78
+SOLD s4 6 435.42
+SOLD s1 9 34.02
+STOCK s3 146
+SOLD s1 12 45.36
+STOCK s9 17
+SOLD s7 10 511.00
+SOLD s7 5 255.50
+SOLD s6 3 75.75
+STOCK s8 39
+PRICE s6 3.83
+PRICE s4 47.17
+ERROR unknown sku
+SOLD s5 7 577.36
+STOCK s8 62
+ERROR unknown sku
+STOCK s1 16
+STOCK s2 135
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=16 value=60.48
+s2 item2 qty=135 value=13108.50
+s3 item3 qty=146 value=2311.18
+s4 item4 qty=28 value=1320.76
+s5 item5 qty=35 value=2886.80
+s6 item6 qty=72 value=275.76
+s7 item7 qty=66 value=3372.60
+s8 item8 qty=62 value=4387.12
+s9 item9 qty=17 value=1337.73
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 30161.49
+PRICE s8 33.81
+STOCK s4 55
+STOCK s1 46
+ERROR unknown sku
+ERROR unknown sku
+SOLD s8 9 304.29
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=46 value=173.88
+s2 item2 qty=135 value=13108.50
+s3 item3 qty=146 value=2311.18
+s4 item4 qty=55 value=2594.35
+s5 item5 qty=35 value=2886.80
+s6 item6 qty=72 value=275.76
+s7 item7 qty=66 value=3372.60
+s8 item8 qty=53 value=1791.93
+s9 item9 qty=17 value=1337.73
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 28953.29
+PRICE s8 84.82
+PRICE s7 26.48
+SOLD s9 4 314.76
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=46 value=173.88
+s2 item2 qty=135 value=13108.50
+s3 item3 qty=146 value=2311.18
+s4 item4 qty=55 value=2594.35
+s5 item5 qty=35 value=2886.80
+s6 item6 qty=72 value=275.76
+s7 item7 qty=66 value=1747.68
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=13 value=1022.97
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 29717.14
+SOLD s7 7 185.36
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=46 value=173.88
+s2 item2 qty=135 value=13108.50
+s3 item3 qty=146 value=2311.18
+s4 item4 qty=55 value=2594.35
+s5 item5 qty=35 value=2886.80
+s6 item6 qty=72 value=275.76
+s7 item7 qty=59 value=1562.32
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=13 value=1022.97
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 29531.78
+ERROR unknown sku
+SOLD s1 2 7.56
+ERROR unknown sku
+STOCK s5 37
+STOCK s4 67
+SOLD s1 9 34.02
+ERROR unknown sku
+s0 item0 qty=12 value=1090.56
+s1 item1 qty=35 value=132.30
+s2 item2 qty=135 value=13108.50
+s3 item3 qty=146 value=2311.18
+s4 item4 qty=67 value=3160.39
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=72 value=275.76
+s7 item7 qty=59 value=1562.32
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=13 value=1022.97
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 30221.20
+SOLD s8 2 169.64
+SOLD s1 9 34.02
+STOCK s9 41
+SOLD s1 8 30.24
+SOLD s4 3 141.51
+PRICE s2 66.61
+SOLD s4 11 518.87
+SOLD s0 11 999.68
+ALERT low stock s0 1
+SOLD s9 7 550.83
+ERROR insufficient stock
+STOCK s3 168
+SOLD s1 1 3.78
+SOLD s6 10 38.30
+STOCK s0 28
+SOLD s1 2 7.56
+STOCK s3 175
+s0 item0 qty=28 value=2544.64
+s1 item1 qty=15 value=56.70
+s2 item2 qty=135 value=8992.35
+s3 item3 qty=175 value=2770.25
+s4 item4 qty=53 value=2500.01
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=62 value=237.46
+s7 item7 qty=59 value=1562.32
+s8 item8 qty=51 value=4325.82
+s9 item9 qty=34 value=2675.46
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 28726.77
+SOLD s0 11 999.68
+ERROR duplicate sku
+STOCK s9 52
+PRICE s1 24.81
+ERROR unknown sku
+s0 item0 qty=17 value=1544.96
+s1 item1 qty=15 value=372.15
+s2 item2 qty=135 value=8992.35
+s3 item3 qty=175 value=2770.25
+s4 item4 qty=53 value=2500.01
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=62 value=237.46
+s7 item7 qty=59 value=1562.32
+s8 item8 qty=51 value=4325.82
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+TOTAL 29458.96
+PRICE s4 2.52
+STOCK s7 87
+ADDED s11
+SOLD s7 1 26.48
+ERROR unknown sku
+SOLD s0 4 363.52
+SOLD s1 7 173.67
+SOLD s1 1 24.81
+STOCK s11 10
+STOCK s8 53
+SOLD s1 6 148.86
+ALERT low stock s1 1
+s0 item0 qty=13 value=1181.44
+s1 item1 qty=1 value=24.81
+s2 item2 qty=135 value=8992.35
+s3 item3 qty=175 value=2770.25
+s4 item4 qty=53 value=133.56
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=62 value=237.46
+s7 item7 qty=86 value=2277.28
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=10 value=10.00
+TOTAL 27276.25
+SOLD s0 7 636.16
+ALERT low stock s0 6
+SOLD s6 6 22.98
+s0 item0 qty=6 value=545.28
+s1 item1 qty=1 value=24.81
+s2 item2 qty=135 value=8992.35
+s3 item3 qty=175 value=2770.25
+s4 item4 qty=53 value=133.56
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=56 value=214.48
+s7 item7 qty=86 value=2277.28
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=10 value=10.00
+TOTAL 26617.11
+ERROR insufficient stock
+ERROR unknown sku
+SOLD s6 11 42.13
+SOLD s2 3 199.83
+s0 item0 qty=6 value=545.28
+s1 item1 qty=1 value=24.81
+s2 item2 qty=132 value=8792.52
+s3 item3 qty=175 value=2770.25
+s4 item4 qty=53 value=133.56
+s5 item5 qty=37 value=3051.76
+s6 item6 qty=45 value=172.35
+s7 item7 qty=86 value=2277.28
+s8 item8 qty=53 value=4495.46
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=10 value=10.00
+TOTAL 26375.15
+SOLD s11 2 2.00
+SOLD s2 3 199.83
+PRICE s0 91.50
+ERROR duplicate sku
+SOLD s5 6 494.88
+ERROR unknown sku
+PRICE s3 93.40
+ERROR duplicate sku
+SOLD s2 7 466.27
+SOLD s6 11 42.13
+SOLD s3 10 934.00
+SOLD s8 11 933.02
+SOLD s7 3 79.44
+s0 item0 qty=6 value=549.00
+s1 item1 qty=1 value=24.81
+s2 item2 qty=122 value=8126.42
+s3 item3 qty=165 value=15411.00
+s4 item4 qty=53 value=133.56
+s5 item5 qty=31 value=2556.88
+s6 item6 qty=34 value=130.22
+s7 item7 qty=83 value=2197.84
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=8 value=8.00
+TOTAL 36802.05
+SOLD s5 3 247.44
+PRICE s7 80.16
+STOCK s1 18
+s0 item0 qty=6 value=549.00
+s1 item1 qty=18 value=446.58
+s2 item2 qty=122 value=8126.42
+s3 item3 qty=165 value=15411.00
+s4 item4 qty=53 value=133.56
+s5 item5 qty=28 value=2309.44
+s6 item6 qty=34 value=130.22
+s7 item7 qty=83 value=6653.28
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=52 value=4091.88
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=8 value=8.00
+TOTAL 41431.82
+PRICE s11 47.91
+ERROR duplicate sku
+ERROR duplicate sku
+PRICE s3 41.32
+PRICE s5 5.26
+SOLD s0 1 91.50
+ALERT low stock s0 5
+SOLD s7 5 400.80
+PRICE s6 26.33
+PRICE s9 17.95
+SOLD s9 8 143.60
+STOCK s6 43
+SOLD s2 2 133.22
+SOLD s3 7 289.24
+ERROR unknown sku
+SOLD s2 8 532.88
+s0 item0 qty=5 value=457.50
+s1 item1 qty=18 value=446.58
+s2 item2 qty=112 value=7460.32
+s3 item3 qty=158 value=6528.56
+s4 item4 qty=53 value=133.56
+s5 item5 qty=28 value=147.28
+s6 item6 qty=43 value=1132.19
+s7 item7 qty=78 value=6252.48
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=44 value=789.80
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=8 value=383.28
+TOTAL 27303.99
+SOLD s4 3 7.56
+SOLD s11 4 191.64
+SOLD s2 5 333.05
+PRICE s3 45.43
+PRICE s7 80.36
+PRICE s3 2.20
+PRICE s0 11.83
+STOCK s0 24
+STOCK s11 27
+SOLD s2 4 266.44
+STOCK s3 167
+ERROR unknown sku
+PRICE s3 17.71
+s0 item0 qty=24 value=283.92
+s1 item1 qty=18 value=446.58
+s2 item2 qty=103 value=6860.83
+s3 item3 qty=167 value=2957.57
+s4 item4 qty=50 value=126.00
+s5 item5 qty=28 value=147.28
+s6 item6 qty=43 value=1132.19
+s7 item7 qty=78 value=6268.08
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=44 value=789.80
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=27 value=1293.57
+TOTAL 23878.26
+SOLD s7 11 883.96
+STOCK s1 26
+SOLD s2 11 732.71
+STOCK s6 73
+SOLD s2 4 266.44
+PRICE s5 11.66
+STOCK s9 53
+STOCK s11 38
+STOCK s5 40
+STOCK s6 94
+SOLD s6 12 315.96
+STOCK s5 57
+ERROR unknown sku
+SOLD s5 12 139.92
+STOCK s11 52
+STOCK s1 53
+SOLD s5 10 116.60
+s0 item0 qty=24 value=283.92
+s1 item1 qty=53 value=1314.93
+s2 item2 qty=88 value=5861.68
+s3 item3 qty=167 value=2957.57
+s4 item4 qty=50 value=126.00
+s5 item5 qty=35 value=408.10
+s6 item6 qty=82 value=2159.06
+s7 item7 qty=67 value=5384.12
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=53 value=951.35
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=52 value=2491.32
+TOTAL 25510.49
+SOLD s9 5 89.75
+s0 item0 qty=24 value=283.92
+s1 item1 qty=53 value=1314.93
+s2 item2 qty=88 value=5861.68
+s3 item3 qty=167 value=2957.57
+s4 item4 qty=50 value=126.00
+s5 item5 qty=35 value=408.10
+s6 item6 qty=82 value=2159.06
+s7 item7 qty=67 value=5384.12
+s8 item8 qty=42 value=3562.44
+s9 item9 qty=48 value=861.60
+s13 extra qty=5 value=5.00
+s12 extra qty=5 value=5.00
+s11 extra qty=52 value=2491.32
+TOTAL 25420.74

@@ -1,0 +1,7 @@
+6 3
+PUSH 5
+PUSH 6
+POP
+POP
+POP
+SIZE

@@ -1,0 +1,400 @@
+ERROR no such account
+ERROR no such account
+OPENED ana
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+BALANCE ana 0.00
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+ERROR not a savings account
+ERROR no such account
+ERROR no such account
+ERROR no such account
+OPENED eli
+ERROR invalid amount
+BALANCE ana -368.24
+ERROR no such account
+ERROR no such account
+OPENED ben
+ERROR invalid amount
+ERROR no such account
+ERROR invalid amount
+ERROR insufficient funds
+ERROR not a savings account
+ERROR account exists
+ERROR no such account
+ERROR no such account
+ERROR not a savings account
+ERROR account exists
+ERROR no such account
+BALANCE eli 0.00
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR not a savings account
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR no such account
+ERROR insufficient funds
+ERROR not a savings account
+ERROR no such account
+ERROR insufficient funds
+ERROR no such account
+ERROR no such account
+ERROR insufficient funds
+BALANCE ana -368.24
+OPENED dee
+ERROR account exists
+ERROR insufficient funds
+BALANCE ben 753.24
+TRANSFERRED 441.89
+ERROR account exists
+ERROR insufficient funds
+ERROR invalid amount
+ERROR not a savings account
+ERROR invalid amount
+ERROR account exists
+ERROR insufficient funds
+ERROR no such account
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR no such account
+ERROR insufficient funds
+ERROR invalid amount
+ERROR insufficient funds
+ERROR insufficient funds
+OPENED chen
+TRANSFERRED 244.44
+BALANCE ben 508.80
+ERROR account exists
+ERROR not a savings account
+BALANCE dee -197.45
+ERROR account exists
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR account exists
+TRANSFERRED 167.27
+BALANCE eli 167.27
+BALANCE eli 639.01
+ERROR invalid amount
+BALANCE ana 73.65
+ERROR account exists
+ERROR account exists
+ERROR invalid amount
+ERROR insufficient funds
+TRANSFERRED 110.46
+ERROR insufficient funds
+ERROR no such account
+ERROR not a savings account
+BALANCE eli 644.50
+BALANCE ana -210.65
+ERROR account exists
+ERROR no such account
+ERROR insufficient funds
+BALANCE ben -447.03
+TRANSFERRED 493.19
+ERROR invalid amount
+ERROR insufficient funds
+ERROR invalid amount
+BALANCE eli 154.33
+BALANCE ben -447.03
+BALANCE eli 154.33
+ERROR invalid amount
+ERROR insufficient funds
+ERROR invalid amount
+ERROR not a savings account
+ERROR insufficient funds
+ERROR no such account
+ERROR insufficient funds
+ERROR invalid amount
+ERROR account exists
+ERROR invalid amount
+BALANCE dee -197.45
+ERROR invalid amount
+ERROR insufficient funds
+BALANCE eli 154.33
+ERROR not a savings account
+BALANCE chen 173.84
+BALANCE dee 495.84
+BALANCE dee -198.28
+ERROR not a savings account
+BALANCE ben 29.71
+BALANCE chen 177.31
+BALANCE eli 92.64
+ERROR insufficient funds
+BALANCE eli 94.49
+TRANSFERRED 373.68
+TRANSFERRED 82.05
+ERROR insufficient funds
+BALANCE dee 944.96
+ERROR insufficient funds
+BALANCE dee 452.45
+ERROR invalid amount
+ERROR invalid amount
+ERROR account exists
+ERROR account exists
+ERROR account exists
+TRANSFERRED 35.45
+ERROR invalid amount
+ERROR insufficient funds
+ERROR account exists
+BALANCE eli 176.54
+BALANCE dee 417.00
+TRANSFERRED 460.93
+ERROR insufficient funds
+BALANCE eli 180.07
+ERROR no such account
+ERROR invalid amount
+BALANCE ben -173.54
+BALANCE chen 177.31
+ERROR no such account
+BALANCE chen 177.31
+BALANCE ana -174.08
+ERROR insufficient funds
+BALANCE ben -173.54
+ERROR invalid amount
+BALANCE chen 871.57
+ERROR not a savings account
+BALANCE ben 146.35
+ERROR account exists
+ERROR account exists
+ERROR not a savings account
+ERROR insufficient funds
+TRANSFERRED 289.67
+ERROR account exists
+BALANCE chen 1633.03
+ERROR no such account
+ERROR insufficient funds
+ERROR no such account
+ERROR invalid amount
+ERROR account exists
+BALANCE ana -174.08
+ERROR invalid amount
+TRANSFERRED 467.84
+ERROR not a savings account
+ERROR invalid amount
+BALANCE ben -143.32
+BALANCE ben 667.24
+ERROR no such account
+ERROR not a savings account
+BALANCE chen 1188.49
+BALANCE ben 667.24
+BALANCE eli 660.86
+BALANCE chen 1045.34
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR account exists
+BALANCE ben 581.46
+BALANCE eli 514.98
+ERROR invalid amount
+BALANCE chen 1480.36
+BALANCE chen 1414.58
+BALANCE eli 525.27
+BALANCE ben -6.10
+BALANCE chen 1925.13
+TRANSFERRED 318.21
+TRANSFERRED 372.96
+TRANSFERRED 429.93
+ERROR insufficient funds
+ERROR not a savings account
+ERROR account exists
+ERROR insufficient funds
+ERROR not a savings account
+ERROR insufficient funds
+ERROR not a savings account
+ERROR invalid amount
+BALANCE ana 456.59
+ERROR account exists
+BALANCE dee -473.86
+BALANCE chen 1925.13
+BALANCE chen 1963.63
+BALANCE ana 73.15
+BALANCE dee -473.86
+ERROR invalid amount
+TRANSFERRED 117.85
+ERROR invalid amount
+BALANCE dee -98.94
+BALANCE ben -60.85
+ERROR invalid amount
+ERROR insufficient funds
+ERROR account exists
+BALANCE eli 331.40
+ERROR account exists
+ERROR not a savings account
+ERROR account exists
+ERROR invalid amount
+BALANCE dee -98.94
+ERROR insufficient funds
+ERROR not a savings account
+TRANSFERRED 443.30
+TRANSFERRED 404.22
+BALANCE ben 374.51
+ERROR invalid amount
+ERROR invalid amount
+BALANCE chen 1430.52
+ERROR invalid amount
+BALANCE dee 126.67
+BALANCE chen 1430.52
+BALANCE dee 126.67
+BALANCE chen 1219.15
+ERROR not a savings account
+ERROR insufficient funds
+BALANCE eli 293.32
+BALANCE ben 374.51
+ERROR invalid amount
+TRANSFERRED 489.63
+TRANSFERRED 396.49
+BALANCE ben 1362.78
+ERROR not a savings account
+BALANCE ben 1552.34
+ERROR account exists
+ERROR invalid amount
+ERROR invalid amount
+ERROR invalid amount
+ERROR invalid amount
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR invalid amount
+BALANCE chen 822.66
+BALANCE eli 299.18
+ERROR not a savings account
+ERROR not a savings account
+ERROR account exists
+ERROR account exists
+ERROR no such account
+BALANCE dee -362.96
+ERROR insufficient funds
+BALANCE dee -362.96
+BALANCE ben 1552.34
+TRANSFERRED 309.94
+BALANCE eli 609.12
+BALANCE chen 839.11
+BALANCE ana 134.07
+ERROR not a savings account
+TRANSFERRED 182.41
+ERROR not a savings account
+ERROR not a savings account
+ERROR account exists
+TRANSFERRED 522.15
+ERROR no such account
+BALANCE ana 249.88
+BALANCE chen 1783.49
+ERROR not a savings account
+BALANCE eli 609.12
+TRANSFERRED 386.12
+BALANCE chen 1502.70
+BALANCE dee -139.23
+BALANCE eli 621.30
+BALANCE eli 266.95
+BALANCE chen 1532.75
+ERROR not a savings account
+TRANSFERRED 349.86
+ERROR not a savings account
+ERROR account exists
+ERROR insufficient funds
+TRANSFERRED 531.37
+ERROR account exists
+BALANCE eli 364.04
+BALANCE chen 1001.38
+BALANCE eli 371.32
+BALANCE eli 378.74
+ERROR account exists
+BALANCE chen 732.45
+ERROR no such account
+BALANCE eli 386.31
+TRANSFERRED 246.95
+ERROR not a savings account
+ERROR invalid amount
+BALANCE ana -307.13
+TRANSFERRED 431.38
+ERROR invalid amount
+BALANCE dee -154.28
+BALANCE dee -154.28
+ERROR insufficient funds
+TRANSFERRED 115.01
+ERROR not a savings account
+BALANCE dee -154.28
+BALANCE eli 582.15
+TRANSFERRED 45.44
+ERROR account exists
+BALANCE ben 1915.10
+TRANSFERRED 396.74
+ERROR invalid amount
+ERROR invalid amount
+ERROR no such account
+ERROR no such account
+ERROR no such account
+BALANCE dee -154.28
+ERROR invalid amount
+BALANCE ben 1646.69
+ERROR invalid amount
+ERROR not a savings account
+TRANSFERRED 382.90
+ERROR insufficient funds
+BALANCE ana -249.90
+ERROR insufficient funds
+ERROR insufficient funds
+ERROR no such account
+BALANCE ben 1646.69
+BALANCE ben 1646.69
+ERROR invalid amount
+BALANCE dee -359.68
+ERROR insufficient funds
+ERROR invalid amount
+ERROR insufficient funds
+BALANCE chen 645.66
+ERROR insufficient funds
+ERROR not a savings account
+ERROR invalid amount
+ERROR account exists
+ERROR invalid amount
+BALANCE ben 1436.82
+TRANSFERRED 538.90
+ERROR invalid amount
+ERROR insufficient funds
+ERROR invalid amount
+BALANCE eli 738.79
+BALANCE chen 1360.50
+BALANCE dee -359.68
+ERROR insufficient funds
+BALANCE ben 897.92
+ERROR insufficient funds
+ERROR invalid amount
+ERROR insufficient funds
+BALANCE eli 753.56
+ERROR insufficient funds
+ERROR not a savings account
+BALANCE chen 1360.50
+ERROR not a savings account
+ERROR invalid amount
+ERROR no such account
+ERROR insufficient funds
+ERROR invalid amount
+BALANCE ben 897.92
+ERROR account exists
+ERROR no such account
+BALANCE ben 1605.36
+BALANCE chen 830.89
+ERROR invalid amount
+BALANCE ben 1289.72
+ERROR no such account
+ERROR not a savings account
+BALANCE chen 196.99
+ERROR not a savings account
+BALANCE dee -496.05
+BALANCE eli 768.63
+TRANSFERRED 222.26
+BALANCE ana -458.38
+ERROR not a savings account
+ERROR invalid amount
+ERROR insufficient funds
+ERROR not a savings account
+ERROR account exists

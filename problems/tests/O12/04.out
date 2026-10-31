@@ -1,0 +1,852 @@
+PUBLISHED orders to 0
+SUBSCRIBED ben users
+SUBSCRIBED audit stock
+PUBLISHED stock to 1
+  audit <- stock: event 954
+ERROR not subscribed
+SUBSCRIBED mail users
+PUBLISHED stock to 1
+  audit <- stock: event 747
+PUBLISHED stock to 1
+  audit <- stock: event 136 with details
+PUBLISHED users to 2
+  ben <- users: event 308
+  mail <- users: event 308
+SUBSCRIBED audit *
+PUBLISHED users to 3
+  ben <- users: event 869
+  mail <- users: event 869
+  audit <- users: event 869
+PUBLISHED users to 3
+  ben <- users: event 530 with details
+  mail <- users: event 530 with details
+  audit <- users: event 530 with details
+PUBLISHED users to 3
+  ben <- users: event 346 with details
+  mail <- users: event 346 with details
+  audit <- users: event 346 with details
+ERROR not subscribed
+PUBLISHED users to 3
+  ben <- users: event 424
+  mail <- users: event 424
+  audit <- users: event 424
+PUBLISHED stock to 1
+  audit <- stock: event 206
+PUBLISHED orders to 1
+  audit <- orders: event 168
+ERROR not subscribed
+PUBLISHED stock to 1
+  audit <- stock: event 278 with details
+PUBLISHED orders to 1
+  audit <- orders: event 406 with details
+ERROR not subscribed
+PUBLISHED users to 3
+  ben <- users: event 641 with details
+  mail <- users: event 641 with details
+  audit <- users: event 641 with details
+ERROR not subscribed
+PUBLISHED users to 3
+  ben <- users: event 634
+  mail <- users: event 634
+  audit <- users: event 634
+ERROR not subscribed
+PUBLISHED stock to 1
+  audit <- stock: event 769 with details
+PUBLISHED users to 3
+  ben <- users: event 846
+  mail <- users: event 846
+  audit <- users: event 846
+SUBSCRIBED log *
+PUBLISHED users to 4
+  ben <- users: event 787
+  mail <- users: event 787
+  audit <- users: event 787
+  log <- users: event 787
+PUBLISHED orders to 2
+  audit <- orders: event 588
+  log <- orders: event 588
+PUBLISHED orders to 2
+  audit <- orders: event 549 with details
+  log <- orders: event 549 with details
+SUBSCRIBED ana stock
+SUBSCRIBED mail stock
+UNSUBSCRIBED ben users
+SUBSCRIBED log users
+ERROR not subscribed
+PUBLISHED orders to 2
+  audit <- orders: event 221
+  log <- orders: event 221
+UNSUBSCRIBED audit *
+SUBSCRIBED audit *
+PUBLISHED orders to 2
+  log <- orders: event 866
+  audit <- orders: event 866
+ERROR already subscribed
+PUBLISHED stock to 4
+  audit <- stock: event 140
+  ana <- stock: event 140
+  mail <- stock: event 140
+  log <- stock: event 140
+PUBLISHED orders to 2
+  log <- orders: event 115
+  audit <- orders: event 115
+UNSUBSCRIBED ana stock
+ERROR already subscribed
+SUBSCRIBED ben stock
+ERROR not subscribed
+ERROR not subscribed
+PUBLISHED orders to 2
+  log <- orders: event 48
+  audit <- orders: event 48
+SUBSCRIBED log orders
+PUBLISHED stock to 4
+  audit <- stock: event 636 with details
+  mail <- stock: event 636 with details
+  ben <- stock: event 636 with details
+  log <- stock: event 636 with details
+PUBLISHED stock to 4
+  audit <- stock: event 768 with details
+  mail <- stock: event 768 with details
+  ben <- stock: event 768 with details
+  log <- stock: event 768 with details
+PUBLISHED orders to 2
+  log <- orders: event 243
+  audit <- orders: event 243
+UNSUBSCRIBED log orders
+PUBLISHED users to 3
+  mail <- users: event 706
+  log <- users: event 706
+  audit <- users: event 706
+PUBLISHED users to 3
+  mail <- users: event 581
+  log <- users: event 581
+  audit <- users: event 581
+ERROR not subscribed
+UNSUBSCRIBED ben stock
+PUBLISHED stock to 3
+  audit <- stock: event 101
+  mail <- stock: event 101
+  log <- stock: event 101
+SUBSCRIBED ben users
+ERROR already subscribed
+ERROR already subscribed
+ERROR not subscribed
+ERROR already subscribed
+ERROR not subscribed
+SUBSCRIBED audit orders
+PUBLISHED users to 4
+  mail <- users: event 464 with details
+  log <- users: event 464 with details
+  ben <- users: event 464 with details
+  audit <- users: event 464 with details
+ERROR already subscribed
+SUBSCRIBED ana *
+SUBSCRIBED ana orders
+PUBLISHED users to 5
+  mail <- users: event 684 with details
+  log <- users: event 684 with details
+  ben <- users: event 684 with details
+  audit <- users: event 684 with details
+  ana <- users: event 684 with details
+ERROR already subscribed
+SUBSCRIBED ana stock
+PUBLISHED users to 5
+  mail <- users: event 6
+  log <- users: event 6
+  ben <- users: event 6
+  audit <- users: event 6
+  ana <- users: event 6
+PUBLISHED stock to 4
+  audit <- stock: event 748 with details
+  mail <- stock: event 748 with details
+  ana <- stock: event 748 with details
+  log <- stock: event 748 with details
+PUBLISHED stock to 4
+  audit <- stock: event 100
+  mail <- stock: event 100
+  ana <- stock: event 100
+  log <- stock: event 100
+ERROR already subscribed
+PUBLISHED users to 5
+  mail <- users: event 552
+  log <- users: event 552
+  ben <- users: event 552
+  audit <- users: event 552
+  ana <- users: event 552
+ERROR not subscribed
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED orders to 3
+  audit <- orders: event 500
+  ana <- orders: event 500
+  log <- orders: event 500
+PUBLISHED orders to 3
+  audit <- orders: event 66
+  ana <- orders: event 66
+  log <- orders: event 66
+PUBLISHED orders to 3
+  audit <- orders: event 25
+  ana <- orders: event 25
+  log <- orders: event 25
+SUBSCRIBED audit users
+ERROR already subscribed
+SUBSCRIBED mail orders
+PUBLISHED orders to 4
+  audit <- orders: event 846 with details
+  ana <- orders: event 846 with details
+  mail <- orders: event 846 with details
+  log <- orders: event 846 with details
+PUBLISHED orders to 4
+  audit <- orders: event 575
+  ana <- orders: event 575
+  mail <- orders: event 575
+  log <- orders: event 575
+PUBLISHED users to 5
+  mail <- users: event 116
+  log <- users: event 116
+  ben <- users: event 116
+  audit <- users: event 116
+  ana <- users: event 116
+PUBLISHED users to 5
+  mail <- users: event 182
+  log <- users: event 182
+  ben <- users: event 182
+  audit <- users: event 182
+  ana <- users: event 182
+PUBLISHED orders to 4
+  audit <- orders: event 296
+  ana <- orders: event 296
+  mail <- orders: event 296
+  log <- orders: event 296
+ERROR already subscribed
+PUBLISHED users to 5
+  mail <- users: event 453 with details
+  log <- users: event 453 with details
+  ben <- users: event 453 with details
+  audit <- users: event 453 with details
+  ana <- users: event 453 with details
+PUBLISHED stock to 4
+  audit <- stock: event 870 with details
+  mail <- stock: event 870 with details
+  ana <- stock: event 870 with details
+  log <- stock: event 870 with details
+PUBLISHED stock to 4
+  audit <- stock: event 475
+  mail <- stock: event 475
+  ana <- stock: event 475
+  log <- stock: event 475
+UNSUBSCRIBED mail users
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+ERROR not subscribed
+ERROR already subscribed
+PUBLISHED users to 4
+  log <- users: event 385
+  ben <- users: event 385
+  audit <- users: event 385
+  ana <- users: event 385
+SUBSCRIBED ana users
+PUBLISHED users to 4
+  log <- users: event 199 with details
+  ben <- users: event 199 with details
+  audit <- users: event 199 with details
+  ana <- users: event 199 with details
+PUBLISHED users to 4
+  log <- users: event 20
+  ben <- users: event 20
+  audit <- users: event 20
+  ana <- users: event 20
+SUBSCRIBED ben orders
+PUBLISHED users to 4
+  log <- users: event 935
+  ben <- users: event 935
+  audit <- users: event 935
+  ana <- users: event 935
+PUBLISHED users to 4
+  log <- users: event 397 with details
+  ben <- users: event 397 with details
+  audit <- users: event 397 with details
+  ana <- users: event 397 with details
+PUBLISHED stock to 4
+  audit <- stock: event 96
+  mail <- stock: event 96
+  ana <- stock: event 96
+  log <- stock: event 96
+ERROR already subscribed
+PUBLISHED users to 4
+  log <- users: event 415
+  ben <- users: event 415
+  audit <- users: event 415
+  ana <- users: event 415
+PUBLISHED users to 4
+  log <- users: event 950
+  ben <- users: event 950
+  audit <- users: event 950
+  ana <- users: event 950
+ERROR already subscribed
+PUBLISHED stock to 4
+  audit <- stock: event 987 with details
+  mail <- stock: event 987 with details
+  ana <- stock: event 987 with details
+  log <- stock: event 987 with details
+PUBLISHED stock to 4
+  audit <- stock: event 139
+  mail <- stock: event 139
+  ana <- stock: event 139
+  log <- stock: event 139
+SUBSCRIBED log stock
+ERROR already subscribed
+ERROR not subscribed
+UNSUBSCRIBED ana orders
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED stock to 4
+  audit <- stock: event 903 with details
+  mail <- stock: event 903 with details
+  ana <- stock: event 903 with details
+  log <- stock: event 903 with details
+PUBLISHED stock to 4
+  audit <- stock: event 254
+  mail <- stock: event 254
+  ana <- stock: event 254
+  log <- stock: event 254
+UNSUBSCRIBED mail stock
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+UNSUBSCRIBED audit stock
+ERROR not subscribed
+PUBLISHED users to 4
+  log <- users: event 199
+  ben <- users: event 199
+  audit <- users: event 199
+  ana <- users: event 199
+ERROR already subscribed
+PUBLISHED users to 4
+  log <- users: event 383
+  ben <- users: event 383
+  audit <- users: event 383
+  ana <- users: event 383
+UNSUBSCRIBED ana *
+PUBLISHED stock to 3
+  ana <- stock: event 997
+  log <- stock: event 997
+  audit <- stock: event 997
+UNSUBSCRIBED audit *
+ERROR not subscribed
+UNSUBSCRIBED log users
+PUBLISHED users to 4
+  ben <- users: event 577
+  audit <- users: event 577
+  ana <- users: event 577
+  log <- users: event 577
+ERROR not subscribed
+PUBLISHED stock to 2
+  ana <- stock: event 312
+  log <- stock: event 312
+PUBLISHED users to 4
+  ben <- users: event 897
+  audit <- users: event 897
+  ana <- users: event 897
+  log <- users: event 897
+ERROR already subscribed
+ERROR not subscribed
+PUBLISHED users to 4
+  ben <- users: event 820
+  audit <- users: event 820
+  ana <- users: event 820
+  log <- users: event 820
+ERROR already subscribed
+PUBLISHED stock to 2
+  ana <- stock: event 806
+  log <- stock: event 806
+ERROR already subscribed
+PUBLISHED stock to 2
+  ana <- stock: event 501 with details
+  log <- stock: event 501 with details
+PUBLISHED users to 4
+  ben <- users: event 297
+  audit <- users: event 297
+  ana <- users: event 297
+  log <- users: event 297
+PUBLISHED stock to 2
+  ana <- stock: event 229
+  log <- stock: event 229
+PUBLISHED users to 4
+  ben <- users: event 693
+  audit <- users: event 693
+  ana <- users: event 693
+  log <- users: event 693
+PUBLISHED orders to 4
+  audit <- orders: event 998
+  mail <- orders: event 998
+  ben <- orders: event 998
+  log <- orders: event 998
+PUBLISHED orders to 4
+  audit <- orders: event 578
+  mail <- orders: event 578
+  ben <- orders: event 578
+  log <- orders: event 578
+ERROR already subscribed
+PUBLISHED users to 4
+  ben <- users: event 761
+  audit <- users: event 761
+  ana <- users: event 761
+  log <- users: event 761
+ERROR already subscribed
+PUBLISHED stock to 2
+  ana <- stock: event 120
+  log <- stock: event 120
+UNSUBSCRIBED ana users
+PUBLISHED users to 3
+  ben <- users: event 926
+  audit <- users: event 926
+  log <- users: event 926
+PUBLISHED users to 3
+  ben <- users: event 588 with details
+  audit <- users: event 588 with details
+  log <- users: event 588 with details
+PUBLISHED orders to 4
+  audit <- orders: event 609
+  mail <- orders: event 609
+  ben <- orders: event 609
+  log <- orders: event 609
+ERROR not subscribed
+PUBLISHED orders to 4
+  audit <- orders: event 639
+  mail <- orders: event 639
+  ben <- orders: event 639
+  log <- orders: event 639
+ERROR already subscribed
+SUBSCRIBED ben *
+SUBSCRIBED ana *
+PUBLISHED users to 4
+  ben <- users: event 352
+  audit <- users: event 352
+  log <- users: event 352
+  ana <- users: event 352
+PUBLISHED users to 4
+  ben <- users: event 363 with details
+  audit <- users: event 363 with details
+  log <- users: event 363 with details
+  ana <- users: event 363 with details
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED stock to 3
+  ana <- stock: event 788
+  log <- stock: event 788
+  ben <- stock: event 788
+ERROR already subscribed
+SUBSCRIBED ben stock
+PUBLISHED orders to 5
+  audit <- orders: event 263
+  mail <- orders: event 263
+  ben <- orders: event 263
+  log <- orders: event 263
+  ana <- orders: event 263
+PUBLISHED users to 4
+  ben <- users: event 488 with details
+  audit <- users: event 488 with details
+  log <- users: event 488 with details
+  ana <- users: event 488 with details
+UNSUBSCRIBED ben orders
+UNSUBSCRIBED ana stock
+PUBLISHED orders to 5
+  audit <- orders: event 553
+  mail <- orders: event 553
+  log <- orders: event 553
+  ben <- orders: event 553
+  ana <- orders: event 553
+PUBLISHED orders to 5
+  audit <- orders: event 883
+  mail <- orders: event 883
+  log <- orders: event 883
+  ben <- orders: event 883
+  ana <- orders: event 883
+SUBSCRIBED ben orders
+PUBLISHED users to 4
+  ben <- users: event 653 with details
+  audit <- users: event 653 with details
+  log <- users: event 653 with details
+  ana <- users: event 653 with details
+PUBLISHED users to 4
+  ben <- users: event 369
+  audit <- users: event 369
+  log <- users: event 369
+  ana <- users: event 369
+PUBLISHED stock to 3
+  log <- stock: event 476
+  ben <- stock: event 476
+  ana <- stock: event 476
+PUBLISHED orders to 5
+  audit <- orders: event 629
+  mail <- orders: event 629
+  ben <- orders: event 629
+  log <- orders: event 629
+  ana <- orders: event 629
+UNSUBSCRIBED ben users
+SUBSCRIBED mail stock
+PUBLISHED stock to 4
+  log <- stock: event 888
+  ben <- stock: event 888
+  mail <- stock: event 888
+  ana <- stock: event 888
+PUBLISHED users to 4
+  audit <- users: event 482
+  log <- users: event 482
+  ben <- users: event 482
+  ana <- users: event 482
+ERROR already subscribed
+PUBLISHED users to 4
+  audit <- users: event 174
+  log <- users: event 174
+  ben <- users: event 174
+  ana <- users: event 174
+PUBLISHED users to 4
+  audit <- users: event 519
+  log <- users: event 519
+  ben <- users: event 519
+  ana <- users: event 519
+SUBSCRIBED ana stock
+PUBLISHED users to 4
+  audit <- users: event 173
+  log <- users: event 173
+  ben <- users: event 173
+  ana <- users: event 173
+ERROR not subscribed
+PUBLISHED stock to 4
+  log <- stock: event 298
+  ben <- stock: event 298
+  mail <- stock: event 298
+  ana <- stock: event 298
+SUBSCRIBED ana orders
+PUBLISHED orders to 5
+  audit <- orders: event 260 with details
+  mail <- orders: event 260 with details
+  ben <- orders: event 260 with details
+  ana <- orders: event 260 with details
+  log <- orders: event 260 with details
+ERROR not subscribed
+PUBLISHED stock to 4
+  log <- stock: event 65
+  ben <- stock: event 65
+  mail <- stock: event 65
+  ana <- stock: event 65
+ERROR already subscribed
+UNSUBSCRIBED mail orders
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED stock to 4
+  log <- stock: event 710 with details
+  ben <- stock: event 710 with details
+  mail <- stock: event 710 with details
+  ana <- stock: event 710 with details
+PUBLISHED orders to 4
+  audit <- orders: event 922
+  ben <- orders: event 922
+  ana <- orders: event 922
+  log <- orders: event 922
+PUBLISHED orders to 4
+  audit <- orders: event 479 with details
+  ben <- orders: event 479 with details
+  ana <- orders: event 479 with details
+  log <- orders: event 479 with details
+ERROR already subscribed
+ERROR not subscribed
+PUBLISHED orders to 4
+  audit <- orders: event 115 with details
+  ben <- orders: event 115 with details
+  ana <- orders: event 115 with details
+  log <- orders: event 115 with details
+PUBLISHED stock to 4
+  log <- stock: event 40
+  ben <- stock: event 40
+  mail <- stock: event 40
+  ana <- stock: event 40
+ERROR not subscribed
+PUBLISHED users to 4
+  audit <- users: event 307
+  log <- users: event 307
+  ben <- users: event 307
+  ana <- users: event 307
+PUBLISHED orders to 4
+  audit <- orders: event 412
+  ben <- orders: event 412
+  ana <- orders: event 412
+  log <- orders: event 412
+PUBLISHED orders to 4
+  audit <- orders: event 899 with details
+  ben <- orders: event 899 with details
+  ana <- orders: event 899 with details
+  log <- orders: event 899 with details
+ERROR already subscribed
+UNSUBSCRIBED log stock
+SUBSCRIBED mail orders
+PUBLISHED orders to 5
+  audit <- orders: event 881
+  ben <- orders: event 881
+  ana <- orders: event 881
+  mail <- orders: event 881
+  log <- orders: event 881
+UNSUBSCRIBED ana *
+PUBLISHED orders to 5
+  audit <- orders: event 151
+  ben <- orders: event 151
+  ana <- orders: event 151
+  mail <- orders: event 151
+  log <- orders: event 151
+ERROR not subscribed
+PUBLISHED orders to 5
+  audit <- orders: event 544 with details
+  ben <- orders: event 544 with details
+  ana <- orders: event 544 with details
+  mail <- orders: event 544 with details
+  log <- orders: event 544 with details
+SUBSCRIBED log users
+PUBLISHED orders to 5
+  audit <- orders: event 286
+  ben <- orders: event 286
+  ana <- orders: event 286
+  mail <- orders: event 286
+  log <- orders: event 286
+PUBLISHED users to 3
+  audit <- users: event 426
+  log <- users: event 426
+  ben <- users: event 426
+PUBLISHED orders to 5
+  audit <- orders: event 692
+  ben <- orders: event 692
+  ana <- orders: event 692
+  mail <- orders: event 692
+  log <- orders: event 692
+ERROR already subscribed
+PUBLISHED stock to 4
+  ben <- stock: event 8 with details
+  mail <- stock: event 8 with details
+  ana <- stock: event 8 with details
+  log <- stock: event 8 with details
+SUBSCRIBED ana *
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED stock to 4
+  ben <- stock: event 431 with details
+  mail <- stock: event 431 with details
+  ana <- stock: event 431 with details
+  log <- stock: event 431 with details
+SUBSCRIBED ben users
+PUBLISHED stock to 4
+  ben <- stock: event 367
+  mail <- stock: event 367
+  ana <- stock: event 367
+  log <- stock: event 367
+PUBLISHED stock to 4
+  ben <- stock: event 576 with details
+  mail <- stock: event 576 with details
+  ana <- stock: event 576 with details
+  log <- stock: event 576 with details
+PUBLISHED users to 4
+  audit <- users: event 942 with details
+  log <- users: event 942 with details
+  ben <- users: event 942 with details
+  ana <- users: event 942 with details
+PUBLISHED users to 4
+  audit <- users: event 323 with details
+  log <- users: event 323 with details
+  ben <- users: event 323 with details
+  ana <- users: event 323 with details
+ERROR already subscribed
+PUBLISHED users to 4
+  audit <- users: event 41 with details
+  log <- users: event 41 with details
+  ben <- users: event 41 with details
+  ana <- users: event 41 with details
+PUBLISHED users to 4
+  audit <- users: event 285
+  log <- users: event 285
+  ben <- users: event 285
+  ana <- users: event 285
+ERROR not subscribed
+ERROR already subscribed
+UNSUBSCRIBED ana stock
+PUBLISHED stock to 4
+  ben <- stock: event 286
+  mail <- stock: event 286
+  log <- stock: event 286
+  ana <- stock: event 286
+PUBLISHED stock to 4
+  ben <- stock: event 879 with details
+  mail <- stock: event 879 with details
+  log <- stock: event 879 with details
+  ana <- stock: event 879 with details
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED users to 4
+  audit <- users: event 295
+  log <- users: event 295
+  ben <- users: event 295
+  ana <- users: event 295
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED orders to 5
+  audit <- orders: event 110
+  ben <- orders: event 110
+  ana <- orders: event 110
+  mail <- orders: event 110
+  log <- orders: event 110
+UNSUBSCRIBED audit orders
+UNSUBSCRIBED ana *
+SUBSCRIBED mail *
+SUBSCRIBED log stock
+PUBLISHED orders to 4
+  ben <- orders: event 805
+  ana <- orders: event 805
+  mail <- orders: event 805
+  log <- orders: event 805
+SUBSCRIBED audit orders
+SUBSCRIBED audit stock
+ERROR already subscribed
+PUBLISHED stock to 4
+  ben <- stock: event 426
+  mail <- stock: event 426
+  log <- stock: event 426
+  audit <- stock: event 426
+PUBLISHED stock to 4
+  ben <- stock: event 711
+  mail <- stock: event 711
+  log <- stock: event 711
+  audit <- stock: event 711
+ERROR not subscribed
+SUBSCRIBED ana stock
+PUBLISHED orders to 5
+  ben <- orders: event 515
+  ana <- orders: event 515
+  mail <- orders: event 515
+  audit <- orders: event 515
+  log <- orders: event 515
+PUBLISHED users to 4
+  audit <- users: event 889
+  log <- users: event 889
+  ben <- users: event 889
+  mail <- users: event 889
+PUBLISHED orders to 5
+  ben <- orders: event 566
+  ana <- orders: event 566
+  mail <- orders: event 566
+  audit <- orders: event 566
+  log <- orders: event 566
+PUBLISHED orders to 5
+  ben <- orders: event 275 with details
+  ana <- orders: event 275 with details
+  mail <- orders: event 275 with details
+  audit <- orders: event 275 with details
+  log <- orders: event 275 with details
+PUBLISHED users to 4
+  audit <- users: event 812
+  log <- users: event 812
+  ben <- users: event 812
+  mail <- users: event 812
+PUBLISHED orders to 5
+  ben <- orders: event 664
+  ana <- orders: event 664
+  mail <- orders: event 664
+  audit <- orders: event 664
+  log <- orders: event 664
+PUBLISHED stock to 5
+  ben <- stock: event 120
+  mail <- stock: event 120
+  log <- stock: event 120
+  audit <- stock: event 120
+  ana <- stock: event 120
+PUBLISHED users to 4
+  audit <- users: event 756 with details
+  log <- users: event 756 with details
+  ben <- users: event 756 with details
+  mail <- users: event 756 with details
+ERROR already subscribed
+ERROR already subscribed
+PUBLISHED stock to 5
+  ben <- stock: event 323
+  mail <- stock: event 323
+  log <- stock: event 323
+  audit <- stock: event 323
+  ana <- stock: event 323
+UNSUBSCRIBED audit users
+PUBLISHED orders to 5
+  ben <- orders: event 65
+  ana <- orders: event 65
+  mail <- orders: event 65
+  audit <- orders: event 65
+  log <- orders: event 65
+ERROR already subscribed
+PUBLISHED stock to 5
+  ben <- stock: event 800
+  mail <- stock: event 800
+  log <- stock: event 800
+  audit <- stock: event 800
+  ana <- stock: event 800
+PUBLISHED orders to 5
+  ben <- orders: event 366
+  ana <- orders: event 366
+  mail <- orders: event 366
+  audit <- orders: event 366
+  log <- orders: event 366
+PUBLISHED orders to 5
+  ben <- orders: event 957 with details
+  ana <- orders: event 957 with details
+  mail <- orders: event 957 with details
+  audit <- orders: event 957 with details
+  log <- orders: event 957 with details
+ERROR already subscribed
+PUBLISHED stock to 5
+  ben <- stock: event 630
+  mail <- stock: event 630
+  log <- stock: event 630
+  audit <- stock: event 630
+  ana <- stock: event 630
+PUBLISHED stock to 5
+  ben <- stock: event 122
+  mail <- stock: event 122
+  log <- stock: event 122
+  audit <- stock: event 122
+  ana <- stock: event 122
+ERROR already subscribed
+SUBSCRIBED ana users
+UNSUBSCRIBED log *
+PUBLISHED stock to 5
+  ben <- stock: event 301
+  mail <- stock: event 301
+  log <- stock: event 301
+  audit <- stock: event 301
+  ana <- stock: event 301
+SUBSCRIBED log orders
+PUBLISHED stock to 5
+  ben <- stock: event 578 with details
+  mail <- stock: event 578 with details
+  log <- stock: event 578 with details
+  audit <- stock: event 578 with details
+  ana <- stock: event 578 with details
+PUBLISHED users to 4
+  log <- users: event 373
+  ben <- users: event 373
+  ana <- users: event 373
+  mail <- users: event 373
+ERROR already subscribed
+SUBSCRIBED ana *
+PUBLISHED stock to 5
+  ben <- stock: event 684
+  mail <- stock: event 684
+  log <- stock: event 684
+  audit <- stock: event 684
+  ana <- stock: event 684
+ERROR already subscribed
+PUBLISHED orders to 5
+  ben <- orders: event 25
+  ana <- orders: event 25
+  mail <- orders: event 25
+  audit <- orders: event 25
+  log <- orders: event 25

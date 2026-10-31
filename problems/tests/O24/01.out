@@ -1,0 +1,5 @@
+EMAIL to ana@example.com: Your order shipped
+PREFS ben SMS,PUSH
+SMS to ben: Your order o42 has s…
+PUSH to ben: YOUR ORDER O42 HAS SHIPPED TODAY
+ERROR unknown channel FAX

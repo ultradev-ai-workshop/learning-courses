@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛠️&lt;/text&gt;&lt;/svg&gt;">
+<title>Solve and Test Guide</title>
+<link rel="stylesheet" href="problems.css">
+</head>
+<body>
+<nav class="topbar">
+  <a href="../index.html">← All courses</a>
+  <a class="brand" href="index.html">🧩 Problem Set</a>
+  <span class="spacer"></span>
+  <a href="index.html">All problems</a>
+</nav>
+<main>
+  <div class="eyebrow">Problem Set · guide</div>
+  <h1>🛠️ How to Solve and Test</h1>
+  <p class="lead">Every problem is a program that reads <strong>standard input</strong> and writes <strong>standard output</strong>. That makes them work in any language, and lets one set of test files check every solution.</p>
+
+  <section class="section">
+    <h2>The workflow</h2>
+    <ol>
+      <li>Create a folder for your solutions anywhere (for example <code>solutions/java/</code>).</li>
+      <li>Write the program. Read the whole input from stdin; print only what the problem asks for — no prompts like <code>"Enter n:"</code>.</li>
+      <li>Try it on an example by hand: <code>python3 e01.py &lt; tests/E01/01.in</code> (any test file works).</li>
+      <li>Run every test at once with the runner (below), or paste your output into the checker on the problem page.</li>
+    </ol>
+    <div class="box"><strong>What counts as “the same output”?</strong> Both checkers compare line by line. They ignore Windows/Unix line-ending differences, spaces at the end of a line, and blank lines at the very end. Everything else — spelling, upper/lower case, spaces between values, decimal places — must match exactly.</div>
+  </section>
+
+  <section class="section">
+    <h2>The test runner</h2>
+    <p>Two equivalent runners live in <code>runner/</code>; use whichever you have installed (Python 3.8+ or Node 18+). Run them from the <code>problems</code> folder and put the command that runs <em>your</em> program after <code>--</code>:</p>
+    <div class="tablewrap"><table>
+      <tr><th>Language</th><th>Command</th></tr>
+      <tr><td>Python</td><td><code>python3 runner/run-tests.py E01 -- python3 e01.py</code></td></tr>
+      <tr><td>JavaScript</td><td><code>node runner/run-tests.mjs E01 -- node e01.mjs</code></td></tr>
+      <tr><td>Java</td><td><code>javac Main.java</code> then <code>python3 runner/run-tests.py E01 -- java Main</code></td></tr>
+      <tr><td>C++</td><td><code>g++ -std=c++17 -O2 e01.cpp -o e01</code> then <code>python3 runner/run-tests.py E01 -- ./e01</code></td></tr>
+      <tr><td>Anything else</td><td>Any command works: <code>-- ruby e01.rb</code>, <code>-- dotnet run</code>, <code>-- go run e01.go</code>, <code>-- ./target/release/e01</code></td></tr>
+    </table></div>
+    <p>Options: <code>--timeout 5</code> (seconds per test, default 10) and <code>--stop</code> (stop at the first failure). A failing test shows the first line that differs:</p>
+    <script type="text/plain" class="sample">✓ test 01 14 ms
+✗ test 02: first difference on line 1
+    expected: 'gcd 1'
+    got:      'gcd 7'
+    input:    '7 13'
+E11: 5/6 tests passed</script>
+    <p>The runner's exit code is 0 only when every test passes, so it also works in scripts and CI. Hard problems include large tests: an O(n²) solution may hit the time limit where O(n log n) is expected.</p>
+  </section>
+
+  <section class="section" id="templates">
+    <h2>Input/output templates</h2>
+    <p>Each template solves the same <em>demo</em> task (it isn't one of the problems), so you can see how reading and printing work in your language:</p>
+    <div class="box"><strong>Demo task.</strong> The first line holds <code>n</code>, the second holds <code>n</code> integers. Print the numbers doubled on one line, then <code>count n</code>.
+      Input <code>3⏎4 -1 10</code> → output <code>8 -2 20⏎count 3</code>.</div>
+    <div class="tabs" role="group" aria-label="Language" data-group="io"></div>
+
+    <script type="text/plain" class="code" data-lang="Python" data-file="demo.py" data-group="io" data-run="python3 demo.py">import sys
+
+def main():
+    data = sys.stdin.read().split()      # every token of the input, any spacing
+    n = int(data[0])
+    nums = [int(x) for x in data[1:1 + n]]
+    print(" ".join(str(2 * x) for x in nums))
+    print("count", n)
+
+main()</script>
+
+    <script type="text/plain" class="code" data-lang="JavaScript" data-file="demo.mjs" data-group="io" data-run="node demo.mjs">import { readFileSync } from 'node:fs';
+
+const data = readFileSync(0, 'utf8').split(/\s+/).filter(Boolean);   // 0 = stdin
+const n = Number(data[0]);
+const nums = data.slice(1, 1 + n).map(Number);   // use BigInt for values beyond 2^53
+console.log(nums.map((x) => 2 * x).join(' '));
+console.log(`count ${n}`);</script>
+
+    <script type="text/plain" class="code" data-lang="Java" data-file="Main.java" data-group="io" data-build="javac Main.java" data-run="java Main">import java.io.*;
+import java.util.*;
+
+public class Main {
+    public static void main(String[] args) throws IOException {
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        // Scanner is fine for small inputs but slow for 10^5+ numbers; this reads everything at once.
+        StringBuilder all = new StringBuilder();
+        String line;
+        while ((line = in.readLine()) != null) all.append(line).append(' ');
+        StringTokenizer st = new StringTokenizer(all.toString());
+        int n = Integer.parseInt(st.nextToken());
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            long x = Long.parseLong(st.nextToken());
+            if (i > 0) out.append(' ');
+            out.append(2 * x);
+        }
+        out.append('\n').append("count ").append(n).append('\n');
+        System.out.print(out);   // one big print is much faster than many println calls
+    }
+}</script>
+
+    <script type="text/plain" class="code" data-lang="C++" data-file="demo.cpp" data-group="io" data-build="g++ -std=c++17 -O2 demo.cpp -o demo" data-run="./demo">#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);   // fast I/O
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<long long> nums(n);
+    for (auto& x : nums) cin >> x;
+    for (int i = 0; i < n; i++) cout << (i ? " " : "") << 2 * nums[i];
+    cout << "\ncount " << n << "\n";   // prefer "\n" to endl (endl flushes every time)
+}</script>
+
+    <h3>Reading line by line</h3>
+    <p>Most problems can be read as a stream of tokens. Read whole lines when a line may contain spaces or be empty (e.g. M01 Balanced Brackets, E04 Reverse a String, O13 Text Editor): in Python <code>sys.stdin.read().split("\n")</code>, in JavaScript <code>readFileSync(0, 'utf8').split('\n')</code>, in Java <code>in.readLine()</code>, in C++ <code>getline(cin, line)</code> (after <code>cin &gt;&gt; q</code>, skip the rest of that line first with <code>cin.ignore()</code>).</p>
+  </section>
+
+  <section class="section" id="oop">
+    <h2>The OOP command loop</h2>
+    <p>Every object-oriented problem has the same driver: read <code>q</code>, then for each command line, split it into words and call a method on your objects. Keep the driver thin: <strong>the classes do the work</strong> and return results; the driver only parses and prints.</p>
+    <div class="box"><strong>Demo task.</strong> Commands <code>ADD name amount</code> (no output) and <code>SHOW name</code> → <code>name total</code>, or <code>ERROR unknown name</code>.
+      Input <code>3⏎ADD ana 5⏎SHOW ana⏎SHOW bob</code> → output <code>ana 5⏎ERROR unknown name</code>.</div>
+    <div class="tabs" role="group" aria-label="Language" data-group="oop"></div>
+
+    <script type="text/plain" class="code" data-lang="Python" data-file="tally.py" data-group="oop" data-run="python3 tally.py" data-input="oop">import sys
+
+class Tally:
+    def __init__(self):
+        self._totals = {}                # encapsulated state
+
+    def add(self, name, amount):
+        self._totals[name] = self._totals.get(name, 0) + amount
+
+    def show(self, name):
+        if name not in self._totals:
+            return "ERROR unknown name"
+        return f"{name} {self._totals[name]}"
+
+def main():
+    lines = sys.stdin.read().split("\n")
+    q = int(lines[0])
+    tally, out = Tally(), []
+    for line in lines[1:1 + q]:
+        cmd = line.split()
+        if cmd[0] == "ADD":
+            tally.add(cmd[1], int(cmd[2]))
+        elif cmd[0] == "SHOW":
+            out.append(tally.show(cmd[1]))
+    print("\n".join(out))
+
+main()</script>
+
+    <script type="text/plain" class="code" data-lang="JavaScript" data-file="tally.mjs" data-group="oop" data-run="node tally.mjs" data-input="oop">import { readFileSync } from 'node:fs';
+
+class Tally {
+  #totals = new Map();               // private field
+
+  add(name, amount) {
+    this.#totals.set(name, (this.#totals.get(name) ?? 0) + amount);
+  }
+
+  show(name) {
+    return this.#totals.has(name) ? `${name} ${this.#totals.get(name)}` : 'ERROR unknown name';
+  }
+}
+
+const lines = readFileSync(0, 'utf8').split('\n');
+const q = Number(lines[0]);
+const tally = new Tally();
+const out = [];
+for (const line of lines.slice(1, 1 + q)) {
+  const [cmd, ...args] = line.trim().split(/\s+/);
+  if (cmd === 'ADD') tally.add(args[0], Number(args[1]));
+  else if (cmd === 'SHOW') out.push(tally.show(args[0]));
+}
+console.log(out.join('\n'));</script>
+
+    <script type="text/plain" class="code" data-lang="Java" data-file="Main.java" data-group="oop" data-build="javac Main.java" data-run="java Main" data-input="oop">import java.io.*;
+import java.util.*;
+
+class Tally {
+    private final Map<String, Long> totals = new HashMap<>();
+
+    void add(String name, long amount) {
+        totals.merge(name, amount, Long::sum);
+    }
+
+    String show(String name) {
+        Long t = totals.get(name);
+        return t == null ? "ERROR unknown name" : name + " " + t;
+    }
+}
+
+public class Main {
+    public static void main(String[] args) throws IOException {
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        int q = Integer.parseInt(in.readLine().trim());
+        Tally tally = new Tally();
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < q; i++) {
+            String[] cmd = in.readLine().trim().split("\\s+");
+            switch (cmd[0]) {
+                case "ADD" -> tally.add(cmd[1], Long.parseLong(cmd[2]));
+                case "SHOW" -> out.append(tally.show(cmd[1])).append('\n');
+                default -> throw new IllegalArgumentException("unknown command " + cmd[0]);
+            }
+        }
+        System.out.print(out);
+    }
+}</script>
+
+    <script type="text/plain" class="code" data-lang="C++" data-file="tally.cpp" data-group="oop" data-build="g++ -std=c++17 -O2 tally.cpp -o tally" data-run="./tally" data-input="oop">#include <iostream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+using namespace std;
+
+class Tally {
+    unordered_map<string, long long> totals;   // private by default in a class
+public:
+    void add(const string& name, long long amount) { totals[name] += amount; }
+    string show(const string& name) const {
+        auto it = totals.find(name);
+        return it == totals.end() ? "ERROR unknown name" : name + " " + to_string(it->second);
+    }
+};
+
+int main() {
+    int q;
+    cin >> q;
+    cin.ignore();                    // skip the rest of the first line
+    Tally tally;
+    string line;
+    for (int i = 0; i < q && getline(cin, line); i++) {
+        istringstream words(line);
+        string cmd, name;
+        words >> cmd >> name;
+        if (cmd == "ADD") { long long amount; words >> amount; tally.add(name, amount); }
+        else if (cmd == "SHOW") cout << tally.show(name) << "\n";
+    }
+}</script>
+  </section>
+
+  <section class="section">
+    <h2>Common pitfalls</h2>
+    <ul>
+      <li><strong>Integer overflow.</strong> Constraints tell you when results exceed 32 bits — use <code>long</code>/<code>long long</code>/<code>BigInt</code>. Python integers never overflow.</li>
+      <li><strong>Integer division.</strong> E01 and the calculators use division that truncates toward zero, like Java and C++. Python's <code>//</code> and JavaScript's <code>Math.floor</code> round toward −∞ instead.</li>
+      <li><strong>Floating point.</strong> When a problem prints decimals it says exactly how (e.g. two decimals). Money problems use whole cents — never floats.</li>
+      <li><strong>Tie-break rules.</strong> Many problems define which answer to print when several are valid (“smallest index first”, “lexicographically smallest”). Read them carefully — they're part of the problem.</li>
+      <li><strong>Slow I/O.</strong> For 10<sup>5</sup>+ numbers, use the fast patterns above (buffered reading, one big print).</li>
+      <li><strong>Extra output.</strong> Debug prints break the comparison: send them to stderr (<code>print(..., file=sys.stderr)</code>, <code>console.error</code>, <code>System.err</code>, <code>cerr</code>) — the runner ignores stderr.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2>A suggested path</h2>
+    <ul>
+      <li>New to the language: E01–E25 in order — they cover I/O, loops, strings, lists and maps.</li>
+      <li>Then M01–M25: stacks, hashing, two pointers, sorting with custom orders, recursion.</li>
+      <li>H01–H25 are classic interview-level algorithms; aim for the complexity the constraints imply.</li>
+      <li>For Java, C++, C#, Kotlin, TypeScript…: do O01–O25 to practise classes, interfaces, inheritance, generics and design patterns. Solve each one twice: once quickly, then refactor the design.</li>
+    </ul>
+  </section>
+  <footer>Templates on this page are tested automatically with <code>tools/check-guide.py</code>.</footer>
+</main>
+<script>
+(function () {
+  // Render <script type="text/plain"> blocks as tabbed code panes (the raw text is kept for the checker).
+  document.querySelectorAll('script.sample').forEach(function (s) {
+    var pre = document.createElement('pre'); pre.className = 'pane'; pre.style.padding = '10px 12px'; pre.style.fontSize = '13px';
+    pre.textContent = s.textContent; s.replaceWith(pre);
+  });
+  var KEY = 'problems.guide.lang';
+  var saved = null; try { saved = localStorage.getItem(KEY); } catch (e) { /* ignore */ }
+  var groups = {};
+  document.querySelectorAll('script.code').forEach(function (s) {
+    var g = s.dataset.group; (groups[g] = groups[g] || []).push(s);
+  });
+  Object.keys(groups).forEach(function (g) {
+    var bar = document.querySelector('.tabs[data-group="' + g + '"]');
+    var panes = groups[g].map(function (s) {
+      var box = document.createElement('div'); box.className = 'codeblock';
+      var head = document.createElement('div'); head.className = 'head';
+      var name = document.createElement('span');
+      name.textContent = s.dataset.file + (s.dataset.build ? '  ·  build: ' + s.dataset.build : '') + '  ·  run: ' + s.dataset.run;
+      var copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn small'; copy.textContent = 'Copy';
+      copy.addEventListener('click', function () {
+        var text = s.textContent;
+        (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { copy.textContent = 'Copied ✓'; }, function () { copy.textContent = 'Select & copy'; });
+        setTimeout(function () { copy.textContent = 'Copy'; }, 1300);
+      });
+      head.appendChild(name); head.appendChild(copy);
+      var pre = document.createElement('pre'); var code = document.createElement('code'); code.textContent = s.textContent; pre.appendChild(code);
+      box.appendChild(head); box.appendChild(pre);
+      s.after(box);
+      return { lang: s.dataset.lang, box: box };
+    });
+    function show(lang) {
+      if (!panes.some(function (p) { return p.lang === lang; })) lang = panes[0].lang;
+      panes.forEach(function (p) { p.box.hidden = p.lang !== lang; });
+      Array.prototype.forEach.call(bar.children, function (b) { b.setAttribute('aria-pressed', String(b.textContent === lang)); });
+    }
+    panes.forEach(function (p) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = p.lang;
+      b.addEventListener('click', function () {
+        try { localStorage.setItem(KEY, p.lang); } catch (e) { /* ignore */ }
+        Object.keys(window.__showLang || {}).forEach(function (k) { window.__showLang[k](p.lang); });
+      });
+      bar.appendChild(b);
+    });
+    (window.__showLang = window.__showLang || {})[g] = show;
+    show(saved);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+HANDLER console >= INFO
+HANDLER pager >= ERROR
+DROPPED DEBUG
+console [INFO] started
+console [ERROR] disk full
+pager [ERROR] disk full

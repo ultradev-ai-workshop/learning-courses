@@ -1,0 +1,3 @@
+CONFIG capacity=1 refill=0/s
+ALLOW x 0 left=0
+DENY x 100

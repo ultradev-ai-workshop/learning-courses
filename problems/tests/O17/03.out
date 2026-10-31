@@ -1,0 +1,10 @@
+CREATED /a
+ERROR exists
+ERROR exists
+FILE /f 3
+FILE /f 7
+f
+ERROR no such directory
+REMOVED /f
+(empty)
+ERROR not found

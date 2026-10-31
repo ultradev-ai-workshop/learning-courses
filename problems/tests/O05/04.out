@@ -1,0 +1,402 @@
+LEVEL 6 4 2
+PARKED p10 LARGE 1
+ERROR not parked
+PARKED p11 MEDIUM 1
+PARKED p1 SMALL 1
+ERROR not parked
+LEFT p1 SMALL 1
+LEFT p10 LARGE 1
+PARKED p3 SMALL 1
+ERROR not parked
+LEFT p11 MEDIUM 1
+PARKED p7 MEDIUM 1
+PARKED p10 SMALL 2
+PARKED p4 SMALL 3
+ERROR not parked
+ERROR not parked
+PARKED p6 MEDIUM 2
+PARKED p11 LARGE 1
+ERROR already parked
+ERROR already parked
+LEFT p6 MEDIUM 2
+ERROR not parked
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+PARKED p8 SMALL 4
+LEFT p8 SMALL 4
+PARKED p0 MEDIUM 2
+LEFT p0 MEDIUM 2
+ERROR not parked
+ERROR not parked
+ERROR already parked
+LEFT p4 SMALL 3
+PARKED p9 MEDIUM 2
+ERROR not parked
+ERROR not parked
+PARKED p6 SMALL 3
+PARKED p0 SMALL 4
+LEFT p7 MEDIUM 1
+FREE SMALL=2 MEDIUM=3 LARGE=1
+ERROR not parked
+ERROR already parked
+LEFT p0 SMALL 4
+LEFT p11 LARGE 1
+ERROR not parked
+ERROR not parked
+ERROR already parked
+PARKED p7 LARGE 1
+FREE SMALL=3 MEDIUM=3 LARGE=1
+PARKED p1 SMALL 4
+ERROR not parked
+LEFT p1 SMALL 4
+FREE SMALL=3 MEDIUM=3 LARGE=1
+ERROR already parked
+ERROR not parked
+PARKED p11 LARGE 2
+LEFT p11 LARGE 2
+LEFT p6 SMALL 3
+ERROR already parked
+PARKED p8 LARGE 2
+PARKED p0 MEDIUM 1
+FULL p1
+LEFT p10 SMALL 2
+ERROR already parked
+ERROR not parked
+ERROR already parked
+PARKED p4 SMALL 2
+ERROR not parked
+ERROR already parked
+PARKED p2 MEDIUM 3
+ERROR already parked
+LEFT p0 MEDIUM 1
+ERROR not parked
+ERROR already parked
+PARKED p1 SMALL 3
+PARKED p5 SMALL 4
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+FREE SMALL=2 MEDIUM=2 LARGE=0
+LEFT p7 LARGE 1
+ERROR not parked
+LEFT p5 SMALL 4
+ERROR already parked
+ERROR already parked
+PARKED p5 LARGE 1
+ERROR already parked
+ERROR already parked
+LEFT p5 LARGE 1
+ERROR not parked
+LEFT p8 LARGE 2
+ERROR already parked
+ERROR not parked
+PARKED p7 MEDIUM 1
+ERROR already parked
+ERROR not parked
+ERROR not parked
+ERROR not parked
+ERROR not parked
+ERROR not parked
+LEFT p7 MEDIUM 1
+ERROR not parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+ERROR not parked
+ERROR not parked
+ERROR already parked
+ERROR already parked
+LEFT p2 MEDIUM 3
+ERROR not parked
+ERROR already parked
+FREE SMALL=3 MEDIUM=3 LARGE=2
+PARKED p8 LARGE 1
+PARKED p0 MEDIUM 1
+LEFT p4 SMALL 2
+ERROR not parked
+PARKED p2 MEDIUM 3
+ERROR not parked
+ERROR already parked
+FREE SMALL=4 MEDIUM=1 LARGE=1
+ERROR not parked
+LEFT p9 MEDIUM 2
+FREE SMALL=4 MEDIUM=2 LARGE=1
+ERROR not parked
+PARKED p4 SMALL 2
+ERROR already parked
+LEFT p8 LARGE 1
+ERROR not parked
+ERROR not parked
+LEFT p0 MEDIUM 1
+LEFT p1 SMALL 3
+ERROR not parked
+PARKED p0 LARGE 1
+ERROR not parked
+ERROR already parked
+ERROR not parked
+PARKED p10 LARGE 2
+PARKED p1 MEDIUM 1
+ERROR not parked
+PARKED p8 SMALL 3
+ERROR already parked
+FULL p6
+LEFT p10 LARGE 2
+LEFT p8 SMALL 3
+PARKED p10 SMALL 3
+LEFT p3 SMALL 1
+ERROR already parked
+FREE SMALL=4 MEDIUM=2 LARGE=1
+FREE SMALL=4 MEDIUM=2 LARGE=1
+PARKED p5 LARGE 2
+PARKED p11 MEDIUM 2
+PARKED p9 SMALL 1
+LEFT p11 MEDIUM 2
+LEFT p4 SMALL 2
+ERROR already parked
+LEFT p2 MEDIUM 3
+FULL p6
+ERROR not parked
+LEFT p1 MEDIUM 1
+PARKED p7 SMALL 2
+ERROR not parked
+FULL p2
+LEFT p9 SMALL 1
+FULL p4
+ERROR not parked
+ERROR not parked
+FULL p9
+PARKED p4 MEDIUM 1
+LEFT p5 LARGE 2
+PARKED p8 MEDIUM 2
+PARKED p1 LARGE 2
+LEFT p7 SMALL 2
+ERROR not parked
+LEFT p8 MEDIUM 2
+PARKED p2 MEDIUM 2
+LEFT p1 LARGE 2
+PARKED p8 LARGE 2
+FREE SMALL=5 MEDIUM=2 LARGE=0
+ERROR already parked
+LEFT p10 SMALL 3
+FULL p1
+ERROR not parked
+ERROR not parked
+LEFT p4 MEDIUM 1
+ERROR not parked
+ERROR not parked
+PARKED p7 SMALL 1
+PARKED p1 MEDIUM 1
+ERROR not parked
+ERROR already parked
+LEFT p7 SMALL 1
+PARKED p4 SMALL 1
+LEFT p0 LARGE 1
+PARKED p6 SMALL 2
+ERROR already parked
+ERROR not parked
+ERROR not parked
+LEFT p2 MEDIUM 2
+LEFT p6 SMALL 2
+ERROR not parked
+PARKED p0 LARGE 1
+PARKED p6 MEDIUM 2
+ERROR not parked
+LEFT p0 LARGE 1
+PARKED p3 SMALL 2
+PARKED p10 LARGE 1
+ERROR not parked
+ERROR not parked
+ERROR not parked
+PARKED p9 SMALL 3
+ERROR already parked
+ERROR not parked
+FULL p7
+ERROR not parked
+FULL p5
+ERROR already parked
+PARKED p2 SMALL 4
+LEFT p4 SMALL 1
+ERROR not parked
+LEFT p3 SMALL 2
+FULL p7
+FULL p0
+FULL p7
+LEFT p1 MEDIUM 1
+LEFT p10 LARGE 1
+ERROR not parked
+PARKED p1 LARGE 1
+ERROR already parked
+FULL p4
+LEFT p1 LARGE 1
+PARKED p0 SMALL 1
+PARKED p7 LARGE 1
+ERROR already parked
+PARKED p10 SMALL 2
+FREE SMALL=2 MEDIUM=3 LARGE=0
+ERROR already parked
+ERROR already parked
+PARKED p1 MEDIUM 1
+LEFT p1 MEDIUM 1
+ERROR already parked
+FULL p4
+ERROR already parked
+ERROR already parked
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+FULL p3
+ERROR already parked
+ERROR not parked
+FULL p4
+ERROR already parked
+LEFT p6 MEDIUM 2
+ERROR not parked
+ERROR not parked
+ERROR not parked
+ERROR already parked
+LEFT p0 SMALL 1
+ERROR not parked
+ERROR not parked
+ERROR already parked
+PARKED p0 SMALL 1
+FULL p4
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+PARKED p11 MEDIUM 1
+LEFT p7 LARGE 1
+PARKED p3 MEDIUM 2
+FREE SMALL=2 MEDIUM=2 LARGE=1
+PARKED p6 LARGE 1
+ERROR not parked
+ERROR already parked
+ERROR already parked
+FULL p7
+ERROR not parked
+PARKED p1 MEDIUM 3
+ERROR already parked
+FREE SMALL=2 MEDIUM=1 LARGE=0
+ERROR not parked
+PARKED p7 SMALL 5
+FREE SMALL=1 MEDIUM=1 LARGE=0
+LEFT p1 MEDIUM 3
+ERROR already parked
+ERROR already parked
+LEFT p11 MEDIUM 1
+ERROR not parked
+LEFT p7 SMALL 5
+ERROR not parked
+ERROR already parked
+PARKED p1 SMALL 5
+LEFT p6 LARGE 1
+PARKED p6 MEDIUM 1
+FREE SMALL=1 MEDIUM=2 LARGE=1
+ERROR not parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+PARKED p11 SMALL 6
+LEFT p10 SMALL 2
+LEFT p1 SMALL 5
+LEFT p9 SMALL 3
+ERROR already parked
+ERROR not parked
+ERROR already parked
+PARKED p1 SMALL 2
+ERROR not parked
+ERROR not parked
+ERROR not parked
+LEFT p0 SMALL 1
+PARKED p10 LARGE 1
+ERROR not parked
+LEFT p2 SMALL 4
+ERROR not parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+LEFT p8 LARGE 2
+PARKED p4 LARGE 2
+PARKED p2 SMALL 1
+ERROR already parked
+PARKED p5 SMALL 3
+ERROR not parked
+ERROR already parked
+LEFT p5 SMALL 3
+PARKED p5 SMALL 3
+LEFT p2 SMALL 1
+ERROR already parked
+ERROR already parked
+FULL p7
+FREE SMALL=3 MEDIUM=2 LARGE=0
+LEFT p1 SMALL 2
+LEFT p6 MEDIUM 1
+LEFT p5 SMALL 3
+FREE SMALL=5 MEDIUM=3 LARGE=0
+ERROR not parked
+FREE SMALL=5 MEDIUM=3 LARGE=0
+LEFT p4 LARGE 2
+PARKED p4 SMALL 1
+PARKED p0 MEDIUM 1
+PARKED p9 LARGE 2
+ERROR not parked
+PARKED p5 MEDIUM 3
+PARKED p7 SMALL 2
+LEFT p3 MEDIUM 2
+LEFT p4 SMALL 1
+PARKED p1 MEDIUM 2
+LEFT p1 MEDIUM 2
+ERROR not parked
+PARKED p8 SMALL 1
+FREE SMALL=3 MEDIUM=2 LARGE=0
+ERROR already parked
+ERROR not parked
+LEFT p0 MEDIUM 1
+ERROR already parked
+ERROR not parked
+LEFT p11 SMALL 6
+ERROR not parked
+ERROR already parked
+ERROR already parked
+PARKED p4 SMALL 3
+PARKED p1 MEDIUM 1
+ERROR already parked
+LEFT p1 MEDIUM 1
+ERROR already parked
+FREE SMALL=3 MEDIUM=3 LARGE=0
+ERROR not parked
+ERROR not parked
+ERROR already parked
+ERROR not parked
+FREE SMALL=3 MEDIUM=3 LARGE=0
+PARKED p3 SMALL 4
+LEFT p4 SMALL 3
+ERROR not parked
+FULL p0
+PARKED p1 SMALL 3
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR already parked
+ERROR already parked
+ERROR not parked
+ERROR already parked
+LEFT p7 SMALL 2
+PARKED p4 MEDIUM 1
+ERROR not parked
+LEFT p3 SMALL 4
+ERROR already parked
+ERROR not parked
+ERROR already parked
+ERROR already parked
+FREE SMALL=4 MEDIUM=2 LARGE=0

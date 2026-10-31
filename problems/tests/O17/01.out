@@ -1,0 +1,16 @@
+CREATED /docs
+CREATED /docs/old
+FILE /docs/a.txt 120
+FILE /docs/old/b.txt 30
+FILE /readme 5
+SIZE /docs 150
+SIZE / 155
+a.txt old/
+/
+  docs/
+    a.txt (120)
+    old/
+      b.txt (30)
+  readme (5)
+REMOVED /docs/old
+SIZE / 125

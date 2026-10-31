@@ -1,0 +1,5 @@
+OPENED a
+BALANCE a -500.00
+ERROR insufficient funds
+BALANCE a -499.99
+BALANCE a -499.99

@@ -1,0 +1,11 @@
+10
+CAPACITY 3
+KEYS
+PUT a 1
+PUT b 2
+PUT c 3
+GET a
+GET b
+PUT d 4
+PUT e 5
+KEYS

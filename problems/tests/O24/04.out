@@ -1,0 +1,332 @@
+PREFS user1 PUSH
+EMAIL to user5@example.com: your today ok your
+PREFS user4 PUSH,SMS
+EMAIL to user5@example.com: and your shipped soon order ok
+EMAIL to user3@example.com: order your has has today order your your ok
+ERROR unknown channel FAX
+EMAIL to user2@example.com: ok your ok shipped and soon will ok
+PUSH to user4: ORDER ARRIVE
+SMS to user4: order arrive
+PREFS user1 SMS,SMS
+EMAIL to user0@example.com: order order soon arrive has and today
+EMAIL to user0@example.com: and and
+EMAIL to user0@example.com: has will arrive arrive arrive arrive
+EMAIL to user6@example.com: and shipped your and shipped
+EMAIL to user5@example.com: arrive arrive ok today will ok your will
+PREFS user2 SMS,PUSH,PUSH
+PUSH to user4: YOUR ARRIVE ORDER AND WILL ARRIVE
+SMS to user4: your arrive order an…
+PUSH to user4: WILL AND SHIPPED SOON AND YOUR SOON SHIPPED YOUR
+SMS to user4: will and shipped soo…
+EMAIL to user0@example.com: arrive ok order soon
+EMAIL to user0@example.com: ok soon order ok ok will order arrive
+EMAIL to user3@example.com: and order will soon arrive your
+PREFS user3 SMS,SMS,EMAIL
+ERROR unknown channel FAX
+EMAIL to user5@example.com: order order your shipped
+EMAIL to user0@example.com: shipped will order
+ERROR unknown channel FAX
+EMAIL to user5@example.com: has and arrive today shipped
+SMS to user3: shipped today ok ok …
+SMS to user3: shipped today ok ok …
+EMAIL to user3@example.com: shipped today ok ok and shipped and today
+SMS to user1: order ok
+SMS to user1: order ok
+EMAIL to user0@example.com: today and
+SMS to user3: order soon ok today …
+SMS to user3: order soon ok today …
+EMAIL to user3@example.com: order soon ok today arrive soon today
+EMAIL to user6@example.com: soon your has
+PREFS user4 PUSH,PUSH,PUSH
+SMS to user2: order and has has sh…
+PUSH to user2: ORDER AND HAS HAS SHIPPED SOON ARRIVE SHIPPED
+PUSH to user2: ORDER AND HAS HAS SHIPPED SOON ARRIVE SHIPPED
+EMAIL to user5@example.com: your and soon will order
+EMAIL to user6@example.com: will soon soon today today soon
+SMS to user2: order will has shipp…
+PUSH to user2: ORDER WILL HAS SHIPPED AND OK
+PUSH to user2: ORDER WILL HAS SHIPPED AND OK
+PUSH to user4: ARRIVE AND ARRIVE HAS WILL SHIPPED SHIPPED WILL
+PUSH to user4: ARRIVE AND ARRIVE HAS WILL SHIPPED SHIPPED WILL
+PUSH to user4: ARRIVE AND ARRIVE HAS WILL SHIPPED SHIPPED WILL
+PREFS user6 PUSH,PUSH,PUSH
+PREFS user0 SMS
+ERROR unknown channel FAX
+PREFS user0 PUSH,PUSH
+EMAIL to user5@example.com: arrive soon soon ok shipped soon your has arrive
+PUSH to user6: SHIPPED YOUR ORDER SOON SHIPPED WILL SHIPPED
+PUSH to user6: SHIPPED YOUR ORDER SOON SHIPPED WILL SHIPPED
+PUSH to user6: SHIPPED YOUR ORDER SOON SHIPPED WILL SHIPPED
+PREFS user2 PUSH
+PREFS user2 PUSH
+PUSH to user2: SOON TODAY
+ERROR unknown channel FAX
+SMS to user3: will will order
+SMS to user3: will will order
+EMAIL to user3@example.com: will will order
+PREFS user3 PUSH,PUSH
+PUSH to user4: ARRIVE OK WILL WILL TODAY OK WILL SHIPPED WILL
+PUSH to user4: ARRIVE OK WILL WILL TODAY OK WILL SHIPPED WILL
+PUSH to user4: ARRIVE OK WILL WILL TODAY OK WILL SHIPPED WILL
+PREFS user6 EMAIL
+SMS to user1: has and order soon
+SMS to user1: has and order soon
+EMAIL to user5@example.com: today has ok will soon
+PUSH to user2: YOUR SOON TODAY SHIPPED
+PUSH to user2: WILL WILL OK
+PREFS user2 SMS
+SMS to user1: arrive and shipped o…
+SMS to user1: arrive and shipped o…
+SMS to user1: will ok shipped toda…
+SMS to user1: will ok shipped toda…
+PUSH to user0: ARRIVE ORDER ARRIVE SOON ARRIVE SOON WILL OK YOUR
+PUSH to user0: ARRIVE ORDER ARRIVE SOON ARRIVE SOON WILL OK YOUR
+PUSH to user3: YOUR HAS YOUR
+PUSH to user3: YOUR HAS YOUR
+ERROR unknown channel FAX
+PUSH to user0: SOON AND ARRIVE
+PUSH to user0: SOON AND ARRIVE
+EMAIL to user6@example.com: order has ok has has arrive will arrive today
+EMAIL to user5@example.com: ok
+PUSH to user3: YOUR AND HAS HAS AND ARRIVE TODAY
+PUSH to user3: YOUR AND HAS HAS AND ARRIVE TODAY
+ERROR unknown channel FAX
+EMAIL to user6@example.com: today
+PUSH to user4: WILL
+PUSH to user4: WILL
+PUSH to user4: WILL
+EMAIL to user5@example.com: your
+EMAIL to user5@example.com: today order will
+PUSH to user4: OK TODAY AND YOUR AND
+PUSH to user4: OK TODAY AND YOUR AND
+PUSH to user4: OK TODAY AND YOUR AND
+PUSH to user4: ARRIVE SHIPPED ORDER WILL AND AND SHIPPED
+PUSH to user4: ARRIVE SHIPPED ORDER WILL AND AND SHIPPED
+PUSH to user4: ARRIVE SHIPPED ORDER WILL AND AND SHIPPED
+EMAIL to user5@example.com: order soon your
+PREFS user6 EMAIL,PUSH
+PUSH to user0: TODAY TODAY
+PUSH to user0: TODAY TODAY
+EMAIL to user6@example.com: today ok today and ok has
+PUSH to user6: TODAY OK TODAY AND OK HAS
+PREFS user5 PUSH,PUSH
+ERROR unknown channel FAX
+SMS to user1: today soon soon orde…
+SMS to user1: today soon soon orde…
+PUSH to user4: TODAY AND ARRIVE AND OK SOON
+PUSH to user4: TODAY AND ARRIVE AND OK SOON
+PUSH to user4: TODAY AND ARRIVE AND OK SOON
+PREFS user2 SMS
+PUSH to user5: SHIPPED OK HAS WILL TODAY AND ORDER WILL
+PUSH to user5: SHIPPED OK HAS WILL TODAY AND ORDER WILL
+PUSH to user5: ARRIVE ARRIVE ORDER WILL
+PUSH to user5: ARRIVE ARRIVE ORDER WILL
+PUSH to user4: SHIPPED
+PUSH to user4: SHIPPED
+PUSH to user4: SHIPPED
+PUSH to user4: AND WILL
+PUSH to user4: AND WILL
+PUSH to user4: AND WILL
+PUSH to user3: ARRIVE ARRIVE WILL ORDER OK
+PUSH to user3: ARRIVE ARRIVE WILL ORDER OK
+PREFS user6 SMS,PUSH
+PUSH to user4: HAS ARRIVE ORDER AND AND AND YOUR SOON SOON
+PUSH to user4: HAS ARRIVE ORDER AND AND AND YOUR SOON SOON
+PUSH to user4: HAS ARRIVE ORDER AND AND AND YOUR SOON SOON
+PUSH to user0: HAS SOON YOUR ORDER WILL ARRIVE
+PUSH to user0: HAS SOON YOUR ORDER WILL ARRIVE
+PUSH to user5: SHIPPED
+PUSH to user5: SHIPPED
+PUSH to user4: ARRIVE
+PUSH to user4: ARRIVE
+PUSH to user4: ARRIVE
+SMS to user1: will and will arrive
+SMS to user1: will and will arrive
+SMS to user1: ok soon
+SMS to user1: ok soon
+PUSH to user3: TODAY SOON WILL TODAY OK ARRIVE TODAY
+PUSH to user3: TODAY SOON WILL TODAY OK ARRIVE TODAY
+PREFS user5 SMS,PUSH,EMAIL
+PREFS user2 PUSH,PUSH
+PREFS user2 SMS,EMAIL,PUSH
+ERROR unknown channel FAX
+PUSH to user4: ORDER HAS ARRIVE AND OK SOON
+PUSH to user4: ORDER HAS ARRIVE AND OK SOON
+PUSH to user4: ORDER HAS ARRIVE AND OK SOON
+SMS to user1: soon has shipped arr…
+SMS to user1: soon has shipped arr…
+SMS to user2: arrive shipped shipp…
+EMAIL to user2@example.com: arrive shipped shipped
+PUSH to user2: ARRIVE SHIPPED SHIPPED
+SMS to user1: shipped
+SMS to user1: shipped
+SMS to user1: shipped shipped will…
+SMS to user1: shipped shipped will…
+SMS to user1: and and soon shipped…
+SMS to user1: and and soon shipped…
+ERROR unknown channel FAX
+PREFS user2 PUSH
+PUSH to user3: SOON TODAY WILL HAS SHIPPED AND OK OK
+PUSH to user3: SOON TODAY WILL HAS SHIPPED AND OK OK
+SMS to user6: your will has arrive…
+PUSH to user6: YOUR WILL HAS ARRIVE YOUR OK ARRIVE HAS HAS
+PUSH to user4: YOUR TODAY
+PUSH to user4: YOUR TODAY
+PUSH to user4: YOUR TODAY
+ERROR unknown channel FAX
+PUSH to user2: OK ORDER ARRIVE WILL OK AND SHIPPED ORDER SOON
+PUSH to user4: SOON YOUR ARRIVE TODAY TODAY
+PUSH to user4: SOON YOUR ARRIVE TODAY TODAY
+PUSH to user4: SOON YOUR ARRIVE TODAY TODAY
+PREFS user2 SMS
+PREFS user5 PUSH,PUSH
+SMS to user2: soon your arrive you…
+PREFS user4 EMAIL,EMAIL,SMS
+PUSH to user5: OK TODAY ARRIVE HAS YOUR OK SHIPPED WILL ORDER
+PUSH to user5: OK TODAY ARRIVE HAS YOUR OK SHIPPED WILL ORDER
+SMS to user6: arrive will has and …
+PUSH to user6: ARRIVE WILL HAS AND ARRIVE SOON ORDER TODAY SOON
+PREFS user1 PUSH,PUSH,SMS
+PUSH to user5: ORDER YOUR AND SOON ORDER AND ARRIVE OK
+PUSH to user5: ORDER YOUR AND SOON ORDER AND ARRIVE OK
+ERROR unknown channel FAX
+PUSH to user1: SOON AND
+PUSH to user1: SOON AND
+SMS to user1: soon and
+PUSH to user5: YOUR YOUR
+PUSH to user5: YOUR YOUR
+EMAIL to user4@example.com: ok arrive shipped order
+EMAIL to user4@example.com: ok arrive shipped order
+SMS to user4: ok arrive shipped or…
+PUSH to user1: TODAY YOUR ORDER WILL
+PUSH to user1: TODAY YOUR ORDER WILL
+SMS to user1: today your order wil…
+PUSH to user0: ARRIVE ORDER SOON
+PUSH to user0: ARRIVE ORDER SOON
+SMS to user2: order has has
+SMS to user6: and has soon arrive …
+PUSH to user6: AND HAS SOON ARRIVE SHIPPED
+PREFS user0 PUSH,EMAIL
+EMAIL to user4@example.com: soon will
+EMAIL to user4@example.com: soon will
+SMS to user4: soon will
+SMS to user2: and order arrive arr…
+PUSH to user5: SHIPPED YOUR OK YOUR SOON ARRIVE ARRIVE SOON
+PUSH to user5: SHIPPED YOUR OK YOUR SOON ARRIVE ARRIVE SOON
+PREFS user2 EMAIL,PUSH
+EMAIL to user2@example.com: has order shipped has shipped soon ok your
+PUSH to user2: HAS ORDER SHIPPED HAS SHIPPED SOON OK YOUR
+EMAIL to user4@example.com: ok order order arrive has your shipped
+EMAIL to user4@example.com: ok order order arrive has your shipped
+SMS to user4: ok order order arriv…
+PREFS user5 PUSH
+PUSH to user3: OK
+PUSH to user3: OK
+ERROR unknown channel FAX
+PUSH to user0: ARRIVE WILL ORDER ARRIVE ARRIVE
+EMAIL to user0@example.com: arrive will order arrive arrive
+SMS to user6: shipped shipped and …
+PUSH to user6: SHIPPED SHIPPED AND OK SOON ORDER ORDER HAS OK
+PUSH to user0: SOON
+EMAIL to user0@example.com: soon
+PUSH to user1: HAS AND
+PUSH to user1: HAS AND
+SMS to user1: has and
+PUSH to user3: HAS AND YOUR YOUR HAS TODAY AND SHIPPED ARRIVE
+PUSH to user3: HAS AND YOUR YOUR HAS TODAY AND SHIPPED ARRIVE
+PREFS user1 PUSH,PUSH,SMS
+EMAIL to user2@example.com: order
+PUSH to user2: ORDER
+EMAIL to user4@example.com: will soon has
+EMAIL to user4@example.com: will soon has
+SMS to user4: will soon has
+SMS to user6: arrive order today
+PUSH to user6: ARRIVE ORDER TODAY
+SMS to user6: your soon
+PUSH to user6: YOUR SOON
+PREFS user5 PUSH,SMS
+EMAIL to user2@example.com: soon arrive your shipped your your today has your
+PUSH to user2: SOON ARRIVE YOUR SHIPPED YOUR YOUR TODAY HAS YOUR
+PUSH to user5: AND ARRIVE SOON HAS ARRIVE SOON AND
+SMS to user5: and arrive soon has …
+EMAIL to user4@example.com: ok arrive
+EMAIL to user4@example.com: ok arrive
+SMS to user4: ok arrive
+PUSH to user3: AND AND ARRIVE WILL WILL SHIPPED
+PUSH to user3: AND AND ARRIVE WILL WILL SHIPPED
+PREFS user6 PUSH,EMAIL
+PUSH to user5: ARRIVE ORDER ARRIVE
+SMS to user5: arrive order arrive
+PUSH to user5: WILL ARRIVE SHIPPED OK ORDER HAS SHIPPED
+SMS to user5: will arrive shipped …
+PREFS user4 EMAIL,PUSH,PUSH
+ERROR unknown channel FAX
+ERROR unknown channel FAX
+EMAIL to user2@example.com: ok and ok shipped arrive your your has order
+PUSH to user2: OK AND OK SHIPPED ARRIVE YOUR YOUR HAS ORDER
+PREFS user4 SMS
+PREFS user0 PUSH
+PREFS user4 PUSH,SMS
+PUSH to user3: ORDER TODAY ARRIVE ARRIVE TODAY AND WILL HAS HAS
+PUSH to user3: ORDER TODAY ARRIVE ARRIVE TODAY AND WILL HAS HAS
+PUSH to user4: WILL ORDER ARRIVE AND ORDER SHIPPED YOUR WILL
+SMS to user4: will order arrive an…
+PUSH to user3: WILL TODAY SOON ARRIVE SOON SOON AND AND
+PUSH to user3: WILL TODAY SOON ARRIVE SOON SOON AND AND
+PREFS user0 PUSH
+ERROR unknown channel FAX
+PUSH to user0: OK ARRIVE
+PUSH to user3: TODAY ARRIVE HAS SOON AND WILL YOUR AND AND
+PUSH to user3: TODAY ARRIVE HAS SOON AND WILL YOUR AND AND
+EMAIL to user2@example.com: and has
+PUSH to user2: AND HAS
+PUSH to user4: OK OK WILL WILL
+SMS to user4: ok ok will will
+PUSH to user0: ARRIVE TODAY AND
+PREFS user6 SMS
+PUSH to user4: TODAY OK AND WILL YOUR OK
+SMS to user4: today ok and will yo…
+PUSH to user1: SOON SHIPPED WILL SHIPPED SHIPPED ORDER
+PUSH to user1: SOON SHIPPED WILL SHIPPED SHIPPED ORDER
+SMS to user1: soon shipped will sh…
+PUSH to user3: OK WILL SOON ORDER TODAY
+PUSH to user3: OK WILL SOON ORDER TODAY
+PREFS user3 PUSH,PUSH,SMS
+EMAIL to user2@example.com: today arrive has and today
+PUSH to user2: TODAY ARRIVE HAS AND TODAY
+PREFS user5 SMS,PUSH
+PREFS user5 PUSH,SMS,EMAIL
+PUSH to user1: AND
+PUSH to user1: AND
+SMS to user1: and
+PUSH to user4: OK SOON
+SMS to user4: ok soon
+EMAIL to user2@example.com: ok ok order shipped ok shipped order will order
+PUSH to user2: OK OK ORDER SHIPPED OK SHIPPED ORDER WILL ORDER
+PUSH to user0: OK AND SHIPPED YOUR SOON
+ERROR unknown channel FAX
+PREFS user0 SMS
+SMS to user6: soon soon arrive has…
+SMS to user6: ok your
+SMS to user0: shipped soon soon so…
+PUSH to user4: YOUR OK SHIPPED SHIPPED ARRIVE
+SMS to user4: your ok shipped ship…
+SMS to user6: order soon shipped
+PREFS user1 SMS,SMS,PUSH
+PREFS user6 PUSH,EMAIL,SMS
+EMAIL to user2@example.com: arrive
+PUSH to user2: ARRIVE
+PUSH to user6: SOON TODAY ORDER SHIPPED
+EMAIL to user6@example.com: soon today order shipped
+SMS to user6: soon today order shi…
+PUSH to user6: SHIPPED
+EMAIL to user6@example.com: shipped
+SMS to user6: shipped
+PUSH to user6: YOUR TODAY
+EMAIL to user6@example.com: your today
+SMS to user6: your today
+EMAIL to user2@example.com: your order order will order has will
+PUSH to user2: YOUR ORDER ORDER WILL ORDER HAS WILL
+PUSH to user6: YOUR AND
+EMAIL to user6@example.com: your and
+SMS to user6: your and

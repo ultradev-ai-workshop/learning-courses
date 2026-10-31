@@ -1,0 +1,12 @@
+ADDED rex the dog
+ADDED pingu the penguin
+ADDED sam the eagle
+ERROR unknown species
+rex: woof
+pingu: honk
+sam: screech
+FLY: sam
+SWIM: rex pingu
+rex can walk, swim
+pingu can walk, swim
+sam can walk, fly

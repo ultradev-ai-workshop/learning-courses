@@ -1,0 +1,8 @@
+CONFIG capacity=3 refill=2/s
+ALLOW u 10 left=2
+ALLOW u 10 left=1
+ALLOW u 10 left=0
+DENY u 10
+ALLOW u 11 left=1
+ALLOW u 11 left=0
+DENY u 11

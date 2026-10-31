@@ -1,0 +1,414 @@
+BOOK b0 T0
+BOOK b1 T1
+BOOK b2 T2
+BOOK b3 T3
+BOOK b4 T4
+BOOK b5 T5
+BOOK b6 T6
+BOOK b7 T7
+MEMBER m0
+MEMBER m1
+MEMBER m2
+MEMBER m3
+MEMBER m4
+MEMBER m5
+LOANS none
+ERROR unknown member or book
+BORROWED b1 m2
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b7 m4
+ERROR not borrowed
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b2 m5
+ERROR unknown book
+BORROWED b4 m5
+AVAILABLE b4 2
+ERROR unknown book
+BORROWED b5 m1
+ERROR not borrowed
+BORROWED b7 m1
+ERROR not borrowed
+AVAILABLE b5 2
+ERROR limit reached
+ERROR not borrowed
+AVAILABLE b0 2
+AVAILABLE b3 3
+ERROR unknown member
+AVAILABLE b0 2
+RETURNED b1 m2
+LOANS b2 b4
+ERROR unknown member or book
+LOANS none
+ERROR not borrowed
+RETURNED b7 m4
+BORROWED b7 m2
+LOANS none
+ERROR not borrowed
+AVAILABLE b0 2
+ERROR not borrowed
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b4 m3
+BORROWED b5 m0
+ERROR not borrowed
+ERROR not borrowed
+RETURNED b5 m0
+ERROR unknown book
+BORROWED b2 m4
+ERROR unknown member or book
+RETURNED b2 m4
+ERROR unknown member or book
+ERROR limit reached
+BORROWED b1 m2
+ERROR limit reached
+BORROWED b2 m4
+ERROR limit reached
+AVAILABLE b2 0
+ERROR not borrowed
+ERROR not borrowed
+ERROR already borrowed
+LOANS b2
+ERROR not borrowed
+ERROR not borrowed
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR unknown member or book
+RETURNED b4 m3
+ERROR limit reached
+ERROR not borrowed
+AVAILABLE b3 3
+BORROWED b1 m3
+ERROR not borrowed
+ERROR no copies available
+RETURNED b7 m2
+BORROWED b0 m4
+ERROR unknown member or book
+ERROR not borrowed
+RETURNED b4 m5
+BORROWED b5 m2
+BORROWED b4 m0
+AVAILABLE b5 1
+AVAILABLE b3 3
+ERROR not borrowed
+BORROWED b7 m5
+ERROR already borrowed
+ERROR already borrowed
+ERROR unknown member
+LOANS b0 b2
+ERROR already borrowed
+ERROR not borrowed
+ERROR not borrowed
+AVAILABLE b7 0
+ERROR limit reached
+ERROR unknown member or book
+RETURNED b7 m1
+ERROR unknown member or book
+BORROWED b7 m1
+AVAILABLE b4 2
+AVAILABLE b4 2
+ERROR no copies available
+ERROR limit reached
+ERROR limit reached
+ERROR not borrowed
+ERROR unknown member or book
+ERROR not borrowed
+ERROR not borrowed
+ERROR unknown member or book
+ERROR already borrowed
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR not borrowed
+ERROR not borrowed
+ERROR unknown member
+ERROR limit reached
+LOANS b2 b7
+ERROR not borrowed
+ERROR limit reached
+ERROR no copies available
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR not borrowed
+ERROR unknown member or book
+ERROR no copies available
+ERROR limit reached
+ERROR unknown book
+LOANS b0 b2
+LOANS b1
+ERROR not borrowed
+BORROWED b6 m3
+ERROR limit reached
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+LOANS b1 b5
+LOANS b4
+AVAILABLE b7 0
+ERROR not borrowed
+RETURNED b4 m0
+LOANS b1 b5
+AVAILABLE b3 3
+ERROR limit reached
+ERROR limit reached
+ERROR not borrowed
+LOANS b1 b6
+ERROR already borrowed
+AVAILABLE b7 0
+ERROR not borrowed
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR limit reached
+ERROR already borrowed
+ERROR not borrowed
+ERROR already borrowed
+ERROR not borrowed
+ERROR unknown member or book
+ERROR limit reached
+ERROR limit reached
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+LOANS none
+LOANS b0 b2
+ERROR limit reached
+ERROR unknown member or book
+ERROR limit reached
+ERROR limit reached
+ERROR not borrowed
+LOANS b1 b6
+ERROR limit reached
+ERROR limit reached
+AVAILABLE b0 1
+ERROR not borrowed
+ERROR not borrowed
+ERROR already borrowed
+ERROR unknown member or book
+AVAILABLE b5 1
+ERROR limit reached
+ERROR unknown member or book
+ERROR unknown member or book
+ERROR not borrowed
+ERROR limit reached
+ERROR not borrowed
+ERROR limit reached
+ERROR limit reached
+ERROR limit reached
+BORROWED b4 m0
+LOANS b1 b6
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR no copies available
+LOANS b1 b6
+LOANS b1 b5
+ERROR limit reached
+ERROR not borrowed
+ERROR not borrowed
+ERROR unknown member or book
+ERROR unknown member or book
+ERROR not borrowed
+RETURNED b2 m5
+ERROR limit reached
+RETURNED b5 m2
+AVAILABLE b1 0
+ERROR unknown member or book
+ERROR unknown member or book
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b0 m5
+ERROR not borrowed
+ERROR not borrowed
+RETURNED b6 m3
+ERROR limit reached
+AVAILABLE b0 0
+ERROR not borrowed
+BORROWED b6 m2
+ERROR not borrowed
+ERROR already borrowed
+ERROR unknown book
+RETURNED b2 m4
+BORROWED b5 m3
+RETURNED b1 m2
+ERROR not borrowed
+AVAILABLE b7 0
+BORROWED b2 m2
+BORROWED b2 m0
+ERROR not borrowed
+BORROWED b3 m4
+ERROR unknown member or book
+ERROR not borrowed
+ERROR unknown member or book
+ERROR limit reached
+RETURNED b2 m2
+ERROR unknown member or book
+ERROR not borrowed
+AVAILABLE b5 1
+BORROWED b3 m2
+RETURNED b0 m5
+ERROR unknown member or book
+ERROR limit reached
+LOANS b7
+ERROR already borrowed
+ERROR not borrowed
+ERROR limit reached
+ERROR limit reached
+ERROR not borrowed
+LOANS b5 b7
+RETURNED b4 m0
+ERROR limit reached
+ERROR not borrowed
+AVAILABLE b6 0
+ERROR not borrowed
+ERROR unknown member or book
+ERROR unknown member
+ERROR not borrowed
+LOANS b1 b5
+ERROR limit reached
+ERROR not borrowed
+LOANS b7
+ERROR not borrowed
+ERROR limit reached
+AVAILABLE b1 1
+LOANS b1 b5
+AVAILABLE b6 0
+RETURNED b2 m0
+LOANS b3 b6
+ERROR unknown member or book
+ERROR already borrowed
+AVAILABLE b2 2
+AVAILABLE b7 0
+ERROR limit reached
+BORROWED b4 m0
+AVAILABLE b6 0
+ERROR already borrowed
+BORROWED b2 m0
+ERROR not borrowed
+LOANS b7
+ERROR limit reached
+ERROR already borrowed
+ERROR not borrowed
+ERROR already borrowed
+ERROR already borrowed
+LOANS b7
+ERROR not borrowed
+ERROR unknown member or book
+AVAILABLE b4 2
+LOANS b2 b4
+LOANS b1 b5
+LOANS b3 b6
+ERROR not borrowed
+ERROR limit reached
+BORROWED b2 m5
+ERROR not borrowed
+ERROR not borrowed
+LOANS b0 b3
+ERROR not borrowed
+ERROR not borrowed
+RETURNED b3 m2
+ERROR not borrowed
+LOANS b6
+LOANS b1 b5
+ERROR not borrowed
+ERROR already borrowed
+RETURNED b0 m4
+ERROR limit reached
+ERROR unknown member or book
+ERROR already borrowed
+LOANS b3
+ERROR not borrowed
+ERROR not borrowed
+ERROR limit reached
+RETURNED b2 m5
+ERROR not borrowed
+ERROR limit reached
+LOANS b3
+AVAILABLE b5 1
+BORROWED b5 m0
+AVAILABLE b2 1
+LOANS b5 b7
+ERROR limit reached
+ERROR already borrowed
+ERROR not borrowed
+AVAILABLE b4 2
+LOANS b5 b7
+ERROR not borrowed
+ERROR not borrowed
+AVAILABLE b4 2
+ERROR not borrowed
+ERROR no copies available
+AVAILABLE b5 0
+ERROR not borrowed
+LOANS b2 b4 b5
+AVAILABLE b3 2
+RETURNED b3 m4
+AVAILABLE b7 0
+ERROR not borrowed
+RETURNED b4 m0
+ERROR unknown member or book
+BORROWED b0 m0
+ERROR unknown member or book
+RETURNED b5 m1
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b1 m1
+ERROR already borrowed
+ERROR no copies available
+ERROR already borrowed
+AVAILABLE b3 3
+ERROR not borrowed
+BORROWED b5 m5
+AVAILABLE b1 0
+ERROR unknown member or book
+LOANS b1 b7
+ERROR unknown member or book
+AVAILABLE b2 1
+RETURNED b1 m1
+BORROWED b1 m0
+ERROR not borrowed
+AVAILABLE b1 0
+ERROR not borrowed
+BORROWED b4 m2
+ERROR unknown member or book
+ERROR not borrowed
+ERROR no copies available
+ERROR not borrowed
+ERROR not borrowed
+ERROR unknown member or book
+AVAILABLE b3 3
+ERROR limit reached
+LOANS b5 b7
+ERROR not borrowed
+ERROR not borrowed
+BORROWED b2 m1
+ERROR not borrowed
+AVAILABLE b1 0
+ERROR unknown member or book
+ERROR limit reached
+LOANS none
+ERROR limit reached
+ERROR not borrowed
+ERROR already borrowed
+BORROWED b3 m0
+ERROR not borrowed
+ERROR limit reached
+ERROR unknown member or book
+ERROR not borrowed
+ERROR unknown book
+ERROR unknown member or book
+BORROWED b3 m4
+ERROR already borrowed
+LOANS b5 b7
+ERROR already borrowed
+ERROR limit reached
+AVAILABLE b3 1
+ERROR unknown member or book
+ERROR not borrowed
+RETURNED b7 m1
+ERROR already borrowed
+ERROR unknown member or book
+ERROR limit reached

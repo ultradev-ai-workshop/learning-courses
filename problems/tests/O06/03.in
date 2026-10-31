@@ -1,0 +1,5 @@
+4
+ADD a A 999 5 5
+SELL a 1
+PRICE a 1000
+REPORT

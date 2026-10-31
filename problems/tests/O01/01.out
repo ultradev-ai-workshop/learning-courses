@@ -1,0 +1,8 @@
+OPENED ana
+OPENED ben
+BALANCE ana 100.00
+BALANCE ben -300.00
+TRANSFERRED 25.00
+BALANCE ana 76.50
+ERROR not a savings account
+ERROR insufficient funds

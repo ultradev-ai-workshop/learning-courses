@@ -1,0 +1,300 @@
+INVALID
+QUEEN f4: 25 a4 b4 b8 c1 c4 c7 d2 d4 d6 e3 e4 e5 f1 f2 f3 f5 f6 f7 f8 g3 g4 g5 h2 h4 h6
+VALID
+INVALID
+QUEEN f2: 23 a2 a7 b2 b6 c2 c5 d2 d4 e1 e2 e3 f1 f3 f4 f5 f6 f7 f8 g1 g2 g3 h2 h4
+INVALID
+INVALID
+INVALID
+INVALID
+KNIGHT c2: 6 a1 a3 b4 d4 e1 e3
+INVALID
+BISHOP h4: 7 d8 e1 e7 f2 f6 g3 g5
+INVALID
+VALID
+INVALID
+BISHOP d3: 11 a6 b1 b5 c2 c4 e2 e4 f1 f5 g6 h7
+VALID
+KNIGHT g3: 6 e2 e4 f1 f5 h1 h5
+INVALID
+INVALID
+VALID
+VALID
+INVALID
+KING f3: 8 e2 e3 e4 f2 f4 g2 g3 g4
+KING c7: 8 b6 b7 b8 c6 c8 d6 d7 d8
+QUEEN f8: 21 a3 a8 b4 b8 c5 c8 d6 d8 e7 e8 f1 f2 f3 f4 f5 f6 f7 g7 g8 h6 h8
+KNIGHT a7: 3 b5 c6 c8
+BISHOP b2: 9 a1 a3 c1 c3 d4 e5 f6 g7 h8
+INVALID
+KING f4: 8 e3 e4 e5 f3 f5 g3 g4 g5
+INVALID
+INVALID
+INVALID
+KNIGHT g7: 4 e6 e8 f5 h5
+KNIGHT g3: 6 e2 e4 f1 f5 h1 h5
+INVALID
+KING h4: 5 g3 g4 g5 h3 h5
+INVALID
+BISHOP h6: 7 c1 d2 e3 f4 f8 g5 g7
+KING f7: 8 e6 e7 e8 f6 f8 g6 g7 g8
+ROOK h4: 14 a4 b4 c4 d4 e4 f4 g4 h1 h2 h3 h5 h6 h7 h8
+INVALID
+QUEEN e5: 27 a1 a5 b2 b5 b8 c3 c5 c7 d4 d5 d6 e1 e2 e3 e4 e6 e7 e8 f4 f5 f6 g3 g5 g7 h2 h5 h8
+INVALID
+INVALID
+VALID
+INVALID
+INVALID
+INVALID
+ROOK g3: 14 a3 b3 c3 d3 e3 f3 g1 g2 g4 g5 g6 g7 g8 h3
+VALID
+INVALID
+INVALID
+BISHOP b8: 7 a7 c7 d6 e5 f4 g3 h2
+BISHOP d4: 13 a1 a7 b2 b6 c3 c5 e3 e5 f2 f6 g1 g7 h8
+VALID
+INVALID
+BISHOP d5: 13 a2 a8 b3 b7 c4 c6 e4 e6 f3 f7 g2 g8 h1
+INVALID
+KNIGHT d6: 8 b5 b7 c4 c8 e4 e8 f5 f7
+BISHOP d1: 7 a4 b3 c2 e2 f3 g4 h5
+INVALID
+BISHOP b2: 9 a1 a3 c1 c3 d4 e5 f6 g7 h8
+QUEEN f8: 21 a3 a8 b4 b8 c5 c8 d6 d8 e7 e8 f1 f2 f3 f4 f5 f6 f7 g7 g8 h6 h8
+KNIGHT d5: 8 b4 b6 c3 c7 e3 e7 f4 f6
+INVALID
+INVALID
+VALID
+INVALID
+INVALID
+INVALID
+QUEEN a8: 21 a1 a2 a3 a4 a5 a6 a7 b7 b8 c6 c8 d5 d8 e4 e8 f3 f8 g2 g8 h1 h8
+ROOK a2: 14 a1 a3 a4 a5 a6 a7 a8 b2 c2 d2 e2 f2 g2 h2
+KNIGHT e3: 8 c2 c4 d1 d5 f1 f5 g2 g4
+BISHOP g3: 9 b8 c7 d6 e1 e5 f2 f4 h2 h4
+KING b4: 8 a3 a4 a5 b3 b5 c3 c4 c5
+INVALID
+INVALID
+INVALID
+INVALID
+KNIGHT g7: 4 e6 e8 f5 h5
+INVALID
+INVALID
+KNIGHT f8: 4 d7 e6 g6 h7
+INVALID
+QUEEN b7: 23 a6 a7 a8 b1 b2 b3 b4 b5 b6 b8 c6 c7 c8 d5 d7 e4 e7 f3 f7 g2 g7 h1 h7
+INVALID
+BISHOP e8: 7 a4 b5 c6 d7 f7 g6 h5
+INVALID
+INVALID
+ROOK g6: 14 a6 b6 c6 d6 e6 f6 g1 g2 g3 g4 g5 g7 g8 h6
+VALID
+INVALID
+KING e5: 8 d4 d5 d6 e4 e6 f4 f5 f6
+INVALID
+ROOK f5: 14 a5 b5 c5 d5 e5 f1 f2 f3 f4 f6 f7 f8 g5 h5
+INVALID
+INVALID
+KING a7: 5 a6 a8 b6 b7 b8
+KING h7: 5 g6 g7 g8 h6 h8
+QUEEN f5: 25 a5 b1 b5 c2 c5 c8 d3 d5 d7 e4 e5 e6 f1 f2 f3 f4 f6 f7 f8 g4 g5 g6 h3 h5 h7
+INVALID
+INVALID
+KING g1: 5 f1 f2 g2 h1 h2
+INVALID
+QUEEN c3: 25 a1 a3 a5 b2 b3 b4 c1 c2 c4 c5 c6 c7 c8 d2 d3 d4 e1 e3 e5 f3 f6 g3 g7 h3 h8
+ROOK e6: 14 a6 b6 c6 d6 e1 e2 e3 e4 e5 e7 e8 f6 g6 h6
+INVALID
+INVALID
+INVALID
+BISHOP f3: 11 a8 b7 c6 d1 d5 e2 e4 g2 g4 h1 h5
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+KING a4: 5 a3 a5 b3 b4 b5
+VALID
+ROOK h3: 14 a3 b3 c3 d3 e3 f3 g3 h1 h2 h4 h5 h6 h7 h8
+KNIGHT d1: 4 b2 c3 e3 f2
+INVALID
+INVALID
+KING e2: 8 d1 d2 d3 e1 e3 f1 f2 f3
+ROOK d2: 14 a2 b2 c2 d1 d3 d4 d5 d6 d7 d8 e2 f2 g2 h2
+INVALID
+INVALID
+BISHOP c2: 9 a4 b1 b3 d1 d3 e4 f5 g6 h7
+INVALID
+ROOK h6: 14 a6 b6 c6 d6 e6 f6 g6 h1 h2 h3 h4 h5 h7 h8
+BISHOP e7: 9 a3 b4 c5 d6 d8 f6 f8 g5 h4
+QUEEN b8: 21 a7 a8 b1 b2 b3 b4 b5 b6 b7 c7 c8 d6 d8 e5 e8 f4 f8 g3 g8 h2 h8
+INVALID
+KING g2: 8 f1 f2 f3 g1 g3 h1 h2 h3
+INVALID
+KING c2: 8 b1 b2 b3 c1 c3 d1 d2 d3
+QUEEN a7: 21 a1 a2 a3 a4 a5 a6 a8 b6 b7 b8 c5 c7 d4 d7 e3 e7 f2 f7 g1 g7 h7
+INVALID
+KING g8: 5 f7 f8 g7 h7 h8
+BISHOP a7: 7 b6 b8 c5 d4 e3 f2 g1
+BISHOP b7: 9 a6 a8 c6 c8 d5 e4 f3 g2 h1
+INVALID
+KNIGHT g6: 6 e5 e7 f4 f8 h4 h8
+INVALID
+VALID
+QUEEN f5: 25 a5 b1 b5 c2 c5 c8 d3 d5 d7 e4 e5 e6 f1 f2 f3 f4 f6 f7 f8 g4 g5 g6 h3 h5 h7
+INVALID
+VALID
+INVALID
+INVALID
+INVALID
+QUEEN f8: 21 a3 a8 b4 b8 c5 c8 d6 d8 e7 e8 f1 f2 f3 f4 f5 f6 f7 g7 g8 h6 h8
+QUEEN b8: 21 a7 a8 b1 b2 b3 b4 b5 b6 b7 c7 c8 d6 d8 e5 e8 f4 f8 g3 g8 h2 h8
+QUEEN a2: 21 a1 a3 a4 a5 a6 a7 a8 b1 b2 b3 c2 c4 d2 d5 e2 e6 f2 f7 g2 g8 h2
+KING f6: 8 e5 e6 e7 f5 f7 g5 g6 g7
+KING h3: 5 g2 g3 g4 h2 h4
+INVALID
+BISHOP a7: 7 b6 b8 c5 d4 e3 f2 g1
+ROOK e5: 14 a5 b5 c5 d5 e1 e2 e3 e4 e6 e7 e8 f5 g5 h5
+INVALID
+INVALID
+KING b8: 5 a7 a8 b7 c7 c8
+KNIGHT f6: 8 d5 d7 e4 e8 g4 g8 h5 h7
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+ROOK a5: 14 a1 a2 a3 a4 a6 a7 a8 b5 c5 d5 e5 f5 g5 h5
+INVALID
+INVALID
+KNIGHT c5: 8 a4 a6 b3 b7 d3 d7 e4 e6
+VALID
+INVALID
+INVALID
+KNIGHT c6: 8 a5 a7 b4 b8 d4 d8 e5 e7
+BISHOP c3: 11 a1 a5 b2 b4 d2 d4 e1 e5 f6 g7 h8
+KING c4: 8 b3 b4 b5 c3 c5 d3 d4 d5
+INVALID
+KNIGHT h4: 4 f3 f5 g2 g6
+VALID
+KING e2: 8 d1 d2 d3 e1 e3 f1 f2 f3
+QUEEN e3: 25 a3 a7 b3 b6 c1 c3 c5 d2 d3 d4 e1 e2 e4 e5 e6 e7 e8 f2 f3 f4 g1 g3 g5 h3 h6
+KING h8: 3 g7 g8 h7
+QUEEN h4: 21 a4 b4 c4 d4 d8 e1 e4 e7 f2 f4 f6 g3 g4 g5 h1 h2 h3 h5 h6 h7 h8
+INVALID
+KING d6: 8 c5 c6 c7 d5 d7 e5 e6 e7
+KING c7: 8 b6 b7 b8 c6 c8 d6 d7 d8
+INVALID
+KING a8: 3 a7 b7 b8
+INVALID
+KNIGHT g2: 4 e1 e3 f4 h4
+INVALID
+KNIGHT h3: 4 f2 f4 g1 g5
+INVALID
+INVALID
+INVALID
+QUEEN g7: 23 a1 a7 b2 b7 c3 c7 d4 d7 e5 e7 f6 f7 f8 g1 g2 g3 g4 g5 g6 g8 h6 h7 h8
+INVALID
+KING e4: 8 d3 d4 d5 e3 e5 f3 f4 f5
+KNIGHT h4: 4 f3 f5 g2 g6
+INVALID
+INVALID
+KING h8: 3 g7 g8 h7
+ROOK a2: 14 a1 a3 a4 a5 a6 a7 a8 b2 c2 d2 e2 f2 g2 h2
+INVALID
+QUEEN a7: 21 a1 a2 a3 a4 a5 a6 a8 b6 b7 b8 c5 c7 d4 d7 e3 e7 f2 f7 g1 g7 h7
+KNIGHT b4: 6 a2 a6 c2 c6 d3 d5
+ROOK d2: 14 a2 b2 c2 d1 d3 d4 d5 d6 d7 d8 e2 f2 g2 h2
+INVALID
+KNIGHT e5: 8 c4 c6 d3 d7 f3 f7 g4 g6
+INVALID
+ROOK c6: 14 a6 b6 c1 c2 c3 c4 c5 c7 c8 d6 e6 f6 g6 h6
+VALID
+INVALID
+BISHOP a7: 7 b6 b8 c5 d4 e3 f2 g1
+KNIGHT g1: 3 e2 f3 h3
+KNIGHT c5: 8 a4 a6 b3 b7 d3 d7 e4 e6
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+QUEEN b2: 23 a1 a2 a3 b1 b3 b4 b5 b6 b7 b8 c1 c2 c3 d2 d4 e2 e5 f2 f6 g2 g7 h2 h8
+INVALID
+KING c8: 5 b7 b8 c7 d7 d8
+INVALID
+VALID
+INVALID
+VALID
+ROOK e2: 14 a2 b2 c2 d2 e1 e3 e4 e5 e6 e7 e8 f2 g2 h2
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+QUEEN g5: 23 a5 b5 c1 c5 d2 d5 d8 e3 e5 e7 f4 f5 f6 g1 g2 g3 g4 g6 g7 g8 h4 h5 h6
+ROOK a6: 14 a1 a2 a3 a4 a5 a7 a8 b6 c6 d6 e6 f6 g6 h6
+QUEEN d4: 27 a1 a4 a7 b2 b4 b6 c3 c4 c5 d1 d2 d3 d5 d6 d7 d8 e3 e4 e5 f2 f4 f6 g1 g4 g7 h4 h8
+INVALID
+KING f8: 5 e7 e8 f7 g7 g8
+INVALID
+KING h5: 5 g4 g5 g6 h4 h6
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+KING g4: 8 f3 f4 f5 g3 g5 h3 h4 h5
+KING a3: 5 a2 a4 b2 b3 b4
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+INVALID
+KING b5: 8 a4 a5 a6 b4 b6 c4 c5 c6
+INVALID
+INVALID
+QUEEN d6: 25 a3 a6 b4 b6 b8 c5 c6 c7 d1 d2 d3 d4 d5 d7 d8 e5 e6 e7 f4 f6 f8 g3 g6 h2 h6
+INVALID
+INVALID
+INVALID
+QUEEN e3: 25 a3 a7 b3 b6 c1 c3 c5 d2 d3 d4 e1 e2 e4 e5 e6 e7 e8 f2 f3 f4 g1 g3 g5 h3 h6
+INVALID
+INVALID
+VALID
+QUEEN f7: 23 a2 a7 b3 b7 c4 c7 d5 d7 e6 e7 e8 f1 f2 f3 f4 f5 f6 f8 g6 g7 g8 h5 h7
+INVALID
+INVALID
+INVALID
+KNIGHT c7: 6 a6 a8 b5 d5 e6 e8
+INVALID
+QUEEN c1: 21 a1 a3 b1 b2 c2 c3 c4 c5 c6 c7 c8 d1 d2 e1 e3 f1 f4 g1 g5 h1 h6
+VALID
+KNIGHT a6: 4 b4 b8 c5 c7
+INVALID
+KNIGHT d7: 6 b6 b8 c5 e5 f6 f8
+VALID
+INVALID
+INVALID
+INVALID
+INVALID
+KNIGHT h2: 3 f1 f3 g4
+ROOK h3: 14 a3 b3 c3 d3 e3 f3 g3 h1 h2 h4 h5 h6 h7 h8
+INVALID
+INVALID
+INVALID
+QUEEN b4: 23 a3 a4 a5 b1 b2 b3 b5 b6 b7 b8 c3 c4 c5 d2 d4 d6 e1 e4 e7 f4 f8 g4 h4
+INVALID
+INVALID
+INVALID
+KING d6: 8 c5 c6 c7 d5 d7 e5 e6 e7
+ROOK a2: 14 a1 a3 a4 a5 a6 a7 a8 b2 c2 d2 e2 f2 g2 h2
+INVALID

@@ -1,0 +1,307 @@
+306
+LET v0 3/2
+LET v1 -3/6
+LET v2 7/3
+LET v3 -12/7
+LET v4 9/-5
+LET v5 -4/-5
+ADD v0 v0 v6
+CMP v5 v5
+DIV v4 v4 v5
+LET v0 6/-2
+SUB v4 v4 v6
+ADD v0 v5 v3
+DIV v1 v5 v6
+LET v1 4/2
+ADD v0 v1 v4
+SUB v4 v7 v6
+SUB v1 v5 v5
+DIV v3 v7 v2
+MUL v1 v0 v1
+MUL v3 v7 v3
+DIV v5 v6 v2
+SUB v4 v0 v5
+DIV v1 v0 v2
+MUL v5 v3 v2
+SUB v1 v4 v1
+LET v0 9/5
+CMP v7 v3
+ADD v3 v5 v6
+CMP v7 v3
+MUL v2 v4 v0
+LET v2 3/6
+DIV v0 v5 v5
+ADD v5 v6 v6
+ADD v2 v5 v6
+ADD v5 v2 v6
+SUB v1 v7 v0
+CMP v7 v2
+MUL v2 v1 v3
+CMP v4 v2
+DIV v0 v2 v2
+DIV v0 v2 v5
+LET v1 5/-1
+ADD v5 v0 v5
+DIV v5 v1 v5
+ADD v0 v3 v2
+DIV v5 v6 v3
+CMP v0 v6
+MUL v0 v3 v4
+LET v0 0/2
+DIV v1 v2 v2
+DIV v1 v6 v4
+CMP v7 v1
+DIV v2 v1 v4
+MUL v5 v5 v4
+SUB v1 v5 v3
+ADD v3 v3 v2
+MUL v1 v0 v7
+LET v0 4/-1
+ADD v0 v1 v5
+CMP v3 v6
+MUL v3 v0 v4
+ADD v4 v5 v6
+SUB v0 v0 v1
+SUB v1 v3 v6
+ADD v0 v0 v6
+ADD v4 v1 v5
+ADD v3 v2 v2
+SUB v2 v1 v3
+CMP v2 v7
+DIV v1 v1 v4
+CMP v7 v5
+MUL v1 v6 v6
+CMP v6 v1
+LET v4 8/-2
+SUB v2 v5 v5
+SUB v3 v2 v7
+ADD v5 v4 v7
+SUB v1 v2 v7
+DIV v3 v2 v7
+SUB v3 v2 v7
+ADD v0 v6 v0
+LET v7 -8/4
+LET v7 4/8
+MUL v2 v0 v2
+ADD v5 v1 v7
+DIV v0 v4 v3
+CMP v6 v3
+SUB v0 v3 v0
+SUB v4 v6 v0
+LET v4 -1/9
+LET v5 -8/6
+LET v4 3/6
+LET v4 -8/2
+SUB v2 v1 v2
+SUB v2 v1 v2
+CMP v7 v4
+MUL v1 v0 v5
+MUL v3 v3 v4
+MUL v1 v2 v2
+ADD v1 v2 v7
+ADD v3 v3 v1
+SUB v4 v5 v0
+CMP v4 v5
+ADD v5 v4 v5
+DIV v5 v4 v6
+LET v6 -3/9
+MUL v5 v6 v1
+ADD v2 v4 v1
+MUL v2 v5 v0
+SUB v5 v1 v6
+LET v5 -7/3
+LET v3 -5/4
+MUL v4 v4 v6
+SUB v5 v3 v2
+CMP v1 v4
+DIV v0 v7 v6
+LET v4 8/-2
+SUB v5 v3 v2
+LET v3 -9/2
+SUB v4 v6 v1
+MUL v2 v7 v2
+SUB v1 v2 v6
+LET v6 9/-1
+LET v7 -2/-2
+SUB v0 v4 v4
+LET v4 -4/2
+ADD v4 v2 v1
+SUB v0 v5 v2
+CMP v3 v2
+MUL v4 v1 v4
+SUB v1 v1 v0
+DIV v0 v4 v6
+LET v1 1/9
+LET v0 -5/4
+LET v5 -9/2
+MUL v5 v5 v2
+SUB v0 v5 v2
+ADD v0 v5 v2
+ADD v2 v3 v1
+LET v5 5/4
+ADD v2 v0 v1
+SUB v3 v2 v0
+ADD v3 v6 v6
+ADD v0 v5 v5
+CMP v2 v7
+SUB v1 v5 v7
+CMP v6 v1
+CMP v4 v3
+MUL v2 v5 v1
+CMP v5 v1
+SUB v3 v1 v3
+ADD v2 v7 v5
+ADD v3 v6 v3
+SUB v5 v4 v1
+DIV v0 v4 v6
+LET v3 -9/1
+MUL v5 v6 v1
+SUB v1 v6 v7
+CMP v4 v0
+DIV v4 v2 v3
+CMP v0 v2
+DIV v1 v2 v5
+DIV v4 v0 v2
+DIV v4 v7 v5
+DIV v0 v6 v0
+DIV v4 v0 v1
+MUL v4 v6 v4
+MUL v2 v2 v4
+CMP v7 v2
+MUL v2 v0 v5
+ADD v0 v4 v7
+CMP v7 v7
+DIV v1 v6 v3
+ADD v2 v0 v2
+CMP v2 v3
+MUL v1 v3 v0
+DIV v3 v4 v7
+SUB v1 v2 v0
+SUB v5 v2 v6
+LET v0 -9/2
+ADD v0 v4 v1
+MUL v5 v3 v2
+ADD v0 v1 v4
+MUL v1 v0 v3
+MUL v0 v5 v6
+ADD v5 v2 v1
+MUL v5 v2 v0
+DIV v4 v6 v6
+MUL v4 v0 v7
+ADD v4 v2 v6
+SUB v3 v7 v7
+DIV v4 v4 v2
+MUL v0 v2 v7
+MUL v1 v1 v7
+CMP v0 v3
+SUB v3 v4 v2
+MUL v5 v7 v0
+DIV v4 v5 v5
+DIV v2 v4 v2
+ADD v2 v4 v0
+SUB v1 v2 v3
+DIV v0 v7 v5
+LET v0 -6/7
+DIV v3 v3 v7
+DIV v5 v6 v6
+LET v1 4/-4
+DIV v5 v5 v7
+MUL v2 v3 v1
+DIV v5 v6 v2
+SUB v0 v5 v1
+CMP v5 v5
+CMP v0 v3
+SUB v1 v4 v4
+SUB v3 v5 v7
+LET v7 1/3
+CMP v5 v1
+LET v3 -2/9
+CMP v4 v3
+ADD v0 v2 v3
+LET v6 3/0
+SUB v4 v1 v2
+CMP v5 v5
+ADD v2 v3 v5
+LET v1 -8/-1
+DIV v0 v6 v6
+ADD v3 v4 v1
+ADD v1 v0 v7
+CMP v6 v2
+SUB v0 v6 v6
+CMP v1 v7
+MUL v4 v4 v3
+SUB v1 v7 v1
+MUL v1 v5 v5
+SUB v0 v0 v7
+ADD v0 v1 v4
+CMP v2 v5
+DIV v1 v3 v4
+SUB v2 v7 v2
+CMP v0 v4
+CMP v2 v3
+DIV v3 v0 v1
+CMP v4 v4
+ADD v3 v6 v4
+ADD v3 v4 v1
+CMP v0 v1
+DIV v0 v3 v5
+SUB v4 v1 v1
+LET v2 -1/4
+CMP v3 v1
+LET v2 -9/5
+ADD v4 v1 v3
+DIV v0 v6 v2
+ADD v0 v7 v0
+MUL v1 v6 v4
+CMP v5 v7
+CMP v3 v3
+ADD v4 v5 v1
+LET v4 3/-3
+CMP v5 v3
+MUL v4 v4 v7
+SUB v0 v1 v6
+CMP v6 v4
+SUB v0 v6 v7
+DIV v4 v6 v4
+LET v6 8/-2
+DIV v3 v0 v5
+LET v1 -1/5
+MUL v0 v7 v1
+MUL v4 v4 v6
+ADD v0 v1 v1
+ADD v4 v0 v7
+ADD v4 v3 v3
+SUB v1 v2 v5
+LET v3 -8/-1
+LET v5 -8/-1
+DIV v2 v1 v4
+ADD v2 v2 v4
+MUL v1 v6 v7
+MUL v0 v1 v0
+LET v6 5/4
+CMP v0 v1
+LET v5 4/5
+ADD v3 v6 v5
+ADD v3 v0 v7
+LET v0 -1/4
+CMP v4 v0
+DIV v1 v0 v2
+ADD v1 v3 v3
+CMP v1 v6
+ADD v3 v1 v3
+LET v5 5/7
+LET v0 1/6
+DIV v3 v2 v7
+ADD v4 v1 v1
+ADD v1 v2 v5
+LET v7 -7/-3
+CMP v5 v6
+LET v0 2/5
+DIV v2 v1 v1
+MUL v2 v0 v7
+ADD v5 v1 v4
+DIV v3 v7 v7
+LET v0 4/0
+CMP v7 v5
+CMP v0 v5
+CMP v2 v2

@@ -1,0 +1,4 @@
+3
+LOG ERROR nobody listens
+HANDLER all DEBUG
+LOG DEBUG x

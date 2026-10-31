@@ -1,0 +1,5 @@
+4
+BORROW x y
+RETURN x y
+AVAILABLE z
+LOANS q

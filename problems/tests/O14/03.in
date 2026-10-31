@@ -1,0 +1,7 @@
+6
+LET a -3/-9
+LET b 2/3
+SUB c a b
+SUB d c c
+CMP c d
+MUL e b b

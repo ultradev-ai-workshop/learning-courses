@@ -1,0 +1,6 @@
+5
+LET x 5/0
+LET y 0/7
+LET z 4
+DIV r z y
+ADD r z nope

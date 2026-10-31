@@ -1,0 +1,3 @@
+DROPPED ERROR
+HANDLER all >= DEBUG
+all [DEBUG] x

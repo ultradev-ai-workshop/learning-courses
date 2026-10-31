@@ -1,0 +1,6 @@
+HANDLER w >= WARN
+HANDLER d >= DEBUG
+HANDLER e >= ERROR
+w [WARN] careful
+d [WARN] careful
+d [INFO] hi there

@@ -1,0 +1,14 @@
+SUBSCRIBED ana orders
+SUBSCRIBED log *
+SUBSCRIBED ben orders
+PUBLISHED orders to 3
+  ana <- orders: new order o1
+  ben <- orders: new order o1
+  log <- orders: new order o1
+UNSUBSCRIBED ana orders
+PUBLISHED stock to 1
+  log <- stock: low on b1
+SUBSCRIBED log orders
+PUBLISHED orders to 2
+  ben <- orders: paid
+  log <- orders: paid

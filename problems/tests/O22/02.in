@@ -1,0 +1,4 @@
+3
+RANGE 0 5 0
+TAKE 1 1 0
+ZIP x y
