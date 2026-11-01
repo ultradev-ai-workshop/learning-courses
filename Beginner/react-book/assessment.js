@@ -1,11 +1,15 @@
 // Final assessment: picks 50 random questions from questions.json, spread across all topics.
 // Every question allows one or more answers. A question scores 1 point only when the
-// selection matches the correct answers exactly.
+// selection matches the correct answers exactly. Each attempt has a 50-minute limit: the clock is
+// wall-clock based (it keeps running across reloads) and at 0:00 the answers are submitted.
 
 const COUNT = 50;
 const PASS = 0.7;
 const MAX_PER_TEMPLATE = 2; // keep generated question types varied
 const STORE_KEY = 'react-book-assessment';
+const TIME_LIMIT_MS = 50 * 60 * 1000;
+const WARN_MS = 5 * 60 * 1000, DANGER_MS = 60 * 1000;
+const ANNOUNCE_AT = [10, 5, 1];
 
 const TOPICS = {
   js: ['JavaScript refresher', 'appendix-js-refresher.html'],
@@ -30,6 +34,8 @@ const app = document.getElementById('app');
 let bank = [];
 let attempt = null; // { questions: [...], answers: [[idx...]], current, finished }
 let reviewFilter = 'all';
+let ticker = null;
+let announced = {};
 
 // ---------- helpers ----------
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -103,6 +109,52 @@ function pickQuestions() {
   });
 }
 
+// ---------- timer ----------
+function newAttempt() {
+  const now = Date.now();
+  announced = {};
+  return { questions: pickQuestions(), answers: Array(COUNT).fill(null).map(() => []), current: 0, finished: false,
+    started: now, deadline: now + TIME_LIMIT_MS };
+}
+const remaining = () => (attempt && attempt.deadline ? attempt.deadline - Date.now() : TIME_LIMIT_MS);
+function fmt(ms) {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+function startTimer() {
+  if (!attempt.deadline) { attempt.started = Date.now(); attempt.deadline = attempt.started + TIME_LIMIT_MS; persist(); }
+  document.getElementById('timer-bar').classList.remove('hidden');
+  if (!ticker) ticker = setInterval(tick, 1000);
+  tick();
+}
+function stopTimer() {
+  if (ticker) { clearInterval(ticker); ticker = null; }
+  document.getElementById('timer-bar').classList.add('hidden');
+}
+function tick() {
+  if (!attempt || attempt.finished) { stopTimer(); return; }
+  const left = remaining();
+  const clock = document.getElementById('timer');
+  clock.textContent = `⏱ ${fmt(left)}`;
+  clock.classList.toggle('warn', left <= WARN_MS && left > DANGER_MS);
+  clock.classList.toggle('danger', left <= DANGER_MS);
+  clock.setAttribute('aria-label', `Time left ${fmt(left)}`);
+  ANNOUNCE_AT.forEach((m) => {
+    if (left <= m * 60000 && left > m * 60000 - 5000 && !announced[m]) {
+      announced[m] = true;
+      document.getElementById('timer-live').textContent = `${m} minute${m === 1 ? '' : 's'} left`;
+    }
+  });
+  if (left <= 0) timeUp();
+}
+function timeUp() {
+  stopTimer();
+  const dlg = document.querySelector('dialog.confirm-dialog[open]');   // close a pending "submit?" dialog
+  if (dlg) dlg.dispatchEvent(new Event('cancel', { cancelable: true }));
+  app.querySelectorAll('input, button').forEach((x) => { x.disabled = true; });
+  finish(true);
+}
+
 // ---------- screens ----------
 function renderStart() {
   const history = load(STORE_KEY + '-history', []);
@@ -119,12 +171,13 @@ function renderStart() {
         <li>Every question lets you pick <strong>one or more</strong> answers. Some have a single correct answer, and others have several.</li>
         <li>A question scores <strong>1 point</strong> only if your selection matches the correct answers <strong>exactly</strong>.</li>
         <li>You can move back and forth and change answers before submitting. Keyboard: <code>1</code>–<code>6</code> toggle options, <code>←</code>/<code>→</code> move between questions.</li>
+        <li>You have <strong>50 minutes</strong>. The clock starts when you press Start and keeps running even if you leave the page; at <strong>0:00</strong> the assessment locks and your answers are submitted automatically.</li>
         <li>Pass mark: <strong>${Math.round(PASS * 100)}%</strong> (${Math.ceil(PASS * COUNT)} of ${COUNT}). At the end you'll see a per-chapter breakdown and explanations.</li>
       </ul>
     </div>
     ${best !== null ? `<p class="muted">Your best score so far: <strong>${best} / ${COUNT}</strong> across ${history.length} attempt${history.length === 1 ? '' : 's'}.</p>` : ''}
     <div class="nav" style="justify-content:flex-start">
-      ${saved && !saved.finished ? '<button class="btn primary" id="resume">Resume unfinished attempt</button>' : ''}
+      ${saved && !saved.finished ? `<button class="btn primary" id="resume">Resume unfinished attempt${saved.deadline ? ` · ${Math.max(1, Math.ceil((saved.deadline - Date.now()) / 60000))} min left` : ''}</button>` : ''}
       <button class="btn ${saved && !saved.finished ? '' : 'primary'}" id="start">Start a new assessment</button>
     </div>
     <details style="margin-top:24px"><summary class="muted">Question pool by topic</summary>
@@ -135,7 +188,7 @@ function renderStart() {
     </details>`;
 
   document.getElementById('start').onclick = () => {
-    attempt = { questions: pickQuestions(), answers: Array(COUNT).fill(null).map(() => []), current: 0, finished: false };
+    attempt = newAttempt();
     persist();
     renderQuestion();
   };
@@ -187,9 +240,11 @@ function renderQuestion() {
   if (next) next.onclick = () => go(i + 1);
   document.getElementById('submit').onclick = submit;
   app.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(Number(b.dataset.go)); });
+  startTimer();
 }
 
 function toggle(k) {
+  if (attempt.finished || remaining() <= 0) return;
   const list = attempt.answers[attempt.current];
   attempt.answers[attempt.current] = list.includes(k) ? list.filter((x) => x !== k) : [...list, k].sort();
   persist();
@@ -262,16 +317,26 @@ async function submit() {
       cancelText: 'Keep answering',
       confirmText: 'Submit anyway',
     });
+    if (attempt.finished) return;                     // the clock ran out while the dialog was open
     if (!yes) {
       const first = attempt.answers.findIndex((a) => !a.length);
       if (first >= 0) go(first);
       return;
     }
   }
+  finish(false);
+}
+
+function finish(timedOut) {
+  if (attempt.finished) return;
+  stopTimer();
   attempt.finished = true;
+  const end = timedOut && attempt.deadline ? attempt.deadline : Date.now();
+  attempt.timedOut = !!timedOut;
+  attempt.time = attempt.started ? fmt(Math.min(TIME_LIMIT_MS, end - attempt.started)) : null;
   const score = attempt.questions.filter((q, k) => sameSet(q.answer, attempt.answers[k])).length;
   const history = load(STORE_KEY + '-history', []);
-  save(STORE_KEY + '-history', [...history, { score, date: new Date().toISOString() }].slice(-20));
+  save(STORE_KEY + '-history', [...history, { score, date: new Date().toISOString(), timedOut: attempt.timedOut, time: attempt.time }].slice(-20));
   persist();
   reviewFilter = 'all';
   renderResults();
@@ -299,6 +364,8 @@ function renderResults() {
     <div class="score-card">
       <div class="score-big">${score} / ${qs.length}</div>
       <p style="font-size:1.2rem;margin:6px 0">${pct}% · ${passed ? '🎉 Passed! Great work.' : '📚 Not quite yet. Review the chapters below and try again.'}</p>
+      ${attempt.timedOut ? '<p class="callout warn" id="time-note">⏰ Time\'s up — the 50 minutes ran out and your answers were submitted automatically. Unanswered questions score 0.</p>'
+        : attempt.time ? `<p class="muted" id="time-note">⏱ Finished in ${attempt.time} of the 50 minutes.</p>` : ''}
       ${weak.length ? `<p class="muted">Worth revisiting: ${weak.map((t) => `<a href="${TOPICS[t]?.[1] || '#'}">${esc(topicLabel(t))}</a>`).join(', ')}</p>` : '<p class="muted">Solid across every topic.</p>'}
       <div class="nav" style="justify-content:center">
         <button class="btn primary" id="again">Take a new random assessment</button>
@@ -340,7 +407,7 @@ function renderResults() {
     }).join('') || '<p class="muted">Nothing to show for this filter.</p>'}`;
 
   document.getElementById('again').onclick = () => {
-    attempt = { questions: pickQuestions(), answers: Array(COUNT).fill(null).map(() => []), current: 0, finished: false };
+    attempt = newAttempt();
     persist();
     renderQuestion();
     window.scrollTo({ top: 0 });
@@ -365,7 +432,10 @@ loadBank()
   .then((questions) => {
     bank = questions;
     const saved = load(STORE_KEY + '-progress', null);
-    if (saved && saved.finished && new URLSearchParams(location.search).has('results')) {
+    if (saved && !saved.finished && saved.deadline && saved.deadline <= Date.now()) {
+      attempt = saved;                                   // time ran out while the page was closed
+      finish(true);
+    } else if (saved && saved.finished && new URLSearchParams(location.search).has('results')) {
       attempt = saved;
       renderResults();
     } else {
@@ -375,3 +445,9 @@ loadBank()
   .catch(() => {
     app.innerHTML = '<p class="callout bad">Could not load the questions. Make sure <code>questions.json</code> and <code>questions.js</code> are in the same folder as this page.</p>';
   });
+
+// tiny hook for automated tests
+window.__assessment = {
+  attempt: () => attempt,
+  expireIn: (ms) => { attempt.deadline = Date.now() + ms; persist(); tick(); },
+};

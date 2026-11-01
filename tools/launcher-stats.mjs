@@ -11,14 +11,16 @@ const COURSES = {
   nodejs: "Intermediate/nodejs-book", springboot: "Advanced/spring-boot-book", problems: "problems",
 };
 // Minutes per unit — the model explained on the launcher page.
-export const MODEL = { wordsPerMinute: 180, minutesPerCodeLine: 1 / 6, exercise: { easy: 6, medium: 15, hard: 35 }, assessment: 50,
-  problem: { easy: 15, medium: 30, hard: 60, oop: 45 } };
+export const MODEL = { wordsPerMinute: 180, minutesPerCodeLine: 1 / 6, exercise: { easy: 1.5, medium: 3.75, hard: 8.75 }, assessment: 50,
+  problem: { easy: 15, medium: 30, hard: 60, oop: 45 },
+  // per-course factor for the example time (Spring Boot examples are long but highly repetitive boilerplate)
+  exampleFactor: { springboot: 0.25 } };
 
 const strip = (html) => html.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ")
   .replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/gi, " ");
 const words = (text) => (text.match(/[A-Za-z0-9À-ÿ'’-]+/g) || []).length;
 
-function book(dir) {
+function book(dir, id) {
   const pages = readdirSync(dir).filter((f) => /^(\d\d-|appendix-|howto-|playground-howto).*\.html$/.test(f) && f !== "howto-index.html");
   let prose = 0, code = 0, solutionCode = 0, ex = { easy: 0, medium: 0, hard: 0 }, chapters = 0, appendices = 0, howtos = 0;
   for (const f of pages) {
@@ -38,7 +40,7 @@ function book(dir) {
   const questions = existsSync(qfile) ? JSON.parse(readFileSync(qfile, "utf8")).questions.length : 0;
   const minutes = {
     reading: prose / MODEL.wordsPerMinute,
-    examples: code * MODEL.minutesPerCodeLine,
+    examples: code * MODEL.minutesPerCodeLine * (MODEL.exampleFactor[id] ?? 1),
     exercises: ex.easy * MODEL.exercise.easy + ex.medium * MODEL.exercise.medium + ex.hard * MODEL.exercise.hard,
     assessment: questions ? MODEL.assessment : 0,
   };
@@ -60,7 +62,7 @@ function problems(dir) {
 
 const stats = {};
 for (const [id, rel] of Object.entries(COURSES)) {
-  const s = id === "problems" ? problems(join(ROOT, rel)) : book(join(ROOT, rel));
+  const s = id === "problems" ? problems(join(ROOT, rel)) : book(join(ROOT, rel), id);
   const total = Object.values(s.minutes).reduce((a, b) => a + b, 0);
   s.minutes = Object.fromEntries(Object.entries(s.minutes).map(([k, v]) => [k, Math.round(v)]));
   s.hours = Math.max(1, Math.round(total / 60));

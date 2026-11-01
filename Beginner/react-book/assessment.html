@@ -45,6 +45,16 @@
   .filters { display: flex; gap: 8px; flex-wrap: wrap; }
   .filters .btn.active { border-color: var(--accent); color: var(--accent); }
   .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+  .timer-bar { position: sticky; top: 0; z-index: 5; display: flex; justify-content: flex-end; margin: 0 0 6px; pointer-events: none; }
+  .timer { pointer-events: auto; font: 700 1.05rem ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; padding: 5px 14px; border-radius: 99px;
+    border: 1.5px solid var(--border); background: var(--surface); color: var(--heading); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  .timer.warn { border-color: #d29922; color: #d29922; }
+  .timer.danger { border-color: var(--bad-border); color: var(--bad-border); animation: timer-pulse 1s ease-in-out infinite; }
+  @keyframes timer-pulse { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .timer.danger { animation: none; } }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .callout.warn { border: 1px solid #d29922; background: rgba(210,153,34,.12); border-radius: 10px; padding: 10px 14px; }
 </style>
 </head>
 <body>
@@ -53,6 +63,8 @@
 <main>
   <p class="eyebrow">Final Assessment</p>
   <h1>Test Your React Knowledge</h1>
+  <div class="timer-bar hidden" id="timer-bar"><span class="timer" id="timer" role="timer">⏱ 50:00</span></div>
+  <div class="sr-only" id="timer-live" aria-live="assertive"></div>
   <div id="app"><p class="muted">Loading questions…</p></div>
   <nav id="pager"></nav>
 </main>

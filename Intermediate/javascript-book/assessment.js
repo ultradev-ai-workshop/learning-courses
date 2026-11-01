@@ -1,7 +1,8 @@
 /* JavaScript Study Book — final assessment.
    Loads questions.json (or questions.js when opened from disk), picks 50 questions
    stratified across chapters, scores exact-match multi-select answers, and keeps
-   progress and history in localStorage. */
+   progress and history in localStorage. Each attempt has a 50-minute time limit: the clock is
+   wall-clock based (it keeps running across reloads), and at 0:00 the answers are submitted. */
 (function () {
   'use strict';
 
@@ -9,12 +10,17 @@
   var PASS = 0.7;
   var REVISIT = 0.6;
   var MAX_PER_TEMPLATE = 2;
+  var TIME_LIMIT_MS = 50 * 60 * 1000;
+  var WARN_MS = 5 * 60 * 1000, DANGER_MS = 60 * 1000;
+  var ANNOUNCE_AT = [10, 5, 1];          // minutes left announced to screen readers
   var STORE_KEY = 'jsBook.assessment.v1';   // distinct from the other books: file:// pages share localStorage
 
   var bank = null;       // { chapters, questions }
   var byId = {};
   var state = load();    // { attempt, best, history }
   var reviewFilter = 'all';
+  var ticker = null;
+  var announced = {};
 
   // ---------------- storage (every access wrapped: storage may be blocked) ----------------
   function load() {
@@ -87,6 +93,8 @@
     bank.questions.forEach(function (q) { byId[q.id] = q; });
     // drop a saved attempt that no longer matches the bank
     if (state.attempt && !state.attempt.ids.every(function (id) { return byId[id]; })) { state.attempt = null; save(); }
+    // time ran out while the page was closed: submit what was answered
+    if (state.attempt && !state.attempt.done && state.attempt.deadline && remaining() <= 0) { finishAttempt(true); return; }
     renderStart();
   }
 
@@ -95,7 +103,9 @@
     $('pool-size').textContent = bank.questions.length;
     var best = state.best;
     $('best').textContent = best ? 'Best score so far: ' + best.score + ' / ' + best.total + ' (' + best.pct + '%) on ' + best.date + '.' : 'No attempts yet.';
-    $('btn-resume').classList.toggle('hidden', !(state.attempt && !state.attempt.done));
+    var open = state.attempt && !state.attempt.done;
+    $('btn-resume').classList.toggle('hidden', !open);
+    if (open) $('btn-resume').textContent = 'Resume unfinished attempt · ' + Math.max(1, Math.ceil(remaining() / 60000)) + ' min left';
 
     var counts = {};
     bank.questions.forEach(function (q) { counts[q.topic] = (counts[q.topic] || 0) + 1; });
@@ -116,7 +126,8 @@
       hist.appendChild(el('h2', null, 'Recent attempts'));
       var ul = el('ul');
       state.history.slice().reverse().forEach(function (h) {
-        ul.appendChild(el('li', null, h.date + ': ' + h.score + ' / ' + h.total + ' (' + h.pct + '%)' + (h.pct >= PASS * 100 ? ' ✓' : '')));
+        ul.appendChild(el('li', null, h.date + ': ' + h.score + ' / ' + h.total + ' (' + h.pct + '%)' + (h.pct >= PASS * 100 ? ' ✓' : '') +
+          (h.timedOut ? ' · time ran out' : h.time ? ' · ' + h.time : '')));
       });
       hist.appendChild(ul);
     }
@@ -153,9 +164,49 @@
     var qs = pick();
     var orders = {};
     qs.forEach(function (q) { orders[q.id] = shuffle(q.options.map(function (_, i) { return i; })); });
-    state.attempt = { ids: qs.map(function (q) { return q.id; }), orders: orders, picks: {}, current: 0, done: false, started: new Date().toISOString() };
+    var now = Date.now();
+    state.attempt = { ids: qs.map(function (q) { return q.id; }), orders: orders, picks: {}, current: 0, done: false,
+      started: new Date(now).toISOString(), deadline: now + TIME_LIMIT_MS };
+    announced = {};
     save();
     renderQuestion();
+  }
+
+  // ---------------- timer ----------------
+  function remaining() { return state.attempt && state.attempt.deadline ? state.attempt.deadline - Date.now() : TIME_LIMIT_MS; }
+  function fmt(ms) {
+    var t = Math.max(0, Math.ceil(ms / 1000));
+    return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+  }
+  function startTimer() {
+    if (!state.attempt.deadline) { state.attempt.deadline = Date.now() + TIME_LIMIT_MS; save(); }   // attempts saved before the time limit existed
+    if (!ticker) ticker = setInterval(tick, 1000);
+    tick();
+  }
+  function stopTimer() { if (ticker) { clearInterval(ticker); ticker = null; } }
+  function tick() {
+    var a = state.attempt;
+    if (!a || a.done) { stopTimer(); return; }
+    var left = remaining();
+    var clock = $('q-timer');
+    clock.textContent = '⏱ ' + fmt(left);
+    clock.classList.toggle('warn', left <= WARN_MS && left > DANGER_MS);
+    clock.classList.toggle('danger', left <= DANGER_MS);
+    clock.setAttribute('aria-label', 'Time left ' + fmt(left));
+    ANNOUNCE_AT.forEach(function (m) {
+      if (left <= m * 60000 && left > (m * 60000 - 5000) && !announced[m]) {
+        announced[m] = true;
+        $('q-timer-live').textContent = m + (m === 1 ? ' minute' : ' minutes') + ' left';
+      }
+    });
+    if (left <= 0) timeUp();
+  }
+  function timeUp() {
+    stopTimer();
+    var dlg = document.querySelector('dialog.confirm-dialog[open]');   // close a pending "submit?" dialog
+    if (dlg) dlg.dispatchEvent(new Event('cancel', { cancelable: true }));
+    Array.prototype.forEach.call(document.querySelectorAll('#quiz input, #quiz button'), function (x) { x.disabled = true; });
+    finishAttempt(true);
   }
 
   // ---------------- question screen ----------------
@@ -204,10 +255,12 @@
       grid.appendChild(b);
     });
     show('quiz');
+    startTimer();
   }
 
   function toggle(orig) {
     var a = state.attempt, q = current();
+    if (a.done || remaining() <= 0) return;
     var p = (a.picks[q.id] || []).slice();
     var i = p.indexOf(orig);
     if (i >= 0) p.splice(i, 1); else p.push(orig);
@@ -287,18 +340,24 @@
       cancelText: 'Keep answering',
       confirmText: 'Submit anyway',
     }).then(function (yes) {
+      if (a.done) return;                                   // the clock ran out while the dialog was open
       if (yes) return finishAttempt();
       var first = a.ids.findIndex(function (id) { return !(a.picks[id] && a.picks[id].length); });
       if (first >= 0) go(first);
     });
   }
 
-  function finishAttempt() {
+  function finishAttempt(timedOut) {
     var a = state.attempt;
+    if (a.done) return;
+    stopTimer();
     a.done = true;
     var score = a.ids.filter(function (id) { return sameSet(a.picks[id] || [], byId[id].answer); }).length;
     var pct = Math.round(100 * score / a.ids.length);
-    var rec = { score: score, total: a.ids.length, pct: pct, date: new Date().toISOString().slice(0, 10) };
+    var end = timedOut && a.deadline ? a.deadline : Date.now();
+    var used = a.started ? Math.min(TIME_LIMIT_MS, end - Date.parse(a.started)) : null;
+    var rec = { score: score, total: a.ids.length, pct: pct, date: new Date().toISOString().slice(0, 10),
+      timedOut: !!timedOut, time: used != null ? fmt(used) : null };
     state.history.push(rec);
     state.history = state.history.slice(-20);
     if (!state.best || score > state.best.score) state.best = rec;
@@ -317,6 +376,10 @@
     $('r-message').textContent = passed
       ? '🎉 Passed! You scored at least 70%. Review the misses below to close the remaining gaps.'
       : 'Not yet: the pass mark is 70%. Revisit the chapters below and try a new random set.';
+    $('r-time').textContent = r.timedOut
+      ? '⏰ Time\'s up — the 50 minutes ran out and your answers were submitted automatically. Unanswered questions score 0.'
+      : r.time ? '⏱ Finished in ' + r.time + ' of the 50 minutes.' : '';
+    $('r-time').className = r.timedOut ? 'pitfall' : 'muted';
 
     // per-chapter breakdown
     var per = {};
@@ -407,6 +470,7 @@
     if (document.querySelector('dialog[open]')) return;     // shortcuts pause while a dialog is open
     if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'checkbox') return;
     var q = current();
+    if (state.attempt.done) return;
     if (/^[1-6]$/.test(e.key)) {
       var shown = +e.key - 1, order = state.attempt.orders[q.id];
       if (shown < order.length) { e.preventDefault(); toggle(order[shown]); }
@@ -419,6 +483,7 @@
     state: function () { return state; },
     byId: function (id) { return byId[id]; },
     toggle: toggle, go: go, submit: submit, newAttempt: newAttempt,
+    expireIn: function (ms) { state.attempt.deadline = Date.now() + ms; save(); tick(); },   // tests: move the deadline
   };
 
   start();

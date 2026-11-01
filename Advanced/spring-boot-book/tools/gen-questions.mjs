@@ -93,8 +93,8 @@ function twoWay(rows, topicOf, { fwd, rev, fwdDiff = "easy", revDiff = "medium",
 }
 
 twoWay(ANNOTATIONS, (r) => r[2], { fwd: (d) => `Which annotation ${d}?`, rev: (a) => `What does ${a} do?`, fwdDiff: "easy", revDiff: "easy", template: "annotation" });
-twoWay(STARTERS, (r) => r[2], { fwd: (d) => `Which dependency brings ${d}?`, rev: (a) => `What does ${a} bring?`, fwdDiff: "medium", revDiff: "easy", template: "starter" });
-twoWay(PROPERTIES, (r) => r[2], { fwd: (d) => `Which property controls ${d}?`, rev: (p) => `What does the property ${p} control?`, fwdDiff: "medium", revDiff: "medium", template: "property" });
+twoWay(STARTERS, (r) => r[2], { fwd: (d) => `Which dependency matches: ${d}?`, rev: (a) => `What does the dependency ${a} provide?`, fwdDiff: "medium", revDiff: "easy", template: "starter" });
+twoWay(PROPERTIES, (r) => r[2], { fwd: (d) => `Which property matches: ${d}?`, rev: (p) => `What does the property ${p} do?`, fwdDiff: "medium", revDiff: "medium", template: "property" });
 twoWay(EXCEPTIONS, (r) => r[2], { fwd: (d) => `Which exception do you typically get when ${d}?`, rev: (e) => `What typically causes ${e}?`, fwdDiff: "medium", revDiff: "medium", template: "exception" });
 twoWay(ENDPOINTS, () => "ch18", { fwd: (d) => `Which Actuator endpoint shows ${d}?`, rev: (e) => `What does ${e} show?`, fwdDiff: "easy", revDiff: "medium", template: "endpoint" });
 twoWay(PROPAGATIONS, () => "ch15", { fwd: (d) => `Which propagation ${d}?`, rev: (p) => `What does Propagation.${p} do?`, fwdDiff: "medium", revDiff: "medium", template: "propagation" });

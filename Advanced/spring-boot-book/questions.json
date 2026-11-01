@@ -1484,7 +1484,7 @@
    "chapter": "2",
    "chapterFile": "02-ioc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.main.allow-circular-references control?",
+   "question": "What does the property spring.main.allow-circular-references do?",
    "options": [
     "the HTTP port; 0 picks a random free port",
     "the token issuer whose keys are used to validate JWTs",
@@ -1701,7 +1701,7 @@
    "chapter": "2",
    "chapterFile": "02-ioc.html",
    "difficulty": "medium",
-   "question": "Which property controls whether Boot tolerates circular references between beans (false by default)?",
+   "question": "Which property matches: whether Boot tolerates circular references between beans (false by default)?",
    "options": [
     "spring.data.web.pageable.max-page-size",
     "spring.main.allow-circular-references",
@@ -2159,7 +2159,7 @@
    "chapter": "3",
    "chapterFile": "03-beans.html",
    "difficulty": "medium",
-   "question": "What does the property spring.profiles.active control?",
+   "question": "What does the property spring.profiles.active do?",
    "options": [
     "graceful (default) or immediate shutdown of the web server",
     "the profiles to activate",
@@ -3368,7 +3368,7 @@
    "chapter": "3",
    "chapterFile": "03-beans.html",
    "difficulty": "medium",
-   "question": "What does the property spring.main.lazy-initialization control?",
+   "question": "What does the property spring.main.lazy-initialization do?",
    "options": [
     "makes a configuration document apply only for matching profiles",
     "a separate port for Actuator endpoints",
@@ -3718,7 +3718,7 @@
    "chapter": "3",
    "chapterFile": "03-beans.html",
    "difficulty": "medium",
-   "question": "Which property controls creates all beans lazily?",
+   "question": "Which property matches: creates all beans lazily?",
    "options": [
     "spring.main.lazy-initialization",
     "spring.cache.caffeine.spec",
@@ -3926,7 +3926,7 @@
    "chapter": "4",
    "chapterFile": "04-config.html",
    "difficulty": "medium",
-   "question": "What does the property spring.profiles.group.prod control?",
+   "question": "What does the property spring.profiles.group.prod do?",
    "options": [
     "the HTTP port; 0 picks a random free port",
     "the fraction of requests that are traced",
@@ -3945,7 +3945,7 @@
    "chapter": "4",
    "chapterFile": "04-config.html",
    "difficulty": "medium",
-   "question": "What does the property spring.config.activate.on-profile control?",
+   "question": "What does the property spring.config.activate.on-profile do?",
    "options": [
     "the profiles activated together with the prod profile",
     "the request header that carries the API version",
@@ -3964,7 +3964,7 @@
    "chapter": "4",
    "chapterFile": "04-config.html",
    "difficulty": "medium",
-   "question": "Which property controls additional configuration sources such as optional:file: or configtree:?",
+   "question": "Which property matches: additional configuration sources such as optional:file: or configtree:?",
    "options": [
     "spring.profiles.group.prod",
     "spring.config.activate.on-profile",
@@ -4122,7 +4122,7 @@
    "chapter": "4",
    "chapterFile": "04-config.html",
    "difficulty": "medium",
-   "question": "Which property controls makes a configuration document apply only for matching profiles?",
+   "question": "Which property matches: makes a configuration document apply only for matching profiles?",
    "options": [
     "debug",
     "spring.config.activate.on-profile",
@@ -4527,7 +4527,7 @@
    "chapter": "4",
    "chapterFile": "04-config.html",
    "difficulty": "medium",
-   "question": "What does the property spring.config.import control?",
+   "question": "What does the property spring.config.import do?",
    "options": [
     "how long graceful shutdown waits for each lifecycle phase",
     "additional configuration sources such as optional:file: or configtree:",
@@ -5204,7 +5204,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "medium",
-   "question": "Which property controls prints the condition evaluation report at startup when true?",
+   "question": "Which property matches: prints the condition evaluation report at startup when true?",
    "options": [
     "spring.profiles.active",
     "spring.autoconfigure.exclude",
@@ -5242,7 +5242,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "medium",
-   "question": "Which property controls auto-configuration classes to switch off?",
+   "question": "Which property matches: auto-configuration classes to switch off?",
    "options": [
     "spring.autoconfigure.exclude",
     "spring.jpa.hibernate.ddl-auto",
@@ -5470,7 +5470,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-webmvc bring?",
+   "question": "What does the dependency spring-boot-starter-webmvc provide?",
    "options": [
     "Spring WebFlux with Reactor Netty",
     "the cache abstraction with a default in-memory cache manager",
@@ -5510,7 +5510,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "medium",
-   "question": "What does the property debug control?",
+   "question": "What does the property debug do?",
    "options": [
     "the HTTP port; 0 picks a random free port",
     "the profiles activated together with the prod profile",
@@ -5529,7 +5529,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "medium",
-   "question": "What does the property spring.autoconfigure.exclude control?",
+   "question": "What does the property spring.autoconfigure.exclude do?",
    "options": [
     "a path prefix for the whole web application",
     "auto-configuration classes to switch off",
@@ -5624,7 +5624,7 @@
    "chapter": "5",
    "chapterFile": "05-autoconfig.html",
    "difficulty": "medium",
-   "question": "Which dependency brings Spring MVC with embedded Tomcat and Jackson (was -web in Boot 3)?",
+   "question": "Which dependency matches: Spring MVC with embedded Tomcat and Jackson (was -web in Boot 3)?",
    "options": [
     "spring-boot-starter-data-jpa-test",
     "spring-boot-starter-jdbc",
@@ -6652,7 +6652,7 @@
    "chapter": "6",
    "chapterFile": "06-validation.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-validation bring?",
+   "question": "What does the dependency spring-boot-starter-validation provide?",
    "options": [
     "an auto-configured JavaMailSender",
     "AspectJ annotations support for @Aspect (was -aop)",
@@ -8500,7 +8500,7 @@
    "chapter": "7",
    "chapterFile": "07-aop.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-aspectj bring?",
+   "question": "What does the dependency spring-boot-starter-aspectj provide?",
    "options": [
     "an auto-configured JavaMailSender",
     "Spring WebFlux with Reactor Netty",
@@ -8629,7 +8629,7 @@
    "chapter": "7",
    "chapterFile": "07-aop.html",
    "difficulty": "medium",
-   "question": "Which dependency brings AspectJ annotations support for @Aspect (was -aop)?",
+   "question": "Which dependency matches: AspectJ annotations support for @Aspect (was -aop)?",
    "options": [
     "spring-boot-starter-aspectj",
     "spring-boot-starter-cache",
@@ -10181,7 +10181,7 @@
    "chapter": "8",
    "chapterFile": "08-events.html",
    "difficulty": "medium",
-   "question": "Which property controls the maximum threads of the auto-configured task executor?",
+   "question": "Which property matches: the maximum threads of the auto-configured task executor?",
    "options": [
     "spring.task.scheduling.pool.size",
     "spring.task.execution.pool.max-size",
@@ -10983,7 +10983,7 @@
    "chapter": "8",
    "chapterFile": "08-events.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-cache bring?",
+   "question": "What does the dependency spring-boot-starter-cache provide?",
    "options": [
     "health, metrics, info and other operational endpoints",
     "Spring MVC with embedded Tomcat and Jackson (was -web in Boot 3)",
@@ -11429,7 +11429,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.mvc.apiversion.use.header control?",
+   "question": "What does the property spring.mvc.apiversion.use.header do?",
    "options": [
     "a path prefix for the whole web application",
     "which properties Jackson writes, e.g. non_null",
@@ -11681,7 +11681,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.jackson.default-property-inclusion control?",
+   "question": "What does the property spring.jackson.default-property-inclusion do?",
    "options": [
     "the JSON naming strategy, e.g. SNAKE_CASE",
     "which properties Jackson writes, e.g. non_null",
@@ -12456,7 +12456,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.jackson.property-naming-strategy control?",
+   "question": "What does the property spring.jackson.property-naming-strategy do?",
    "options": [
     "the JDBC URL of the main DataSource",
     "the request header that carries the API version",
@@ -12881,7 +12881,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "Which property controls which properties Jackson writes, e.g. non_null?",
+   "question": "Which property matches: which properties Jackson writes, e.g. non_null?",
    "options": [
     "spring.mvc.apiversion.use.header",
     "management.info.env.enabled",
@@ -12900,7 +12900,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "Which property controls the JSON naming strategy, e.g. SNAKE_CASE?",
+   "question": "Which property matches: the JSON naming strategy, e.g. SNAKE_CASE?",
    "options": [
     "spring.jackson.property-naming-strategy",
     "spring.servlet.multipart.max-file-size",
@@ -13165,7 +13165,7 @@
    "chapter": "9",
    "chapterFile": "09-mvc.html",
    "difficulty": "medium",
-   "question": "Which property controls the request header that carries the API version?",
+   "question": "Which property matches: the request header that carries the API version?",
    "options": [
     "spring.mvc.apiversion.use.header",
     "spring.flyway.baseline-on-migrate",
@@ -13279,7 +13279,7 @@
    "chapter": "10",
    "chapterFile": "10-web-errors.html",
    "difficulty": "medium",
-   "question": "What does the property spring.servlet.multipart.max-file-size control?",
+   "question": "What does the property spring.servlet.multipart.max-file-size do?",
    "options": [
     "the largest accepted uploaded file",
     "renders Spring MVC's own exceptions as RFC 9457 problems",
@@ -13545,7 +13545,7 @@
    "chapter": "10",
    "chapterFile": "10-web-errors.html",
    "difficulty": "medium",
-   "question": "What does the property spring.mvc.problemdetails.enabled control?",
+   "question": "What does the property spring.mvc.problemdetails.enabled do?",
    "options": [
     "renders Spring MVC's own exceptions as RFC 9457 problems",
     "the token issuer whose keys are used to validate JWTs",
@@ -13640,7 +13640,7 @@
    "chapter": "10",
    "chapterFile": "10-web-errors.html",
    "difficulty": "medium",
-   "question": "Which property controls renders Spring MVC's own exceptions as RFC 9457 problems?",
+   "question": "Which property matches: renders Spring MVC's own exceptions as RFC 9457 problems?",
    "options": [
     "spring.servlet.multipart.max-file-size",
     "spring.flyway.baseline-on-migrate",
@@ -13925,7 +13925,7 @@
    "chapter": "10",
    "chapterFile": "10-web-errors.html",
    "difficulty": "medium",
-   "question": "Which property controls the largest accepted uploaded file?",
+   "question": "Which property matches: the largest accepted uploaded file?",
    "options": [
     "spring.config.activate.on-profile",
     "spring.servlet.multipart.max-file-size",
@@ -14040,7 +14040,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "Which dependency brings an auto-configured RestClient.Builder and HTTP service client support?",
+   "question": "Which dependency matches: an auto-configured RestClient.Builder and HTTP service client support?",
    "options": [
     "spring-boot-starter-jetty",
     "spring-boot-starter-flyway",
@@ -14119,7 +14119,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-restclient bring?",
+   "question": "What does the dependency spring-boot-starter-restclient provide?",
    "options": [
     "AspectJ annotations support for @Aspect (was -aop)",
     "an auto-configured RestClient.Builder and HTTP service client support",
@@ -14158,7 +14158,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "What does the property spring.http.clients.connect-timeout control?",
+   "question": "What does the property spring.http.clients.connect-timeout do?",
    "options": [
     "how long auto-configured HTTP clients wait to open a connection",
     "a path prefix for the whole web application",
@@ -14349,7 +14349,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "What does the property spring.http.serviceclient.weather.base-url control?",
+   "question": "What does the property spring.http.serviceclient.weather.base-url do?",
    "options": [
     "the largest page size a Pageable parameter accepts",
     "the maximum threads of the auto-configured task executor",
@@ -14549,7 +14549,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "What does the property spring.http.clients.read-timeout control?",
+   "question": "What does the property spring.http.clients.read-timeout do?",
    "options": [
     "renders Spring MVC's own exceptions as RFC 9457 problems",
     "how long auto-configured HTTP clients wait for response data",
@@ -14568,7 +14568,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "Which property controls the base URL of the HTTP service group named weather?",
+   "question": "Which property matches: the base URL of the HTTP service group named weather?",
    "options": [
     "management.endpoint.health.show-details",
     "spring.http.clients.connect-timeout",
@@ -14681,7 +14681,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "Which property controls how long auto-configured HTTP clients wait to open a connection?",
+   "question": "Which property matches: how long auto-configured HTTP clients wait to open a connection?",
    "options": [
     "management.endpoints.web.exposure.include",
     "spring.http.clients.connect-timeout",
@@ -14826,7 +14826,7 @@
    "chapter": "11",
    "chapterFile": "11-clients.html",
    "difficulty": "medium",
-   "question": "Which property controls how long auto-configured HTTP clients wait for response data?",
+   "question": "Which property matches: how long auto-configured HTTP clients wait for response data?",
    "options": [
     "spring.data.web.pageable.max-page-size",
     "spring.threads.virtual.enabled",
@@ -16314,7 +16314,7 @@
    "chapter": "12",
    "chapterFile": "12-webflux.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-webclient bring?",
+   "question": "What does the dependency spring-boot-starter-webclient provide?",
    "options": [
     "the @DataJpaTest slice plus spring-boot-starter-test",
     "tracing and OTLP export via OpenTelemetry",
@@ -16533,7 +16533,7 @@
    "chapter": "12",
    "chapterFile": "12-webflux.html",
    "difficulty": "medium",
-   "question": "Which dependency brings an auto-configured WebClient.Builder?",
+   "question": "Which dependency matches: an auto-configured WebClient.Builder?",
    "options": [
     "spring-boot-starter-security-oauth2-resource-server",
     "spring-boot-starter-webclient",
@@ -16824,7 +16824,7 @@
    "chapter": "12",
    "chapterFile": "12-webflux.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-webflux bring?",
+   "question": "What does the dependency spring-boot-starter-webflux provide?",
    "options": [
     "Spring Data JPA with Hibernate",
     "an auto-configured WebClient.Builder",
@@ -17023,7 +17023,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "Which property controls the JDBC URL of the main DataSource?",
+   "question": "Which property matches: the JDBC URL of the main DataSource?",
    "options": [
     "spring.datasource.url",
     "spring.autoconfigure.exclude",
@@ -17042,7 +17042,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "Which property controls whether schema.sql/data.sql scripts run (always, embedded, never)?",
+   "question": "Which property matches: whether schema.sql/data.sql scripts run (always, embedded, never)?",
    "options": [
     "spring.sql.init.mode",
     "spring.datasource.hikari.maximum-pool-size",
@@ -17175,7 +17175,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.datasource.hikari.maximum-pool-size control?",
+   "question": "What does the property spring.datasource.hikari.maximum-pool-size do?",
    "options": [
     "additional configuration sources such as optional:file: or configtree:",
     "the JDBC URL of the main DataSource",
@@ -17194,7 +17194,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "Which dependency brings HikariCP, JDBC and JdbcClient/JdbcTemplate?",
+   "question": "Which dependency matches: HikariCP, JDBC and JdbcClient/JdbcTemplate?",
    "options": [
     "spring-boot-starter-jdbc",
     "spring-boot-starter-flyway",
@@ -17232,7 +17232,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.sql.init.mode control?",
+   "question": "What does the property spring.sql.init.mode do?",
    "options": [
     "a path prefix for the whole web application",
     "renders Spring MVC's own exceptions as RFC 9457 problems",
@@ -17270,7 +17270,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-flyway bring?",
+   "question": "What does the dependency spring-boot-starter-flyway provide?",
    "options": [
     "Jetty as the embedded server instead of Tomcat",
     "Flyway auto-configuration that runs migrations at startup",
@@ -17289,7 +17289,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "What does the property spring.datasource.url control?",
+   "question": "What does the property spring.datasource.url do?",
    "options": [
     "the maximum threads of the auto-configured task executor",
     "whether schema.sql/data.sql scripts run (always, embedded, never)",
@@ -17422,7 +17422,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "Which property controls the maximum number of pooled connections (default 10)?",
+   "question": "Which property matches: the maximum number of pooled connections (default 10)?",
    "options": [
     "spring.datasource.url",
     "spring.datasource.hikari.maximum-pool-size",
@@ -17517,7 +17517,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-jdbc bring?",
+   "question": "What does the dependency spring-boot-starter-jdbc provide?",
    "options": [
     "Spring MVC with embedded Tomcat and Jackson (was -web in Boot 3)",
     "Spring WebFlux with Reactor Netty",
@@ -17574,7 +17574,7 @@
    "chapter": "13",
    "chapterFile": "13-jdbc.html",
    "difficulty": "medium",
-   "question": "Which dependency brings Flyway auto-configuration that runs migrations at startup?",
+   "question": "Which dependency matches: Flyway auto-configuration that runs migrations at startup?",
    "options": [
     "spring-boot-starter-flyway",
     "spring-boot-starter-actuator",
@@ -17593,7 +17593,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "What does the property spring.jpa.hibernate.ddl-auto control?",
+   "question": "What does the property spring.jpa.hibernate.ddl-auto do?",
    "options": [
     "how long auto-configured HTTP clients wait for response data",
     "what Hibernate does with the schema at startup (validate, create-drop, …)",
@@ -17612,7 +17612,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "Which property controls the log level of Hibernate's generated SQL statements?",
+   "question": "Which property matches: the log level of Hibernate's generated SQL statements?",
    "options": [
     "spring.mvc.problemdetails.enabled",
     "management.info.env.enabled",
@@ -17631,7 +17631,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "What does the property spring.jpa.open-in-view control?",
+   "question": "What does the property spring.jpa.open-in-view do?",
    "options": [
     "keeps a JPA session open for the whole web request",
     "what Hibernate does with the schema at startup (validate, create-drop, …)",
@@ -17899,7 +17899,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "What does the property logging.level.org.hibernate.SQL control?",
+   "question": "What does the property logging.level.org.hibernate.SQL do?",
    "options": [
     "where Flyway looks for migrations",
     "the log level of Hibernate's generated SQL statements",
@@ -17937,7 +17937,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "Which dependency brings Spring Data JPA with Hibernate?",
+   "question": "Which dependency matches: Spring Data JPA with Hibernate?",
    "options": [
     "spring-boot-starter-jetty",
     "spring-boot-starter-webmvc-test",
@@ -17956,7 +17956,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "Which property controls keeps a JPA session open for the whole web request?",
+   "question": "Which property matches: keeps a JPA session open for the whole web request?",
    "options": [
     "management.endpoints.web.exposure.include",
     "spring.cache.caffeine.spec",
@@ -17975,7 +17975,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-data-jpa bring?",
+   "question": "What does the dependency spring-boot-starter-data-jpa provide?",
    "options": [
     "HikariCP, JDBC and JdbcClient/JdbcTemplate",
     "Jetty as the embedded server instead of Tomcat",
@@ -18013,7 +18013,7 @@
    "chapter": "14",
    "chapterFile": "14-jpa.html",
    "difficulty": "medium",
-   "question": "Which property controls what Hibernate does with the schema at startup (validate, create-drop, …)?",
+   "question": "Which property matches: what Hibernate does with the schema at startup (validate, create-drop, …)?",
    "options": [
     "server.shutdown",
     "spring.autoconfigure.exclude",
@@ -20160,7 +20160,7 @@
    "chapter": "16",
    "chapterFile": "16-testing.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-webmvc-test bring?",
+   "question": "What does the dependency spring-boot-starter-webmvc-test provide?",
    "options": [
     "Hibernate Validator for Bean Validation",
     "Spring Data JPA with Hibernate",
@@ -20323,7 +20323,7 @@
    "chapter": "16",
    "chapterFile": "16-testing.html",
    "difficulty": "medium",
-   "question": "Which dependency brings the @DataJpaTest slice plus spring-boot-starter-test?",
+   "question": "Which dependency matches: the @DataJpaTest slice plus spring-boot-starter-test?",
    "options": [
     "spring-boot-starter-classic",
     "spring-boot-starter-aspectj",
@@ -20426,7 +20426,7 @@
    "chapter": "16",
    "chapterFile": "16-testing.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-data-jpa-test bring?",
+   "question": "What does the dependency spring-boot-starter-data-jpa-test provide?",
    "options": [
     "logs and temporarily maps renamed properties during an upgrade",
     "the @DataJpaTest slice plus spring-boot-starter-test",
@@ -20664,7 +20664,7 @@
    "chapter": "16",
    "chapterFile": "16-testing.html",
    "difficulty": "medium",
-   "question": "Which dependency brings the @WebMvcTest slice plus spring-boot-starter-test?",
+   "question": "Which dependency matches: the @WebMvcTest slice plus spring-boot-starter-test?",
    "options": [
     "spring-boot-starter-mail",
     "spring-boot-starter-webmvc-test",
@@ -21088,7 +21088,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-security bring?",
+   "question": "What does the dependency spring-boot-starter-security provide?",
    "options": [
     "logs and temporarily maps renamed properties during an upgrade",
     "Spring Security with a secured-by-default filter chain",
@@ -21202,7 +21202,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "medium",
-   "question": "Which property controls the token issuer whose keys are used to validate JWTs?",
+   "question": "Which property matches: the token issuer whose keys are used to validate JWTs?",
    "options": [
     "server.shutdown",
     "spring.data.web.pageable.max-page-size",
@@ -21240,7 +21240,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-security-oauth2-resource-server bring?",
+   "question": "What does the dependency spring-boot-starter-security-oauth2-resource-server provide?",
    "options": [
     "an auto-configured WebClient.Builder",
     "Spring Security with a secured-by-default filter chain",
@@ -21335,7 +21335,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "medium",
-   "question": "What does the property spring.security.oauth2.resourceserver.jwt.issuer-uri control?",
+   "question": "What does the property spring.security.oauth2.resourceserver.jwt.issuer-uri do?",
    "options": [
     "size and expiry settings for Caffeine caches",
     "exposes info.* properties in the info endpoint",
@@ -21373,7 +21373,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "medium",
-   "question": "Which dependency brings Spring Security with a secured-by-default filter chain?",
+   "question": "Which dependency matches: Spring Security with a secured-by-default filter chain?",
    "options": [
     "spring-boot-starter-cache",
     "spring-boot-starter-security",
@@ -21430,7 +21430,7 @@
    "chapter": "17",
    "chapterFile": "17-security.html",
    "difficulty": "medium",
-   "question": "Which dependency brings JWT/opaque-token resource server support?",
+   "question": "Which dependency matches: JWT/opaque-token resource server support?",
    "options": [
     "spring-boot-starter-validation",
     "spring-boot-starter-security-oauth2-resource-server",
@@ -21791,7 +21791,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "What does the property management.endpoints.web.exposure.include control?",
+   "question": "What does the property management.endpoints.web.exposure.include do?",
    "options": [
     "when health component details are shown",
     "exposes info.* properties in the info endpoint",
@@ -21810,7 +21810,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "Which property controls the fraction of requests that are traced?",
+   "question": "Which property matches: the fraction of requests that are traced?",
    "options": [
     "logging.structured.format.console",
     "management.tracing.sampling.probability",
@@ -21829,7 +21829,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "Which property controls exposes info.* properties in the info endpoint?",
+   "question": "Which property matches: exposes info.* properties in the info endpoint?",
    "options": [
     "management.info.env.enabled",
     "management.endpoint.health.show-details",
@@ -21848,7 +21848,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "What does the property logging.structured.format.console control?",
+   "question": "What does the property logging.structured.format.console do?",
    "options": [
     "writes console logs as JSON in ECS, Logstash or GELF format",
     "when health component details are shown",
@@ -21943,7 +21943,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "Which property controls a separate port for Actuator endpoints?",
+   "question": "Which property matches: a separate port for Actuator endpoints?",
    "options": [
     "management.server.port",
     "management.info.env.enabled",
@@ -22141,7 +22141,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "What does the property management.info.env.enabled control?",
+   "question": "What does the property management.info.env.enabled do?",
    "options": [
     "whether Boot tolerates circular references between beans (false by default)",
     "when health component details are shown",
@@ -22179,7 +22179,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "What does the property management.tracing.sampling.probability control?",
+   "question": "What does the property management.tracing.sampling.probability do?",
    "options": [
     "writes console logs as JSON in ECS, Logstash or GELF format",
     "the fraction of requests that are traced",
@@ -22198,7 +22198,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "Which property controls writes console logs as JSON in ECS, Logstash or GELF format?",
+   "question": "Which property matches: writes console logs as JSON in ECS, Logstash or GELF format?",
    "options": [
     "management.tracing.sampling.probability",
     "logging.structured.format.console",
@@ -22217,7 +22217,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-opentelemetry bring?",
+   "question": "What does the dependency spring-boot-starter-opentelemetry provide?",
    "options": [
     "an auto-configured WebClient.Builder",
     "logs and temporarily maps renamed properties during an upgrade",
@@ -22274,7 +22274,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-actuator bring?",
+   "question": "What does the dependency spring-boot-starter-actuator provide?",
    "options": [
     "an auto-configured RestClient.Builder and HTTP service client support",
     "Jetty as the embedded server instead of Tomcat",
@@ -22428,7 +22428,7 @@
    "chapter": "18",
    "chapterFile": "18-observability.html",
    "difficulty": "medium",
-   "question": "Which property controls when health component details are shown?",
+   "question": "Which property matches: when health component details are shown?",
    "options": [
     "management.endpoints.web.exposure.include",
     "management.info.env.enabled",
@@ -22718,7 +22718,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "What does the property spring.lifecycle.timeout-per-shutdown-phase control?",
+   "question": "What does the property spring.lifecycle.timeout-per-shutdown-phase do?",
    "options": [
     "the fraction of requests that are traced",
     "graceful (default) or immediate shutdown of the web server",
@@ -22778,7 +22778,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "What does the property spring.threads.virtual.enabled control?",
+   "question": "What does the property spring.threads.virtual.enabled do?",
    "options": [
     "size and expiry settings for Caffeine caches",
     "uses virtual threads for Tomcat and Boot-managed executors",
@@ -22930,7 +22930,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "Which property controls graceful (default) or immediate shutdown of the web server?",
+   "question": "Which property matches: graceful (default) or immediate shutdown of the web server?",
    "options": [
     "spring.profiles.active",
     "spring.jpa.hibernate.ddl-auto",
@@ -23025,7 +23025,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "Which property controls uses virtual threads for Tomcat and Boot-managed executors?",
+   "question": "Which property matches: uses virtual threads for Tomcat and Boot-managed executors?",
    "options": [
     "spring.threads.virtual.enabled",
     "server.servlet.context-path",
@@ -23158,7 +23158,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "What does the property server.shutdown control?",
+   "question": "What does the property server.shutdown do?",
    "options": [
     "marks an existing schema without history table as the baseline version",
     "how long graceful shutdown waits for each lifecycle phase",
@@ -23177,7 +23177,7 @@
    "chapter": "19",
    "chapterFile": "19-deployment.html",
    "difficulty": "medium",
-   "question": "Which property controls how long graceful shutdown waits for each lifecycle phase?",
+   "question": "Which property matches: how long graceful shutdown waits for each lifecycle phase?",
    "options": [
     "server.shutdown",
     "spring.lifecycle.timeout-per-shutdown-phase",
@@ -24165,7 +24165,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "Which property controls size and expiry settings for Caffeine caches?",
+   "question": "Which property matches: size and expiry settings for Caffeine caches?",
    "options": [
     "spring.cache.caffeine.spec",
     "spring.autoconfigure.exclude",
@@ -24203,7 +24203,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-jetty bring?",
+   "question": "What does the dependency spring-boot-starter-jetty provide?",
    "options": [
     "HikariCP, JDBC and JdbcClient/JdbcTemplate",
     "Flyway auto-configuration that runs migrations at startup",
@@ -24374,7 +24374,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "What does the property server.port control?",
+   "question": "What does the property server.port do?",
    "options": [
     "marks an existing schema without history table as the baseline version",
     "whether schema.sql/data.sql scripts run (always, embedded, never)",
@@ -24431,7 +24431,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-mail bring?",
+   "question": "What does the dependency spring-boot-starter-mail provide?",
    "options": [
     "AspectJ annotations support for @Aspect (was -aop)",
     "Hibernate Validator for Bean Validation",
@@ -24469,7 +24469,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "Which dependency brings Jetty as the embedded server instead of Tomcat?",
+   "question": "Which dependency matches: Jetty as the embedded server instead of Tomcat?",
    "options": [
     "spring-boot-starter-jetty",
     "spring-boot-properties-migrator",
@@ -24678,7 +24678,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "What does the property server.servlet.context-path control?",
+   "question": "What does the property server.servlet.context-path do?",
    "options": [
     "a path prefix for the whole web application",
     "keeps a JPA session open for the whole web request",
@@ -24697,7 +24697,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "Which property controls the largest page size a Pageable parameter accepts?",
+   "question": "Which property matches: the largest page size a Pageable parameter accepts?",
    "options": [
     "server.servlet.context-path",
     "spring.data.web.pageable.max-page-size",
@@ -24716,7 +24716,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "What does the property spring.flyway.locations control?",
+   "question": "What does the property spring.flyway.locations do?",
    "options": [
     "the base URL of the HTTP service group named weather",
     "where Flyway looks for migrations",
@@ -24925,7 +24925,7 @@
    "chapter": "H",
    "chapterFile": "howto-index.html",
    "difficulty": "medium",
-   "question": "Which property controls marks an existing schema without history table as the baseline version?",
+   "question": "Which property matches: marks an existing schema without history table as the baseline version?",
    "options": [
     "management.tracing.sampling.probability",
     "spring.cache.caffeine.spec",
@@ -25576,7 +25576,7 @@
    "chapter": "B",
    "chapterFile": "appendix-migration.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-starter-classic bring?",
+   "question": "What does the dependency spring-boot-starter-classic provide?",
    "options": [
     "logs and temporarily maps renamed properties during an upgrade",
     "the cache abstraction with a default in-memory cache manager",
@@ -25616,7 +25616,7 @@
    "chapter": "B",
    "chapterFile": "appendix-migration.html",
    "difficulty": "easy",
-   "question": "What does spring-boot-properties-migrator bring?",
+   "question": "What does the dependency spring-boot-properties-migrator provide?",
    "options": [
     "an auto-configured WebClient.Builder",
     "Spring Data JPA with Hibernate",
@@ -25749,7 +25749,7 @@
    "chapter": "B",
    "chapterFile": "appendix-migration.html",
    "difficulty": "medium",
-   "question": "Which dependency brings logs and temporarily maps renamed properties during an upgrade?",
+   "question": "Which dependency matches: logs and temporarily maps renamed properties during an upgrade?",
    "options": [
     "spring-boot-starter-mail",
     "spring-boot-starter-data-jpa-test",
@@ -25941,7 +25941,7 @@
    "chapter": "B",
    "chapterFile": "appendix-migration.html",
    "difficulty": "medium",
-   "question": "Which dependency brings all auto-configuration modules at once, as a Boot 3 migration aid?",
+   "question": "Which dependency matches: all auto-configuration modules at once, as a Boot 3 migration aid?",
    "options": [
     "spring-boot-starter-data-jpa-test",
     "spring-boot-starter-cache",

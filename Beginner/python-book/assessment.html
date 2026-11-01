@@ -49,6 +49,14 @@
   .filters .btn.active { border-color: var(--accent); background: var(--accent-soft); }
   .muted { color: var(--muted); }
   .hidden { display: none !important; }
+  .timer-bar { position: sticky; top: 0; z-index: 5; display: flex; justify-content: flex-end; margin: 0 0 6px; pointer-events: none; }
+  .timer { pointer-events: auto; font: 700 1.05rem var(--mono); font-variant-numeric: tabular-nums; padding: 5px 14px; border-radius: 99px;
+    border: 1.5px solid var(--border); background: var(--panel); color: var(--text); box-shadow: var(--shadow, 0 2px 8px rgba(0,0,0,.12)); }
+  .timer.warn { border-color: var(--medium); color: var(--medium); }
+  .timer.danger { border-color: var(--hard); color: var(--hard); animation: timer-pulse 1s ease-in-out infinite; }
+  @keyframes timer-pulse { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .timer.danger { animation: none; } }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -69,7 +77,8 @@
       <li>Each attempt picks <strong>50 questions</strong> at random, spread across all chapters.</li>
       <li>Every question allows <strong>one or more</strong> answers. Tick all the options you think are correct.</li>
       <li>A question scores a point only if your selection <strong>exactly matches</strong> the correct set.</li>
-      <li>The pass mark is <strong>70%</strong> (35 / 50). Your progress is saved in this browser, so you can stop and resume.</li>
+      <li>You have <strong>50 minutes</strong>. The clock starts when you press Start and keeps running even if you leave the page; at <strong>0:00</strong> the assessment locks and your answers are submitted automatically.</li>
+      <li>The pass mark is <strong>70%</strong> (35 / 50). Your progress is saved in this browser, so you can resume within the time limit.</li>
       <li>Keyboard: <kbd>1</kbd>–<kbd>6</kbd> toggle options, <kbd>←</kbd> / <kbd>→</kbd> move between questions.</li>
     </ul>
   </div>
@@ -86,6 +95,8 @@
 </section>
 
 <section id="quiz" class="hidden">
+  <div class="timer-bar"><span class="timer" id="q-timer" role="timer">⏱ 50:00</span></div>
+  <div class="sr-only" id="q-timer-live" aria-live="assertive"></div>
   <div class="a-meta">
     <span id="q-count"></span>
     <span class="chip" id="q-topic"></span>
@@ -110,6 +121,7 @@
 <section id="results" class="hidden">
   <div class="score-big" id="r-score"></div>
   <p class="lead" id="r-message"></p>
+  <p id="r-time" class="muted"></p>
   <div id="r-revisit"></div>
   <h2>Score by chapter</h2>
   <div class="table-wrap"><table id="r-table"></table></div>

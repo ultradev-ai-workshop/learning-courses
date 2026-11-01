@@ -146,6 +146,36 @@ try {
   const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
   const ratio = ([a, b]) => { const [x, y] = [lum(parse(a)), lum(parse(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
   for (const [name, pair] of Object.entries(colors)) check(ratio(pair) >= 4.5, `dark-mode contrast ${name}: ${ratio(pair).toFixed(1)}:1 (${pair.join(' on ')})`);
+  // ---- the 50-minute time limit
+  await evaluate(`document.getElementById('btn-again').click(); true`);
+  check(await waitFor(`/^⏱ (50:00|49:5\\d)$/.test(document.getElementById('q-timer').textContent)`), 'a new attempt starts a 50-minute clock');
+  const deadline = await evaluate(`window.__assessment.state().attempt.deadline - Date.parse(window.__assessment.state().attempt.started)`);
+  check(deadline === 50 * 60 * 1000, 'the deadline is 50 minutes after the start');
+  await evaluate(`window.__assessment.expireIn(4 * 60 * 1000); true`);
+  check(await evaluate(`document.getElementById('q-timer').classList.contains('warn')`), 'the clock turns amber in the last 5 minutes');
+  await evaluate(`window.__assessment.expireIn(30 * 1000); true`);
+  check(await evaluate(`document.getElementById('q-timer').classList.contains('danger')`), 'the clock turns red in the last minute');
+  await shot('timer-dark.png');
+  await evaluate(`(() => { const A = window.__assessment, s = A.state().attempt; A.go(0); A.toggle(s.orders[s.ids[0]][0]); A.go(1); A.toggle(s.orders[s.ids[1]][0]); return true; })()`);
+  await evaluate(`document.getElementById('btn-submit').click(); true`);
+  check(await waitFor(`!!document.querySelector('dialog[open]')`), 'a submit dialog is open when time runs out');
+  await evaluate(`window.__assessment.expireIn(1200); true`);
+  check(await waitFor(`!document.getElementById('results').classList.contains('hidden')`, 5000), 'at 0:00 the answers are submitted automatically');
+  check(!(await evaluate(`!!document.querySelector('dialog[open]')`)), 'the pending dialog is closed');
+  check(/Time's up/.test(await evaluate(`document.getElementById('r-time').textContent`)), 'results explain that time ran out');
+  const tr = await evaluate(`(() => { const s = window.__assessment.state(); return { done: s.attempt.done, timedOut: s.history[s.history.length - 1].timedOut, answered: Object.keys(s.attempt.picks).length }; })()`);
+  check(tr.done && tr.timedOut && tr.answered === 2, `the timed-out attempt is stored with its 2 answers (${JSON.stringify(tr)})`);
+  await evaluate(`window.__assessment.toggle(0); true`);
+  check((await evaluate(`Object.keys(window.__assessment.state().attempt.picks).length`)) === 2, 'answers can no longer change after time is up');
+  await shot('timeout-dark.png');
+
+  // an attempt whose time ran out while the page was closed is submitted on the next visit
+  await evaluate(`document.getElementById('btn-again').click(); true`);
+  await evaluate(`(() => { const k = Object.keys(localStorage).find(k => /assessment/.test(k)); const st = JSON.parse(localStorage.getItem(k));
+    st.attempt.deadline = Date.now() - 1000; localStorage.setItem(k, JSON.stringify(st)); return true; })()`);
+  await send('Page.navigate', { url });
+  check(await waitFor(`!document.getElementById('results').classList.contains('hidden') && /Time's up/.test(document.getElementById('r-time').textContent)`),
+    'an attempt that expired while the page was closed is submitted on reload');
 } catch (e) {
   failures++; console.error('✘ error:', e.message);
 } finally {
