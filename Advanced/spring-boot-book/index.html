@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Intermediate → Advanced · Spring Boot 4.1 · Spring Framework 7 · Java 25</div>
+<h1>🍃 Spring Boot Study Book</h1>
+<p class="lead">A chapter-by-chapter course through the official <a href="https://docs.spring.io/spring-framework/reference/index.html">Spring Framework</a> and <a href="https://docs.spring.io/spring-boot/index.html">Spring Boot</a> reference documentation, from the IoC container to a tested, observable, deployable REST API. It's written for Java developers who know the language and want to understand how Spring really works — and a set of <strong>How-To guides</strong> covers the tasks you do every week.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> 20 chapters in six parts: Foundations (container, configuration, auto-configuration), Core Framework (validation, AOP, events), Web (MVC, errors, HTTP clients, WebFlux), Data (JDBC, JPA, transactions), Production (testing, security, observability, deployment) and a final project.</li>
+  <li><strong>Use the How-To guides</strong> when you need to get something done: change the port, return Problem Details, add pagination, a second datasource, retries, JWT security, a Docker image… Each recipe is Problem → Solution → Code → Pitfalls.</li>
+  <li><strong>Look for the 🧠 boxes.</strong> Every hard idea — proxies, the persistence context, transactions, the reactive model — comes with a real-world analogy; ☕ boxes connect it to what you know from plain Java and other frameworks.</li>
+  <li><strong>Type the examples.</strong> Every example was compiled and run on Spring Boot 4.1.2 with Java 25, and its output checked. Most examples are a single <code>main</code> class that starts, prints and stops; test classes show their JUnit result. See <a href="playground-howto.html">Using the Playground</a>.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. The playground exercises build towards the <a href="20-project.html">Library Loans API</a> project.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000, and scores you per chapter.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>New to Java's modern features?</strong> Records, <code>var</code>, text blocks, sealed types, pattern matching and virtual threads appear throughout — <a href="appendix-java.html">Appendix A</a> summarises them. Upgrading from Spring Boot 2 or 3? <a href="appendix-migration.html">Appendix B</a> lists everything that changed in Boot 4.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install JDK 25 (17 is the minimum for Boot 4) and use the Maven wrapper in the <a href="playground-howto.html">playground</a>, or create a project at <a href="https://start.spring.io">start.spring.io</a>. Check with <code>java -version</code> and <code>./mvnw -v</code>.</p>
+</div>
+
+<div id="cards"></div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Set up the playground project, run examples and tests, and how the book's examples are checked.",
+  "01-overview.html": "Spring Framework vs Spring Boot, the Boot 4 / Framework 7 generation, project anatomy, @SpringBootApplication and startup.",
+  "02-ioc.html": "Inversion of control, bean definitions, stereotypes, @Bean, BeanRegistrar, constructor injection, qualifiers and cycles.",
+  "03-beans.html": "Singleton, prototype and web scopes, scoped proxies, the bean lifecycle, SmartLifecycle and profiles.",
+  "04-config.html": "Property sources and precedence, YAML, profile files, @Value, type-safe @ConfigurationProperties, relaxed binding, secrets.",
+  "05-autoconfig.html": "How auto-configuration works, conditions, backing off, the condition report, starters, and writing your own.",
+  "06-validation.html": "Bean Validation, custom and cross-field constraints, method validation, type conversion and SpEL.",
+  "07-aop.html": "Proxies, aspects, advice and pointcuts, annotation-driven aspects, ordering and the self-invocation trap.",
+  "08-events.html": "Application events, @Async, @Scheduled and cron, and the cache abstraction.",
+  "09-mvc.html": "The DispatcherServlet, mappings, arguments, ResponseEntity, Jackson 3 JSON and API versioning.",
+  "10-web-errors.html": "Problem Details, @RestControllerAdvice, request validation, filters, CORS and file uploads.",
+  "11-clients.html": "RestClient, error handling, timeouts, HTTP service interfaces, @Retryable and @ConcurrencyLimit.",
+  "12-webflux.html": "The reactive model, Mono and Flux, reactive controllers, functional endpoints, WebClient and SSE.",
+  "13-jdbc.html": "DataSource and HikariCP, Flyway migrations, JdbcClient, exception translation and batch updates.",
+  "14-jpa.html": "Entities, Spring Data repositories, derived queries, paging, projections, the persistence context and N+1.",
+  "15-transactions.html": "@Transactional, rollback rules, propagation, isolation, TransactionTemplate and optimistic locking.",
+  "16-testing.html": "Unit tests, @WebMvcTest, @DataJpaTest, @RestClientTest, @SpringBootTest with RestTestClient, Testcontainers.",
+  "17-security.html": "The security filter chain, users and passwords, method security, JWT resource servers and testing.",
+  "18-observability.html": "Actuator, health and probes, Micrometer metrics, observations and tracing, structured logging.",
+  "19-deployment.html": "Executable and layered jars, container images, Kubernetes, graceful shutdown, AOT cache and native images.",
+  "20-project.html": "Build and test the Library Loans API: JPA, Flyway, validation, Problem Details, metrics and tests.",
+  "howto-index.html": "All How-To recipes: the most frequent everyday Spring Boot tasks, grouped by area.",
+  "howto-config.html": "Ports, profiles, YAML, secrets, startup code, custom banners and environment-specific settings.",
+  "howto-web.html": "Global error handling, pagination, uploads and downloads, CORS, request logging, Jackson and versioning.",
+  "howto-data.html": "Flyway, multiple datasources, auditing, optimistic locking with ETags, projections and soft deletes.",
+  "howto-integration.html": "HTTP clients with retries and timeouts, scheduling, e-mail, caching and async work.",
+  "howto-security.html": "JWT resource server, method security, password hashing, CORS with security and testing secured endpoints.",
+  "howto-testing-ops.html": "Slice tests, Testcontainers, custom health and metrics, Docker images, graceful shutdown and native images.",
+  "appendix-java.html": "Records, sealed types, pattern matching, text blocks, var, virtual threads and more for Spring developers.",
+  "appendix-migration.html": "Upgrading from Spring Boot 3 to 4: starters, Jackson 3, testing changes, removed features, and a cheat sheet.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

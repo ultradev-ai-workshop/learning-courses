@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc validation">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>9. Building REST APIs with Spring MVC · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Web</div>
+<h1>Building REST APIs with Spring MVC</h1>
+<p class="lead">Spring MVC is the servlet-based web framework at the heart of most Spring Boot applications. This chapter follows a request from the socket to your method and back, then covers everything you need for a JSON API: mappings, path variables and parameters, request bodies, response status and headers, JSON customisation with Jackson 3, content negotiation and Spring Framework 7's built-in API versioning.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How the <strong><code>DispatcherServlet</code></strong> routes a request to a handler method and turns the return value into a response.</li>
+  <li>Mapping requests: <code>@GetMapping</code> &amp; co., <strong>path patterns</strong>, <code>produces</code>/<code>consumes</code>, headers and parameters.</li>
+  <li>Method arguments: <code>@PathVariable</code>, <code>@RequestParam</code>, <code>@RequestHeader</code>, <code>@RequestBody</code>, and more.</li>
+  <li>Responses: return values, <strong><code>ResponseEntity</code></strong>, <code>201 Created</code> with a <code>Location</code>, <code>204 No Content</code>.</li>
+  <li>JSON with <strong>Jackson 3</strong>, and <strong>API versioning</strong> with <code>@GetMapping(version = …)</code>.</li>
+</ul>
+</div>
+
+<h2 id="dispatcher">The request journey</h2>
+<p>Every request to a Spring MVC app enters one servlet, the <strong><code>DispatcherServlet</code></strong> (the <em>front controller</em>). It asks its <code>HandlerMapping</code>s which method handles the request, runs interceptors, calls the method through a <code>HandlerAdapter</code> (which resolves its arguments), and finally writes the return value with an <code>HttpMessageConverter</code> — Jackson for JSON.</p>
+<figure class="diagram">
+<svg viewBox="0 0 560 210" role="img" aria-label="Request flows from Tomcat through servlet filters into the DispatcherServlet, which consults the handler mapping, runs interceptors, calls the controller method via argument resolvers, then writes the result with a message converter">
+  <rect class="bx" x="10" y="20" width="90" height="50" rx="8"/><text x="55" y="50" text-anchor="middle">Tomcat</text>
+  <rect class="bx" x="115" y="20" width="90" height="50" rx="8"/><text x="160" y="42" text-anchor="middle">Filters</text><text class="mut" x="160" y="60" text-anchor="middle">security, CORS</text>
+  <rect class="hi" x="220" y="20" width="150" height="50" rx="8"/><text x="295" y="50" text-anchor="middle">DispatcherServlet</text>
+  <rect class="bx" x="385" y="20" width="165" height="50" rx="8"/><text x="467" y="42" text-anchor="middle">HandlerMapping</text><text class="mut" x="467" y="60" text-anchor="middle">which method?</text>
+  <rect class="bx" x="220" y="95" width="150" height="50" rx="8"/><text x="295" y="117" text-anchor="middle">Interceptors</text><text class="mut" x="295" y="135" text-anchor="middle">preHandle / after</text>
+  <rect class="bx" x="385" y="95" width="165" height="50" rx="8"/><text x="467" y="117" text-anchor="middle">@RestController</text><text class="mut" x="467" y="135" text-anchor="middle">args resolved, method called</text>
+  <rect class="bx" x="220" y="160" width="330" height="40" rx="8"/><text x="385" y="185" text-anchor="middle">HttpMessageConverter: return value → JSON response body</text>
+  <line class="ln" x1="100" y1="45" x2="113" y2="45"/><line class="ln" x1="205" y1="45" x2="218" y2="45"/><line class="ln" x1="370" y1="45" x2="383" y2="45"/>
+  <line class="ln" x1="295" y1="70" x2="295" y2="93"/><line class="ln" x1="370" y1="120" x2="383" y2="120"/><line class="ln" x1="467" y1="145" x2="467" y2="158"/>
+</svg>
+<figcaption>Filters are servlet-level and see every request; interceptors are Spring MVC-level and know which handler was chosen.</figcaption>
+</figure>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a hotel reception.</strong> Every guest comes through one front desk (the <code>DispatcherServlet</code>). Security at the entrance (filters) checks everyone first. The receptionist looks up which department handles the request (handler mapping), fills in the forms the department needs (argument resolvers), sends the guest there (your method), and translates the department's answer into the guest's language on the way out (message converters).</p>
+</div>
+
+<h2 id="first-api">A complete small API</h2>
+<p>Here is a CRUD API for books backed by a map, covering the most common annotations. The <code>main</code> method calls it like a client would:</p>
+<script type="text/plain" class="code" data-file="BooksApiApplication.java" data-run>
+package com.example.ch09.books;
+
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+record Book(Long id, String title, String author, int year) {}
+record BookRequest(String title, String author, int year) {}
+
+@RestController
+@RequestMapping("/api/books")                       // common prefix for all methods
+class BookController {
+  private final Map<Long, Book> books = new ConcurrentHashMap<>();
+  private final AtomicLong ids = new AtomicLong();
+
+  @GetMapping
+  List<Book> list(@RequestParam(required = false) String author) {
+    return books.values().stream()
+        .filter(b -> author == null || b.author().equalsIgnoreCase(author))
+        .sorted(java.util.Comparator.comparing(Book::id)).toList();
+  }
+
+  @GetMapping("/{id}")
+  ResponseEntity<Book> get(@PathVariable long id) {
+    Book b = books.get(id);
+    return b == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(b);
+  }
+
+  @PostMapping
+  ResponseEntity<Book> create(@RequestBody BookRequest req) {
+    Book b = new Book(ids.incrementAndGet(), req.title(), req.author(), req.year());
+    books.put(b.id(), b);
+    URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(b.id()).toUri();
+    return ResponseEntity.created(location).body(b);          // 201 + Location header
+  }
+
+  @PutMapping("/{id}")
+  ResponseEntity<Book> replace(@PathVariable long id, @RequestBody BookRequest req) {
+    if (!books.containsKey(id)) return ResponseEntity.notFound().build();
+    Book b = new Book(id, req.title(), req.author(), req.year());
+    books.put(id, b);
+    return ResponseEntity.ok(b);
+  }
+
+  @DeleteMapping("/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)                    // 204, no body
+  void delete(@PathVariable long id) { books.remove(id); }
+}
+
+@SpringBootApplication
+public class BooksApiApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BooksApiApplication.class)) {
+      RestClient http = RestClient.builder()
+          .baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(status -> true, (req, res) -> { })   // don't throw on 4xx/5xx: we print them
+          .build();
+
+      var created = http.post().uri("/api/books").body(new BookRequest("Dune", "Herbert", 1965)).retrieve().toEntity(String.class);
+      System.out.println(created.getStatusCode() + " " + created.getHeaders().getLocation().getPath() + " " + created.getBody());
+      http.post().uri("/api/books").body(new BookRequest("Emma", "Austen", 1815)).retrieve().toBodilessEntity();
+
+      System.out.println(http.get().uri("/api/books?author=austen").retrieve().body(String.class));
+      System.out.println(http.put().uri("/api/books/1").body(new BookRequest("Dune", "Frank Herbert", 1965)).retrieve().body(String.class));
+      System.out.println(http.delete().uri("/api/books/2").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println(http.get().uri("/api/books/2").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println(http.get().uri("/api/books").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 CREATED /api/books/1 {"id":1,"title":"Dune","author":"Herbert","year":1965}
+[{"id":2,"title":"Emma","author":"Austen","year":1815}]
+{"id":1,"title":"Dune","author":"Frank Herbert","year":1965}
+204 NO_CONTENT
+404 NOT_FOUND
+[{"id":1,"title":"Dune","author":"Frank Herbert","year":1965}]
+</script>
+<p>Things to notice:</p>
+<ul>
+  <li><code>@RestController</code> = <code>@Controller</code> + <code>@ResponseBody</code>: return values are written to the response body (as JSON), not resolved as view names.</li>
+  <li>Separate <strong>request</strong> and <strong>response</strong> types (<code>BookRequest</code> vs <code>Book</code>): clients can't set the <code>id</code>, and your API isn't tied to your persistence model.</li>
+  <li>The controller is a singleton used by many threads at once, which is why the store is a <code>ConcurrentHashMap</code> (Chapter 3).</li>
+</ul>
+<div class="java">
+<p>☕ <strong>Coming from JAX-RS?</strong> <code>@RequestMapping</code> ≈ <code>@Path</code>, <code>@GetMapping</code> ≈ <code>@GET</code>, <code>@PathVariable</code> ≈ <code>@PathParam</code>, <code>@RequestParam</code> ≈ <code>@QueryParam</code>, <code>ResponseEntity</code> ≈ <code>Response</code>.</p>
+</div>
+
+<h2 id="mapping">Request mapping in detail</h2>
+<h3>Path patterns</h3>
+<p>Spring MVC parses mappings with <code>PathPatternParser</code>:</p>
+<table>
+  <tr><th>Pattern</th><th>Matches</th></tr>
+  <tr><td><code>/books/{id}</code></td><td><code>/books/42</code> — captures one segment as <code>id</code></td></tr>
+  <tr><td><code>/books/{id:\d+}</code></td><td>only digits: <code>/books/42</code> but not <code>/books/abc</code></td></tr>
+  <tr><td><code>/files/{*path}</code></td><td>the rest of the path: <code>/files/a/b/c.txt</code> → <code>path = "/a/b/c.txt"</code></td></tr>
+  <tr><td><code>/img/*.png</code></td><td>one segment ending in <code>.png</code></td></tr>
+  <tr><td><code>/docs/**</code></td><td>anything under <code>/docs/</code></td></tr>
+</table>
+<p>When several patterns match, the <strong>most specific</strong> wins: <code>/books/new</code> beats <code>/books/{id}</code> (a literal beats a variable), and a pattern with fewer variables and wildcards beats one with more.</p>
+<script type="text/plain" class="code" data-file="PatternsApplication.java" data-run>
+package com.example.ch09.patterns;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class PatternController {
+  @GetMapping("/books/{id:\\d+}") String byId(@PathVariable long id) { return "book #" + id; }
+  @GetMapping("/books/new") String newForm() { return "the 'new' page"; }
+  @GetMapping("/books/{slug:[a-z][a-z0-9-]*}") String bySlug(@PathVariable String slug) { return "book with slug " + slug; }
+  @GetMapping("/files/{*path}") String file(@PathVariable String path) { return "file " + path; }
+}
+
+@SpringBootApplication
+public class PatternsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PatternsApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      for (String path : new String[] { "/books/42", "/books/new", "/books/dune-1965", "/files/2026/report.pdf" }) {
+        System.out.println(path + " → " + http.get().uri(path).retrieve().body(String.class));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/books/42 → book #42
+/books/new → the 'new' page
+/books/dune-1965 → book with slug dune-1965
+/files/2026/report.pdf → file /2026/report.pdf
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Regex constraints don't make a pattern more specific.</strong> With <code>/books/{id:\d+}</code> and a plain <code>/books/{slug}</code>, the URL <code>/books/42</code> matches both equally well, and Spring fails the request with <em>"IllegalStateException: Ambiguous handler methods mapped for '/books/42'"</em> — a 500 error, not a startup error. That's why the slug pattern above must start with a letter, so the two never overlap.</p>
+</div>
+
+<h3>Narrowing by method, headers, parameters and media types</h3>
+<p>Besides path and HTTP method, a mapping can require <code>params</code> (<code>params = "debug"</code>), <code>headers</code> (<code>headers = "X-Tenant"</code>), a request <code>Content-Type</code> (<code>consumes</code>) and an acceptable response type (<code>produces</code>). A request that matches the path but not these conditions gets <code>405</code>, <code>415 Unsupported Media Type</code> or <code>406 Not Acceptable</code> — Spring answers with the right status code for you.</p>
+<script type="text/plain" class="code" data-file="NegotiationApplication.java" data-run>
+package com.example.ch09.negotiation;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record Report(String name, int rows) {}
+
+@RestController
+class ReportController {
+  @GetMapping(path = "/report", produces = MediaType.APPLICATION_JSON_VALUE)
+  Report json() { return new Report("sales", 3); }
+
+  @GetMapping(path = "/report", produces = "text/csv")
+  String csv() { return "name,rows\nsales,3\n"; }
+
+  @PostMapping(path = "/report", consumes = MediaType.APPLICATION_JSON_VALUE)
+  String upload(@RequestBody Report r) { return "stored " + r.name(); }
+}
+
+@SpringBootApplication
+public class NegotiationApplication {
+  public static void main(String[] args) {
+    // Spring logs a WARN for each 4xx it resolves; silenced here to keep the output short
+    try (var ctx = SpringApplication.run(NegotiationApplication.class, "--logging.level.org.springframework.web.servlet.mvc.support=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/report").accept(MediaType.APPLICATION_JSON).retrieve().body(String.class));
+      System.out.print(http.get().uri("/report").accept(MediaType.parseMediaType("text/csv")).retrieve().body(String.class));
+      System.out.println("xml? " + http.get().uri("/report").accept(MediaType.APPLICATION_XML).retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("text body? " + http.post().uri("/report").contentType(MediaType.TEXT_PLAIN).body("hi").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("PUT? " + http.put().uri("/report").retrieve().toBodilessEntity().getStatusCode());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"name":"sales","rows":3}
+name,rows
+sales,3
+xml? 406 NOT_ACCEPTABLE
+text body? 415 UNSUPPORTED_MEDIA_TYPE
+PUT? 405 METHOD_NOT_ALLOWED
+</script>
+<p>Without the logging setting you'd also see lines such as <code>WARN … DefaultHandlerExceptionResolver : Resolved [HttpMediaTypeNotAcceptableException: No acceptable representation]</code> — Spring tells you which client error it turned into which status. They're useful while developing.</p>
+
+<h2 id="arguments">Handler method arguments</h2>
+<table>
+  <tr><th>Argument</th><th>Source</th></tr>
+  <tr><td><code>@PathVariable long id</code></td><td>URI template variable</td></tr>
+  <tr><td><code>@RequestParam(defaultValue = "0") int page</code></td><td>query string or form field; <code>List&lt;String&gt;</code> for repeated params</td></tr>
+  <tr><td><code>@RequestHeader("X-Request-Id") String id</code></td><td>a request header (<code>HttpHeaders</code> for all)</td></tr>
+  <tr><td><code>@CookieValue("session") String s</code></td><td>a cookie</td></tr>
+  <tr><td><code>@RequestBody Order order</code></td><td>the body, converted by a message converter (JSON)</td></tr>
+  <tr><td><code>@ModelAttribute Filter f</code> / plain object</td><td>request parameters bound onto an object's properties</td></tr>
+  <tr><td><code>@Valid</code> on any of the above</td><td>run Bean Validation (Chapter 10)</td></tr>
+  <tr><td><code>HttpServletRequest</code>, <code>Principal</code>, <code>Locale</code>, <code>UriComponentsBuilder</code></td><td>injected by type</td></tr>
+</table>
+<script type="text/plain" class="code" data-file="ArgumentsApplication.java" data-run>
+package com.example.ch09.arguments;
+
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record SearchFilter(String q, Integer minYear, List<String> tags) {}   // bound from query parameters
+
+@RestController
+class SearchController {
+  @GetMapping("/search")
+  String search(SearchFilter filter,
+                @RequestParam(defaultValue = "0") int page,
+                @RequestParam(defaultValue = "20") int size,
+                @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate since,
+                @RequestHeader(name = "Accept-Language", defaultValue = "en") String lang) {
+    return filter + " page=" + page + " size=" + size + " since=" + since + " lang=" + lang;
+  }
+}
+
+@SpringBootApplication
+public class ArgumentsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ArgumentsApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/search?q=dune&minYear=1960&tags=scifi&tags=classic&page=2&since=2026-01-15")
+          .header("Accept-Language", "fr").retrieve().body(String.class));
+      System.out.println(http.get().uri("/search?q=emma").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SearchFilter[q=dune, minYear=1960, tags=[scifi, classic]] page=2 size=20 since=2026-01-15 lang=fr
+SearchFilter[q=emma, minYear=null, tags=null] page=0 size=20 since=null lang=en
+</script>
+<p>A record without an annotation is treated like <code>@ModelAttribute</code>: its constructor parameters are bound from request parameters by name. That keeps search endpoints with many optional filters tidy.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Primitive parameters and missing values.</strong> <code>@RequestParam int page</code> without a default is <em>required</em>: a missing <code>page</code> gives <code>400 Bad Request</code>. A value like <code>page=abc</code> also gives 400 (type mismatch). Use <code>defaultValue</code>, <code>required = false</code> with a wrapper type, or <code>Optional&lt;Integer&gt;</code>.</p>
+</div>
+
+<h2 id="responses">Responses</h2>
+<p>What you return decides the response:</p>
+<ul>
+  <li>An <strong>object</strong> (record, list, map): status 200, written as JSON.</li>
+  <li><strong><code>ResponseEntity&lt;T&gt;</code></strong>: full control over status, headers and body. Builders: <code>ok()</code>, <code>created(uri)</code>, <code>accepted()</code>, <code>noContent()</code>, <code>notFound()</code>, <code>badRequest()</code>, <code>status(…)</code>.</li>
+  <li><strong><code>void</code></strong> with <code>@ResponseStatus(NO_CONTENT)</code>: no body.</li>
+  <li><code>String</code>: written as <code>text/plain</code> (the string converter comes before JSON).</li>
+  <li><code>ProblemDetail</code> or a thrown <code>ErrorResponseException</code>: an RFC 9457 error response (Chapter 10).</li>
+</ul>
+<script type="text/plain" class="code" data-file="ResponsesApplication.java" data-run>
+package com.example.ch09.responses;
+
+import java.time.Duration;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record Product(String sku, int version) {}
+
+@RestController
+class ProductController {
+  @GetMapping("/products/{sku}")
+  ResponseEntity<Product> get(@PathVariable String sku) {
+    var p = new Product(sku, 3);
+    return ResponseEntity.ok()
+        .eTag("\"" + p.version() + "\"")                         // for conditional requests
+        .cacheControl(CacheControl.maxAge(Duration.ofMinutes(5)))
+        .header("X-Served-By", "products-api")
+        .body(p);
+  }
+
+  @PostMapping("/products/{sku}/reindex")
+  ResponseEntity<Void> reindex(@PathVariable String sku) {
+    return ResponseEntity.status(HttpStatus.ACCEPTED).header("Retry-After", "30").build();   // 202: work queued
+  }
+}
+
+@SpringBootApplication
+public class ResponsesApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ResponsesApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var r = http.get().uri("/products/LAMP-1").retrieve().toEntity(String.class);
+      System.out.println(r.getStatusCode() + " " + r.getBody());
+      System.out.println("ETag=" + r.getHeaders().getETag() + " Cache-Control=" + r.getHeaders().getCacheControl()
+          + " X-Served-By=" + r.getHeaders().getFirst("X-Served-By"));
+      var a = http.post().uri("/products/LAMP-1/reindex").retrieve().toBodilessEntity();
+      System.out.println(a.getStatusCode() + " Retry-After=" + a.getHeaders().getFirst("Retry-After"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 OK {"sku":"LAMP-1","version":3}
+ETag="3" Cache-Control=max-age=300 X-Served-By=products-api
+202 ACCEPTED Retry-After=30
+</script>
+
+<h2 id="json">JSON with Jackson 3</h2>
+<p>Boot 4 uses <strong>Jackson 3</strong>. The core classes moved to the <code>tools.jackson</code> package (<code>tools.jackson.databind.json.JsonMapper</code>), but the <strong>annotations stay</strong> in <code>com.fasterxml.jackson.annotation</code>, so <code>@JsonProperty</code>, <code>@JsonIgnore</code> and <code>@JsonFormat</code> look exactly as before. Java time types (<code>LocalDate</code>, <code>Instant</code>) are supported out of the box and written as ISO-8601 strings.</p>
+<script type="text/plain" class="code" data-file="JsonApplication.java" data-run data-args="--spring.jackson.default-property-inclusion=non_null">
+package com.example.ch09.json;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record Customer(
+    long id,
+    @JsonProperty("full_name") String name,               // rename in JSON
+    @JsonIgnore String passwordHash,                       // never serialised
+    LocalDate birthday,                                    // "1990-05-17"
+    @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal balance,   // "12.50" instead of 12.50
+    Instant createdAt,
+    String nickname) {}                                    // null → omitted (non_null inclusion)
+
+@RestController
+class CustomerController {
+  @GetMapping("/customer")
+  Customer get() {
+    return new Customer(7, "Ada Lovelace", "$2a$10$secret", LocalDate.of(1990, 5, 17),
+        new BigDecimal("12.50"), Instant.parse("2026-01-02T03:04:05Z"), null);
+  }
+
+  @PostMapping("/customer")
+  String echo(@RequestBody Customer c) { return c.name() + " born " + c.birthday().getYear() + ", hash=" + c.passwordHash(); }
+}
+
+@SpringBootApplication
+public class JsonApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JsonApplication.class, args)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      String json = http.get().uri("/customer").retrieve().body(String.class);
+      System.out.println(json);
+      System.out.println(http.post().uri("/customer").header("Content-Type", "application/json")
+          .body("{\"id\":8,\"full_name\":\"Grace\",\"passwordHash\":\"x\",\"birthday\":\"1906-12-09\",\"unknownField\":1}")
+          .retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"id":7,"full_name":"Ada Lovelace","birthday":"1990-05-17","balance":"12.50","createdAt":"2026-01-02T03:04:05Z"}
+Grace born 1906, hash=null
+</script>
+<p>Two safety details: <code>@JsonIgnore</code> works in both directions (the incoming <code>passwordHash</code> is ignored), and unknown fields in the request (<code>unknownField</code>) don't cause an error — Boot disables <code>FAIL_ON_UNKNOWN_PROPERTIES</code>, so old clients and new servers can evolve independently. Common settings:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.jackson.default-property-inclusion=non_null
+spring.jackson.property-naming-strategy=SNAKE_CASE
+spring.jackson.serialization.indent-output=true
+spring.jackson.deserialization.fail-on-unknown-properties=true
+spring.jackson.json.read.allow-trailing-comma=true        # JSON-specific features (Boot 4)
+</script>
+
+<h2 id="versioning">API versioning <span class="es">Spring 7</span></h2>
+<p>Spring Framework 7 has first-class API versioning. You choose <em>where</em> clients send the version (a header, a query parameter, a path segment or a media-type parameter) with a property, then add <code>version</code> to your mappings. <code>"1.1+"</code> means "1.1 and later, until a newer mapping exists" — so you only write a new method when the behaviour changes:</p>
+<script type="text/plain" class="code" data-file="VersioningApplication.java" data-run>
+package com.example.ch09.versioning;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record UserV1(String name) {}
+record UserV2(String firstName, String lastName) {}
+
+@RestController
+class UserController {
+  @GetMapping(path = "/user", version = "1.0+")
+  UserV1 v1() { return new UserV1("Ada Lovelace"); }
+
+  @GetMapping(path = "/user", version = "2.0+")
+  UserV2 v2() { return new UserV2("Ada", "Lovelace"); }
+}
+
+@SpringBootApplication
+public class VersioningApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(VersioningApplication.class,
+        "--spring.mvc.apiversion.use.header=API-Version",          // read the version from this header
+        "--spring.mvc.apiversion.supported=1.0,1.5,2.0,2.1",
+        "--spring.mvc.apiversion.default=1.0")) {                  // when the client sends none
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      for (String v : new String[] { null, "1.5", "2.0", "2.1", "9.9" }) {
+        var spec = http.get().uri("/user");
+        if (v != null) spec = spec.header("API-Version", v);
+        var r = spec.retrieve().toEntity(String.class);
+        System.out.println((v == null ? "none" : v) + " → " + r.getStatusCode().value() + " " + (r.getStatusCode().is2xxSuccessful() ? r.getBody() : ""));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+none → 200 {"name":"Ada Lovelace"}
+1.5 → 200 {"name":"Ada Lovelace"}
+2.0 → 200 {"firstName":"Ada","lastName":"Lovelace"}
+2.1 → 200 {"firstName":"Ada","lastName":"Lovelace"}
+9.9 → 400
+</script>
+<p>An unsupported version is rejected with <code>400 Bad Request</code>. Other strategies: <code>spring.mvc.apiversion.use.query-parameter=version</code>, <code>use.path-segment=1</code> (for <code>/api/v2/…</code> with a <code>{version}</code> in the mapping) and <code>use.media-type-parameter[application/json]=v</code>. You can also mark old versions as deprecated so responses carry <code>Deprecation</code> and <code>Sunset</code> headers.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Interceptors</h3>
+<p>A <code>HandlerInterceptor</code> runs around handler methods — useful for timing, tenant resolution or simple request checks. Register it through a <code>WebMvcConfigurer</code> bean (don't add <code>@EnableWebMvc</code>, which would switch off Boot's MVC auto-configuration):</p>
+<script type="text/plain" class="code" data-file="InterceptorApplication.java" data-run>
+package com.example.ch09.interceptor;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+class TenantInterceptor implements HandlerInterceptor {
+  @Override
+  public boolean preHandle(HttpServletRequest req, HttpServletResponse res, Object handler) {
+    String tenant = req.getHeader("X-Tenant");
+    if (tenant == null) { res.setStatus(400); return false; }        // stop: handler not called
+    req.setAttribute("tenant", tenant);
+    if (handler instanceof HandlerMethod hm) System.out.println("handler: " + hm.getMethod().getName());
+    return true;
+  }
+}
+
+@Configuration
+class WebConfig implements WebMvcConfigurer {
+  @Override
+  public void addInterceptors(InterceptorRegistry registry) {
+    registry.addInterceptor(new TenantInterceptor()).addPathPatterns("/api/**");
+  }
+}
+
+@RestController
+class DataController {
+  @GetMapping("/api/data") String data(HttpServletRequest req) { return "data for " + req.getAttribute("tenant"); }
+  @GetMapping("/public") String open() { return "no tenant needed"; }
+}
+
+@SpringBootApplication
+public class InterceptorApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(InterceptorApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/api/data").header("X-Tenant", "acme").retrieve().body(String.class));
+      System.out.println(http.get().uri("/api/data").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println(http.get().uri("/public").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+handler: data
+data for acme
+400 BAD_REQUEST
+no tenant needed
+</script>
+
+<h3>Streaming a large response</h3>
+<p>For big exports, write directly to the output stream with <code>StreamingResponseBody</code> instead of building everything in memory:</p>
+<script type="text/plain" class="code" data-file="StreamingApplication.java" data-run>
+package com.example.ch09.streaming;
+
+import java.nio.charset.StandardCharsets;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+@RestController
+class ExportController {
+  @GetMapping("/export.csv")
+  ResponseEntity<StreamingResponseBody> export() {
+    StreamingResponseBody body = out -> {
+      out.write("id,value\n".getBytes(StandardCharsets.UTF_8));
+      for (int i = 1; i <= 100_000; i++) out.write((i + "," + ((long) i * i) + "\n").getBytes(StandardCharsets.UTF_8));
+    };
+    return ResponseEntity.ok().header("Content-Type", "text/csv")
+        .header("Content-Disposition", "attachment; filename=export.csv").body(body);
+  }
+}
+
+@SpringBootApplication
+public class StreamingApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(StreamingApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      String csv = http.get().uri("/export.csv").retrieve().body(String.class);
+      var lines = csv.lines().toList();
+      System.out.println(lines.size() + " lines, last: " + lines.getLast());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+100001 lines, last: 100000,10000000000
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>The <code>DispatcherServlet</code> maps a request to a handler, resolves its arguments, calls it, and writes the result with message converters (Jackson for JSON). Filters run before it; interceptors around handlers.</li>
+  <li>Mappings: <code>@GetMapping</code> etc. with path patterns (<code>{id:\d+}</code>, <code>{*path}</code>), plus <code>params</code>, <code>headers</code>, <code>consumes</code>, <code>produces</code>. Mismatches give 405/406/415 automatically.</li>
+  <li>Arguments: <code>@PathVariable</code>, <code>@RequestParam</code> (defaults!), <code>@RequestHeader</code>, <code>@RequestBody</code>, records bound from query params.</li>
+  <li><code>ResponseEntity</code> for status and headers: <code>created(location)</code>, <code>noContent()</code>, <code>notFound()</code>, ETags, cache control.</li>
+  <li>Jackson 3: <code>tools.jackson</code> core, unchanged annotations, <code>spring.jackson.*</code> settings. API versioning: <code>spring.mvc.apiversion.*</code> + <code>@GetMapping(version = "2.0+")</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which status code does Spring MVC return when (a) no mapping matches the path, (b) the path matches but only for GET and the client sends DELETE, (c) the client sends XML to a <code>consumes = "application/json"</code> method, (d) the client only accepts XML from a JSON-producing method?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) 404 Not Found, (b) 405 Method Not Allowed (with an <code>Allow</code> header), (c) 415 Unsupported Media Type, (d) 406 Not Acceptable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write <code>GET /add?a=2&amp;b=3</code> returning <code>{"a":2,"b":3,"sum":5}</code>, where <code>b</code> defaults to 0. Call it with both parameters and with only <code>a</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AddApplication.java" data-run>
+package com.example.ch09.ex2;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record Sum(int a, int b, int sum) {}
+
+@RestController
+class AddController {
+  @GetMapping("/add")
+  Sum add(@RequestParam int a, @RequestParam(defaultValue = "0") int b) { return new Sum(a, b, a + b); }
+}
+
+@SpringBootApplication
+public class AddApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AddApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/add?a=2&b=3").retrieve().body(String.class));
+      System.out.println(http.get().uri("/add?a=7").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"a":2,"b":3,"sum":5}
+{"a":7,"b":0,"sum":7}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why is it a good idea to use a separate <code>CreateUserRequest</code> record for <code>POST /users</code> instead of accepting your <code>User</code> entity directly?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The request type contains only what clients may set: no <code>id</code>, no <code>role</code>, no <code>createdAt</code>. Binding directly to the entity invites <em>mass assignment</em> (a client sending <code>"role":"ADMIN"</code>), couples your API to your database model, and makes validation rules for "create" and "update" collide. Map the request to the entity in the service.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Mappings: <code>/users/{id}</code>, <code>/users/me</code>, <code>/users/**</code>. Which handles <code>/users/me</code>, <code>/users/42</code> and <code>/users/42/orders</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>/users/me</code> → <code>/users/me</code> (a literal beats a variable). <code>/users/42</code> → <code>/users/{id}</code> (a variable is more specific than <code>**</code>). <code>/users/42/orders</code> → <code>/users/**</code> (the only one matching two segments).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Build <code>POST /notes</code> that accepts <code>{"text":"…"}</code>, stores it with a generated id, and returns <code>201</code> with a <code>Location</code> header <code>/notes/{id}</code> and the created note. Add <code>GET /notes/{id}</code>. Follow the Location header in <code>main</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="NotesApplication.java" data-run>
+package com.example.ch09.ex5;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
+
+record NewNote(String text) {}
+record Note(long id, String text) {}
+
+@RestController
+class NotesController {
+  private final Map<Long, Note> notes = new ConcurrentHashMap<>();
+  private final AtomicLong ids = new AtomicLong(100);
+
+  @PostMapping("/notes")
+  ResponseEntity<Note> create(@RequestBody NewNote req, UriComponentsBuilder uri) {
+    var note = new Note(ids.incrementAndGet(), req.text());
+    notes.put(note.id(), note);
+    return ResponseEntity.created(uri.path("/notes/{id}").build(note.id())).body(note);
+  }
+
+  @GetMapping("/notes/{id}")
+  ResponseEntity<Note> get(@PathVariable long id) { return ResponseEntity.ofNullable(notes.get(id)); }
+}
+
+@SpringBootApplication
+public class NotesApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NotesApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var created = http.post().uri("/notes").body(new NewNote("buy milk")).retrieve().toBodilessEntity();
+      var location = created.getHeaders().getLocation();
+      System.out.println(created.getStatusCode() + " " + location.getPath());
+      System.out.println(http.get().uri(location).retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 CREATED /notes/101
+{"id":101,"text":"buy milk"}
+</script>
+<p>An injected <code>UriComponentsBuilder</code> is pre-filled with the request's scheme, host and port. <code>ResponseEntity.ofNullable(x)</code> gives 200 with the body, or 404 for <code>null</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Implement <code>GET /items?page=1&amp;size=3</code> over a list of 10 item names <code>item-1…item-10</code>, returning <code>{"content":[…],"page":1,"size":3,"totalElements":10,"totalPages":4}</code>. Cap <code>size</code> at 50.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="PagingApplication.java" data-run>
+package com.example.ch09.ex6;
+
+import java.util.List;
+import java.util.stream.IntStream;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record PageOf<T>(List<T> content, int page, int size, long totalElements, int totalPages) {}
+
+@RestController
+class ItemsController {
+  private final List<String> items = IntStream.rangeClosed(1, 10).mapToObj(i -> "item-" + i).toList();
+
+  @GetMapping("/items")
+  PageOf<String> items(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    size = Math.clamp(size, 1, 50);
+    int from = Math.min(page * size, items.size()), to = Math.min(from + size, items.size());
+    int totalPages = (items.size() + size - 1) / size;
+    return new PageOf<>(items.subList(from, to), page, size, items.size(), totalPages);
+  }
+}
+
+@SpringBootApplication
+public class PagingApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PagingApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/items?page=1&size=3").retrieve().body(String.class));
+      System.out.println(http.get().uri("/items?page=3&size=3").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"content":["item-4","item-5","item-6"],"page":1,"size":3,"totalElements":10,"totalPages":4}
+{"content":["item-10"],"page":3,"size":3,"totalElements":10,"totalPages":4}
+</script>
+<p>Spring Data does all of this for you with <code>Pageable</code> and <code>Page</code> (Chapter 14), including <code>?sort=title,desc</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a single endpoint <code>GET /time</code> that returns JSON <code>{"iso":"…"}</code> for <code>Accept: application/json</code> and plain text <code>12:00</code> for <code>Accept: text/plain</code>, using two methods with different <code>produces</code>. Use a fixed time of 12:00 UTC.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TimeApplication.java" data-run>
+package com.example.ch09.ex7;
+
+import java.time.LocalTime;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+record TimeDto(String iso) {}
+
+@RestController
+class TimeController {
+  private final LocalTime now = LocalTime.NOON;
+  @GetMapping(path = "/time", produces = MediaType.APPLICATION_JSON_VALUE) TimeDto json() { return new TimeDto(now.toString()); }
+  @GetMapping(path = "/time", produces = MediaType.TEXT_PLAIN_VALUE) String text() { return now.toString(); }
+}
+
+@SpringBootApplication
+public class TimeApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TimeApplication.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/time").accept(MediaType.APPLICATION_JSON).retrieve().body(String.class));
+      System.out.println(http.get().uri("/time").accept(MediaType.TEXT_PLAIN).retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"iso":"12:00"}
+12:00
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A developer added <code>@EnableWebMvc</code> to a configuration class to register an interceptor. Suddenly <code>spring.jackson.*</code> settings and static resources from <code>classpath:/static</code> stop working. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@EnableWebMvc</code> imports Spring MVC's full configuration, and Boot's <code>WebMvcAutoConfiguration</code> backs off when it sees it (<code>@ConditionalOnMissingBean(WebMvcConfigurationSupport.class)</code>). You lose Boot's message-converter setup, static resource handling, formatters and more. Remove <code>@EnableWebMvc</code>: implementing <code>WebMvcConfigurer</code> in a plain <code>@Configuration</code> class is all you need to add interceptors.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Implement <strong>conditional GET</strong>: <code>GET /config</code> returns a JSON document with an <code>ETag</code> computed from its content. If the client sends <code>If-None-Match</code> with the same ETag, return <code>304 Not Modified</code> with no body. Use <code>WebRequest.checkNotModified(etag)</code>. Show the first request (200), a repeat with the ETag (304), and a request after the config changed (200 with a new ETag).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ConditionalGetApplication.java" data-run>
+package com.example.ch09.ex9;
+
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.WebRequest;
+
+@RestController
+class ConfigController {
+  private final AtomicReference<String> config = new AtomicReference<>("{\"theme\":\"light\"}");
+
+  @GetMapping(path = "/config", produces = "application/json")
+  ResponseEntity<String> get(WebRequest request) {
+    String body = config.get();
+    String etag = "\"" + Integer.toHexString(body.hashCode()) + "\"";
+    if (request.checkNotModified(etag)) return null;            // Spring writes 304 + ETag
+    return ResponseEntity.ok().eTag(etag).body(body);
+  }
+
+  @PutMapping("/config")
+  void put(@RequestBody String body) { config.set(body); }
+}
+
+@SpringBootApplication
+public class ConditionalGetApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ConditionalGetApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      var first = http.get().uri("/config").retrieve().toEntity(String.class);
+      String etag = first.getHeaders().getETag();
+      System.out.println(first.getStatusCode() + " " + first.getBody());
+      var again = http.get().uri("/config").header("If-None-Match", etag).retrieve().toEntity(String.class);
+      System.out.println(again.getStatusCode() + " body=" + again.getBody());
+      http.put().uri("/config").header("Content-Type", "application/json").body("{\"theme\":\"dark\"}").retrieve().toBodilessEntity();
+      var changed = http.get().uri("/config").header("If-None-Match", etag).retrieve().toEntity(String.class);
+      System.out.println(changed.getStatusCode() + " " + changed.getBody() + " new etag: " + !etag.equals(changed.getHeaders().getETag()));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 OK {"theme":"light"}
+304 NOT_MODIFIED body=null
+200 OK {"theme":"dark"} new etag: true
+</script>
+<p>Conditional requests save bandwidth for clients that poll. For simple cases, Spring's <code>ShallowEtagHeaderFilter</code> computes ETags from the response body automatically (but still runs your method every time).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Start the <strong>Library Loans API</strong> (the Chapter 20 project) in memory: <code>Member(id, name)</code> and <code>Loan(id, memberId, isbn, dueDate)</code>. Endpoints: <code>POST /members</code> (201 + Location), <code>POST /members/{id}/loans</code> with <code>{"isbn":"…"}</code> (201, due date = today + 14 days, 404 if the member doesn't exist, 409 Conflict if the member already has 3 loans), <code>GET /members/{id}/loans</code>. Exercise all paths in <code>main</code> and print the status codes.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LoansApplication.java" data-run>
+package com.example.ch09.ex10;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
+
+record Member(long id, String name) {}
+record NewMember(String name) {}
+record Loan(long id, long memberId, String isbn, LocalDate dueDate) {}
+record NewLoan(String isbn) {}
+
+@RestController
+@RequestMapping("/members")
+class LibraryController {
+  static final int MAX_LOANS = 3;
+  private final Map<Long, Member> members = new ConcurrentHashMap<>();
+  private final Map<Long, List<Loan>> loans = new ConcurrentHashMap<>();
+  private final AtomicLong ids = new AtomicLong();
+
+  @PostMapping
+  ResponseEntity<Member> join(@RequestBody NewMember req, UriComponentsBuilder uri) {
+    var m = new Member(ids.incrementAndGet(), req.name());
+    members.put(m.id(), m);
+    loans.put(m.id(), new CopyOnWriteArrayList<>());
+    return ResponseEntity.created(uri.path("/members/{id}").build(m.id())).body(m);
+  }
+
+  @PostMapping("/{id}/loans")
+  synchronized ResponseEntity<Loan> borrow(@PathVariable long id, @RequestBody NewLoan req) {
+    if (!members.containsKey(id)) return ResponseEntity.notFound().build();
+    var current = loans.get(id);
+    if (current.size() >= MAX_LOANS) return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    var loan = new Loan(ids.incrementAndGet(), id, req.isbn(), LocalDate.now().plusDays(14));
+    current.add(loan);
+    return ResponseEntity.status(HttpStatus.CREATED).body(loan);
+  }
+
+  @GetMapping("/{id}/loans")
+  ResponseEntity<List<Loan>> list(@PathVariable long id) { return ResponseEntity.ofNullable(loans.get(id)); }
+}
+
+@SpringBootApplication
+public class LoansApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LoansApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      var ada = http.post().uri("/members").body(new NewMember("Ada")).retrieve().toEntity(Member.class);
+      long id = ada.getBody().id();
+      System.out.println("join: " + ada.getStatusCode().value() + " " + ada.getHeaders().getLocation().getPath());
+      for (String isbn : new String[] { "111", "222", "333", "444" }) {
+        System.out.println("borrow " + isbn + ": " + http.post().uri("/members/{id}/loans", id).body(new NewLoan(isbn)).retrieve().toBodilessEntity().getStatusCode().value());
+      }
+      System.out.println("unknown member: " + http.post().uri("/members/999/loans").body(new NewLoan("1")).retrieve().toBodilessEntity().getStatusCode().value());
+      Loan[] list = http.get().uri("/members/{id}/loans", id).retrieve().body(Loan[].class);
+      System.out.println(list.length + " loans, first due in 14 days: " + list[0].dueDate().equals(LocalDate.now().plusDays(14)));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+join: 201 /members/1
+borrow 111: 201
+borrow 222: 201
+borrow 333: 201
+borrow 444: 409
+unknown member: 404
+3 loans, first due in 14 days: true
+</script>
+<p>The <code>synchronized</code> on <code>borrow</code> makes "check the count, then add" atomic; without it, two concurrent requests could both see 2 loans and both succeed. With a database you'd enforce the rule in a transaction (Chapter 15). Chapter 10 replaces the bare 404/409 responses with descriptive <code>ProblemDetail</code> bodies.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc.html">Spring Web MVC</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-servlet.html">DispatcherServlet</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html">Mapping requests</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-methods.html">Handler methods</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html">API versioning</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/web/servlet.html">Spring Boot: Servlet web applications</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/json.html">Spring Boot: JSON (Jackson)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

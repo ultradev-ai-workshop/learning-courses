@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="jdbc flyway h2">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>13. JDBC, JdbcClient &amp; Flyway · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Data</div>
+<h1>JDBC, JdbcClient &amp; Flyway</h1>
+<p class="lead">Before reaching for JPA, learn the layer underneath: a <code>DataSource</code> with a connection pool, plain SQL through Spring's <strong><code>JdbcClient</code></strong>, Spring's consistent exception hierarchy, and versioned schema changes with <strong>Flyway</strong>. Many services need nothing more — and every JPA application still depends on all of it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How Boot configures a <strong><code>DataSource</code></strong> and the <strong>HikariCP</strong> connection pool, and the <code>spring.datasource.*</code> properties.</li>
+  <li><strong><code>JdbcClient</code></strong>: queries with named and positional parameters, mapping rows to records, inserts with generated keys, updates.</li>
+  <li><code>JdbcTemplate</code> for batch updates and when you meet it in existing code.</li>
+  <li>The <strong><code>DataAccessException</code></strong> hierarchy: <code>DuplicateKeyException</code>, <code>EmptyResultDataAccessException</code>…</li>
+  <li><strong>Flyway</strong> migrations: naming, ordering, the history table, repeatable migrations and the rules for changing a schema safely.</li>
+</ul>
+</div>
+
+<h2 id="datasource">DataSource and connection pool</h2>
+<p>Opening a database connection takes milliseconds — far too slow to do per request. A <strong>connection pool</strong> keeps a set of open connections and lends them out. Boot auto-configures <strong>HikariCP</strong> as a <code>DataSource</code> as soon as <code>spring-boot-starter-jdbc</code> (or <code>-data-jpa</code>) and a driver are on the classpath:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.datasource.url=jdbc:postgresql://db.internal:5432/library
+spring.datasource.username=library_app
+spring.datasource.password=${DB_PASSWORD}
+spring.datasource.hikari.maximum-pool-size=10      # default 10
+spring.datasource.hikari.connection-timeout=2s     # how long to wait for a free connection
+spring.datasource.hikari.max-lifetime=30m
+</script>
+<p>With an <strong>embedded</strong> database driver (H2, HSQLDB, Derby) and no URL, Boot creates an in-memory database with a unique name (and flags that keep it alive while the pool has no open connection) — that's what the examples in this chapter use. Everything else works identically with PostgreSQL or MySQL.</p>
+<script type="text/plain" class="code" data-file="DataSourceInfo.java" data-run>
+package com.example.ch13.datasource;
+
+import com.zaxxer.hikari.HikariDataSource;
+import javax.sql.DataSource;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class DataSourceInfo {
+  public static void main(String[] args) throws Exception {
+    try (var ctx = SpringApplication.run(DataSourceInfo.class)) {
+      DataSource ds = ctx.getBean(DataSource.class);
+      var hikari = (HikariDataSource) ds;
+      System.out.println("pool: " + ds.getClass().getSimpleName() + ", max size " + hikari.getMaximumPoolSize());
+      System.out.println("url: " + hikari.getJdbcUrl().replaceAll("[0-9a-f-]{36}", "<unique-name>"));
+      try (var conn = ds.getConnection()) {
+        var meta = conn.getMetaData();
+        System.out.println(meta.getDatabaseProductName() + " " + meta.getDatabaseProductVersion().split(" ")[0]);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+pool: HikariDataSource, max size 10
+url: jdbc:h2:mem:<unique-name>;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+H2 2.4.240
+</script>
+<div class="tip">
+<p>💡 <strong>Pool size is not "the more the better".</strong> A database can only work on a few queries at once (roughly CPU cores × 2). A small pool with requests waiting briefly for a connection is usually faster than a big pool where the database thrashes. Start with the default 10 and measure. Remember that the total is <em>pool size × number of app instances</em>.</p>
+</div>
+
+<h2 id="flyway">Schema migrations with Flyway</h2>
+<p>Your schema evolves with your code, so it belongs in version control, applied automatically and in order. With <code>spring-boot-starter-flyway</code> (required in Boot 4; the plain <code>flyway-core</code> library is no longer enough), Boot runs Flyway at startup, before any other bean uses the database. Migrations are SQL files in <code>src/main/resources/db/migration</code> named <code>V&lt;version&gt;__&lt;description&gt;.sql</code>:</p>
+<script type="text/plain" class="code" data-path="src/main/resources/db/migration/V1__create_library.sql" data-file="V1__create_library.sql" data-lang="sql">
+CREATE TABLE author (
+  id    BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name  VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE book (
+  id         BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  isbn       VARCHAR(13)  NOT NULL UNIQUE,
+  title      VARCHAR(200) NOT NULL,
+  author_id  BIGINT NOT NULL REFERENCES author(id),
+  published  INT,
+  price      DECIMAL(8, 2) NOT NULL
+);
+</script>
+<script type="text/plain" class="code" data-path="src/main/resources/db/migration/V2__seed_books.sql" data-file="V2__seed_books.sql" data-lang="sql">
+INSERT INTO author (name) VALUES ('Frank Herbert'), ('Jane Austen'), ('Ursula K. Le Guin');
+
+INSERT INTO book (isbn, title, author_id, published, price) VALUES
+  ('9780441013593', 'Dune',                     1, 1965, 9.99),
+  ('9780141439518', 'Pride and Prejudice',      2, 1813, 6.50),
+  ('9780141439587', 'Emma',                     2, 1815, 7.25),
+  ('9780441478125', 'The Left Hand of Darkness', 3, 1969, 8.75);
+</script>
+<script type="text/plain" class="code" data-path="src/main/resources/db/migration/V3__add_stock.sql" data-file="V3__add_stock.sql" data-lang="sql">
+ALTER TABLE book ADD COLUMN stock INT NOT NULL DEFAULT 1;
+</script>
+<script type="text/plain" class="code" data-file="FlywayHistory.java" data-run>
+package com.example.ch13.flyway;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class FlywayHistory {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FlywayHistory.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      jdbc.sql("SELECT \"version\", \"description\", \"success\" FROM \"flyway_schema_history\" ORDER BY \"installed_rank\"")
+          .query((rs, n) -> "V" + rs.getString(1) + "  " + rs.getString(2) + "  ok=" + rs.getBoolean(3))
+          .list().forEach(System.out::println);
+      System.out.println("books: " + jdbc.sql("SELECT COUNT(*) FROM book").query(Integer.class).single());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Vnull  << Flyway Schema History table created >>  ok=true
+V1  create library  ok=true
+V2  seed books  ok=true
+V3  add stock  ok=true
+V4  add slugs  ok=true
+books: 4
+</script>
+<p>With H2 you'll also see a startup <code>WARN</code> that H2 is newer than the version Flyway was verified with; it's harmless (the book's examples hide it) and doesn't appear with PostgreSQL or MySQL. (V4 is a Java-based migration you'll write in Exercise 9 — Flyway runs SQL and Java migrations together, in version order.)</p>
+<p>The first row is a marker Flyway writes when it creates the history table itself. Flyway records each applied migration — with a checksum — in <code>flyway_schema_history</code>. On the next start it applies only new versions. The rules that keep this safe:</p>
+<ul>
+  <li><strong>Never edit a migration that has run</strong> anywhere shared. Flyway detects the changed checksum and refuses to start. Fix mistakes with a <em>new</em> migration.</li>
+  <li>Versions are ordered numerically: <code>V1</code>, <code>V2</code>, <code>V2_1</code>, <code>V10</code>. Teams often use timestamps (<code>V20260301_1200__…</code>) to avoid clashes between branches.</li>
+  <li><strong>Repeatable</strong> migrations (<code>R__views.sql</code>) are re-applied whenever their checksum changes — good for views and stored procedures.</li>
+  <li>Make changes <strong>backwards compatible</strong> so old and new app versions can run side by side during a rolling deployment: add a nullable column, deploy, backfill, then add the constraint in a later release.</li>
+</ul>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a building's renovation log.</strong> Every change to the building is a numbered work order: "1. lay foundations, 2. add walls, 3. add a window". The log on the wall says which orders are done. A new crew reads the log and continues from the next number. Nobody rewrites order 2 after the walls are up — you file order 4: "move the window".</p>
+</div>
+<p>Boot alternatively supports <strong>Liquibase</strong> (<code>spring-boot-starter-liquibase</code>, changelogs in XML/YAML/SQL) and simple <code>schema.sql</code>/<code>data.sql</code> scripts (<code>spring.sql.init.mode=always</code>), which are fine for demos and tests but have no versioning.</p>
+
+<h2 id="jdbcclient">JdbcClient</h2>
+<p><code>JdbcClient</code> (Spring 6.1+) is the modern fluent API over JDBC. Boot auto-configures one. You write SQL; it handles connections, statements, parameter binding, result-set iteration, resource cleanup and exception translation:</p>
+<script type="text/plain" class="code" data-file="JdbcClientBasics.java" data-run>
+package com.example.ch13.client;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.stereotype.Repository;
+
+record Book(Long id, String isbn, String title, Long authorId, Integer published, BigDecimal price, int stock) {}
+record BookSummary(String title, String author) {}
+
+@Repository
+class BookRepository {
+  private final JdbcClient jdbc;
+  BookRepository(JdbcClient jdbc) { this.jdbc = jdbc; }
+
+  Optional<Book> findByIsbn(String isbn) {
+    return jdbc.sql("SELECT * FROM book WHERE isbn = :isbn")
+        .param("isbn", isbn)                                     // named parameter
+        .query(Book.class)                                       // columns → record components (author_id → authorId)
+        .optional();
+  }
+
+  List<BookSummary> byAuthorPrefix(String prefix) {
+    return jdbc.sql("""
+            SELECT b.title, a.name AS author
+            FROM book b JOIN author a ON a.id = b.author_id
+            WHERE a.name LIKE ? ORDER BY b.published""")
+        .param(prefix + "%")                                     // positional parameter
+        .query(BookSummary.class)
+        .list();
+  }
+
+  long insert(String isbn, String title, long authorId, BigDecimal price) {
+    var keys = new GeneratedKeyHolder();
+    jdbc.sql("INSERT INTO book (isbn, title, author_id, price) VALUES (:isbn, :title, :author, :price)")
+        .param("isbn", isbn).param("title", title).param("author", authorId).param("price", price)
+        .update(keys, "id");                                     // read back the generated id
+    return keys.getKeyAs(Long.class);
+  }
+
+  int discount(int percent, int publishedBefore) {
+    return jdbc.sql("UPDATE book SET price = ROUND(price * (100 - :p) / 100, 2) WHERE published < :year")
+        .param("p", percent).param("year", publishedBefore)
+        .update();                                               // number of rows changed
+  }
+}
+
+@SpringBootApplication
+public class JdbcClientBasics {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JdbcClientBasics.class)) {
+      var books = ctx.getBean(BookRepository.class);
+      System.out.println(books.findByIsbn("9780441013593").map(Book::title).orElse("?"));
+      System.out.println(books.findByIsbn("0000000000000"));
+      books.byAuthorPrefix("Jane").forEach(System.out::println);
+      long id = books.insert("9780547928227", "The Hobbit", 1, new BigDecimal("11.00"));
+      System.out.println("new id " + id + ": " + books.findByIsbn("9780547928227").orElseThrow());
+      System.out.println(books.discount(10, 1900) + " old books discounted, Emma now " + books.findByIsbn("9780141439587").orElseThrow().price());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune
+Optional.empty
+BookSummary[title=Pride and Prejudice, author=Jane Austen]
+BookSummary[title=Emma, author=Jane Austen]
+new id 5: Book[id=5, isbn=9780547928227, title=The Hobbit, authorId=1, published=null, price=11.00, stock=1]
+2 old books discounted, Emma now 6.53
+</script>
+<p>(The Hobbit isn't by Frank Herbert, of course — the foreign key only checks that author 1 exists.) Result methods: <code>list()</code>, <code>optional()</code>, <code>single()</code> (exactly one row, else an exception), <code>set()</code> and <code>stream()</code> (close it!). Map with <code>query(Record.class)</code>, a <code>RowMapper</code> lambda, or <code>query(Integer.class)</code> for a single column.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Never concatenate input into SQL.</strong> <code>"... WHERE isbn = '" + isbn + "'"</code> is an SQL injection hole: an isbn of <code>' OR '1'='1</code> returns every row, and worse is possible. Always use parameters (<code>:name</code> or <code>?</code>) — the value is sent separately and can never change the SQL's structure. If you need a dynamic column or sort direction, choose it from a fixed allow-list.</p>
+</div>
+
+<h2 id="exceptions">Spring's data access exceptions</h2>
+<p>Every database reports errors differently (vendor codes, SQL states). Spring translates them into one <strong>unchecked</strong> hierarchy rooted at <code>DataAccessException</code>, so your code can catch "duplicate key" the same way on PostgreSQL, MySQL and H2:</p>
+<script type="text/plain" class="code" data-file="ExceptionTranslation.java" data-run>
+package com.example.ch13.exceptions;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
+import org.springframework.jdbc.BadSqlGrammarException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class ExceptionTranslation {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ExceptionTranslation.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      Runnable[] attempts = {
+          () -> jdbc.sql("INSERT INTO author (name) VALUES ('Jane Austen')").update(),                 // unique name
+          () -> jdbc.sql("INSERT INTO book (isbn, title, author_id, price) VALUES ('1', 'X', 999, 1)").update(),  // bad FK
+          () -> jdbc.sql("SELECT title FROM book WHERE id = 999").query(String.class).single(),         // no row
+          () -> jdbc.sql("SELECT title FROM book").query(String.class).single(),                        // many rows
+          () -> jdbc.sql("SELECT nope FROM book").query(String.class).list(),                           // bad SQL
+      };
+      for (Runnable attempt : attempts) {
+        try {
+          attempt.run();
+        } catch (DataAccessException e) {
+          String family = e instanceof DuplicateKeyException ? "duplicate key"
+              : e instanceof DataIntegrityViolationException ? "integrity violation"
+              : e instanceof EmptyResultDataAccessException ? "no result"
+              : e instanceof IncorrectResultSizeDataAccessException ? "too many results"
+              : e instanceof BadSqlGrammarException ? "bad SQL" : "other";
+          System.out.println(e.getClass().getSimpleName() + " → " + family);
+        }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DuplicateKeyException → duplicate key
+DataIntegrityViolationException → integrity violation
+EmptyResultDataAccessException → no result
+IncorrectResultSizeDataAccessException → too many results
+BadSqlGrammarException → bad SQL
+</script>
+<p>Order matters in the checks: <code>DuplicateKeyException</code> is a subclass of <code>DataIntegrityViolationException</code>, and <code>EmptyResultDataAccessException</code> a subclass of <code>IncorrectResultSizeDataAccessException</code>. A typical use: catch <code>DuplicateKeyException</code> in a service and throw your domain's <code>EmailAlreadyRegistered</code>, which the web layer maps to 409 (Chapter 10). <code>@Repository</code> beans get the same translation for JPA and other technologies.</p>
+
+<h2 id="jdbctemplate">JdbcTemplate and batch updates</h2>
+<p><code>JdbcTemplate</code> is the classic API that <code>JdbcClient</code> is built on. You'll see it in older code, and it's still the tool for <strong>batch updates</strong>, which send many statements in one round trip:</p>
+<script type="text/plain" class="code" data-file="BatchInsert.java" data-run>
+package com.example.ch13.batch;
+
+import java.util.List;
+import java.util.stream.IntStream;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+@SpringBootApplication
+public class BatchInsert {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BatchInsert.class)) {
+      JdbcTemplate jdbc = ctx.getBean(JdbcTemplate.class);
+      List<Object[]> rows = IntStream.rangeClosed(1, 500)
+          .mapToObj(i -> new Object[] { "Imported author " + i })
+          .toList();
+      int[][] counts = jdbc.batchUpdate("INSERT INTO author (name) VALUES (?)", rows, 100,
+          (ps, row) -> ps.setString(1, (String) row[0]));        // 5 batches of 100
+      System.out.println("batches: " + counts.length + ", rows per batch: " + counts[0].length);
+      System.out.println("authors now: " + jdbc.queryForObject("SELECT COUNT(*) FROM author", Integer.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+batches: 5, rows per batch: 100
+authors now: 503
+</script>
+<p>For PostgreSQL and MySQL, also enable the driver's batch rewriting (<code>reWriteBatchedInserts=true</code> / <code>rewriteBatchedStatements=true</code> in the URL) — it can make bulk inserts ten times faster.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A custom RowMapper for nested results</h3>
+<script type="text/plain" class="code" data-file="RowMapperDemo.java" data-run>
+package com.example.ch13.rowmapper;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+record AuthorWithBooks(String name, List<String> titles) {}
+
+@SpringBootApplication
+public class RowMapperDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RowMapperDemo.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      Map<String, List<String>> grouped = new LinkedHashMap<>();
+      jdbc.sql("SELECT a.name, b.title FROM author a JOIN book b ON b.author_id = a.id ORDER BY a.name, b.title")
+          .query(rs -> { grouped.computeIfAbsent(rs.getString("name"), k -> new java.util.ArrayList<>()).add(rs.getString("title")); });
+      grouped.forEach((name, titles) -> System.out.println(new AuthorWithBooks(name, titles)));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+AuthorWithBooks[name=Frank Herbert, titles=[Dune]]
+AuthorWithBooks[name=Jane Austen, titles=[Emma, Pride and Prejudice]]
+AuthorWithBooks[name=Ursula K. Le Guin, titles=[The Left Hand of Darkness]]
+</script>
+<p>The <code>RowCallbackHandler</code> form (<code>query(rs -&gt; …)</code> with no return value) processes each row as it's read — handy for grouping one-to-many joins, the classic case where row-per-object mapping doesn't fit.</p>
+
+<h3>Paging with LIMIT/OFFSET</h3>
+<script type="text/plain" class="code" data-file="PagingDemo.java" data-run>
+package com.example.ch13.paging;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class PagingDemo {
+  static List<String> page(JdbcClient jdbc, int page, int size) {
+    return jdbc.sql("SELECT title FROM book ORDER BY title LIMIT :size OFFSET :offset")
+        .param("size", size).param("offset", page * size)
+        .query(String.class).list();
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PagingDemo.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      for (int p = 0; p < 3; p++) System.out.println("page " + p + ": " + page(jdbc, p, 2));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+page 0: [Dune, Emma]
+page 1: [Pride and Prejudice, The Left Hand of Darkness]
+page 2: []
+</script>
+<p>Always <code>ORDER BY</code> when paging, or rows may move between pages. For deep pages on big tables, <em>keyset</em> pagination (<code>WHERE title &gt; :lastTitle ORDER BY title LIMIT :size</code>) is much faster than large offsets.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Boot auto-configures a HikariCP <code>DataSource</code> from <code>spring.datasource.*</code>, or an embedded in-memory database. Keep the pool small.</li>
+  <li>Flyway (<code>spring-boot-starter-flyway</code>) runs <code>db/migration/V&lt;n&gt;__name.sql</code> at startup and records them in <code>flyway_schema_history</code>. Never edit an applied migration; make changes backwards compatible.</li>
+  <li><code>JdbcClient</code>: <code>sql(…).param(…).query(Type.class).list()/optional()/single()</code>, <code>update()</code>, <code>update(keyHolder, "id")</code>. Records map from snake_case columns.</li>
+  <li>Always use parameters — never concatenate input into SQL.</li>
+  <li>Errors become unchecked <code>DataAccessException</code>s: <code>DuplicateKeyException</code>, <code>DataIntegrityViolationException</code>, <code>EmptyResultDataAccessException</code>, <code>BadSqlGrammarException</code>. <code>JdbcTemplate.batchUpdate</code> for bulk work.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A teammate fixed a typo in <code>V2__seed_books.sql</code> after it was deployed to staging. The staging app now fails to start. Why, and what should they have done?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Flyway stores a checksum of each applied migration. At startup it validates them; the edited file no longer matches, so validation fails ("Migration checksum mismatch"). They should have added a new migration (<code>V4__fix_title_typo.sql</code> with an <code>UPDATE</code>). Only for local databases is <code>flyway repair</code> (or recreating the DB) acceptable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which <code>JdbcClient</code> result method would you use for: (a) "find by id, may not exist", (b) "count rows", (c) "all books by an author", (d) processing 10 million rows without loading them all into memory?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>optional()</code>; (b) <code>query(Long.class).single()</code>; (c) <code>list()</code>; (d) <code>stream()</code> in a try-with-resources block (it holds a connection and cursor open until closed), or the <code>RowCallbackHandler</code> form. Set a fetch size on the driver so rows are streamed, not buffered.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Print the number of books and the sum of all <code>stock</code> values with a single query, mapping the result to a record <code>Totals(long books, long copies)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TotalsQuery.java" data-run>
+package com.example.ch13.ex3;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+record Totals(long books, long copies) {}
+
+@SpringBootApplication
+public class TotalsQuery {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TotalsQuery.class)) {
+      Totals t = ctx.getBean(JdbcClient.class)
+          .sql("SELECT COUNT(*) AS books, SUM(stock) AS copies FROM book")
+          .query(Totals.class).single();
+      System.out.println(t);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Totals[books=4, copies=4]
+</script>
+<p>Column aliases (<code>AS books</code>) must match the record component names. Every book has <code>stock = 1</code> thanks to the <code>DEFAULT 1</code> in V3.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does <code>jdbc.sql("SELECT title FROM book WHERE published &gt; 3000").query(String.class).single()</code> do? And with <code>.optional()</code>? And <code>.list()</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>single()</code> throws <code>EmptyResultDataAccessException</code> (an <code>IncorrectResultSizeDataAccessException</code> expecting 1, got 0). <code>optional()</code> returns <code>Optional.empty()</code>. <code>list()</code> returns an empty list. (<code>optional()</code> would also throw if there were two or more rows.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write an <code>AuthorRepository.create(String name)</code> that returns the new id, and translates <code>DuplicateKeyException</code> into your own <code>AuthorExists(name)</code> exception. Try to create <code>Jane Austen</code> and <code>Mary Shelley</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AuthorRepoApp.java" data-run>
+package com.example.ch13.ex5;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.stereotype.Repository;
+
+class AuthorExists extends RuntimeException {
+  AuthorExists(String name) { super("author already exists: " + name); }
+}
+
+@Repository
+class AuthorRepository {
+  private final JdbcClient jdbc;
+  AuthorRepository(JdbcClient jdbc) { this.jdbc = jdbc; }
+
+  long create(String name) {
+    var keys = new GeneratedKeyHolder();
+    try {
+      jdbc.sql("INSERT INTO author (name) VALUES (:name)").param("name", name).update(keys, "id");
+    } catch (DuplicateKeyException e) {
+      throw new AuthorExists(name);
+    }
+    return keys.getKeyAs(Long.class);
+  }
+}
+
+@SpringBootApplication
+public class AuthorRepoApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AuthorRepoApp.class)) {
+      var repo = ctx.getBean(AuthorRepository.class);
+      for (String name : new String[] { "Jane Austen", "Mary Shelley" }) {
+        try { System.out.println(name + " → id " + repo.create(name)); }
+        catch (AuthorExists e) { System.out.println(e.getMessage()); }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+author already exists: Jane Austen
+Mary Shelley → id 5
+</script>
+<p>Why id 5 and not 4? The failed insert for Jane Austen had already taken identity value 4 from the sequence, and sequences are never rolled back — gaps in generated ids are normal, so never use them as "row counts" or show them as consecutive numbers. Relying on the database's unique constraint (instead of "SELECT first, then INSERT") is correct even under concurrency: two simultaneous requests can't both pass a check that the database enforces atomically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Implement a search with optional filters: <code>search(String titleContains, Integer publishedAfter)</code>, where <code>null</code> means "no filter". Build the SQL with fixed fragments and parameters only. Run it with (<code>"e"</code>, 1900), (<code>null</code>, 1960) and (<code>null</code>, <code>null</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="DynamicSearch.java" data-run>
+package com.example.ch13.ex6;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class DynamicSearch {
+  static List<String> search(JdbcClient jdbc, String titleContains, Integer publishedAfter) {
+    List<String> where = new ArrayList<>();
+    Map<String, Object> params = new HashMap<>();
+    if (titleContains != null) { where.add("LOWER(title) LIKE :title"); params.put("title", "%" + titleContains.toLowerCase() + "%"); }
+    if (publishedAfter != null) { where.add("published > :after"); params.put("after", publishedAfter); }
+    String sql = "SELECT title FROM book" + (where.isEmpty() ? "" : " WHERE " + String.join(" AND ", where)) + " ORDER BY title";
+    return jdbc.sql(sql).params(params).query(String.class).list();
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(DynamicSearch.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      System.out.println(search(jdbc, "e", 1900));
+      System.out.println(search(jdbc, null, 1960));
+      System.out.println(search(jdbc, null, null));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Dune, The Left Hand of Darkness]
+[Dune, The Left Hand of Darkness]
+[Dune, Emma, Pride and Prejudice, The Left Hand of Darkness]
+</script>
+<p>Only fixed SQL fragments are concatenated; every user value travels as a parameter. For many optional filters, Spring Data's <code>Specification</code>s or Querydsl/jOOQ (Chapter 14) scale better.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a "decrement stock" method that never lets stock go below zero, using a single conditional <code>UPDATE … WHERE stock &gt; 0</code>, and returns whether it succeeded. Call it twice for Dune (stock 1).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="StockUpdate.java" data-run>
+package com.example.ch13.ex7;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class StockUpdate {
+  static boolean takeCopy(JdbcClient jdbc, String isbn) {
+    return jdbc.sql("UPDATE book SET stock = stock - 1 WHERE isbn = :isbn AND stock > 0")
+        .param("isbn", isbn).update() == 1;
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(StockUpdate.class)) {
+      JdbcClient jdbc = ctx.getBean(JdbcClient.class);
+      System.out.println("first:  " + takeCopy(jdbc, "9780441013593"));
+      System.out.println("second: " + takeCopy(jdbc, "9780441013593"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+first:  true
+second: false
+</script>
+<p>The check and the change happen in one atomic statement, so two concurrent borrowers can never both take the last copy — no explicit lock, no read-then-write race.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>You must rename the column <code>book.published</code> to <code>published_year</code> in a system that is deployed with zero downtime (old and new app versions run side by side for a few minutes). Plan the migrations and releases.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Expand–contract: (1) release N: migration adds <code>published_year</code>, copies data; the app writes <em>both</em> columns and reads the new one (a trigger or dual writes keeps them in sync). (2) release N+1: the app no longer uses <code>published</code>. (3) release N+2: migration drops <code>published</code>. A single <code>ALTER TABLE … RENAME COLUMN</code> would break the old version still running during the rollout.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a Java-based Flyway migration <code>V4__add_slugs</code> (a class extending <code>BaseJavaMigration</code> in the package <code>db.migration</code>) that adds a <code>slug</code> column to <code>book</code> and fills it in Java: the lower-case title with every run of non-alphanumeric characters replaced by <code>-</code>. Print all slugs in id order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="V4__add_slugs.java">
+package db.migration;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import org.flywaydb.core.api.migration.BaseJavaMigration;
+import org.flywaydb.core.api.migration.Context;
+
+public class V4__add_slugs extends BaseJavaMigration {
+  @Override
+  public void migrate(Context context) throws Exception {
+    var conn = context.getConnection();
+    try (var st = conn.createStatement()) { st.execute("ALTER TABLE book ADD COLUMN slug VARCHAR(220)"); }
+    try (var select = conn.createStatement();
+         ResultSet rs = select.executeQuery("SELECT id, title FROM book");
+         PreparedStatement update = conn.prepareStatement("UPDATE book SET slug = ? WHERE id = ?")) {
+      while (rs.next()) {
+        update.setString(1, rs.getString("title").toLowerCase().replaceAll("[^a-z0-9]+", "-"));
+        update.setLong(2, rs.getLong("id"));
+        update.addBatch();
+      }
+      update.executeBatch();
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="SlugsApp.java" data-run>
+package com.example.ch13.ex9;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+
+@SpringBootApplication
+public class SlugsApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SlugsApp.class)) {
+      ctx.getBean(JdbcClient.class).sql("SELECT slug FROM book ORDER BY id").query(String.class).list().forEach(System.out::println);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dune
+pride-and-prejudice
+emma
+the-left-hand-of-darkness
+</script>
+<p>Flyway finds Java migrations in the <code>db.migration</code> package on the classpath, alongside SQL ones, and orders them by version. Use them for data transformations that are awkward in SQL. (This migration now runs for every example on this page — that's why it doesn't break any of them: it only adds a column.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>For the Library Loans project, write migration-free JDBC code against a <code>loan</code> table you create with <code>JdbcClient</code> at the start of <code>main</code> (<code>id</code> identity, <code>book_id</code>, <code>member</code>, <code>due_date</code>, <code>returned_at</code> nullable). Implement <code>LoanRepository</code> with <code>borrow(isbn, member, dueDate)</code> (fails with <code>IllegalStateException</code> if no copy is left — reuse the atomic stock update), <code>giveBack(loanId)</code> and <code>overdue(LocalDate today)</code>. Demonstrate them.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LoanRepositoryApp.java" data-run>
+package com.example.ch13.ex10;
+
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.stereotype.Repository;
+
+record Overdue(long loanId, String title, String member, LocalDate dueDate) {}
+
+@Repository
+class LoanRepository {
+  private final JdbcClient jdbc;
+  LoanRepository(JdbcClient jdbc) { this.jdbc = jdbc; }
+
+  long borrow(String isbn, String member, LocalDate due) {
+    int taken = jdbc.sql("UPDATE book SET stock = stock - 1 WHERE isbn = :isbn AND stock > 0").param("isbn", isbn).update();
+    if (taken == 0) throw new IllegalStateException("no copy of " + isbn + " available");
+    var keys = new GeneratedKeyHolder();
+    jdbc.sql("""
+        INSERT INTO loan (book_id, member, due_date)
+        SELECT id, :member, :due FROM book WHERE isbn = :isbn""")
+        .param("member", member).param("due", due).param("isbn", isbn)
+        .update(keys, "id");
+    return keys.getKeyAs(Long.class);
+  }
+
+  void giveBack(long loanId) {
+    jdbc.sql("UPDATE loan SET returned_at = CURRENT_DATE WHERE id = :id AND returned_at IS NULL").param("id", loanId).update();
+    jdbc.sql("UPDATE book SET stock = stock + 1 WHERE id = (SELECT book_id FROM loan WHERE id = :id)").param("id", loanId).update();
+  }
+
+  List<Overdue> overdue(LocalDate today) {
+    return jdbc.sql("""
+        SELECT l.id AS loan_id, b.title, l.member, l.due_date
+        FROM loan l JOIN book b ON b.id = l.book_id
+        WHERE l.returned_at IS NULL AND l.due_date < :today ORDER BY l.due_date""")
+        .param("today", today).query(Overdue.class).list();
+  }
+}
+
+@SpringBootApplication
+public class LoanRepositoryApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LoanRepositoryApp.class)) {
+      var jdbc = ctx.getBean(JdbcClient.class);
+      jdbc.sql("""
+          CREATE TABLE loan (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                             book_id BIGINT NOT NULL REFERENCES book(id), member VARCHAR(50) NOT NULL,
+                             due_date DATE NOT NULL, returned_at DATE)""").update();
+      var loans = ctx.getBean(LoanRepository.class);
+      LocalDate today = LocalDate.of(2026, 3, 1);
+      long dune = loans.borrow("9780441013593", "ada", today.minusDays(3));
+      long emma = loans.borrow("9780141439587", "bob", today.plusDays(10));
+      try { loans.borrow("9780441013593", "cy", today); } catch (IllegalStateException e) { System.out.println(e.getMessage()); }
+      System.out.println("overdue: " + loans.overdue(today));
+      loans.giveBack(dune);
+      System.out.println("after return: " + loans.overdue(today) + ", Dune stock = "
+          + jdbc.sql("SELECT stock FROM book WHERE isbn = '9780441013593'").query(Integer.class).single());
+      System.out.println("emma loan id " + emma);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no copy of 9780441013593 available
+overdue: [Overdue[loanId=1, title=Dune, member=ada, dueDate=2026-02-26]]
+after return: [], Dune stock = 1
+emma loan id 2
+</script>
+<p>There's a real flaw left: <code>borrow</code> runs two statements without a transaction. If the insert failed, the stock would already be decremented. Chapter 15 fixes it with <code>@Transactional</code>. (And in the real project, the <code>loan</code> table would of course be a Flyway migration.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/data-access/jdbc.html">Data Access with JDBC</a> · <a href="https://docs.spring.io/spring-framework/reference/data-access/jdbc/core.html#jdbc-JdbcClient">JdbcClient</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/data-access/dao.html">DAO support and exception translation</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/data/sql.html">Spring Boot: SQL databases</a> (DataSource, connection pools, embedded databases)</li>
+  <li><a href="https://docs.spring.io/spring-boot/how-to/data-initialization.html">How-to: database initialization</a> (Flyway, Liquibase, SQL scripts)</li>
+  <li><a href="https://documentation.red-gate.com/flyway">Flyway documentation</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

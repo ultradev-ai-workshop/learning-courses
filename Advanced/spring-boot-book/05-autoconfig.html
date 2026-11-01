@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>5. Auto-configuration &amp; Starters · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Foundations</div>
+<h1>Auto-configuration &amp; Starters</h1>
+<p class="lead">Auto-configuration is the "magic" of Spring Boot — and it isn't magic at all. It's ordinary <code>@Configuration</code> classes guarded by <em>conditions</em>. Once you can read those conditions, you can predict what Boot will create, find out why it did (or didn't), override any of it, and write your own auto-configuration and starter for code shared across teams.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How Boot finds auto-configurations (the <code>AutoConfiguration.imports</code> file) and orders them.</li>
+  <li>The <strong>conditions</strong>: <code>@ConditionalOnClass</code>, <code>@ConditionalOnMissingBean</code>, <code>@ConditionalOnProperty</code>, <code>@ConditionalOnWebApplication</code> and more.</li>
+  <li>Why <strong>your beans win</strong>, and how to exclude an auto-configuration.</li>
+  <li>Reading the <strong>condition evaluation report</strong> (<code>--debug</code>).</li>
+  <li>Writing and testing your <strong>own auto-configuration and starter</strong> with <code>ApplicationContextRunner</code>.</li>
+</ul>
+</div>
+
+<h2 id="how">How auto-configuration works</h2>
+<p><code>@EnableAutoConfiguration</code> (part of <code>@SpringBootApplication</code>) loads a list of class names from every <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code> file on the classpath. Each listed class is an <code>@AutoConfiguration</code> — a <code>@Configuration(proxyBeanMethods = false)</code> class — whose beans are registered <strong>only if its conditions match</strong>. They're processed <em>after</em> your own configuration, so they can check what you've already defined.</p>
+<p>Here's a simplified version of the real Jackson auto-configuration (in Boot 4 it lives in the <code>spring-boot-jackson</code> module):</p>
+<script type="text/plain" class="code" data-file="JacksonAutoConfiguration.java" data-norun>
+@AutoConfiguration
+@ConditionalOnClass(JsonMapper.class)              // only if Jackson 3 is on the classpath
+public final class JacksonAutoConfiguration {
+
+  @Bean
+  @Primary
+  @ConditionalOnMissingBean                        // only if you haven't defined a JsonMapper yourself
+  JsonMapper jacksonJsonMapper(JsonMapper.Builder builder) {
+    return builder.build();
+  }
+
+  @Bean
+  @Scope("prototype")
+  @ConditionalOnMissingBean
+  JsonMapper.Builder jsonMapperBuilder(List<JsonMapperBuilderCustomizer> customizers) {
+    JsonMapper.Builder builder = JsonMapper.builder();
+    customizers.forEach(c -> c.customize(builder));   // spring.jackson.* properties and your customizers
+    return builder;
+  }
+}
+</script>
+<p>Read it as a sentence: <em>"If Jackson is on the classpath and the application hasn't defined a <code>JsonMapper</code>, create one, applying every customizer."</em> Almost every auto-configuration follows that shape: a class-level condition on the classpath, bean-level <code>@ConditionalOnMissingBean</code>, and settings from <code>@ConfigurationProperties</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a hotel room checklist.</strong> Housekeeping has a checklist: "If the guest has a baby (<em>condition</em>), put a crib in the room — unless the guest brought their own (<em>missing bean</em>). If the guest asked for no turndown service (<em>property</em>), skip it." Boot's auto-configuration is that checklist, run against your classpath and configuration every time the application starts.</p>
+</div>
+
+<h2 id="conditions">The conditions</h2>
+<table>
+  <tr><th>Annotation</th><th>Matches when…</th></tr>
+  <tr><td><code>@ConditionalOnClass</code> / <code>@ConditionalOnMissingClass</code></td><td>a class is (not) on the classpath — "is this library present?"</td></tr>
+  <tr><td><code>@ConditionalOnBean</code> / <code>@ConditionalOnMissingBean</code></td><td>a bean of the type/name is (not) already defined</td></tr>
+  <tr><td><code>@ConditionalOnProperty</code></td><td>a property has a value (optionally a specific one); <code>matchIfMissing</code> decides the default</td></tr>
+  <tr><td><code>@ConditionalOnBooleanProperty</code></td><td>a boolean property is true (or false)</td></tr>
+  <tr><td><code>@ConditionalOnWebApplication</code> / <code>@ConditionalOnNotWebApplication</code></td><td>it's (not) a servlet or reactive web app</td></tr>
+  <tr><td><code>@ConditionalOnResource</code></td><td>a resource exists, e.g. <code>classpath:banner.txt</code></td></tr>
+  <tr><td><code>@ConditionalOnSingleCandidate</code></td><td>exactly one bean of a type (or one primary)</td></tr>
+  <tr><td><code>@ConditionalOnThreading</code></td><td>virtual threads are (not) enabled (<code>spring.threads.virtual.enabled</code>)</td></tr>
+  <tr><td><code>@ConditionalOnExpression</code>, <code>@ConditionalOnJava</code>, <code>@ConditionalOnCloudPlatform</code>…</td><td>SpEL, Java version, Kubernetes/Cloud Foundry…</td></tr>
+  <tr><td><code>@Conditional(MyCondition.class)</code></td><td>your own <code>Condition</code> implementation returns true</td></tr>
+</table>
+<p>Conditions aren't only for auto-configuration — you can use them on your own <code>@Bean</code> methods and <code>@Configuration</code> classes:</p>
+<script type="text/plain" class="code" data-file="ConditionsApplication.java" data-run>
+package com.example.ch05.conditions;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class ConditionsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ConditionsApplication.class, "--app.cache=redis")) {
+      ctx.getBeansOfType(String.class).forEach((name, value) -> System.out.println(name + ": " + value));
+    }
+  }
+
+  @Bean @ConditionalOnClass(name = "tools.jackson.databind.json.JsonMapper")
+  String json() { return "Jackson 3 is on the classpath"; }
+
+  @Bean @ConditionalOnMissingClass("com.google.gson.Gson")
+  String noGson() { return "Gson is not"; }
+
+  @Bean @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+  String web() { return "this is a servlet web application"; }
+
+  @Bean @ConditionalOnProperty(name = "app.cache", havingValue = "redis")
+  String redis() { return "cache = redis"; }
+
+  @Bean @ConditionalOnProperty(name = "app.cache", havingValue = "caffeine", matchIfMissing = true)
+  String caffeine() { return "cache = caffeine (the default)"; }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+json: Jackson 3 is on the classpath
+noGson: Gson is not
+web: this is a servlet web application
+redis: cache = redis
+</script>
+<p><code>caffeine</code> isn't created: <code>app.cache</code> is set, but not to <code>caffeine</code>. With <code>app.cache</code> unset, <code>matchIfMissing = true</code> would create it.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Class conditions on missing classes.</strong> <code>@ConditionalOnClass(Gson.class)</code> on a <em>class</em> is safe even when Gson is absent (Boot reads the annotation without loading the class). On a <code>@Bean</code> <em>method</em>, use the <code>name = "…"</code> form, or isolate the method in a nested configuration class — otherwise the JVM may fail to load your configuration class when Gson is missing.</p>
+</div>
+
+<h2 id="backoff">Your beans win: backing off</h2>
+<p>Because auto-configurations run after your configuration and use <code>@ConditionalOnMissingBean</code>, defining a bean of the same type <strong>replaces</strong> the default. Boot calls this <em>backing off</em>:</p>
+<script type="text/plain" class="code" data-file="BackOffApplication.java" data-run>
+package com.example.ch05.backoff;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+
+@SpringBootApplication
+public class BackOffApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BackOffApplication.class)) {
+      System.out.println("JsonMapper beans: " + ctx.getBeanNamesForType(JsonMapper.class).length);
+      System.out.println(ctx.getBean(JsonMapper.class).writeValueAsString(java.util.Map.of("a", 1)));
+    }
+  }
+
+  @Bean
+  JsonMapper myMapper() {                 // replaces Boot's jacksonJsonMapper
+    return JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+JsonMapper beans: 1
+{
+  "a" : 1
+}
+</script>
+<div class="tip">
+<p>💡 <strong>Customise, don't replace.</strong> Replacing a bean means you also lose everything Boot configured on it (the <code>spring.jackson.*</code> properties, registered modules…). Most auto-configurations offer a lighter hook: a property (<code>spring.jackson.serialization.indent-output=true</code>) or a <strong>customizer</strong> bean (<code>JsonMapperBuilderCustomizer</code>, <code>RestClientCustomizer</code>, <code>WebServerFactoryCustomizer</code>…). Prefer, in order: <strong>property → customizer → your own bean</strong>.</p>
+</div>
+
+<h3>Excluding an auto-configuration</h3>
+<p>To switch one off completely, exclude it — in code, or with a property (handy per profile):</p>
+<script type="text/plain" class="code" data-lang="java" data-norun>
+@SpringBootApplication(exclude = TaskExecutionAutoConfiguration.class)
+public class MyApplication { … }
+</script>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration
+</script>
+
+<h2 id="report">Why did (or didn't) Boot create a bean?</h2>
+<p>Start the application with <code>--debug</code> (or <code>debug=true</code> in <code>application.properties</code>) and Boot logs the <strong>condition evaluation report</strong>: every auto-configuration, whether it matched and why. Abbreviated:</p>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+============================
+CONDITIONS EVALUATION REPORT
+============================
+
+Positive matches:
+-----------------
+   JacksonAutoConfiguration matched:
+      - @ConditionalOnClass found required class 'tools.jackson.databind.json.JsonMapper' (OnClassCondition)
+
+   JacksonAutoConfiguration#jacksonJsonMapper matched:
+      - @ConditionalOnMissingBean (types: tools.jackson.databind.json.JsonMapper; SearchStrategy: all) did not find any beans (OnBeanCondition)
+
+Negative matches:
+-----------------
+   DataSourceAutoConfiguration:
+      Did not match:
+         - @ConditionalOnClass did not find required class 'javax.sql.DataSource'… (OnClassCondition)
+</script>
+<p>The same information is available in code (and at <code>/actuator/conditions</code>, Chapter 18):</p>
+<script type="text/plain" class="code" data-file="ReportApplication.java" data-run>
+package com.example.ch05.report;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
+
+@SpringBootApplication
+public class ReportApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ReportApplication.class)) {
+      var report = ConditionEvaluationReport.get(ctx.getBeanFactory());
+      report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
+        if (source.endsWith("JacksonAutoConfiguration") || source.endsWith("WebMvcAutoConfiguration")
+            || source.endsWith("JacksonAutoConfiguration$CborConfiguration")) {
+          System.out.println((outcomes.isFullMatch() ? "✓ " : "✗ ") + source.substring(source.lastIndexOf('.') + 1));
+          outcomes.forEach(o -> System.out.println("    " + o.getOutcome().getMessage()));
+        }
+      });
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+✓ JacksonAutoConfiguration
+    @ConditionalOnClass found required class 'tools.jackson.databind.json.JsonMapper'
+✗ JacksonAutoConfiguration$CborConfiguration
+    @ConditionalOnClass did not find required class 'tools.jackson.dataformat.cbor.CBORMapper'
+✓ WebMvcAutoConfiguration
+...
+</script>
+
+<h2 id="starters">Starters</h2>
+<p>A <strong>starter</strong> is an (almost) empty jar whose only job is to bring in a set of dependencies: the library, its auto-configuration module, and anything else it needs. Spring Boot 4 made starters <strong>modular</strong>: each technology has its own auto-configuration module and starter, so your application only contains the auto-configuration it uses. Starters you'll meet in this book:</p>
+<table>
+  <tr><th>Starter</th><th>Brings</th></tr>
+  <tr><td><code>spring-boot-starter-webmvc</code></td><td>Spring MVC, embedded Tomcat, Jackson 3 (was <code>-web</code> in Boot 3)</td></tr>
+  <tr><td><code>spring-boot-starter-webflux</code></td><td>WebFlux, Reactor Netty</td></tr>
+  <tr><td><code>spring-boot-starter-restclient</code> / <code>-webclient</code></td><td>auto-configured <code>RestClient.Builder</code> / <code>WebClient.Builder</code>, HTTP service clients</td></tr>
+  <tr><td><code>spring-boot-starter-validation</code></td><td>Hibernate Validator (Bean Validation)</td></tr>
+  <tr><td><code>spring-boot-starter-jdbc</code>, <code>-data-jpa</code>, <code>-flyway</code>, <code>-liquibase</code></td><td>HikariCP + JDBC, Spring Data JPA + Hibernate 7, migrations</td></tr>
+  <tr><td><code>spring-boot-starter-security</code>, <code>-security-oauth2-resource-server</code></td><td>Spring Security 7, JWT resource server</td></tr>
+  <tr><td><code>spring-boot-starter-actuator</code>, <code>-opentelemetry</code></td><td>health, metrics, tracing</td></tr>
+  <tr><td><code>spring-boot-starter-cache</code>, <code>-mail</code>, <code>-aspectj</code></td><td>caching abstraction, JavaMail, AspectJ annotations (was <code>-aop</code>)</td></tr>
+  <tr><td><code>spring-boot-starter-<em>xxx</em>-test</code></td><td>each technology has a test starter (e.g. <code>-webmvc-test</code>, <code>-data-jpa-test</code>) with its test slice</td></tr>
+</table>
+<p>Upgrading an old project? <code>spring-boot-starter-classic</code> (and <code>-test-classic</code>) bring back all auto-configuration modules at once, like Boot 3 — a stepping stone, not a destination (<a href="appendix-migration.html">Appendix B</a>).</p>
+
+<h2 id="own">Writing your own auto-configuration</h2>
+<p>When several applications share infrastructure — a company HTTP client, audit logging, a tenant resolver — package it as an auto-configuration so every app gets it by adding one dependency. The recipe:</p>
+<ol>
+  <li>An <code>@AutoConfiguration</code> class with conditions, <strong>outside</strong> the packages of any application (it must not be component-scanned).</li>
+  <li>A <code>@ConfigurationProperties</code> class for its settings.</li>
+  <li>The class name listed in <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code>.</li>
+  <li>Optionally a starter module that depends on it and the libraries it needs.</li>
+</ol>
+<p>Here is a small "greeter" auto-configuration. The properties and the service:</p>
+<script type="text/plain" class="code" data-file="GreeterProperties.java">
+package com.example.autoconfig.greeter;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+
+@ConfigurationProperties("greeter")
+public record GreeterProperties(@DefaultValue("Hello") String prefix, @DefaultValue("false") boolean shout) {}
+</script>
+<script type="text/plain" class="code" data-file="Greeter.java">
+package com.example.autoconfig.greeter;
+
+public class Greeter {
+  private final GreeterProperties props;
+  public Greeter(GreeterProperties props) { this.props = props; }
+  public String greet(String name) {
+    String s = props.prefix() + ", " + name + "!";
+    return props.shout() ? s.toUpperCase() : s;
+  }
+}
+</script>
+<p>The auto-configuration itself:</p>
+<script type="text/plain" class="code" data-file="GreeterAutoConfiguration.java">
+package com.example.autoconfig.greeter;
+
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+
+@AutoConfiguration
+@ConditionalOnBooleanProperty(name = "greeter.enabled", matchIfMissing = true)
+@EnableConfigurationProperties(GreeterProperties.class)
+public class GreeterAutoConfiguration {
+
+  @Bean
+  @ConditionalOnMissingBean
+  Greeter greeter(GreeterProperties props) {
+    return new Greeter(props);
+  }
+}
+</script>
+<p>And the registration file — one fully-qualified class name per line:</p>
+<script type="text/plain" class="code" data-path="src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports" data-file="AutoConfiguration.imports">
+com.example.autoconfig.greeter.GreeterAutoConfiguration
+</script>
+<p>Any application with this jar on its classpath now gets a <code>Greeter</code> bean without declaring anything:</p>
+<script type="text/plain" class="code" data-file="GreeterUser.java" data-run data-args="--greeter.shout=true">
+package com.example.ch05.user;
+
+import com.example.autoconfig.greeter.Greeter;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class GreeterUser {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(GreeterUser.class, args)) {
+      System.out.println(ctx.getBean(Greeter.class).greet("Spring"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+HELLO, SPRING!
+</script>
+
+<h3>Testing an auto-configuration with <code>ApplicationContextRunner</code></h3>
+<p>Starting a full application per scenario is slow. <code>ApplicationContextRunner</code> builds a tiny context in milliseconds, with exactly the configurations and properties you give it — ideal for testing conditions:</p>
+<script type="text/plain" class="code" data-file="GreeterAutoConfigurationTest.java" data-test>
+package com.example.autoconfig.greeter;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+class GreeterAutoConfigurationTest {
+
+  private final ApplicationContextRunner runner = new ApplicationContextRunner()
+      .withConfiguration(AutoConfigurations.of(GreeterAutoConfiguration.class));
+
+  @Test
+  void createsGreeterByDefault() {
+    runner.run(ctx -> {
+      assertThat(ctx).hasSingleBean(Greeter.class);
+      assertThat(ctx.getBean(Greeter.class).greet("Ada")).isEqualTo("Hello, Ada!");
+    });
+  }
+
+  @Test
+  void bindsProperties() {
+    runner.withPropertyValues("greeter.prefix=Hi", "greeter.shout=true")
+        .run(ctx -> assertThat(ctx.getBean(Greeter.class).greet("Ada")).isEqualTo("HI, ADA!"));
+  }
+
+  @Test
+  void canBeDisabled() {
+    runner.withPropertyValues("greeter.enabled=false")
+        .run(ctx -> assertThat(ctx).doesNotHaveBean(Greeter.class));
+  }
+
+  @Test
+  void backsOffWhenUserDefinesGreeter() {
+    runner.withBean("custom", Greeter.class, () -> new Greeter(new GreeterProperties("Yo", false)))
+        .run(ctx -> {
+          assertThat(ctx).hasSingleBean(Greeter.class).hasBean("custom");
+          assertThat(ctx.getBean(Greeter.class).greet("Ada")).isEqualTo("Yo, Ada!");
+        });
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p><code>WebApplicationContextRunner</code> and <code>ReactiveWebApplicationContextRunner</code> do the same for web conditions, and <code>FilteredClassLoader</code> simulates a missing library (<code>runner.withClassLoader(new FilteredClassLoader(SomeLibrary.class))</code>).</p>
+
+<h3>Ordering and naming tips</h3>
+<ul>
+  <li>Use <code>@AutoConfiguration(after = JacksonAutoConfiguration.class)</code> when your conditions depend on beans another auto-configuration creates (for example <code>@ConditionalOnBean(JsonMapper.class)</code>).</li>
+  <li>Name modules <code>acme-spring-boot-autoconfigure</code> and <code>acme-spring-boot-starter</code>. The <code>spring-boot-*</code> prefix is reserved for the Spring Boot team.</li>
+  <li>Prefix your properties with your own namespace (<code>acme.greeter.*</code>), never <code>spring.*</code> or <code>server.*</code>.</li>
+  <li>Add <code>spring-boot-configuration-processor</code> so users get auto-completion and documentation for your properties.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A custom <code>Condition</code></h3>
+<script type="text/plain" class="code" data-file="CustomConditionApplication.java" data-run data-args="--app.region=eu-central">
+package com.example.ch05.custom;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.core.type.AnnotatedTypeMetadata;
+
+class OnEuRegion implements Condition {
+  @Override
+  public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+    return context.getEnvironment().getProperty("app.region", "").startsWith("eu-");
+  }
+}
+
+record DataResidency(String rule) {}
+
+@SpringBootApplication
+public class CustomConditionApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomConditionApplication.class, args)) {
+      System.out.println(ctx.getBeanProvider(DataResidency.class).getIfAvailable(() -> new DataResidency("none")));
+    }
+  }
+
+  @Bean @Conditional(OnEuRegion.class)
+  DataResidency gdpr() { return new DataResidency("store personal data in the EU"); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DataResidency[rule=store personal data in the EU]
+</script>
+
+<h3>Customizer beans</h3>
+<p>Auto-configured builders apply every customizer bean you define. This keeps Boot's defaults and adds yours:</p>
+<script type="text/plain" class="code" data-file="CustomizerApplication.java" data-run>
+package com.example.ch05.customizer;
+
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.json.JsonMapper;
+
+record Order(long orderId, String customerName) {}
+
+@SpringBootApplication
+public class CustomizerApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomizerApplication.class)) {
+      JsonMapper mapper = ctx.getBean(JsonMapper.class);
+      System.out.println(mapper.writeValueAsString(new Order(7, "Ada")));
+    }
+  }
+
+  @Bean
+  JsonMapperBuilderCustomizer snakeCase() {
+    return builder -> builder.propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"order_id":7,"customer_name":"Ada"}
+</script>
+<p>Everything else Boot configured on the mapper is kept; only the naming strategy changed. The equivalent property is <code>spring.jackson.property-naming-strategy=SNAKE_CASE</code>.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Auto-configurations are <code>@AutoConfiguration</code> classes listed in <code>META-INF/spring/…AutoConfiguration.imports</code>, processed after your configuration.</li>
+  <li>Conditions decide everything: classpath (<code>OnClass</code>), existing beans (<code>OnMissingBean</code>), properties, web type, resources, threading, custom <code>Condition</code>s.</li>
+  <li>Your beans win (backing off). Prefer property → customizer → own bean. Exclude with <code>exclude=</code> or <code>spring.autoconfigure.exclude</code>.</li>
+  <li><code>--debug</code> prints the condition evaluation report; <code>ConditionEvaluationReport</code> and <code>/actuator/conditions</code> expose it.</li>
+  <li>Own auto-configuration: conditions + properties + imports file, tested with <code>ApplicationContextRunner</code>. Boot 4 starters are modular, one per technology.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Translate into a sentence: <code>@ConditionalOnClass(DataSource.class)</code> on the class, and <code>@ConditionalOnMissingBean</code> + <code>@ConditionalOnProperty(name = "app.pool.enabled", matchIfMissing = true)</code> on a <code>@Bean HikariDataSource dataSource()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>"If JDBC's <code>DataSource</code> class is on the classpath, then — unless the application already defines a <code>HikariDataSource</code> bean, or <code>app.pool.enabled</code> is set to <code>false</code> — create a <code>HikariDataSource</code>." (A missing property counts as enabled because of <code>matchIfMissing</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>You want all JSON output indented. List three ways to do it, from least to most invasive.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Property: <code>spring.jackson.serialization.indent-output=true</code>. (2) A <code>JsonMapperBuilderCustomizer</code> bean calling <code>builder.enable(SerializationFeature.INDENT_OUTPUT)</code>. (3) Your own <code>JsonMapper</code> bean, which replaces Boot's (and loses its other settings).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">debug</span></h3>
+<p>You added a database driver but no <code>DataSource</code> bean appears. What's the fastest way to find out why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Run with <code>--debug</code> (or <code>debug=true</code>) and look for <code>DataSourceAutoConfiguration</code> in the condition evaluation report. Its <em>Negative matches</em> entry says exactly which condition failed — for example a missing <code>spring-boot-starter-jdbc</code> (in Boot 4 the auto-configuration lives in that module), or <code>spring.datasource.url</code> not set for a non-embedded database. With Actuator, <code>/actuator/conditions</code> shows the same.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why must an auto-configuration class not live in a package that is component-scanned by the application?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>If it's scanned, it's registered as an ordinary configuration class, processed together with the user's configuration — <em>before</em> the user's beans are all known. Its <code>@ConditionalOnMissingBean</code> checks may then give the wrong answer, and ordering (<code>after=</code>) is ignored. Auto-configurations must only be loaded through the imports file.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>An application needs a default <code>java.time.Clock</code> (<code>Clock.systemUTC()</code>) that is replaced by a fixed <code>Europe/Paris</code> clock when <code>app.fixed-clock=true</code>. Implement both beans in one class, print the clock's zone with and without the property, and explain why <code>@ConditionalOnMissingBean</code> is not the right tool for the default here.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ClockApplication.java" data-run>
+package com.example.ch05.ex5;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Fallback;
+
+@SpringBootApplication
+public class ClockApplication {
+  public static void main(String[] args) {
+    for (String[] a : new String[][] { {}, { "--app.fixed-clock=true" } }) {
+      try (var ctx = SpringApplication.run(ClockApplication.class, a)) {
+        System.out.println(ctx.getBean(Clock.class).getZone());
+      }
+    }
+  }
+
+  @Bean @Fallback
+  Clock systemClock() { return Clock.systemUTC(); }
+
+  @Bean @ConditionalOnBooleanProperty("app.fixed-clock")
+  Clock fixedClock() { return Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneId.of("Europe/Paris")); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Z
+Europe/Paris
+</script>
+<p>Why not <code>@ConditionalOnMissingBean</code>? In <em>application</em> configuration, bean definitions are registered in an order you don't fully control, so "missing" may be evaluated before the other bean is registered. The docs recommend <code>@ConditionalOnMissingBean</code> only in auto-configurations. In application code, <code>@Fallback</code> (or <code>@Primary</code>) expresses "default unless replaced" reliably.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write an <code>ApplicationContextRunner</code> test for the greeter auto-configuration showing that <code>greeter.prefix=Bonjour</code> gives <code>Bonjour, Ada!</code> and that the <code>GreeterProperties</code> bean exists.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="GreeterPrefixTest.java" data-test>
+package com.example.autoconfig.greeter;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+class GreeterPrefixTest {
+  @Test
+  void customPrefix() {
+    new ApplicationContextRunner()
+        .withConfiguration(AutoConfigurations.of(GreeterAutoConfiguration.class))
+        .withPropertyValues("greeter.prefix=Bonjour")
+        .run(ctx -> {
+          assertThat(ctx).hasSingleBean(GreeterProperties.class);
+          assertThat(ctx.getBean(Greeter.class).greet("Ada")).isEqualTo("Bonjour, Ada!");
+        });
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Use <code>FilteredClassLoader</code> in a test to prove that a configuration guarded by <code>@ConditionalOnClass(name = "tools.jackson.databind.json.JsonMapper")</code> backs off when Jackson is missing.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="JsonOnlyConfig.java">
+package com.example.autoconfig.json;
+
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.context.annotation.Bean;
+
+@AutoConfiguration
+@ConditionalOnClass(name = "tools.jackson.databind.json.JsonMapper")
+public class JsonOnlyConfig {
+  @Bean String jsonMarker() { return "json available"; }
+}
+</script>
+<script type="text/plain" class="code" data-file="JsonOnlyConfigTest.java" data-test>
+package com.example.autoconfig.json;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import tools.jackson.databind.json.JsonMapper;
+
+class JsonOnlyConfigTest {
+  private final ApplicationContextRunner runner = new ApplicationContextRunner()
+      .withConfiguration(AutoConfigurations.of(JsonOnlyConfig.class));
+
+  @Test void presentWithJackson() { runner.run(ctx -> assertThat(ctx).hasBean("jsonMarker")); }
+
+  @Test void absentWithoutJackson() {
+    runner.withClassLoader(new FilteredClassLoader(JsonMapper.class))
+        .run(ctx -> assertThat(ctx).doesNotHaveBean("jsonMarker"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>Your company auto-configuration defines an <code>AuditLogger</code> that needs the application's <code>JsonMapper</code> bean, guarded by <code>@ConditionalOnBean(JsonMapper.class)</code>. It sometimes isn't created even though Jackson is present. Why, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@ConditionalOnBean</code> only sees beans registered <em>so far</em>. If your auto-configuration is processed before <code>JacksonAutoConfiguration</code>, the <code>JsonMapper</code> isn't defined yet and the condition fails. Fix: <code>@AutoConfiguration(after = JacksonAutoConfiguration.class)</code> (or <code>afterName = "…"</code> to avoid a compile-time dependency).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a custom condition annotation <code>@ConditionalOnWeekend</code> backed by a <code>Condition</code> that reads the day of week from the property <code>app.today</code> (e.g. <code>SATURDAY</code>; default: the real current day). Use it on a bean and test it with <code>ApplicationContextRunner</code> for <code>SATURDAY</code> and <code>MONDAY</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ConditionalOnWeekend.java">
+package com.example.autoconfig.weekend;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.core.type.AnnotatedTypeMetadata;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ ElementType.TYPE, ElementType.METHOD })
+@Conditional(ConditionalOnWeekend.OnWeekend.class)
+public @interface ConditionalOnWeekend {
+
+  class OnWeekend implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+      String today = context.getEnvironment().getProperty("app.today", LocalDate.now().getDayOfWeek().name());
+      DayOfWeek day = DayOfWeek.valueOf(today.toUpperCase());
+      return day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY;
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="WeekendConditionTest.java" data-test>
+package com.example.autoconfig.weekend;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+class WeekendConditionTest {
+
+  @Configuration(proxyBeanMethods = false)
+  static class Config {
+    @Bean @ConditionalOnWeekend String brunchMenu() { return "pancakes"; }
+  }
+
+  private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Config.class);
+
+  @Test void saturday() { runner.withPropertyValues("app.today=saturday").run(ctx -> assertThat(ctx).hasBean("brunchMenu")); }
+  @Test void monday() { runner.withPropertyValues("app.today=MONDAY").run(ctx -> assertThat(ctx).doesNotHaveBean("brunchMenu")); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Meta-annotating with <code>@Conditional</code> is exactly how Boot's own <code>@ConditionalOn…</code> annotations are built. For better <code>--debug</code> output, extend <code>SpringBootCondition</code> and return a <code>ConditionOutcome</code> with a message.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Create an <strong>audit auto-configuration</strong> in <code>com.example.autoconfig.audit</code>: <code>AuditProperties("audit")</code> with <code>String appName</code> (default <code>app</code>) and <code>boolean enabled</code> (default true); an <code>AuditLog</code> class with <code>String entry(String action)</code> returning <code>"[appName] action"</code>; an <code>@AutoConfiguration</code> that creates it unless disabled or already defined. Register it in the imports file (append a line to the existing one) and write four context-runner tests: default, custom name, disabled, user bean wins.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AuditAutoConfiguration.java">
+package com.example.autoconfig.audit;
+
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.context.annotation.Bean;
+
+@AutoConfiguration
+@ConditionalOnBooleanProperty(name = "audit.enabled", matchIfMissing = true)
+@EnableConfigurationProperties(AuditAutoConfiguration.AuditProperties.class)
+public class AuditAutoConfiguration {
+
+  @ConfigurationProperties("audit")
+  public record AuditProperties(@DefaultValue("app") String appName, @DefaultValue("true") boolean enabled) {}
+
+  public static class AuditLog {
+    private final String appName;
+    public AuditLog(String appName) { this.appName = appName; }
+    public String entry(String action) { return "[" + appName + "] " + action; }
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  AuditLog auditLog(AuditProperties props) { return new AuditLog(props.appName()); }
+}
+</script>
+<script type="text/plain" class="code" data-file="AuditAutoConfigurationTest.java" data-test>
+package com.example.autoconfig.audit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.example.autoconfig.audit.AuditAutoConfiguration.AuditLog;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+class AuditAutoConfigurationTest {
+  private final ApplicationContextRunner runner = new ApplicationContextRunner()
+      .withConfiguration(AutoConfigurations.of(AuditAutoConfiguration.class));
+
+  @Test void defaults() {
+    runner.run(ctx -> assertThat(ctx.getBean(AuditLog.class).entry("login")).isEqualTo("[app] login"));
+  }
+  @Test void customName() {
+    runner.withPropertyValues("audit.app-name=billing")
+        .run(ctx -> assertThat(ctx.getBean(AuditLog.class).entry("pay")).isEqualTo("[billing] pay"));
+  }
+  @Test void disabled() {
+    runner.withPropertyValues("audit.enabled=false").run(ctx -> assertThat(ctx).doesNotHaveBean(AuditLog.class));
+  }
+  @Test void userBeanWins() {
+    runner.withBean(AuditLog.class, () -> new AuditLog("mine"))
+        .run(ctx -> assertThat(ctx.getBean(AuditLog.class).entry("x")).isEqualTo("[mine] x"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>To ship it, the imports file would get a second line, <code>com.example.autoconfig.audit.AuditAutoConfiguration</code>. The tests don't need it: <code>AutoConfigurations.of(…)</code> loads the class directly — which is why context-runner tests are fast and independent of the classpath.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/using/auto-configuration.html">Using auto-configuration</a> (replacing, excluding)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/developing-auto-configuration.html">Creating your own auto-configuration</a> (conditions, testing, starters)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/using/build-systems.html#using.build-systems.starters">Starters</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/how-to/application.html#howto.application.troubleshoot-auto-configuration">How-to: troubleshoot auto-configuration</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/java/bean-definition-profiles.html">Spring Framework: @Conditional</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

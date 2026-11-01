@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc data-jpa h2 validation restclient webmvc-test data-jpa-test restclient-test org.springframework.boot:spring-boot-resttestclient:test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Testing Spring Boot Applications · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · Production</div>
+<h1>Testing Spring Boot Applications</h1>
+<p class="lead">Spring's design — constructor injection, small beans, configuration you can swap — makes code easy to test. Spring Boot adds a testing toolkit on top: full-application tests on a random port, <strong>test slices</strong> that start only the web layer or only the persistence layer, mock beans, a mock HTTP server for clients, and context caching that keeps big test suites fast. This chapter tests one small application at every level.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <strong>test pyramid</strong> for Spring apps: plain unit tests, slice tests, full integration tests.</li>
+  <li><strong>Unit tests</strong> with JUnit 6 and Mockito — no Spring at all.</li>
+  <li>Slices: <strong><code>@WebMvcTest</code></strong> with <code>MockMvcTester</code>, <strong><code>@DataJpaTest</code></strong>, <strong><code>@RestClientTest</code></strong>, <strong><code>@JsonTest</code></strong>.</li>
+  <li><strong><code>@SpringBootTest</code></strong> with a real server and <strong><code>RestTestClient</code></strong>; <code>@MockitoBean</code> to replace beans.</li>
+  <li>Test configuration: properties, profiles, <code>@TestConfiguration</code>, context caching, and <strong>Testcontainers</strong> with <code>@ServiceConnection</code>.</li>
+</ul>
+</div>
+
+<h2 id="pyramid">The test pyramid</h2>
+<figure class="diagram">
+<svg viewBox="0 0 560 190" role="img" aria-label="Test pyramid: many fast unit tests at the bottom, slice tests in the middle, few full SpringBootTest integration tests at the top">
+  <polygon class="bx" points="280,10 360,70 200,70"/><text x="280" y="58" text-anchor="middle">@SpringBootTest</text>
+  <polygon class="bx" points="200,75 360,75 440,125 120,125"/><text x="280" y="106" text-anchor="middle">slices: @WebMvcTest · @DataJpaTest · @RestClientTest</text>
+  <polygon class="hi" points="120,130 440,130 520,180 40,180"/><text x="280" y="160" text-anchor="middle">unit tests: plain JUnit + Mockito (milliseconds)</text>
+</svg>
+<figcaption>Many fast tests at the bottom, a few slow, realistic ones at the top.</figcaption>
+</figure>
+<ul>
+  <li><strong>Unit tests</strong> create classes with <code>new</code> and mocks. Milliseconds each; test business rules thoroughly here.</li>
+  <li><strong>Slice tests</strong> start only part of the context (web layer, JPA layer, an HTTP client) — they test the <em>Spring-specific</em> behaviour: mappings, validation, JSON, queries.</li>
+  <li><strong>Integration tests</strong> start the whole application, ideally against real infrastructure (Testcontainers). A few per feature, testing that the pieces fit.</li>
+</ul>
+<p>Boot 4 has a test starter per technology: <code>spring-boot-starter-webmvc-test</code>, <code>-data-jpa-test</code>, <code>-restclient-test</code>, <code>-security-test</code>… each brings the matching slice plus the common <code>spring-boot-starter-test</code> (JUnit Jupiter, AssertJ, Mockito, Hamcrest, JSONassert, JsonPath, Awaitility).</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: testing a car.</strong> Unit tests check each part on a workbench (does the brake pad grip?). Slice tests mount a subsystem on a test rig (the whole brake system, with a fake wheel). Integration tests drive the finished car around the track. You need all three — but you can't afford to drive a full lap for every brake-pad variant.</p>
+</div>
+
+<h2 id="app">The application under test</h2>
+<p>A tiny book service: an entity, a repository, a client for a remote price service, a service, and a controller with an error handler.</p>
+<script type="text/plain" class="code" data-file="LibraryApp.java">
+package com.example.ch16.app;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class LibraryApp {
+  public static void main(String[] args) { SpringApplication.run(LibraryApp.class, args); }
+}
+</script>
+<script type="text/plain" class="code" data-file="Book.java">
+package com.example.ch16.app;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+
+@Entity
+public class Book {
+  @Id @GeneratedValue private Long id;
+  @Column(unique = true, nullable = false) private String isbn;
+  @Column(nullable = false) private String title;
+  private int copies;
+
+  protected Book() { }
+  public Book(String isbn, String title, int copies) { this.isbn = isbn; this.title = title; this.copies = copies; }
+  public Long getId() { return id; }
+  public String getIsbn() { return isbn; }
+  public String getTitle() { return title; }
+  public int getCopies() { return copies; }
+  public void setCopies(int copies) { this.copies = copies; }
+}
+</script>
+<script type="text/plain" class="code" data-file="BookRepository.java">
+package com.example.ch16.app;
+
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface BookRepository extends JpaRepository<Book, Long> {
+  Optional<Book> findByIsbn(String isbn);
+  List<Book> findByCopiesGreaterThanOrderByTitle(int copies);
+}
+</script>
+<script type="text/plain" class="code" data-file="PriceClient.java">
+package com.example.ch16.app;
+
+import java.math.BigDecimal;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+@Component
+public class PriceClient {
+  record PriceResponse(String isbn, BigDecimal price) {}
+  private final RestClient http;
+
+  public PriceClient(RestClient.Builder builder, @Value("${prices.url:http://prices.internal}") String url) {
+    this.http = builder.baseUrl(url).build();
+  }
+
+  public BigDecimal price(String isbn) {
+    return http.get().uri("/prices/{isbn}", isbn).retrieve().body(PriceResponse.class).price();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="BookService.java">
+package com.example.ch16.app;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
+import java.math.BigDecimal;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class BookService {
+  public record BookView(String isbn, String title, int copies, BigDecimal price) {}
+  public record NewBook(@NotBlank String isbn, @NotBlank String title, @PositiveOrZero int copies) {}
+  public static class BookNotFound extends RuntimeException {
+    public BookNotFound(String isbn) { super("No book with ISBN " + isbn); }
+  }
+
+  private final BookRepository books;
+  private final PriceClient prices;
+  public BookService(BookRepository books, PriceClient prices) { this.books = books; this.prices = prices; }
+
+  @Transactional(readOnly = true)
+  public BookView view(String isbn) {
+    Book b = books.findByIsbn(isbn).orElseThrow(() -> new BookNotFound(isbn));
+    return new BookView(b.getIsbn(), b.getTitle(), b.getCopies(), prices.price(isbn));
+  }
+
+  @Transactional
+  public BookView add(NewBook req) {
+    Book b = books.save(new Book(req.isbn(), req.title(), req.copies()));
+    return new BookView(b.getIsbn(), b.getTitle(), b.getCopies(), null);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="BookController.java">
+package com.example.ch16.app;
+
+import com.example.ch16.app.BookService.BookNotFound;
+import com.example.ch16.app.BookService.BookView;
+import com.example.ch16.app.BookService.NewBook;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/books")
+public class BookController {
+  private final BookService service;
+  public BookController(BookService service) { this.service = service; }
+
+  @GetMapping("/{isbn}") public BookView get(@PathVariable String isbn) { return service.view(isbn); }
+
+  @PostMapping @ResponseStatus(HttpStatus.CREATED)
+  public BookView add(@Valid @RequestBody NewBook req) { return service.add(req); }
+
+  @ExceptionHandler
+  ProblemDetail notFound(BookNotFound e) { return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage()); }
+}
+</script>
+
+<h2 id="unit">Unit tests: no Spring needed</h2>
+<p>Because <code>BookService</code> receives its collaborators through the constructor, a unit test just creates it with mocks. No context, no annotations scanning, runs in milliseconds:</p>
+<script type="text/plain" class="code" data-file="BookServiceTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class BookServiceTest {
+  @Mock BookRepository books;
+  @Mock PriceClient prices;
+  @InjectMocks BookService service;                        // constructor injection with the mocks
+
+  @Test
+  void viewCombinesBookAndPrice() {
+    given(books.findByIsbn("111")).willReturn(Optional.of(new Book("111", "Dune", 2)));
+    given(prices.price("111")).willReturn(new BigDecimal("9.99"));
+
+    var view = service.view("111");
+
+    assertThat(view.title()).isEqualTo("Dune");
+    assertThat(view.price()).isEqualByComparingTo("9.99");
+  }
+
+  @Test
+  void unknownBookFailsWithoutCallingThePriceService() {
+    given(books.findByIsbn("404")).willReturn(Optional.empty());
+
+    assertThatThrownBy(() -> service.view("404"))
+        .isInstanceOf(BookService.BookNotFound.class)
+        .hasMessageContaining("404");
+    verify(prices, never()).price("404");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<div class="tip">
+<p>💡 <strong>Given / when / then.</strong> Structure each test in three blocks — arrange the inputs and mocks, call the one method under test, assert the outcome — and name the test after the behaviour (<code>unknownBookFailsWithoutCallingThePriceService</code>), not the method. A failing test name should read like a bug report.</p>
+</div>
+
+<h2 id="webmvctest">Web slice: <code>@WebMvcTest</code></h2>
+<p><code>@WebMvcTest(BookController.class)</code> starts Spring MVC with only that controller, controller advice, filters, converters and validation — no services, no repositories, no server. Dependencies the controller needs are replaced with <strong><code>@MockitoBean</code></strong>. Requests go through <code>MockMvc</code>; its AssertJ flavour <strong><code>MockMvcTester</code></strong> reads nicely:</p>
+<script type="text/plain" class="code" data-file="BookControllerTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import com.example.ch16.app.BookService.BookNotFound;
+import com.example.ch16.app.BookService.BookView;
+import java.math.BigDecimal;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@WebMvcTest(BookController.class)
+class BookControllerTest {
+  @Autowired MockMvcTester mvc;
+  @MockitoBean BookService service;                        // replaces the real bean in this context
+
+  @Test
+  void returnsBookAsJson() {
+    given(service.view("111")).willReturn(new BookView("111", "Dune", 2, new BigDecimal("9.99")));
+
+    assertThat(mvc.get().uri("/books/111"))
+        .hasStatusOk()
+        .hasContentType(MediaType.APPLICATION_JSON)
+        .bodyJson().isLenientlyEqualTo("""
+            {"isbn":"111","title":"Dune","copies":2,"price":9.99}""");
+  }
+
+  @Test
+  void unknownBookIs404Problem() {
+    given(service.view("404")).willThrow(new BookNotFound("404"));
+
+    assertThat(mvc.get().uri("/books/404"))
+        .hasStatus(HttpStatus.NOT_FOUND)
+        .bodyJson().extractingPath("$.detail").isEqualTo("No book with ISBN 404");
+  }
+
+  @Test
+  void invalidBookIs400() {
+    assertThat(mvc.post().uri("/books").contentType(MediaType.APPLICATION_JSON)
+        .content("""
+            {"isbn":"","title":"Dune","copies":-1}"""))
+        .hasStatus(HttpStatus.BAD_REQUEST);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>This tests everything the unit test couldn't: the URL mapping, path variables, JSON serialisation, validation and the exception handler. <code>@MockitoBean</code> (Spring Framework 6.2+) replaces Boot's old <code>@MockBean</code>, which was removed in Boot 4; <code>@MockitoSpyBean</code> wraps the real bean instead.</p>
+
+<h2 id="datajpatest">Persistence slice: <code>@DataJpaTest</code></h2>
+<p><code>@DataJpaTest</code> configures JPA, repositories and an embedded database (replacing your configured one unless you say otherwise), and runs <strong>each test in a transaction that is rolled back</strong> at the end — tests can't affect each other. <code>TestEntityManager</code> sets up data directly:</p>
+<script type="text/plain" class="code" data-file="BookRepositoryTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.dao.DataIntegrityViolationException;
+
+@DataJpaTest
+class BookRepositoryTest {
+  @Autowired TestEntityManager em;
+  @Autowired BookRepository books;
+
+  @Test
+  void findsByIsbn() {
+    em.persist(new Book("111", "Dune", 2));
+    em.flush();
+    assertThat(books.findByIsbn("111")).get().extracting(Book::getTitle).isEqualTo("Dune");
+    assertThat(books.findByIsbn("999")).isEmpty();
+  }
+
+  @Test
+  void availableBooksSortedByTitle() {
+    em.persist(new Book("1", "Zen", 1));
+    em.persist(new Book("2", "Art", 3));
+    em.persist(new Book("3", "Gone", 0));
+    assertThat(books.findByCopiesGreaterThanOrderByTitle(0)).extracting(Book::getTitle).containsExactly("Art", "Zen");
+  }
+
+  @Test
+  void isbnIsUnique() {
+    books.saveAndFlush(new Book("111", "Dune", 1));
+    assertThatThrownBy(() -> books.saveAndFlush(new Book("111", "Copy", 1)))
+        .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  @Test
+  void eachTestStartsEmpty() {
+    assertThat(books.count()).isZero();                    // the other tests were rolled back
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Flush before you trust a repository test.</strong> Inside the test transaction, <code>save</code> may not send any SQL yet (write-behind, Chapter 14). Constraint violations and query behaviour only show up when Hibernate flushes — call <code>flush()</code>/<code>saveAndFlush()</code>, or query, before asserting. Otherwise a test can pass while the real code fails at commit.</p>
+</div>
+
+<h2 id="restclienttest">Client slice: <code>@RestClientTest</code></h2>
+<p>To test code that calls other services, <code>@RestClientTest</code> configures the <code>RestClient.Builder</code> with a <strong><code>MockRestServiceServer</code></strong>: you script the expected requests and canned responses, and no network is involved:</p>
+<script type="text/plain" class="code" data-file="PriceClientTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpServerErrorException;
+
+@RestClientTest(PriceClient.class)
+class PriceClientTest {
+  @Autowired PriceClient client;
+  @Autowired MockRestServiceServer server;
+
+  @Test
+  void readsPrice() {
+    server.expect(requestTo("http://prices.internal/prices/111"))
+        .andRespond(withSuccess("""
+            {"isbn":"111","price":12.50}""", MediaType.APPLICATION_JSON));
+
+    assertThat(client.price("111")).isEqualByComparingTo("12.50");
+    server.verify();                                       // every expected request happened
+  }
+
+  @Test
+  void serverErrorsPropagate() {
+    server.expect(requestTo("http://prices.internal/prices/111")).andRespond(withServerError());
+    assertThatThrownBy(() -> client.price("111")).isInstanceOf(HttpServerErrorException.class);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+
+<h2 id="springboottest">Full integration: <code>@SpringBootTest</code></h2>
+<p><code>@SpringBootTest</code> starts the whole application context. With <code>webEnvironment = RANDOM_PORT</code> it also starts the real embedded server, and <strong><code>RestTestClient</code></strong> (Boot 4, with <code>@AutoConfigureRestTestClient</code>) sends real HTTP requests to it. External dependencies you can't run in a test are still replaced with <code>@MockitoBean</code>:</p>
+<script type="text/plain" class="code" data-file="LibraryIntegrationTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.mockito.BDDMockito.given;
+
+import java.math.BigDecimal;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
+class LibraryIntegrationTest {
+  @Autowired RestTestClient client;
+  @MockitoBean PriceClient prices;                          // the remote price service isn't available in tests
+
+  @Test
+  void addThenRead() {
+    given(prices.price("777")).willReturn(new BigDecimal("15.00"));
+
+    client.post().uri("/books").body(new BookService.NewBook("777", "Emma", 3))
+        .exchange()
+        .expectStatus().isCreated();
+
+    client.get().uri("/books/777")
+        .exchange()
+        .expectStatus().isOk()
+        .expectBody()
+        .jsonPath("$.title").isEqualTo("Emma")
+        .jsonPath("$.price").isEqualTo(15.00);
+  }
+
+  @Test
+  void unknownBook() {
+    client.get().uri("/books/000").exchange().expectStatus().isEqualTo(HttpStatus.NOT_FOUND);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>This test goes through Tomcat, the controller, the service, the transaction and H2 — but data persists between tests (no rollback across a real HTTP call), so give each test its own ISBNs or clean up. Boot 4 changes to remember: <code>@SpringBootTest</code> no longer provides a <code>MockMvc</code> on its own (add <code>@AutoConfigureMockMvc</code>), and <code>TestRestTemplate</code> needs <code>@AutoConfigureTestRestTemplate</code>.</p>
+
+<h2 id="config">Test configuration and context caching</h2>
+<ul>
+  <li><strong>Properties</strong>: <code>@SpringBootTest(properties = "prices.url=http://localhost:9")</code>, <code>@TestPropertySource</code>, or <code>@DynamicPropertySource</code> for values known only at runtime (a container's port).</li>
+  <li><strong>Profiles</strong>: <code>@ActiveProfiles("test")</code> loads <code>application-test.properties</code>.</li>
+  <li><strong>Extra or replacement beans</strong>: a nested <code>@TestConfiguration</code> class adds beans to the context (a fixed <code>Clock</code>, a fake mailer) without disabling the application's configuration.</li>
+  <li><strong>Context caching</strong>: Spring caches application contexts across test classes with the <em>same configuration</em>. Every different set of <code>@MockitoBean</code>s, properties or profiles creates a new context (seconds each). Keep test configurations uniform — e.g. a shared base class — and avoid <code>@DirtiesContext</code> unless a test really corrupts shared state.</li>
+</ul>
+<script type="text/plain" class="code" data-file="FixedClockTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+@SpringBootTest(properties = "library.name=Test Library")
+class FixedClockTest {
+
+  @TestConfiguration
+  static class Clocks {
+    @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-01-01T09:00:00Z"), ZoneOffset.UTC); }
+  }
+
+  @Autowired Clock clock;
+  @Autowired Environment env;
+  @MockitoBean PriceClient prices;
+
+  @Test
+  void usesTestBeansAndProperties() {
+    assertThat(Instant.now(clock)).isEqualTo("2026-01-01T09:00:00Z");
+    assertThat(env.getProperty("library.name")).isEqualTo("Test Library");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Injecting a <code>Clock</code> into code that needs "now" is the single most useful trick for testable time logic (due dates, expiries, schedules).</p>
+
+<h2 id="testcontainers">Real databases with Testcontainers</h2>
+<p>H2 is convenient, but it isn't PostgreSQL: SQL dialects, types, locking and constraint behaviour differ. <strong>Testcontainers</strong> starts real services in Docker for your tests, and Boot's <code>@ServiceConnection</code> wires the connection details automatically (no URL properties needed). Add <code>spring-boot-testcontainers</code> and <code>org.testcontainers:postgresql</code>:</p>
+<script type="text/plain" class="code" data-file="PostgresBookRepositoryTest.java" data-norun>
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)   // don't swap in H2
+@Testcontainers
+class PostgresBookRepositoryTest {
+
+  @Container
+  @ServiceConnection                                     // creates the DataSource connection details
+  static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
+
+  @Autowired BookRepository books;
+
+  @Test
+  void worksOnRealPostgres() {
+    books.saveAndFlush(new Book("111", "Dune", 2));
+    assertThat(books.findByIsbn("111")).isPresent();
+  }
+}
+</script>
+<p>You can also use containers while <em>developing</em>: a <code>TestApplication</code> main class in <code>src/test/java</code> that calls <code>SpringApplication.from(LibraryApp::main).with(ContainersConfig.class).run(args)</code> starts your app with a PostgreSQL container — no local database install. (These examples need Docker, so they aren't run by this book's checker.)</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>JSON slice: <code>@JsonTest</code></h3>
+<script type="text/plain" class="code" data-file="BookViewJsonTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.example.ch16.app.BookService.BookView;
+import java.math.BigDecimal;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.json.JsonTest;
+import org.springframework.boot.test.json.JacksonTester;
+
+@JsonTest
+class BookViewJsonTest {
+  @Autowired JacksonTester<BookView> json;
+
+  @Test
+  void serialises() throws Exception {
+    var content = json.write(new BookView("111", "Dune", 2, new BigDecimal("9.99")));
+    assertThat(content).extractingJsonPathStringValue("$.title").isEqualTo("Dune");
+    assertThat(content).extractingJsonPathNumberValue("$.price").isEqualTo(9.99);
+  }
+
+  @Test
+  void deserialises() throws Exception {
+    BookView v = json.parseObject("""
+        {"isbn":"222","title":"Emma","copies":1,"price":null}""");
+    assertThat(v.isbn()).isEqualTo("222");
+    assertThat(v.price()).isNull();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+
+<h3>Parameterised tests</h3>
+<script type="text/plain" class="code" data-file="IsbnRulesTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+class IsbnRulesTest {
+  static boolean validIsbn13(String isbn) {
+    String d = isbn.replace("-", "");
+    if (!d.matches("\\d{13}")) return false;
+    int sum = 0;
+    for (int i = 0; i < 13; i++) sum += (d.charAt(i) - '0') * (i % 2 == 0 ? 1 : 3);
+    return sum % 10 == 0;
+  }
+
+  @ParameterizedTest(name = "{0} → {1}")
+  @CsvSource({
+      "978-0-441-01359-3, true",
+      "9780441013593,     true",
+      "9780441013594,     false",
+      "12345,             false",
+      "978044101359X,     false"
+  })
+  void checksIsbn(String isbn, boolean expected) {
+    assertThat(validIsbn13(isbn)).isEqualTo(expected);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Pyramid: many plain unit tests (JUnit + Mockito, constructor injection), fewer slice tests, a few <code>@SpringBootTest</code>s.</li>
+  <li><code>@WebMvcTest</code> + <code>MockMvcTester</code> + <code>@MockitoBean</code> for mappings, JSON, validation and error handling.</li>
+  <li><code>@DataJpaTest</code> (rolled-back transactions, embedded DB, <code>TestEntityManager</code>; flush before asserting); <code>@RestClientTest</code> + <code>MockRestServiceServer</code>; <code>@JsonTest</code>.</li>
+  <li><code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> + <code>@AutoConfigureRestTestClient</code> for end-to-end HTTP. Boot 4: add <code>@AutoConfigureMockMvc</code>/<code>@AutoConfigureTestRestTemplate</code> explicitly.</li>
+  <li>Keep configurations uniform for context caching; <code>@TestConfiguration</code>, <code>@ActiveProfiles</code>, <code>@DynamicPropertySource</code>; Testcontainers + <code>@ServiceConnection</code> for real infrastructure.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which test type would you choose for each? (a) "a 15% discount applies to orders over €100", (b) "<code>POST /orders</code> with a missing <code>customerId</code> returns 400", (c) "the native query for monthly revenue works on PostgreSQL", (d) "placing an order sends a confirmation e-mail after commit".</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) A plain unit test of the pricing class. (b) <code>@WebMvcTest</code> with a mocked service. (c) <code>@DataJpaTest</code> against a Testcontainers PostgreSQL (H2 may accept or reject different SQL). (d) <code>@SpringBootTest</code> (real transactions and events), with the mail sender replaced by a <code>@MockitoBean</code> or a fake.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A test suite has 40 <code>@SpringBootTest</code> classes and takes 6 minutes. Most of the time is spent starting contexts. What's the likely cause and fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each class has a slightly different configuration (different <code>@MockitoBean</code>s, properties, profiles, or <code>@DirtiesContext</code>), so the context cache can't reuse contexts — dozens of startups. Fix: unify configuration (an abstract base class with the common mocks and properties), remove unnecessary <code>@DirtiesContext</code>, and move tests that only need the web or JPA layer to slices or unit tests.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write a unit test for <code>BookService.add</code> that uses Mockito's <code>ArgumentCaptor</code> to check the <code>Book</code> passed to <code>save</code> has the right title and copies.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BookServiceAddTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class BookServiceAddTest {
+  @Mock BookRepository books;
+  @Mock PriceClient prices;
+  @InjectMocks BookService service;
+  @Captor ArgumentCaptor<Book> saved;
+
+  @Test
+  void savesNewBook() {
+    given(books.save(any(Book.class))).willAnswer(inv -> inv.getArgument(0));
+    service.add(new BookService.NewBook("123", "Emma", 4));
+    verify(books).save(saved.capture());
+    assertThat(saved.getValue().getTitle()).isEqualTo("Emma");
+    assertThat(saved.getValue().getCopies()).isEqualTo(4);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">debug</span></h3>
+<p>A <code>@WebMvcTest(BookController.class)</code> fails at startup with "No qualifying bean of type 'BookService'". Why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The web slice doesn't create <code>@Service</code> beans, but the controller's constructor needs one. Provide it: <code>@MockitoBean BookService service;</code> in the test (or import a real configuration with <code>@Import</code> if you want the real service).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>@WebMvcTest</code> that posts a valid book and checks the 201 status and that the response JSON's <code>copies</code> is 3. Stub <code>service.add</code> to return the view.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BookControllerAddTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@WebMvcTest(BookController.class)
+class BookControllerAddTest {
+  @Autowired MockMvcTester mvc;
+  @MockitoBean BookService service;
+
+  @Test
+  void createsBook() {
+    given(service.add(any())).willReturn(new BookService.BookView("123", "Emma", 3, null));
+    assertThat(mvc.post().uri("/books").contentType(MediaType.APPLICATION_JSON)
+        .content("{\"isbn\":\"123\",\"title\":\"Emma\",\"copies\":3}"))
+        .hasStatus(HttpStatus.CREATED)
+        .bodyJson().extractingPath("$.copies").isEqualTo(3);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Use <code>@MockitoSpyBean</code> in a <code>@SpringBootTest</code> to verify that viewing a book calls <code>BookRepository.findByIsbn</code> exactly once, while still using the real repository (seed a book first).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SpyRepositoryTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+
+import java.math.BigDecimal;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+@SpringBootTest
+class SpyRepositoryTest {
+  @MockitoSpyBean BookRepository books;                   // real bean, but recorded
+  @MockitoBean PriceClient prices;
+  @Autowired BookService service;
+
+  @Test
+  void looksUpOnce() {
+    books.save(new Book("555", "Ulysses", 1));
+    given(prices.price("555")).willReturn(BigDecimal.ONE);
+    service.view("555");
+    verify(books, times(1)).findByIsbn("555");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>With <code>MockRestServiceServer</code>, verify that <code>PriceClient</code> sends a <code>GET</code> and that a 404 from the price service becomes a <code>HttpClientErrorException.NotFound</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="PriceClientNotFoundTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;
+import org.springframework.http.HttpMethod;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpClientErrorException;
+
+@RestClientTest(PriceClient.class)
+class PriceClientNotFoundTest {
+  @Autowired PriceClient client;
+  @Autowired MockRestServiceServer server;
+
+  @Test
+  void notFound() {
+    server.expect(requestTo("http://prices.internal/prices/000")).andExpect(method(HttpMethod.GET)).andRespond(withResourceNotFound());
+    assertThatThrownBy(() -> client.price("000")).isInstanceOf(HttpClientErrorException.NotFound.class);
+    server.verify();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>Your <code>@DataJpaTest</code> passes, but in production the same repository method fails with a unique-constraint violation at commit. How can the test have missed it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The test never flushed: <code>save</code> queued the <code>INSERT</code>, the assertions ran against the persistence context, and the test transaction was rolled back without ever sending SQL. Use <code>saveAndFlush</code> or <code>em.flush()</code> before asserting. (Another cause: H2 vs the production database behaving differently — use Testcontainers for database-specific behaviour.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a full <code>@SpringBootTest</code> with <code>@AutoConfigureMockMvc</code> (no real server) and <code>MockMvcTester</code> that adds a book via <code>POST</code>, then reads it via <code>GET</code> with a mocked price, and checks the whole JSON with <code>isStrictlyEqualTo</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="MockMvcIntegrationTest.java" data-test>
+package com.example.ch16.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import java.math.BigDecimal;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest
+@AutoConfigureMockMvc                                    // required since Boot 4
+class MockMvcIntegrationTest {
+  @Autowired MockMvcTester mvc;
+  @MockitoBean PriceClient prices;
+
+  @Test
+  void roundTrip() {
+    assertThat(mvc.post().uri("/books").contentType(MediaType.APPLICATION_JSON)
+        .content("{\"isbn\":\"888\",\"title\":\"Beloved\",\"copies\":1}")).hasStatus(HttpStatus.CREATED);
+    given(prices.price("888")).willReturn(new BigDecimal("11.25"));
+    assertThat(mvc.get().uri("/books/888")).hasStatusOk().bodyJson().isStrictlyEqualTo("""
+        {"isbn":"888","title":"Beloved","copies":1,"price":11.25}""");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>MockMvc-based integration tests run in the test's thread, so — unlike the <code>RANDOM_PORT</code> variant — you could even add <code>@Transactional</code> to the test to roll back its data.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Test the Library Loans rule "a member can have at most 2 open loans" from Chapter 15 at the unit level: extract the rule into a <code>LoanPolicy</code> class with <code>void check(int openLoans, boolean hasOverdue)</code> that throws <code>LoanRefused(reason)</code> for "limit reached" or "has overdue loans". Write a parameterised test covering allowed and refused cases, and assert the reason.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LoanPolicy.java">
+package com.example.ch16.app.loans;
+
+public class LoanPolicy {
+  public static final int MAX_OPEN = 2;
+  public static class LoanRefused extends RuntimeException {
+    public LoanRefused(String reason) { super(reason); }
+  }
+  public void check(int openLoans, boolean hasOverdue) {
+    if (hasOverdue) throw new LoanRefused("has overdue loans");
+    if (openLoans >= MAX_OPEN) throw new LoanRefused("limit reached");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="LoanPolicyTest.java" data-test>
+package com.example.ch16.app.loans;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+class LoanPolicyTest {
+  private final LoanPolicy policy = new LoanPolicy();
+
+  @ParameterizedTest(name = "{0} open, overdue={1} → allowed")
+  @CsvSource({ "0, false", "1, false" })
+  void allowed(int open, boolean overdue) {
+    assertThatCode(() -> policy.check(open, overdue)).doesNotThrowAnyException();
+  }
+
+  @ParameterizedTest(name = "{0} open, overdue={1} → {2}")
+  @CsvSource({ "2, false, limit reached", "5, false, limit reached", "0, true, has overdue loans", "2, true, has overdue loans" })
+  void refused(int open, boolean overdue, String reason) {
+    assertThatThrownBy(() -> policy.check(open, overdue)).isInstanceOf(LoanPolicy.LoanRefused.class).hasMessage(reason);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Pulling rules out of the service into a small class with no dependencies makes them trivially testable — dozens of cases in milliseconds — while one integration test checks the service applies the policy. Chapter 20's project is built this way.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/testing/index.html">Spring Boot: Testing</a> · <a href="https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html">Testing Spring Boot applications</a> (slices, auto-configured tests)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/testing/testcontainers.html">Testcontainers</a> · <a href="https://docs.spring.io/spring-boot/reference/features/dev-services.html">Development-time services</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/testing.html">Spring Framework: Testing</a> · <a href="https://docs.spring.io/spring-framework/reference/testing/mockmvc/assertj.html">MockMvcTester (AssertJ)</a> · <a href="https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html">@MockitoBean</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/testing/resttestclient.html">RestTestClient</a> · <a href="https://docs.spring.io/spring-framework/reference/testing/testcontext-framework/ctx-management/caching.html">Context caching</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

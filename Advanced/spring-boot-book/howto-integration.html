@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc restclient cache mail jdbc h2 com.github.ben-manes.caffeine:caffeine">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>H4. How-To: Integration &amp; Background Work · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">How-To Guides · H4</div>
+<h1>Integration &amp; Background Work</h1>
+<p class="lead">Recipes for talking to the outside world and doing work outside the request: resilient HTTP calls, authentication headers on every call, nightly jobs, e-mail, caches with expiry, and long-running work behind a <code>202 Accepted</code>. Background: Chapters 8 and 11.</p>
+
+<ul class="howto-toc">
+  <li><a href="#resilient">Call a slow, flaky API safely</a></li>
+  <li><a href="#auth-header">Add a token to every outgoing request</a></li>
+  <li><a href="#nightly">Run a job every night</a></li>
+  <li><a href="#mail">Send an e-mail</a></li>
+  <li><a href="#caffeine">Cache a lookup with expiry and a size limit</a></li>
+  <li><a href="#accepted">Start long work and return 202 Accepted</a></li>
+</ul>
+
+<div class="recipe" id="resilient">
+<h2>Call a slow, flaky API safely</h2>
+<p class="problem">A partner's currency API sometimes answers in 10 seconds and sometimes returns 503. Your endpoint must stay fast.</p>
+<div class="tags"><span>timeouts</span><span>@Retryable</span><span>fallback</span><span>Chapter 11</span></div>
+<h3>Solution</h3>
+<p>Three layers: a short <strong>read timeout</strong>, a few <strong>retries with back-off</strong> for 5xx and I/O errors, and a <strong>fallback</strong> when it still fails:</p>
+<script type="text/plain" class="code" data-file="ResilientCallApp.java" data-run>
+package com.example.h4.resilient;
+
+import java.math.BigDecimal;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.env.Environment;
+import org.springframework.http.HttpStatus;
+import org.springframework.resilience.annotation.EnableResilientMethods;
+import org.springframework.resilience.annotation.Retryable;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController   // plays the partner's API: fails twice, then slow once, then fine
+class FakePartner {
+  final AtomicInteger calls = new AtomicInteger();
+  @GetMapping("/rates/{c}") String rate(@PathVariable String c) throws InterruptedException {
+    int n = calls.incrementAndGet();
+    if (c.equals("XXX")) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+    if (n <= 2) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+    if (n == 3) Thread.sleep(2000);
+    return "1.08";
+  }
+}
+
+@Component
+class RatesClient {                                     // retries live here, in their own bean
+  private final RestClient.Builder builder; private final Environment env;
+  private volatile RestClient http;
+  RatesClient(RestClient.Builder builder, Environment env) { this.builder = builder; this.env = env; }
+  private RestClient http() {                           // built lazily: the demo's own port is only known after startup
+    if (http == null) http = builder.baseUrl("http://localhost:" + env.getProperty("local.server.port")).build();
+    return http;
+  }
+  @Retryable(includes = { HttpServerErrorException.class, ResourceAccessException.class }, maxRetries = 3, delay = 50, multiplier = 2, jitter = 10)
+  public BigDecimal rate(String currency) { return new BigDecimal(http().get().uri("/rates/{c}", currency).retrieve().body(String.class)); }
+}
+
+@Service
+class PricingService {                                  // the fallback lives one level up
+  private final RatesClient rates;
+  PricingService(RatesClient rates) { this.rates = rates; }
+  String rateOrFallback(String currency) {
+    try { return currency + " " + rates.rate(currency); }
+    catch (RuntimeException e) { return currency + " unavailable (cached value or error shown to user)"; }
+  }
+}
+
+@SpringBootApplication
+@EnableResilientMethods
+public class ResilientCallApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ResilientCallApp.class, "--spring.http.clients.read-timeout=500ms",
+        "--logging.level.org.springframework.web=ERROR")) {
+      var pricing = ctx.getBean(PricingService.class);
+      long t0 = System.nanoTime();
+      System.out.println(pricing.rateOrFallback("USD") + " after " + ctx.getBean(FakePartner.class).calls.get() + " calls, under 2 s: "
+          + ((System.nanoTime() - t0) / 1_000_000 < 2000));
+      System.out.println(pricing.rateOrFallback("XXX"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+USD 1.08 after 4 calls, under 2 s: true
+XXX unavailable (cached value or error shown to user)
+</script>
+<p>Calls 1–2 got 503, call 3 timed out after 500 ms instead of waiting 2 s, call 4 succeeded. Set the timeouts globally with <code>spring.http.clients.connect-timeout</code>/<code>read-timeout</code>, or per HTTP service group.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Worst-case latency = attempts × (timeout + delay). Make sure it fits within <em>your</em> callers' timeouts.</li>
+  <li>Never retry non-idempotent calls (payments) without an idempotency key; never retry 4xx.</li>
+  <li><code>@Retryable</code> is a proxy: it must be on a public method of another bean, as here.</li>
+</ul>
+</div>
+
+<div class="recipe" id="auth-header">
+<h2>Add a token to every outgoing request</h2>
+<p class="problem">Every call to the partner API needs <code>Authorization: Bearer …</code>, and the token expires every hour.</p>
+<div class="tags"><span>ClientHttpRequestInterceptor</span><span>RestClientCustomizer</span><span>Chapter 11</span></div>
+<h3>Solution</h3>
+<p>An interceptor fetches the current token per request (from a cache that refreshes it), so no call site has to remember it:</p>
+<script type="text/plain" class="code" data-file="TokenInterceptorApp.java" data-run>
+package com.example.h4.auth;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@Component
+class TokenProvider {                                 // in real life: an OAuth2 client-credentials call
+  private final AtomicInteger issued = new AtomicInteger();
+  private String token; private Instant expires = Instant.EPOCH;
+  synchronized String token() {
+    if (Instant.now(Clock.systemUTC()).isAfter(expires.minusSeconds(30))) {
+      token = "tok-" + issued.incrementAndGet();
+      expires = Instant.now().plus(Duration.ofHours(1));
+    }
+    return token;
+  }
+}
+
+@RestController
+class Echo { @GetMapping("/whoami") String who(@RequestHeader("Authorization") String auth) { return auth; } }
+
+@SpringBootApplication
+public class TokenInterceptorApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TokenInterceptorApp.class)) {
+      var tokens = ctx.getBean(TokenProvider.class);
+      ClientHttpRequestInterceptor bearer = (request, body, execution) -> {
+        request.getHeaders().setBearerAuth(tokens.token());
+        return execution.execute(request, body);
+      };
+      RestClient partner = ctx.getBean(RestClient.Builder.class)
+          .baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .requestInterceptor(bearer).build();
+      System.out.println(partner.get().uri("/whoami").retrieve().body(String.class));
+      System.out.println(partner.get().uri("/whoami").retrieve().body(String.class) + " (reused until it nearly expires)");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Bearer tok-1
+Bearer tok-1 (reused until it nearly expires)
+</script>
+<p>For standard OAuth2 client credentials, Spring Security's <code>OAuth2ClientHttpRequestInterceptor</code> with <code>spring.security.oauth2.client.registration.*</code> properties does all of this, including refresh. Apply an interceptor to <em>all</em> builders with a <code>RestClientCustomizer</code> bean — only if every call should get it.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Don't share one builder customised for partner A with calls to partner B — you'd send A's token to B.</li>
+  <li>Never log the <code>Authorization</code> header.</li>
+</ul>
+</div>
+
+<div class="recipe" id="nightly">
+<h2>Run a job every night</h2>
+<p class="problem">Overdue reminders must go out at 02:30 Paris time, once — even with three instances running.</p>
+<div class="tags"><span>@Scheduled</span><span>cron</span><span>Chapter 8</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="NightlyJobApp.java" data-run>
+package com.example.h4.nightly;
+
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronExpression;
+import org.springframework.stereotype.Component;
+
+@Component
+class OverdueReminders {
+  static final String CRON = "0 30 2 * * *";
+  @Scheduled(cron = "${jobs.reminders.cron:" + CRON + "}", zone = "Europe/Paris")
+  void send() { /* load overdue loans in pages, send mails, record what was sent */ }
+}
+
+@SpringBootApplication
+@EnableScheduling
+public class NightlyJobApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NightlyJobApp.class, "--spring.main.web-application-type=none")) {
+      var paris = ZoneId.of("Europe/Paris");
+      var now = ZonedDateTime.of(2026, 3, 28, 12, 0, 0, 0, paris);       // the day before the clocks change
+      var next = CronExpression.parse(OverdueReminders.CRON).next(now);
+      System.out.println("next: " + next + ", then " + CronExpression.parse(OverdueReminders.CRON).next(next));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+next: 2026-03-30T02:30+02:00[Europe/Paris], then 2026-03-31T02:30+02:00[Europe/Paris]
+</script>
+<p>Notice the daylight-saving switch: on 29 March 2026 the clocks jump from 02:00 to 03:00 in Paris, so 02:30 doesn't exist — and Spring's cron <strong>skips that day entirely</strong>: the next run is on the 30th. Avoid scheduling between 02:00 and 03:00 local time (use 03:30, or UTC). The cron comes from a property, so operations can change it without a release.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Every instance runs every job. For "once per cluster", use a lock (ShedLock: <code>@SchedulerLock(name = "reminders")</code> with a database table) or a platform scheduler (Kubernetes <code>CronJob</code>).</li>
+  <li>Make jobs idempotent and resumable (record what was sent): instances die mid-job.</li>
+  <li>The scheduler has one thread by default; long jobs delay others — <code>spring.task.scheduling.pool.size</code> or virtual threads.</li>
+</ul>
+</div>
+
+<div class="recipe" id="mail">
+<h2>Send an e-mail</h2>
+<p class="problem">Members get a confirmation e-mail when they borrow a book.</p>
+<div class="tags"><span>JavaMailSender</span><span>spring-boot-starter-mail</span><span>Chapters 8, 15</span></div>
+<h3>Solution</h3>
+<p>With <code>spring-boot-starter-mail</code> and <code>spring.mail.*</code> properties, Boot provides a <code>JavaMailSender</code>. Send <em>after commit</em>, in the background:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.mail.host=smtp.example.com
+spring.mail.port=587
+spring.mail.username=library@example.com
+spring.mail.password=${SMTP_PASSWORD}
+spring.mail.properties.mail.smtp.starttls.enable=true
+</script>
+<script type="text/plain" class="code" data-file="LoanMailer.java">
+package com.example.h4.mail;
+
+import jakarta.mail.MessagingException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionalEventListener;
+
+record LoanCreated(String email, String title, String dueOn) {}
+
+@Component
+class LoanMailer {
+  private final JavaMailSender mail;
+  LoanMailer(JavaMailSender mail) { this.mail = mail; }
+
+  @Async
+  @TransactionalEventListener                     // only if the loan was committed
+  void confirm(LoanCreated event) throws MessagingException {
+    var message = mail.createMimeMessage();
+    var helper = new MimeMessageHelper(message, true, "UTF-8");
+    helper.setFrom("library@example.com");
+    helper.setTo(event.email());
+    helper.setSubject("You borrowed " + event.title());
+    helper.setText("<p>Please return <b>" + event.title() + "</b> by " + event.dueOn() + ".</p>", true);   // HTML
+    mail.send(message);
+  }
+}
+</script>
+<p>In development, run a fake SMTP server such as Mailpit (<code>docker run -p 1025:1025 -p 8025:8025 axllent/mailpit</code>) and point <code>spring.mail.host</code> at it — you can read every mail in its web UI. In tests, replace <code>JavaMailSender</code> with a <code>@MockitoBean</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Escape user-provided text in HTML mails (titles can contain <code>&lt;</code>) or use a template engine (Thymeleaf) that escapes by default.</li>
+  <li>SMTP is slow and can fail: <code>@Async</code> keeps requests fast; for guaranteed delivery, store mails in an outbox table and retry.</li>
+</ul>
+</div>
+
+<div class="recipe" id="caffeine">
+<h2>Cache a lookup with expiry and a size limit</h2>
+<p class="problem">Book details from a remote catalogue rarely change; you want them cached for 10 minutes, at most 10 000 entries.</p>
+<div class="tags"><span>@Cacheable</span><span>Caffeine</span><span>Chapter 8</span></div>
+<h3>Solution</h3>
+<p>Add <code>com.github.ben-manes.caffeine:caffeine</code>; Boot then uses a Caffeine cache manager configured by a spec string:</p>
+<script type="text/plain" class="code" data-file="CaffeineCacheApp.java" data-run>
+package com.example.h4.caffeine;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.stereotype.Service;
+
+@Service
+class RemoteCatalog {
+  private final AtomicInteger remoteCalls = new AtomicInteger();
+  @Cacheable("books")
+  public String title(String isbn) { remoteCalls.incrementAndGet(); return "Title of " + isbn; }
+  public int remoteCalls() { return remoteCalls.get(); }
+}
+
+@SpringBootApplication
+@EnableCaching
+public class CaffeineCacheApp {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(CaffeineCacheApp.class, "--spring.main.web-application-type=none",
+        "--spring.cache.cache-names=books", "--spring.cache.caffeine.spec=maximumSize=10000,expireAfterWrite=1s,recordStats")) {
+      var catalog = ctx.getBean(RemoteCatalog.class);
+      catalog.title("111"); catalog.title("111"); catalog.title("111");
+      System.out.println("after 3 lookups: " + catalog.remoteCalls() + " remote call");
+      Thread.sleep(1100);                                     // let the entry expire
+      catalog.title("111");
+      System.out.println("after expiry:    " + catalog.remoteCalls() + " remote calls");
+      System.out.println("cache manager:   " + ctx.getBean(CacheManager.class).getClass().getSimpleName());
+      var stats = ((com.github.benmanes.caffeine.cache.Cache<?, ?>) ctx.getBean(CacheManager.class).getCache("books").getNativeCache()).stats();
+      System.out.println("hits/misses:     " + stats.hitCount() + "/" + stats.missCount());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+after 3 lookups: 1 remote call
+after expiry:    2 remote calls
+cache manager:   CaffeineCacheManager
+hits/misses:     2/2
+</script>
+<p>With Actuator, <code>recordStats</code> also publishes <code>cache.gets{result=hit|miss}</code> metrics — watch the hit ratio to see whether the cache earns its keep. Use Redis (<code>spring-boot-starter-data-redis</code>) instead when several instances must share one cache.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Caffeine's spec accepts durations in <code>d</code>, <code>h</code>, <code>m</code> or <code>s</code> only — <code>expireAfterWrite=200ms</code> fails at startup. For finer control, define a <code>Caffeine</code> builder bean.</li>
+  <li>Cached objects are shared: never mutate a returned object; prefer immutable records.</li>
+  <li>Self-invocation bypasses the cache (Chapter 7).</li>
+</ul>
+</div>
+
+<div class="recipe" id="accepted">
+<h2>Start long work and return 202 Accepted</h2>
+<p class="problem">Generating a yearly report takes a minute. The HTTP request shouldn't hang for that long.</p>
+<div class="tags"><span>@Async</span><span>202</span><span>polling</span><span>Chapters 8–9</span></div>
+<h3>Solution</h3>
+<p>Accept the request, start the work in the background, and return <code>202</code> with a <code>Location</code> where the client can poll the status:</p>
+<script type="text/plain" class="code" data-file="AcceptedApp.java" data-run>
+package com.example.h4.accepted;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
+
+record JobStatus(String id, String state, String result) {}
+
+@Service
+class ReportWorker {
+  @Async
+  public CompletableFuture<String> build(int year) throws InterruptedException {
+    Thread.sleep(300);                                          // the slow part
+    return CompletableFuture.completedFuture("report-" + year + ".pdf");
+  }
+}
+
+@RestController
+@RequestMapping("/reports")
+class ReportApi {
+  private final ReportWorker worker;
+  private final Map<String, CompletableFuture<String>> jobs = new ConcurrentHashMap<>();   // use a table in production
+  ReportApi(ReportWorker worker) { this.worker = worker; }
+
+  @PostMapping
+  ResponseEntity<JobStatus> start(@RequestParam int year, UriComponentsBuilder uri) throws InterruptedException {
+    String id = UUID.randomUUID().toString();
+    jobs.put(id, worker.build(year));
+    return ResponseEntity.accepted().location(uri.path("/reports/{id}").build(id)).body(new JobStatus(id, "RUNNING", null));
+  }
+
+  @GetMapping("/{id}")
+  ResponseEntity<JobStatus> status(@PathVariable String id) {
+    var job = jobs.get(id);
+    if (job == null) return ResponseEntity.notFound().build();
+    return ResponseEntity.ok(job.isDone() ? new JobStatus(id, "DONE", job.join()) : new JobStatus(id, "RUNNING", null));
+  }
+}
+
+@SpringBootApplication
+@EnableAsync
+public class AcceptedApp {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(AcceptedApp.class)) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var started = http.post().uri("/reports?year=2025").retrieve().toEntity(JobStatus.class);
+      System.out.println(started.getStatusCode() + " " + started.getBody().state());
+      var location = started.getHeaders().getLocation();
+      JobStatus status;
+      do { Thread.sleep(100); status = http.get().uri(location).retrieve().body(JobStatus.class); } while (status.state().equals("RUNNING"));
+      System.out.println(status.state() + " → " + status.result());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+202 ACCEPTED RUNNING
+DONE → report-2025.pdf
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>In-memory job maps vanish on restart and aren't shared between instances — store job state in the database, and for heavy work use a queue (Spring for Apache Kafka, RabbitMQ) and separate workers.</li>
+  <li>Bound the executor (<code>spring.task.execution.pool.*</code>) or many concurrent reports will exhaust memory.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/io/rest-client.html">Calling REST services</a> · <a href="https://docs.spring.io/spring-framework/reference/core/resilience.html">Resilience features</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/io/email.html">Sending email</a> · <a href="https://docs.spring.io/spring-boot/reference/io/caching.html">Caching</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/scheduling.html">Task execution and scheduling</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc webmvc-test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>B. Spring Boot 3 → 4 &amp; Cheat Sheet · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B</div>
+<h1>Spring Boot 3 → 4 &amp; Cheat Sheet</h1>
+<p class="lead">Spring Boot 4 (with Spring Framework 7) is a major release: modular auto-configuration, Jackson 3, JSpecify null-safety, new testing defaults and a handful of removals. This appendix is a practical upgrade guide — what changes, in which order to tackle it — followed by a one-page cheat sheet of the annotations, properties and commands used throughout the book.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>A safe <strong>upgrade path</strong> from Boot 3.x to 4.x.</li>
+  <li><strong>Modular starters</strong> and renamed artifacts, and the "classic" starters as a stepping stone.</li>
+  <li>The <strong>Jackson 3</strong> move (<code>tools.jackson</code>) and what stays the same.</li>
+  <li><strong>Testing changes</strong>: <code>@MockitoBean</code>, <code>@AutoConfigureMockMvc</code>, <code>RestTestClient</code>, per-technology test starters.</li>
+  <li>Removed and renamed features, and a <strong>cheat sheet</strong> for daily work.</li>
+</ul>
+</div>
+
+<h2 id="path">The upgrade path</h2>
+<ol>
+  <li><strong>Upgrade to the latest Boot 3.5.x first</strong> and fix every deprecation warning — Boot 4 removes what 3.x deprecated.</li>
+  <li><strong>Java 17+</strong> (Boot 4's minimum); Java 21 or 25 recommended. Upgrade the JDK separately from Boot if you can.</li>
+  <li>Switch the parent to <code>4.x</code> and, if the build breaks badly, temporarily use <code>spring-boot-starter-classic</code> / <code>spring-boot-starter-test-classic</code> (all auto-configuration modules, like Boot 3).</li>
+  <li>Rename starters (table below), move Jackson code to Jackson 3, fix tests.</li>
+  <li>Run the <strong>properties migrator</strong> (<code>spring-boot-properties-migrator</code>, runtime scope) once: it logs renamed/removed properties at startup and temporarily maps them. Remove it afterwards.</li>
+  <li>Replace "classic" starters with the specific ones you actually use.</li>
+</ol>
+<div class="tip">
+<p>💡 <strong>OpenRewrite</strong> has recipes (<code>org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0</code>) that automate many of these mechanical changes — run them on a branch and review the diff.</p>
+</div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: moving house.</strong> Before the move you throw away what you no longer use (fix deprecations on 3.5). On moving day, everything goes into a few big boxes labelled "kitchen stuff" (the classic starters) so you can live in the new place immediately. Then, room by room, you unpack into the right cupboards (specific starters) and throw the big boxes away.</p>
+</div>
+
+<h2 id="starters">Starters and modules</h2>
+<p>Boot 4 splits the giant <code>spring-boot-autoconfigure</code> jar into one module per technology, each with its own starter — smaller applications and clearer dependencies. Renames you'll hit:</p>
+<table>
+  <tr><th>Boot 3</th><th>Boot 4</th></tr>
+  <tr><td><code>spring-boot-starter-web</code></td><td><code>spring-boot-starter-webmvc</code></td></tr>
+  <tr><td><code>spring-boot-starter-aop</code></td><td><code>spring-boot-starter-aspectj</code></td></tr>
+  <tr><td><code>spring-boot-starter-oauth2-resource-server</code></td><td><code>spring-boot-starter-security-oauth2-resource-server</code></td></tr>
+  <tr><td><code>spring-boot-starter-oauth2-client</code></td><td><code>spring-boot-starter-security-oauth2-client</code></td></tr>
+  <tr><td><code>flyway-core</code> / <code>liquibase-core</code> alone</td><td><code>spring-boot-starter-flyway</code> / <code>-liquibase</code> (needed for auto-configuration)</td></tr>
+  <tr><td>web starter included <code>RestClient.Builder</code></td><td><code>spring-boot-starter-restclient</code> (and <code>-webclient</code>)</td></tr>
+  <tr><td><code>spring-boot-starter-test</code> with everything</td><td><code>spring-boot-starter-&lt;tech&gt;-test</code> per technology (e.g. <code>-webmvc-test</code>, <code>-data-jpa-test</code>)</td></tr>
+  <tr><td><code>spring-boot-starter-undertow</code></td><td>removed (Undertow lacks Servlet 6.1 support) — use Tomcat or Jetty</td></tr>
+</table>
+<p>Auto-configuration classes and some annotations moved packages accordingly, e.g. <code>@EntityScan</code> is now in <code>org.springframework.boot.persistence.autoconfigure</code>, <code>HealthIndicator</code> in <code>org.springframework.boot.health.contributor</code>, <code>@WebMvcTest</code> in <code>org.springframework.boot.webmvc.test.autoconfigure</code>, and <code>EnvironmentPostProcessor</code> in <code>org.springframework.boot</code>.</p>
+
+<h2 id="jackson">Jackson 3</h2>
+<p>Boot 4 uses Jackson 3. The group id and Java packages changed from <code>com.fasterxml.jackson</code> to <code>tools.jackson</code> — <strong>except the annotations</strong>, which stay in <code>com.fasterxml.jackson.annotation</code>. Other notable changes: <code>JsonMapper</code> (built with a builder, immutable) replaces configuring an <code>ObjectMapper</code> in place; exceptions are unchecked; Java time support is built in; dates are written as ISO strings by default.</p>
+<script type="text/plain" class="code" data-file="Jackson3Demo.java" data-run>
+package com.example.appb.jackson;
+
+import com.fasterxml.jackson.annotation.JsonProperty;             // annotations: unchanged package
+import java.time.LocalDate;
+import tools.jackson.databind.DeserializationFeature;              // core: tools.jackson
+import tools.jackson.databind.json.JsonMapper;
+
+record Member(@JsonProperty("full_name") String name, LocalDate joined) {}
+
+public class Jackson3Demo {
+  public static void main(String[] args) {
+    JsonMapper mapper = JsonMapper.builder()
+        .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+        .build();                                                  // immutable once built
+    String json = mapper.writeValueAsString(new Member("Ada", LocalDate.of(2024, 3, 1)));   // no checked IOException
+    System.out.println(json);
+    try {
+      mapper.readValue("{\"full_name\":\"Ada\",\"age\":36}", Member.class);
+    } catch (tools.jackson.core.JacksonException e) {              // unchecked
+      System.out.println("rejected unknown property: " + e.getClass().getSimpleName());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"full_name":"Ada","joined":"2024-03-01"}
+rejected unknown property: UnrecognizedPropertyException
+</script>
+<p>Boot-side renames: <code>Jackson2ObjectMapperBuilderCustomizer</code> → <code>JsonMapperBuilderCustomizer</code>; <code>@JsonComponent</code> → <code>@JacksonComponent</code>; <code>spring.jackson.read.*</code>/<code>write.*</code> → <code>spring.jackson.json.read.*</code>/<code>json.write.*</code>. If a library still needs Jackson 2, it can coexist (different packages), but Spring MVC uses Jackson 3.</p>
+
+<h2 id="testing">Testing changes</h2>
+<table>
+  <tr><th>Boot 3</th><th>Boot 4</th></tr>
+  <tr><td><code>@MockBean</code>, <code>@SpyBean</code></td><td><code>@MockitoBean</code>, <code>@MockitoSpyBean</code> (Spring Framework; the Boot annotations are removed)</td></tr>
+  <tr><td><code>@SpringBootTest</code> provided <code>MockMvc</code> automatically</td><td>add <code>@AutoConfigureMockMvc</code></td></tr>
+  <tr><td><code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> provided <code>TestRestTemplate</code></td><td>add <code>@AutoConfigureTestRestTemplate</code> — or use the new <code>RestTestClient</code> with <code>@AutoConfigureRestTestClient</code></td></tr>
+  <tr><td>slices from <code>spring-boot-test-autoconfigure</code></td><td>slices from per-technology test modules (new packages)</td></tr>
+  <tr><td>JUnit Jupiter 5</td><td>JUnit 6 (Jupiter API largely unchanged)</td></tr>
+</table>
+<script type="text/plain" class="code" data-file="MigratedTest.java" data-test>
+package com.example.appb.testing;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;   // new package
+import org.springframework.stereotype.Service;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;       // was @MockBean
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@SpringBootTest
+@AutoConfigureMockMvc                                                            // now required
+class MigratedTest {
+  @SpringBootApplication
+  static class App {
+    @Service static class Clock { String now() { return "real"; } }
+    @RestController static class TimeApi {
+      private final Clock clock;
+      TimeApi(Clock clock) { this.clock = clock; }
+      @GetMapping("/now") String now() { return clock.now(); }
+    }
+  }
+
+  @Autowired MockMvcTester mvc;
+  @MockitoBean App.Clock clock;
+
+  @Test
+  void usesTheMock() {
+    given(clock.now()).willReturn("mocked");
+    assertThat(mvc.get().uri("/now")).hasStatusOk().hasBodyTextEqualTo("mocked");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+
+<h2 id="other">Other notable changes</h2>
+<ul>
+  <li><strong>Null safety</strong>: Spring's APIs are annotated with <strong>JSpecify</strong> (<code>org.jspecify.annotations.Nullable</code>) instead of Spring's own <code>@Nullable</code>. Kotlin and tools like NullAway understand them; use them in your own code too.</li>
+  <li><strong>HTTP service clients</strong> are auto-configured (<code>@ImportHttpServices</code>, <code>spring.http.serviceclient.*</code>), and <strong>HTTP client settings</strong> moved to <code>spring.http.clients.*</code> (Chapter 11).</li>
+  <li><strong>Retry and concurrency limits</strong> moved into Spring Framework (<code>@Retryable</code>, <code>@ConcurrencyLimit</code>, <code>@EnableResilientMethods</code>); Spring Retry is in maintenance.</li>
+  <li><strong>API versioning</strong> is built into Spring MVC/WebFlux (<code>spring.mvc.apiversion.*</code>, Chapter 9).</li>
+  <li><strong>Liveness and readiness</strong> health groups are enabled by default; graceful shutdown is the default.</li>
+  <li><strong>Spring Security 7</strong>: the lambda DSL only (<code>and()</code> chaining is gone), <code>PathPatternRequestMatcher</code> by default, authorization factors (<code>FACTOR_*</code> authorities) for MFA.</li>
+  <li><strong>Hibernate 7</strong> / JPA 3.2, <strong>Jakarta EE 11</strong> (Servlet 6.1, Bean Validation 3.1), <strong>Tomcat 11</strong>, <strong>Jetty 12.1</strong>.</li>
+  <li>Executable "fully executable" launch scripts in jars and some deprecated properties are gone; <code>spring-boot-properties-migrator</code> reports the latter.</li>
+</ul>
+
+<h2 id="cheatsheet">Cheat sheet</h2>
+<h3>Annotations</h3>
+<table>
+  <tr><th>Annotation</th><th>Use</th><th>Ch.</th></tr>
+  <tr><td><code>@SpringBootApplication</code></td><td>main class: configuration + auto-configuration + component scan</td><td>1</td></tr>
+  <tr><td><code>@Component @Service @Repository @Controller @RestController</code></td><td>beans found by scanning</td><td>2</td></tr>
+  <tr><td><code>@Configuration</code> + <code>@Bean</code></td><td>declare beans in code</td><td>2</td></tr>
+  <tr><td><code>@Primary @Qualifier @Fallback</code></td><td>choose between candidates</td><td>2</td></tr>
+  <tr><td><code>@Scope @RequestScope @Lazy @Profile</code></td><td>scope, laziness, environments</td><td>3</td></tr>
+  <tr><td><code>@PostConstruct @PreDestroy</code></td><td>lifecycle callbacks</td><td>3</td></tr>
+  <tr><td><code>@Value @ConfigurationProperties @Validated</code></td><td>configuration</td><td>4</td></tr>
+  <tr><td><code>@ConditionalOn… @AutoConfiguration</code></td><td>conditional beans, own auto-config</td><td>5</td></tr>
+  <tr><td><code>@Valid</code>, <code>@NotBlank @Size @Email @Min …</code></td><td>validation</td><td>6</td></tr>
+  <tr><td><code>@Aspect @Around @Before …</code></td><td>AOP</td><td>7</td></tr>
+  <tr><td><code>@EventListener @TransactionalEventListener</code></td><td>events</td><td>8, 15</td></tr>
+  <tr><td><code>@EnableAsync/@Async</code>, <code>@EnableScheduling/@Scheduled</code>, <code>@EnableCaching/@Cacheable</code></td><td>background work, caching</td><td>8</td></tr>
+  <tr><td><code>@GetMapping … @PathVariable @RequestParam @RequestBody @ResponseStatus</code></td><td>web</td><td>9</td></tr>
+  <tr><td><code>@RestControllerAdvice @ExceptionHandler</code></td><td>error handling</td><td>10</td></tr>
+  <tr><td><code>@HttpExchange @ImportHttpServices @Retryable @ConcurrencyLimit</code></td><td>HTTP clients, resilience</td><td>11</td></tr>
+  <tr><td><code>@Entity @Id @ManyToOne @Version @Query @EntityGraph</code></td><td>JPA</td><td>14</td></tr>
+  <tr><td><code>@Transactional</code> (readOnly, propagation, rollbackFor)</td><td>transactions</td><td>15</td></tr>
+  <tr><td><code>@SpringBootTest @WebMvcTest @DataJpaTest @RestClientTest @MockitoBean</code></td><td>tests</td><td>16</td></tr>
+  <tr><td><code>@EnableMethodSecurity @PreAuthorize @WithMockUser</code></td><td>security</td><td>17</td></tr>
+  <tr><td><code>@Observed @Endpoint</code></td><td>observability</td><td>18</td></tr>
+</table>
+<h3>Properties you'll set most</h3>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+server.port=8080
+spring.profiles.active=dev
+spring.datasource.url=jdbc:postgresql://localhost:5432/app
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.open-in-view=false
+spring.mvc.problemdetails.enabled=true
+spring.jackson.default-property-inclusion=non_null
+spring.http.clients.read-timeout=5s
+spring.threads.virtual.enabled=true
+management.endpoints.web.exposure.include=health,info,prometheus
+logging.level.com.example=debug
+logging.structured.format.console=ecs
+server.shutdown=graceful
+</script>
+<h3>Commands</h3>
+<script type="text/plain" class="code" data-lang="shell">
+$ ./mvnw spring-boot:run                      # run
+$ ./mvnw test                                 # test
+$ ./mvnw package && java -jar target/app.jar  # build and run the jar
+$ java -jar app.jar --debug                   # condition evaluation report
+$ ./mvnw spring-boot:build-image              # container image
+$ ./mvnw -Pnative native:compile              # native executable
+$ curl localhost:8080/actuator/health         # health
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A <code>JsonMapperBuilderCustomizer</code> instead of an <code>ObjectMapper</code> bean</h3>
+<script type="text/plain" class="code" data-file="CustomizerMigration.java" data-run>
+package com.example.appb.customizer;
+
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+
+@SpringBootApplication
+public class CustomizerMigration {
+  @Bean                     // Boot 3: Jackson2ObjectMapperBuilderCustomizer
+  JsonMapperBuilderCustomizer indent() { return builder -> builder.enable(SerializationFeature.INDENT_OUTPUT); }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomizerMigration.class, "--spring.main.web-application-type=none")) {
+      System.out.println(ctx.getBean(JsonMapper.class).writeValueAsString(Map.of("migrated", true)));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{
+  "migrated" : true
+}
+</script>
+
+<h3>JSpecify null-safety annotations</h3>
+<script type="text/plain" class="code" data-file="JSpecifyDemo.java" data-run>
+package com.example.appb.jspecify;
+
+import java.util.Map;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+
+@NullMarked                                    // everything here is non-null unless marked @Nullable
+class Catalog {
+  private final Map<String, String> titles = Map.of("111", "Dune");
+  @Nullable String title(String isbn) { return titles.get(isbn); }   // callers must handle null
+}
+
+public class JSpecifyDemo {
+  public static void main(String[] args) {
+    var catalog = new Catalog();
+    String t = catalog.title("999");
+    System.out.println(t == null ? "not found" : t);           // static analysis (NullAway) would insist on this check
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+not found
+</script>
+<p>Annotate package by package with <code>@NullMarked</code> in <code>package-info.java</code>, then mark the exceptions. The annotations alone change nothing at runtime; tools enforce them at compile time.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Path: Boot 3.5 without deprecations → Java 17+ → Boot 4 (classic starters if needed) → rename starters, Jackson 3, tests → properties migrator → specific starters.</li>
+  <li>Starter renames: <code>-web</code>→<code>-webmvc</code>, <code>-aop</code>→<code>-aspectj</code>, <code>security-oauth2-*</code>, explicit <code>-flyway</code>/<code>-liquibase</code>/<code>-restclient</code>, per-technology <code>-test</code> starters; Undertow removed.</li>
+  <li>Jackson 3: <code>tools.jackson</code> packages (annotations unchanged), immutable <code>JsonMapper</code>, unchecked exceptions, <code>JsonMapperBuilderCustomizer</code>, <code>@JacksonComponent</code>.</li>
+  <li>Tests: <code>@MockitoBean</code>/<code>@MockitoSpyBean</code>, <code>@AutoConfigureMockMvc</code>/<code>@AutoConfigureTestRestTemplate</code> explicitly, <code>RestTestClient</code>, JUnit 6.</li>
+  <li>New in Framework 7/Boot 4: JSpecify, HTTP service clients, core retry, API versioning, probes and graceful shutdown on by default.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why should you upgrade to the latest Boot 3.5.x and remove deprecation warnings <em>before</em> moving to 4.0?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Boot 4 removes APIs and properties deprecated in 3.x. On 3.5 the old and new ways coexist, so you can migrate each warning with a compiling, running application and a small diff. Jumping directly turns every deprecation into a compile or startup error at once.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>After upgrading, <code>import com.fasterxml.jackson.databind.ObjectMapper;</code> no longer compiles, but <code>import com.fasterxml.jackson.annotation.JsonIgnore;</code> does. Explain.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Jackson 3 moved its core and databind packages to <code>tools.jackson.*</code> (and a new group id), while the annotations module kept <code>com.fasterxml.jackson.annotation</code> so annotated model classes stay compatible with both versions. Replace <code>ObjectMapper</code> usage with <code>tools.jackson.databind.json.JsonMapper</code> (injected from Boot).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A test class with <code>@SpringBootTest</code> and <code>@Autowired MockMvc mvc</code> fails after the upgrade with "No qualifying bean of type MockMvc". Fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>@AutoConfigureMockMvc</code> to the class (from <code>org.springframework.boot.webmvc.test.autoconfigure</code>) and make sure <code>spring-boot-starter-webmvc-test</code> is a test dependency. Boot 4 no longer configures <code>MockMvc</code> for every <code>@SpringBootTest</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Your Boot 3 app used <code>flyway-core</code> only, and migrations ran at startup. After upgrading, they don't run and Hibernate's <code>validate</code> fails. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Flyway's auto-configuration moved into its own module, brought in by <code>spring-boot-starter-flyway</code>. With just the library, nothing configures and runs Flyway. Replace <code>flyway-core</code> with the starter (keep the database-specific Flyway module, e.g. <code>flyway-database-postgresql</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Migrate this Boot 3 test fragment: <code>@MockBean PriceService prices;</code> with <code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> and an injected <code>TestRestTemplate</code>. Write the Boot 4 version using <code>RestTestClient</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="java" data-norun>
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient                       // org.springframework.boot.resttestclient.autoconfigure
+class PriceApiTest {
+  @Autowired RestTestClient client;                // org.springframework.test.web.servlet.client
+  @MockitoBean PriceService prices;                // org.springframework.test.context.bean.override.mockito
+
+  @Test
+  void returnsPrice() {
+    given(prices.price("111")).willReturn(new BigDecimal("9.99"));
+    client.get().uri("/prices/111").exchange()
+        .expectStatus().isOk()
+        .expectBody().jsonPath("$.price").isEqualTo(9.99);
+  }
+}
+</script>
+<p>Add <code>spring-boot-resttestclient</code> (test scope). If you prefer to keep <code>TestRestTemplate</code>, add <code>@AutoConfigureTestRestTemplate</code> instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>Your application uses Spring Retry's <code>@Retryable(maxAttempts = 3, backoff = @Backoff(delay = 100, multiplier = 2))</code> with <code>@EnableRetry</code>. Translate it to Spring Framework 7.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@EnableResilientMethods</code> on a configuration class, and <code>@Retryable(maxRetries = 2, delay = 100, multiplier = 2)</code> from <code>org.springframework.resilience.annotation</code>. Note the semantics: Spring Retry's <code>maxAttempts = 3</code> counts the first call; Framework 7's <code>maxRetries = 2</code> counts only retries — both mean three calls in total. Use <code>includes</code>/<code>excludes</code> for exception filtering; <code>@Recover</code> has no direct equivalent — catch the exception in the caller for a fallback.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>JsonMapperBuilderCustomizer</code> that makes the application's mapper write property names in snake_case, and show it on a record.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SnakeCaseCustomizer.java" data-run>
+package com.example.appb.ex7;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.json.JsonMapper;
+
+record LoanDue(String memberName, String dueOn) {}
+
+@SpringBootApplication
+public class SnakeCaseCustomizer {
+  @Bean JsonMapperBuilderCustomizer snake() { return b -> b.propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE); }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SnakeCaseCustomizer.class, "--spring.main.web-application-type=none")) {
+      System.out.println(ctx.getBean(JsonMapper.class).writeValueAsString(new LoanDue("Ada", "2026-03-16")));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"member_name":"Ada","due_on":"2026-03-16"}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>Your Boot 3 security configuration ends with <code>.and().httpBasic().and().csrf().disable()</code>. Rewrite it for Spring Security 7.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Use the lambda DSL: <code>http.authorizeHttpRequests(a -&gt; a.anyRequest().authenticated()).httpBasic(Customizer.withDefaults()).csrf(c -&gt; c.disable());</code> — each section is configured in its own lambda, and <code>and()</code> no longer exists. Also replace <code>antMatchers</code>/<code>mvcMatchers</code> (removed earlier) with <code>requestMatchers</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Plan the upgrade of a 40-module Boot 3.2 system with Undertow, Jackson 2 custom serializers, Spring Retry and 600 tests using <code>@MockBean</code>. Order the work into reviewable steps.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Upgrade to Boot 3.5.x; fix deprecations module by module. (2) Switch Undertow → Tomcat (or Jetty) on 3.5 — behavioural changes (thread pools, timeouts) are easier to test before the major upgrade. (3) Replace <code>@MockBean</code> with <code>@MockitoBean</code> (available since Framework 6.2 / Boot 3.4) — mechanical, can run via OpenRewrite. (4) Move Spring Retry to Framework 7 later, or keep it temporarily (it still works). (5) Upgrade the JDK if needed. (6) Boot 4 with classic starters; get everything green. (7) Jackson 3: migrate serializers (<code>tools.jackson</code>, <code>ValueSerializer</code>), using <code>@JacksonComponent</code>; contract tests on JSON output catch accidental changes. (8) Fix tests for <code>@AutoConfigureMockMvc</code> etc. (9) Properties migrator, then remove. (10) Replace classic starters with specific ones per module. Each step: separate PR, full test run, staging deployment.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Take a Boot 3 <code>pom.xml</code> with <code>spring-boot-starter-web</code>, <code>-aop</code>, <code>-oauth2-resource-server</code>, <code>flyway-core</code>, <code>spring-boot-starter-test</code>, and rewrite the dependency list for Boot 4 — including test starters for MVC, JPA and security.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="pom.xml" data-norun>
+<parent>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-parent</artifactId>
+  <version>4.1.2</version>
+</parent>
+<dependencies>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc</artifactId></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-aspectj</artifactId></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-flyway</artifactId></dependency>
+  <dependency><groupId>org.flywaydb</groupId><artifactId>flyway-database-postgresql</artifactId></dependency>
+  <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
+
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc-test</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa-test</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security-oauth2-resource-server-test</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-properties-migrator</artifactId><scope>runtime</scope></dependency>  <!-- remove after migrating -->
+</dependencies>
+</script>
+<p>Each <code>-test</code> starter brings <code>spring-boot-starter-test</code> plus its slice, so a separate <code>spring-boot-starter-test</code> line is no longer necessary.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide">Spring Boot 4.0 Migration Guide</a> · <a href="https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Release-Notes">Release notes</a></li>
+  <li><a href="https://github.com/spring-projects/spring-framework/wiki/Upgrading-to-Spring-Framework-7.x">Upgrading to Spring Framework 7</a> · <a href="https://docs.spring.io/spring-security/reference/migration/index.html">Spring Security migration</a></li>
+  <li><a href="https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.0">Jackson 3.0 release notes</a> · <a href="https://jspecify.dev/docs/start-here/">JSpecify</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

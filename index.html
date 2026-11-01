@@ -7,132 +7,264 @@
 <title>Course Launcher</title>
 <style>
   :root {
-    --bg: #fbfaf7; --panel: #ffffff; --soft: #f2f0ea; --text: #1f2328; --muted: #5d636b;
+    --bg: #fbfaf7; --panel: #ffffff; --soft: #f2f0ea; --side: #f6f4ef; --text: #1f2328; --muted: #5d636b;
     --border: #e1ddd3; --accent: #2f5fa7; --accent-soft: #e6eefa; --good: #2e8b57;
+    --c1: #2f5fa7; --c2: #c27c0e; --c3: #2e8b57; --c4: #8a4fb8;
     --shadow: 0 1px 3px rgba(0,0,0,.06), 0 6px 18px rgba(0,0,0,.05);
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #15171b; --panel: #1d2026; --soft: #1c1f24; --text: #e6e6e3; --muted: #a3a8b0;
+      --bg: #15171b; --panel: #1d2026; --soft: #1c1f24; --side: #181a1f; --text: #e6e6e3; --muted: #a3a8b0;
       --border: #30343c; --accent: #7fb0ff; --accent-soft: #1f2b40; --good: #4fbf7f;
+      --c1: #7fb0ff; --c2: #e0a84a; --c3: #4fbf7f; --c4: #c39bea;
       --shadow: 0 1px 3px rgba(0,0,0,.4);
       color-scheme: dark;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans); }
-  main { max-width: 980px; margin: 0 auto; padding: 40px 20px 60px; }
-  h1 { font-size: 2.1rem; line-height: 1.2; margin: .2em 0 .2em; }
+  a { color: var(--accent); }
+
+  /* ---------- layout: navigation on the left, details on the right (like the books) ---------- */
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+  #nav { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--side); border-right: 1px solid var(--border); padding: 22px 16px 30px; }
+  .brand { font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; margin: 0 6px 2px; }
+  .brand-sub { color: var(--muted); font-size: .85rem; margin: 0 6px 14px; }
+  .filter { width: 100%; font: 14px var(--sans); padding: 8px 11px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--text); margin-bottom: 10px; }
+  .filter:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .group { margin-top: 12px; }
+  .level { display: flex; width: 100%; align-items: center; justify-content: space-between; text-align: left; cursor: pointer;
+    font: 700 11.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    background: none; border: 0; padding: 6px 8px; border-radius: 7px; }
+  .level:hover { color: var(--text); background: var(--soft); }
+  .level[aria-current="true"] { color: var(--accent); }
+  .level .count { font-weight: 600; letter-spacing: 0; opacity: .8; }
+  .subhead { font-size: 11px; color: var(--muted); margin: 6px 10px 2px; font-style: italic; }
+  .nav-course { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
+    font: 14.5px var(--sans); color: var(--text); background: none; border: 1px solid transparent; border-radius: 9px; padding: 7px 8px; margin: 1px 0; }
+  .nav-course:hover { background: var(--panel); border-color: var(--border); }
+  .nav-course[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+  .nav-course .ic { font-size: 18px; text-align: center; }
+  .nav-course .hrs { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .nav-empty { color: var(--muted); font-size: .9rem; padding: 6px 10px; }
+  .nav-foot { margin: 22px 6px 0; font-size: .82rem; color: var(--muted); }
+
+  main { padding: 36px 44px 60px; max-width: 1040px; }
   .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 12.5px; font-weight: 700; color: var(--accent); }
-  .lead { color: var(--muted); font-size: 1.1rem; margin: 0 0 28px; }
-  h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 10px; }
-  .step { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center;
-    background: var(--accent); color: var(--bg); font-size: 12px; margin-right: 8px; vertical-align: 2px; }
+  h1 { font-size: 2.2rem; line-height: 1.15; margin: .2em 0 .25em; display: flex; align-items: center; gap: 12px; }
+  h1 .ic { font-size: 2.4rem; }
+  .lead { color: var(--muted); font-size: 1.12rem; margin: 0 0 18px; max-width: 760px; }
+  h2 { font-size: 1.05rem; margin: 30px 0 10px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+  .tag { font-size: 12px; border: 1px solid var(--border); border-radius: 99px; padding: 1px 10px; color: var(--muted); background: var(--soft); }
 
-  .levels { display: flex; flex-wrap: wrap; gap: 8px; }
-  .level { font: 600 15px var(--sans); padding: 9px 18px; border-radius: 99px; cursor: pointer;
-    border: 1.5px solid var(--border); background: var(--panel); color: var(--text); }
-  .level:hover { border-color: var(--accent); }
-  .level[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-  .level .count { font-weight: 500; opacity: .75; margin-left: 4px; }
-
-  .courses { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-  .course { text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 6px;
-    background: var(--panel); border: 1.5px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); }
-  .course:hover { border-color: var(--accent); }
-  .course[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-  .course .icon { font-size: 28px; line-height: 1; }
-  .course h3 { margin: 4px 0 0; font-size: 1.15rem; }
-  .course p { margin: 0; color: var(--muted); font-size: .93rem; }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .tag { font-size: 12px; border: 1px solid var(--border); border-radius: 99px; padding: 1px 9px; color: var(--muted); background: var(--soft); }
-  .empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--border); border-radius: 12px; padding: 22px; text-align: center; }
-
-  .launch { margin-top: 28px; background: var(--panel); border: 1px solid var(--border); border-left: 5px solid var(--accent);
-    border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
-  .launch .info { flex: 1 1 280px; min-width: 0; }
-  .launch .info strong { font-size: 1.1rem; }
-  .launch .info p { margin: 2px 0 0; color: var(--muted); }
+  .launch { background: var(--panel); border: 1px solid var(--border); border-left: 5px solid var(--accent); border-radius: 12px;
+    padding: 16px 18px; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .launch .info { flex: 1 1 240px; min-width: 0; color: var(--muted); font-size: .95rem; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .btn { display: inline-block; text-decoration: none; font: 600 15px var(--sans); padding: 10px 18px; border-radius: 9px;
     border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-  .btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
-  footer { margin-top: 36px; color: var(--muted); font-size: .9rem; }
-  kbd { font: 12px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--soft); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .stat .v { font-size: 1.5rem; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--muted); font-size: .85rem; }
+  .stat.time { border-color: var(--accent); background: var(--accent-soft); grid-column: span 2; }
+  .stat.time .v { font-size: 2rem; color: var(--accent); }
+
+  .bar { display: flex; height: 12px; border-radius: 99px; overflow: hidden; background: var(--soft); margin: 10px 0 8px; }
+  .bar span { display: block; height: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .88rem; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+  ul.learn { padding-left: 1.2em; margin: 0; }
+  ul.learn li { margin: .2em 0; }
+  .refs { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .refs a { display: block; text-decoration: none; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); }
+  .refs a:hover { border-color: var(--accent); }
+  .refs b { display: block; color: var(--accent); }
+  .refs span { color: var(--muted); font-size: .9rem; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .path button { font: 600 13.5px var(--sans); border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 99px; padding: 5px 12px; cursor: pointer; }
+  .path button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .path .arrow { color: var(--muted); }
+  details.model { margin-top: 26px; color: var(--muted); font-size: .9rem; }
+  details.model summary { cursor: pointer; }
+  footer { margin-top: 30px; color: var(--muted); font-size: .9rem; }
+  kbd { font: 12px var(--mono); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--soft); }
+
+  .narrow-only { display: none; }
+  @media (max-width: 860px) {
+    .narrow-only { display: inline; } .wide-only { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    #nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 16px; }
+    main { padding: 24px 16px 48px; }
+    h1 { font-size: 1.7rem; }
+    .cols { grid-template-columns: 1fr; }
+    .stat.time { grid-column: span 1; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <div class="eyebrow">Learning notes</div>
-  <h1>📚 Course Launcher</h1>
-  <p class="lead">Pick a level, choose a course, and launch it. Each study book has exercises and a final assessment; the Practice level holds a problem set for any language.</p>
+<div class="layout">
+  <nav id="nav" aria-label="Courses">
+    <div class="brand">🧭 Learning Notes</div>
+    <div class="brand-sub">Choose a course; its details and the launch button appear <span class="wide-only">on the right</span><span class="narrow-only">below</span>.</div>
+    <input class="filter" id="filter" type="search" placeholder="Filter courses…" aria-label="Filter courses">
+    <div id="groups"></div>
+    <div class="nav-foot">Use <kbd>↑</kbd> <kbd>↓</kbd> to move between courses and <kbd>Enter</kbd> to launch. Your last choice is remembered on this device.</div>
+  </nav>
 
-  <h2><span class="step">1</span>Choose a level</h2>
-  <div class="levels" id="levels" role="group" aria-label="Level"></div>
+  <main id="main" aria-live="polite">
+    <div class="eyebrow" id="c-eyebrow"></div>
+    <h1 id="c-title"></h1>
+    <p class="lead" id="c-desc"></p>
+    <div class="tags" id="c-tags"></div>
 
-  <h2><span class="step">2</span>Choose a course</h2>
-  <div class="courses" id="courses" role="group" aria-label="Courses"></div>
+    <section class="launch" id="launch">
+      <div class="info" id="launch-info"></div>
+      <div class="actions" id="launch-actions"></div>
+    </section>
 
-  <section class="launch" id="launch" aria-live="polite">
-    <div class="info" id="launch-info"></div>
-    <div class="actions" id="launch-actions"></div>
-  </section>
+    <div class="stats" id="c-stats"></div>
+    <div id="c-breakdown"></div>
 
-  <footer>Tip: press <kbd>Enter</kbd> to launch the selected course. Your last choice is remembered on this device.</footer>
-</main>
+    <div class="cols">
+      <div>
+        <h2>📚 What you'll learn</h2>
+        <ul class="learn" id="c-learn"></ul>
+      </div>
+      <div>
+        <h2>🧭 Before you start</h2>
+        <p id="c-prereq"></p>
+        <h2>➡️ Next step</h2>
+        <p id="c-next"></p>
+      </div>
+    </div>
+
+    <h2>🔗 Further reading</h2>
+    <ul class="refs" id="c-refs"></ul>
+
+    <h2>🗺️ Suggested learning path</h2>
+    <div class="path" id="c-path"></div>
+
+    <details class="model" id="model">
+      <summary>How the time estimates are calculated</summary>
+      <div id="model-text"></div>
+    </details>
+    <footer>All courses are static pages: open them from disk or any web server. The Problem Set works with any language.</footer>
+  </main>
+</div>
 
 <script>
-// Course catalogue: add a new course here. Paths are relative to this page.
-var LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Practice'];
+/* STATS:BEGIN — generated by tools/launcher-stats.mjs, do not edit by hand */
+var MODEL = {"wordsPerMinute":180,"minutesPerCodeLine":0.16666666666666666,"exercise":{"easy":6,"medium":15,"hard":35},"assessment":50,"problem":{"easy":15,"medium":30,"hard":60,"oop":45}};
+var STATS = {"python":{"chapters":16,"appendices":2,"howtos":0,"words":26281,"codeLines":3845,"exercises":186,"questions":1000,"minutes":{"reading":146,"examples":641,"exercises":2982,"assessment":50},"hours":64},"react":{"chapters":15,"appendices":1,"howtos":0,"words":15495,"codeLines":2448,"exercises":127,"questions":1000,"minutes":{"reading":86,"examples":408,"exercises":1712,"assessment":50},"hours":38},"javascript":{"chapters":16,"appendices":2,"howtos":0,"words":20596,"codeLines":2822,"exercises":180,"questions":1000,"minutes":{"reading":114,"examples":470,"exercises":2772,"assessment":50},"hours":57},"nodejs":{"chapters":16,"appendices":2,"howtos":0,"words":31411,"codeLines":3896,"exercises":180,"questions":1000,"minutes":{"reading":175,"examples":649,"exercises":2772,"assessment":50},"hours":61},"springboot":{"chapters":20,"appendices":2,"howtos":6,"words":40166,"codeLines":8788,"exercises":220,"questions":1000,"minutes":{"reading":223,"examples":1465,"exercises":3388,"assessment":50},"hours":85},"problems":{"problems":100,"byLevel":{"easy":25,"medium":25,"hard":25,"oop":25},"tests":506,"minutes":{"problems":3750},"hours":63}};
+/* STATS:END */
+
+// Course catalogue: add a new course here (paths are relative to this page), then run
+// `node tools/launcher-stats.mjs` to measure it. Courses with a `kind` also appear under Frameworks.
+var LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Practice', 'Frameworks'];
+var KINDS = ['Libraries', 'Frameworks'];
+var PATH = ['python', 'javascript', 'react', 'nodejs', 'springboot', 'problems'];
 var COURSES = [
   {
-    id: 'python', level: 'Beginner', icon: '🐍', title: 'Python Study Book',
-    path: 'Beginner/python-book/',
-    description: 'The official Python 3.15 tutorial, chapter by chapter, written for people coming from Java and JavaScript.',
+    id: 'python', level: 'Beginner', icon: '🐍', title: 'Python Study Book', path: 'Beginner/python-book/',
+    description: 'The official Python 3.15 tutorial, chapter by chapter, written for people coming from Java and JavaScript — from the interpreter to classes, iterators, the standard library and virtual environments, ending with a small project.',
     tags: ['16 chapters', '2 appendices', '1000-question assessment', 'Python 3.15'],
-    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']]
+    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']],
+    learn: ['Python syntax, types and control flow, including match', 'Functions, comprehensions, lists, dicts and sets', 'Modules, packages, files and exceptions', 'Classes, iterators and generators', 'The standard library and virtual environments'],
+    prereq: 'None — comfortable with any programming language helps; Java and JavaScript comparisons are included.',
+    next: 'javascript',
+    refs: [['The Python Tutorial', 'https://docs.python.org/3/tutorial/', 'the official tutorial this book follows'],
+      ['The Python Standard Library', 'https://docs.python.org/3/library/', 'reference for every built-in module'],
+      ['PEP 8 – Style Guide', 'https://peps.python.org/pep-0008/', 'how idiomatic Python code is formatted'],
+      ["What's New in Python", 'https://docs.python.org/3/whatsnew/', 'changes in each release']]
   },
   {
-    id: 'react', level: 'Beginner', icon: '⚛️', title: 'React Beginner Book',
-    path: 'Beginner/react-book/',
-    description: 'Learn React from zero, following the structure of the official react.dev docs.',
+    id: 'react', level: 'Beginner', kind: 'Libraries', icon: '⚛️', title: 'React Beginner Book', path: 'Beginner/react-book/',
+    description: 'Learn React from zero, following the structure of the official react.dev docs: components and JSX, props, state, events, effects, context, refs and custom hooks — ending with "Thinking in React".',
     tags: ['15 chapters', 'JS refresher appendix', '1000-question assessment'],
-    extras: [['Final assessment', 'assessment.html']]
+    extras: [['Final assessment', 'assessment.html']],
+    learn: ['Components, JSX and props', 'Rendering lists and conditional UI', 'State, events and immutable updates', 'Reducers, context and refs', 'Effects and custom hooks'],
+    prereq: 'Basic JavaScript (the appendix has a refresher); the JavaScript Study Book is ideal preparation.',
+    next: 'nodejs',
+    refs: [['react.dev — Learn', 'https://react.dev/learn', 'the official guide this book follows'],
+      ['react.dev — Reference', 'https://react.dev/reference/react', 'every hook and API'],
+      ['Thinking in React', 'https://react.dev/learn/thinking-in-react', 'how to design a component tree'],
+      ['MDN JavaScript Guide', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide', 'the language underneath React']]
   },
   {
-    id: 'javascript', level: 'Intermediate', icon: '🟨', title: 'JavaScript Study Book',
-    path: 'Intermediate/javascript-book/',
-    description: 'The MDN JavaScript Guide in depth: everything ES6 changed and everything since (through ES2026), the event loop, modules and metaprogramming.',
+    id: 'javascript', level: 'Intermediate', icon: '🟨', title: 'JavaScript Study Book', path: 'Intermediate/javascript-book/',
+    description: 'The MDN JavaScript Guide in depth: everything ES6 changed and everything since (through ES2026), closures, collections, classes and prototypes, promises and the event loop, modules and metaprogramming.',
     tags: ['16 chapters', '2 appendices', '1000-question assessment', 'Node 26'],
-    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']]
+    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']],
+    learn: ['Types, scope, functions and closures', 'Destructuring, spread, ?. and ??', 'Arrays, Maps, Sets and objects', 'Classes and the prototype chain', 'Promises, async/await, the event loop and modules'],
+    prereq: 'Programming basics in any language.',
+    next: 'react',
+    refs: [['MDN JavaScript Guide', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide', 'the guide this book follows'],
+      ['MDN JavaScript Reference', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference', 'every built-in object and statement'],
+      ['ECMAScript specification', 'https://tc39.es/ecma262/', 'the language standard itself'],
+      ['TC39 proposals', 'https://github.com/tc39/proposals', 'what is coming next to JavaScript']]
   },
   {
-    id: 'nodejs', level: 'Intermediate', icon: '🟩', title: 'Node.js Study Book',
-    path: 'Intermediate/nodejs-book/',
-    description: 'Node.js from your first script to a tested, production-ready HTTP API, following nodejs.org/learn: modules, npm, the event loop, streams, HTTP, workers, testing and security.',
+    id: 'nodejs', level: 'Intermediate', icon: '🟩', title: 'Node.js Study Book', path: 'Intermediate/nodejs-book/',
+    description: 'Node.js from your first script to a tested, production-ready HTTP API, following nodejs.org/learn: modules, npm, the event loop, files and streams, HTTP servers and clients, workers, the test runner and security.',
     tags: ['16 chapters', '2 appendices', '1000-question assessment', 'Node 26'],
-    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']]
+    extras: [['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']],
+    learn: ['CommonJS vs ES modules and npm', 'Callbacks, promises and the event loop', 'Files, buffers and streams', 'HTTP servers, fetch and WebSockets', 'Workers, testing with node:test and production practices'],
+    prereq: 'Modern JavaScript — the JavaScript Study Book level.',
+    next: 'springboot',
+    refs: [['Node.js Learn', 'https://nodejs.org/en/learn', 'the official guides this book follows'],
+      ['Node.js API documentation', 'https://nodejs.org/api/', 'every core module'],
+      ['npm Docs', 'https://docs.npmjs.com/', 'packages, versions and scripts'],
+      ['Node.js Best Practices', 'https://github.com/goldbergyoni/nodebestpractices', 'a community collection of production advice']]
   },
   {
-    id: 'problems', level: 'Practice', icon: '🧩', title: 'Problem Set',
-    path: 'problems/',
-    description: '100 language-neutral problems to master any language: 25 easy, 25 medium, 25 hard and 25 object-oriented design problems, with exact test cases and a checker.',
+    id: 'springboot', level: 'Advanced', kind: 'Frameworks', icon: '🍃', title: 'Spring Boot Study Book', path: 'Advanced/spring-boot-book/',
+    description: 'Spring Framework 7 and Spring Boot 4 from the official reference docs, intermediate to advanced: IoC, configuration, web, data, transactions, security, testing, observability and deployment — plus How-To guides for everyday tasks and a Library Loans API project.',
+    tags: ['20 chapters', '43 How-To recipes', '2 appendices', '1000-question assessment', 'Java 25'],
+    extras: [['How-To guides', 'howto-index.html'], ['Playground how-to', 'playground-howto.html'], ['Final assessment', 'assessment.html']],
+    learn: ['The IoC container, bean lifecycle, configuration and auto-configuration', 'AOP, events, async work, scheduling and caching', 'REST APIs with Spring MVC, Problem Details, HTTP clients and WebFlux', 'JDBC, Flyway, Spring Data JPA and transactions', 'Testing, Spring Security, observability and deployment'],
+    prereq: 'Solid Java (records and lambdas; Appendix A covers modern Java) and basic HTTP and SQL.',
+    next: 'problems',
+    refs: [['Spring Boot Reference', 'https://docs.spring.io/spring-boot/index.html', 'the official Boot documentation'],
+      ['Spring Framework Reference', 'https://docs.spring.io/spring-framework/reference/index.html', 'the container, web, data access and testing'],
+      ['Spring Guides', 'https://spring.io/guides', 'short, task-focused getting-started guides'],
+      ['Spring Boot 4.0 Migration Guide', 'https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide', 'upgrading from Boot 3'],
+      ['Spring Security Reference', 'https://docs.spring.io/spring-security/reference/', 'authentication and authorization in depth']]
+  },
+  {
+    id: 'problems', level: 'Practice', icon: '🧩', title: 'Problem Set', path: 'problems/',
+    description: '100 language-neutral problems to master any language: 25 easy, 25 medium, 25 hard and 25 object-oriented design problems, each with exact stdin/stdout test cases and a checker you run locally.',
     tags: ['100 problems', '500+ tests', 'stdin/stdout', 'any language'],
     extras: [['How to solve & test', 'guide.html']],
-    launchNote: 'Practice · opens the problem list'
+    launchNote: 'Practice · opens the problem list',
+    learn: ['Reading input and printing exact output', 'Strings, collections and number handling', 'Classic algorithms: sorting, searching, graphs, DP', 'Object-oriented design with command loops', 'Testing your solutions against exact cases'],
+    prereq: 'The basics of one language — Python, JavaScript (Node) or Java.',
+    next: null,
+    refs: [['Exercism', 'https://exercism.org/', 'mentored practice tracks for 70+ languages'],
+      ['Project Euler', 'https://projecteuler.net/', 'mathematical programming problems'],
+      ['Rosetta Code', 'https://rosettacode.org/', 'the same task solved in many languages'],
+      ['Introduction to Algorithms (MIT 6.006)', 'https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/', 'free lectures on the algorithms behind the hard problems']]
   }
 ];
 
 (function () {
-  var KEY = 'notes.launcher.v1';
+  var KEY = 'notes.launcher.v2';
   var saved = {};
-  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { saved = {}; }
-  var level = LEVELS.indexOf(saved.level) >= 0 ? saved.level : 'Beginner';
-  var courseId = saved.course || null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem('notes.launcher.v1') || '{}') || {}; } catch (e) { saved = {}; }
+  var byId = {};
+  COURSES.forEach(function (c) { byId[c.id] = c; });
+  var current = byId[saved.course] || COURSES[0];
+  var group = LEVELS.indexOf(saved.level) >= 0 ? saved.level : current.level;
+  var query = '';
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -141,80 +273,239 @@ var COURSES = [
     return e;
   }
   function remember() {
-    try { localStorage.setItem(KEY, JSON.stringify({ level: level, course: courseId })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ course: current.id, level: group })); } catch (e) { /* ignore */ }
   }
-  function inLevel() { return COURSES.filter(function (c) { return c.level === level; }); }
-  function selected() {
-    var list = inLevel();
-    return list.filter(function (c) { return c.id === courseId; })[0] || list[0] || null;
+  function inGroup(level) {
+    if (level === 'Frameworks') return COURSES.filter(function (c) { return c.kind; });
+    return COURSES.filter(function (c) { return c.level === level; });
+  }
+  function matches(c) {
+    if (!query) return true;
+    var hay = (c.title + ' ' + c.description + ' ' + c.tags.join(' ') + ' ' + c.level + ' ' + (c.kind || '')).toLowerCase();
+    return query.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+  }
+  function hours(c) { var s = STATS[c.id]; return s ? s.hours : null; }
+  function fmtHours(h) { return h == null ? '' : '≈ ' + h + ' h'; }
+  function select(c, level) {
+    current = c;
+    group = level || (group === 'Frameworks' && c.kind ? 'Frameworks' : c.level);
+    remember();
+    render();
   }
 
-  function render() {
-    var lv = document.getElementById('levels');
-    lv.innerHTML = '';
-    LEVELS.forEach(function (name) {
-      var n = COURSES.filter(function (c) { return c.level === name; }).length;
-      var b = el('button', 'level', name);
-      b.type = 'button';
-      b.setAttribute('aria-pressed', String(name === level));
-      b.appendChild(el('span', 'count', '(' + n + ')'));
-      b.addEventListener('click', function () { level = name; courseId = null; remember(); render(); });
-      lv.appendChild(b);
+  // ---------- left navigation ----------
+  function navCourse(c, level) {
+    var b = el('button', 'nav-course');
+    b.type = 'button';
+    b.dataset.id = c.id;
+    b.setAttribute('aria-current', String(c.id === current.id && level === group));
+    b.appendChild(el('span', 'ic', c.icon));
+    b.appendChild(el('span', 't', c.title));
+    b.appendChild(el('span', 'hrs', fmtHours(hours(c))));
+    b.title = c.title + (hours(c) ? ' — about ' + hours(c) + ' hours' : '');
+    b.addEventListener('click', function () {
+      select(c, level);
+      if (window.matchMedia('(max-width: 860px)').matches) document.getElementById('main').scrollIntoView({ behavior: 'smooth' });
     });
-
-    var current = selected();
-    courseId = current ? current.id : null;
-    var box = document.getElementById('courses');
+    b.addEventListener('dblclick', function () { location.href = c.path + 'index.html'; });
+    return b;
+  }
+  function renderNav() {
+    var box = document.getElementById('groups');
     box.innerHTML = '';
-    if (!current) {
-      box.appendChild(el('div', 'empty', 'No ' + level.toLowerCase() + ' courses yet. They will appear here when added.'));
-    }
-    inLevel().forEach(function (c) {
-      var card = el('button', 'course');
-      card.type = 'button';
-      card.setAttribute('aria-pressed', String(c.id === courseId));
-      card.appendChild(el('span', 'icon', c.icon));
-      card.appendChild(el('h3', null, c.title));
-      card.appendChild(el('p', null, c.description));
-      var meta = el('div', 'meta');
-      c.tags.forEach(function (t) { meta.appendChild(el('span', 'tag', t)); });
-      card.appendChild(meta);
-      card.addEventListener('click', function () { courseId = c.id; remember(); render(); });
-      card.addEventListener('dblclick', function () { location.href = c.path + 'index.html'; });
-      box.appendChild(card);
+    LEVELS.forEach(function (level) {
+      var list = inGroup(level).filter(matches);
+      var g = el('div', 'group');
+      var head = el('button', 'level', level);
+      head.type = 'button';
+      head.setAttribute('aria-current', String(level === group));
+      head.appendChild(el('span', 'count', String(list.length)));
+      head.addEventListener('click', function () { if (list.length) select(list[0], level); });
+      g.appendChild(head);
+      if (!list.length) g.appendChild(el('div', 'nav-empty', query ? 'No match' : 'Coming soon'));
+      if (level === 'Frameworks') {
+        KINDS.forEach(function (k) {
+          var sub = list.filter(function (c) { return c.kind === k; });
+          if (!sub.length) return;
+          g.appendChild(el('div', 'subhead', k === 'Libraries' ? 'Libraries — you call them' : 'Frameworks — they call your code'));
+          sub.forEach(function (c) { g.appendChild(navCourse(c, level)); });
+        });
+      } else {
+        list.forEach(function (c) { g.appendChild(navCourse(c, level)); });
+      }
+      box.appendChild(g);
     });
-
-    var info = document.getElementById('launch-info');
-    var actions = document.getElementById('launch-actions');
-    info.innerHTML = '';
-    actions.innerHTML = '';
-    if (current) {
-      info.appendChild(el('strong', null, current.icon + ' ' + current.title));
-      info.appendChild(el('p', null, current.launchNote || level + ' level · opens the book\'s contents page'));
-      var go = el('a', 'btn primary', 'Launch course →');
-      go.href = current.path + 'index.html';
-      go.id = 'launch-btn';
-      actions.appendChild(go);
-      current.extras.forEach(function (x) {
-        var a = el('a', 'btn', x[0]);
-        a.href = current.path + x[1];
-        actions.appendChild(a);
-      });
-    } else {
-      info.appendChild(el('strong', null, 'Nothing selected'));
-      info.appendChild(el('p', null, 'Choose a level that has courses.'));
-      var off = el('a', 'btn primary', 'Launch course →');
-      off.setAttribute('aria-disabled', 'true');
-      actions.appendChild(off);
-    }
   }
 
+  // ---------- course details ----------
+  function stat(value, label, cls) {
+    var s = el('div', 'stat' + (cls ? ' ' + cls : ''));
+    s.appendChild(el('div', 'v', value));
+    s.appendChild(el('div', 'k', label));
+    return s;
+  }
+  function renderDetails() {
+    var c = current, s = STATS[c.id] || {};
+    var where = group === 'Frameworks' && c.kind ? ({ Libraries: 'Library', Frameworks: 'Framework' })[c.kind] + ' · ' + c.level + ' level' : c.level + (c.level === 'Practice' ? '' : ' level');
+    document.getElementById('c-eyebrow').textContent = where;
+    var h1 = document.getElementById('c-title');
+    h1.innerHTML = '';
+    h1.appendChild(el('span', 'ic', c.icon));
+    h1.appendChild(el('span', null, c.title));
+    document.getElementById('c-desc').textContent = c.description;
+    var tags = document.getElementById('c-tags');
+    tags.innerHTML = '';
+    c.tags.forEach(function (t) { tags.appendChild(el('span', 'tag', t)); });
+
+    // launch panel (#launch-btn and #launch-actions are used by tests)
+    var info = document.getElementById('launch-info');
+    info.textContent = c.launchNote || where + ' · opens the course\'s contents page';
+    var actions = document.getElementById('launch-actions');
+    actions.innerHTML = '';
+    var go = el('a', 'btn primary', 'Launch course →');
+    go.href = c.path + 'index.html';
+    go.id = 'launch-btn';
+    actions.appendChild(go);
+    c.extras.forEach(function (x) {
+      var a = el('a', 'btn', x[0]);
+      a.href = c.path + x[1];
+      actions.appendChild(a);
+    });
+
+    // numbers and time estimate
+    var st = document.getElementById('c-stats');
+    st.innerHTML = '';
+    if (s.hours) {
+      var weeks = Math.max(1, Math.round(s.hours / 6));
+      st.appendChild(stat('≈ ' + s.hours + ' h', 'estimated study time · about ' + weeks + ' week' + (weeks > 1 ? 's' : '') + ' at 6 h/week', 'time'));
+    }
+    if (s.problems) {
+      st.appendChild(stat(String(s.problems), 'problems'));
+      st.appendChild(stat(s.byLevel.easy + ' / ' + s.byLevel.medium + ' / ' + s.byLevel.hard + ' / ' + s.byLevel.oop, 'easy / medium / hard / OOP'));
+      if (s.tests) st.appendChild(stat(String(s.tests), 'test cases'));
+    } else if (s.chapters) {
+      st.appendChild(stat(String(s.chapters), 'chapters' + (s.appendices ? ' + ' + s.appendices + ' appendices' : '')));
+      if (s.howtos) st.appendChild(stat(String(s.howtos), 'How-To pages'));
+      st.appendChild(stat(String(s.exercises), 'exercises with solutions'));
+      st.appendChild(stat(Math.round(s.codeLines / 100) / 10 + 'k', 'lines of example code'));
+      if (s.questions) st.appendChild(stat(String(s.questions), 'assessment questions'));
+    }
+
+    var bd = document.getElementById('c-breakdown');
+    bd.innerHTML = '';
+    var parts = s.minutes ? Object.keys(s.minutes).filter(function (k) { return s.minutes[k] > 0; }) : [];
+    var total = parts.reduce(function (n, k) { return n + s.minutes[k]; }, 0);
+    if (total) {
+      var colors = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)'];
+      var names = { reading: 'reading', examples: 'running examples', exercises: 'exercises', assessment: 'assessment', problems: 'solving problems' };
+      var bar = el('div', 'bar');
+      bar.setAttribute('role', 'img');
+      var legend = el('div', 'legend');
+      var label = [];
+      parts.forEach(function (k, i) {
+        var seg = el('span');
+        seg.style.width = (100 * s.minutes[k] / total) + '%';
+        seg.style.background = colors[i % colors.length];
+        bar.appendChild(seg);
+        var item = el('span');
+        var dot = el('i');
+        dot.style.background = colors[i % colors.length];
+        item.appendChild(dot);
+        var h = s.minutes[k] / 60;
+        item.appendChild(document.createTextNode(names[k] + ' ' + (h >= 1 ? '≈ ' + Math.round(h) + ' h' : Math.round(s.minutes[k]) + ' min')));
+        legend.appendChild(item);
+        label.push(names[k] + ' ' + Math.round(100 * s.minutes[k] / total) + '%');
+      });
+      bar.setAttribute('aria-label', 'Time breakdown: ' + label.join(', '));
+      bd.appendChild(bar);
+      bd.appendChild(legend);
+    }
+
+    var learn = document.getElementById('c-learn');
+    learn.innerHTML = '';
+    c.learn.forEach(function (t) { learn.appendChild(el('li', null, t)); });
+    document.getElementById('c-prereq').textContent = c.prereq;
+    var next = document.getElementById('c-next');
+    next.innerHTML = '';
+    if (c.next && byId[c.next]) {
+      var n = byId[c.next];
+      var link = el('a', null, n.icon + ' ' + n.title);
+      link.href = '#';
+      link.addEventListener('click', function (e) { e.preventDefault(); select(n); window.scrollTo(0, 0); });
+      next.appendChild(document.createTextNode('Continue with '));
+      next.appendChild(link);
+      next.appendChild(document.createTextNode(hours(n) ? ' (' + fmtHours(hours(n)) + ').' : '.'));
+    } else {
+      next.textContent = 'Keep practising: pick problems in the language you are learning, and revisit the books\' assessments.';
+    }
+
+    var refs = document.getElementById('c-refs');
+    refs.innerHTML = '';
+    c.refs.forEach(function (r) {
+      var li = el('li');
+      var a = el('a');
+      a.href = r[1];
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.appendChild(el('b', null, r[0] + ' ↗'));
+      a.appendChild(el('span', null, r[2]));
+      li.appendChild(a);
+      refs.appendChild(li);
+    });
+
+    var path = document.getElementById('c-path');
+    path.innerHTML = '';
+    PATH.forEach(function (id, i) {
+      var pc = byId[id];
+      if (!pc) return;
+      if (i) path.appendChild(el('span', 'arrow', '→'));
+      var b = el('button', null, pc.icon + ' ' + pc.title.replace(/ (Study|Beginner) Book$/, '') + (hours(pc) ? ' · ' + hours(pc) + ' h' : ''));
+      b.type = 'button';
+      b.setAttribute('aria-current', String(pc.id === c.id));
+      b.addEventListener('click', function () { select(pc); window.scrollTo(0, 0); });
+      path.appendChild(b);
+    });
+    document.title = c.title + ' · Course Launcher';
+  }
+
+  function renderModel() {
+    if (!MODEL.wordsPerMinute) return;
+    var box = document.getElementById('model-text');
+    box.innerHTML = '';
+    var p = el('p', null, 'Estimates are computed from the size of each course (by tools/launcher-stats.mjs): ' +
+      'prose is read at ' + MODEL.wordsPerMinute + ' words per minute (study pace), every line of example code takes about ' +
+      Math.round(MODEL.minutesPerCodeLine * 60) + ' seconds to read, type and run, exercises take ' + MODEL.exercise.easy + ' / ' + MODEL.exercise.medium + ' / ' +
+      MODEL.exercise.hard + ' minutes (easy / medium / hard), one assessment attempt ' + MODEL.assessment + ' minutes, and problems ' +
+      MODEL.problem.easy + ' / ' + MODEL.problem.medium + ' / ' + MODEL.problem.hard + ' / ' + MODEL.problem.oop + ' minutes (easy / medium / hard / OOP). ' +
+      'Your pace will differ — treat them as a planning guide.');
+    box.appendChild(p);
+  }
+
+  function render() { renderNav(); renderDetails(); }
+
+  document.getElementById('filter').addEventListener('input', function (e) {
+    query = e.target.value.trim().toLowerCase();
+    renderNav();
+  });
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' || e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
-    var c = selected();
-    if (c) location.href = c.path + 'index.html';
+    var t = e.target.tagName;
+    if (t === 'INPUT' && e.key !== 'ArrowDown' && e.key !== 'Enter') return;
+    if (e.key === 'Enter' && (t === 'BUTTON' || t === 'A')) return;
+    var items = [].slice.call(document.querySelectorAll('.nav-course'));
+    var idx = items.findIndex(function (b) { return b.getAttribute('aria-current') === 'true'; });
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!items.length) return;
+      e.preventDefault();
+      var nextIdx = idx < 0 ? 0 : (idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[nextIdx].click();
+      var again = document.querySelectorAll('.nav-course')[nextIdx];
+      if (again) again.focus();
+    } else if (e.key === 'Enter') {
+      location.href = current.path + 'index.html';
+    }
   });
 
+  renderModel();
   render();
 })();
 </script>

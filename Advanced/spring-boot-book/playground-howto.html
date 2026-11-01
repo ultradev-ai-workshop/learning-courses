@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here</div>
+<h1>Using the Playground</h1>
+<p class="lead">The book comes with a ready-made Spring Boot project, <code>playground/</code>, where you can paste examples, do the exercises and grow the Library Loans project. This page shows how to set it up, how to run single examples and tests, and how the book's own examples are checked — so you know why your console may print a little more than the book does.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What to install: a JDK, and (optionally) an IDE.</li>
+  <li>The playground's layout and its Maven wrapper.</li>
+  <li>How to run the application, a single example class, and tests.</li>
+  <li>How the book's examples were run, and the quiet defaults they use.</li>
+  <li>Fixes for the most common setup problems.</li>
+</ul>
+</div>
+
+<h2 id="install">1. Install a JDK</h2>
+<p>Spring Boot 4 needs Java 17 or newer; the book uses <strong>Java 25</strong> (an LTS release). Any distribution works — Eclipse Temurin, Amazon Corretto, Oracle, Microsoft. With <a href="https://sdkman.io">SDKMAN!</a>:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ sdk install java 25-tem
+$ java -version
+openjdk version "25" …
+</script>
+<p>You don't need to install Maven: the playground has the <strong>Maven wrapper</strong> (<code>mvnw</code>), which downloads the right Maven version on first use. IntelliJ IDEA, VS Code (with the Extension Pack for Java and Spring Boot Extension Pack) and Eclipse all open Maven projects directly.</p>
+
+<h2 id="layout">2. The playground</h2>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+playground/
+├── mvnw, mvnw.cmd, .mvn/           Maven wrapper
+├── pom.xml                         Boot 4.1.2 parent; web, JPA, Flyway, validation, Actuator,
+│                                   RestClient, cache, AspectJ, H2 + the matching test starters
+├── src/main/java/com/example/playground/PlaygroundApplication.java
+├── src/main/resources/application.properties
+├── src/test/java/com/example/playground/PlaygroundApplicationTests.java
+└── reference/                      the finished Chapter 20 project (a separate Maven project)
+</script>
+<p>Everything under <code>com.example.playground</code> is component-scanned (Chapter 1). Put each exercise in its own sub-package — <code>com.example.playground.ch03.ex5</code> — so beans from different exercises don't collide.</p>
+
+<h2 id="run">3. Running things</h2>
+<script type="text/plain" class="code" data-lang="shell">
+$ cd playground
+$ ./mvnw spring-boot:run                     # start PlaygroundApplication on :8080
+$ curl localhost:8080/hello                   # → Hello from the playground!
+$ curl localhost:8080/actuator/health         # → {"status":"UP",…}
+$ ./mvnw test                                 # run all tests
+$ ./mvnw test -Dtest=BookControllerTest       # run one test class
+$ ./mvnw spring-boot:run -Dspring-boot.run.main-class=com.example.playground.ch01.hello.HelloApplication
+$ ./mvnw package && java -jar target/playground-0.0.1-SNAPSHOT.jar
+</script>
+<p>Most book examples are a single class with a <code>main</code> method that starts Spring, prints something and closes the context. In an IDE, open the class and click ▶ next to <code>main</code>. Examples that start a web server use port <code>0</code> (any free port) and call themselves with <code>RestClient</code>, so they never clash with an app already running on 8080.</p>
+<p>A quick check that your setup works — this is the first example from Chapter 1, run as part of the book's checks:</p>
+<script type="text/plain" class="code" data-file="SetupCheck.java" data-run>
+package com.example.playground.setup;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.SpringBootVersion;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SetupCheck {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SetupCheck.class, "--server.port=0")) {
+      System.out.println("Spring Boot " + SpringBootVersion.getVersion() + " on Java " + Runtime.version().feature()
+          + ", web server on port " + (ctx.getEnvironment().getProperty("local.server.port") != null ? "assigned" : "missing"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Spring Boot 4.1.2 on Java 25, web server on port assigned
+</script>
+
+<h2 id="checked">4. How the book's examples are checked</h2>
+<p>A script (<code>tools/check-snippets.mjs</code>) builds one Maven project per page — with the starters listed for that page — compiles every example, runs each <code>main</code> class and each test class, and compares the output with the block shown below it in the book. To keep outputs short, it runs examples with these quiet defaults, which you can copy into <code>application.properties</code> if you want the same console:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.main.banner-mode=off            # no ASCII-art banner
+spring.main.log-startup-info=false     # no "Starting … using Java …" line
+logging.level.root=WARN                # only warnings and errors
+server.port=0                          # a random free port for web examples
+spring.jpa.open-in-view=false
+</script>
+<p>Without them you'll see the Spring banner and <code>INFO</code> log lines — such as "Started SetupCheck in 1.1 seconds" — before the example's output. That's expected. A few platform-specific notices are also hidden (Netty's macOS DNS resolver message, Flyway's "H2 is newer than verified" warning); the chapters mention them where they appear. In expected output, <code>...</code> stands for lines or text that differ between runs (ports, timings, generated ids).</p>
+<div class="tip">
+<p>💡 <strong>Shell blocks</strong> start with <code>$</code>: type the command, not the <code>$</code>. Lines below a command are its output. <strong>Java blocks</strong> show the file name in their header; the package line tells you where to put the file.</p>
+</div>
+
+<h2 id="problems">5. Common problems</h2>
+<table>
+  <tr><th>Symptom</th><th>Fix</th></tr>
+  <tr><td><code>release version 25 not supported</code></td><td>Maven runs with an older JDK. Set <code>JAVA_HOME</code> to the JDK 25 folder (<code>./mvnw -v</code> shows which one it uses).</td></tr>
+  <tr><td><code>Web server failed to start. Port 8080 was already in use.</code></td><td>Another app (often an earlier run) holds the port. Stop it, or run with <code>--server.port=8081</code> (or <code>0</code>).</td></tr>
+  <tr><td>A bean or controller isn't found (404, <code>NoSuchBeanDefinitionException</code>)</td><td>The class is outside the main class's package tree (Chapter 1) — move it under <code>com.example.playground</code>.</td></tr>
+  <tr><td><code>ConflictingBeanDefinitionException</code> / "bean already defined"</td><td>Two exercises declare classes with the same name in scanned packages. Use separate sub-packages and unique class names.</td></tr>
+  <tr><td>Flyway "checksum mismatch" after editing a migration</td><td>Never edit applied migrations (Chapter 13). In the playground's in-memory H2 database just restart; elsewhere add a new migration.</td></tr>
+  <tr><td>Tests can't find <code>@WebMvcTest</code> or <code>@DataJpaTest</code></td><td>Boot 4 moved them to per-technology test starters (<code>spring-boot-starter-webmvc-test</code>, <code>-data-jpa-test</code>); the playground's pom already has them.</td></tr>
+  <tr><td>Mockito prints "A Java agent has been loaded dynamically"</td><td>Harmless on Java 21+; the pom passes <code>-XX:+EnableDynamicAgentLoading</code> to tests to silence it.</td></tr>
+</table>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/installing.html">Installing Spring Boot</a> · <a href="https://docs.spring.io/spring-boot/system-requirements.html">System requirements</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/maven-plugin/run.html">Maven plugin: running your application</a></li>
+  <li><a href="https://start.spring.io">Spring Initializr</a> · <a href="https://docs.spring.io/spring-boot/reference/using/devtools.html">Developer tools (automatic restart)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

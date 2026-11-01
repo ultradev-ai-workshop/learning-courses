@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="data-jpa h2">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Spring Data JPA · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · Data</div>
+<h1>Spring Data JPA</h1>
+<p class="lead">JPA maps Java objects to tables, and <strong>Spring Data JPA</strong> writes the repository code for you: declare an interface, and you get CRUD, paging, sorting and queries derived from method names. It's enormously productive — as long as you understand what JPA does behind your back: the persistence context, dirty checking, lazy loading and the N+1 problem. This chapter covers both sides.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Mapping <strong>entities</strong>: ids, columns, relationships (<code>@ManyToOne</code>, <code>@OneToMany</code>), and <code>equals</code>/<code>hashCode</code>.</li>
+  <li><strong>Repositories</strong>: <code>JpaRepository</code>, derived queries, <code>@Query</code> (JPQL and native), <code>@Modifying</code>.</li>
+  <li><strong>Paging and sorting</strong> with <code>Pageable</code>, <code>Page</code> and <code>Slice</code>; <strong>projections</strong> with interfaces and records.</li>
+  <li>The <strong>persistence context</strong>: managed entities, dirty checking, flush and the first-level cache.</li>
+  <li><strong>Lazy loading and N+1</strong>: detecting it, fixing it with fetch joins and <code>@EntityGraph</code>; plus auditing.</li>
+</ul>
+</div>
+
+<h2 id="entities">Entities</h2>
+<p>An <strong>entity</strong> is a class whose instances are rows. It needs <code>@Entity</code>, an <code>@Id</code>, and a no-argument constructor (it may be <code>protected</code>) because Hibernate creates instances by reflection. Entities are mutable classes — records can't be entities (but they're perfect for projections, below).</p>
+<script type="text/plain" class="code" data-file="Author.java">
+package com.example.ch14.library;
+
+import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+public class Author {
+  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, unique = true, length = 100)
+  private String name;
+
+  @OneToMany(mappedBy = "author", cascade = CascadeType.ALL, orphanRemoval = true)
+  private List<Book> books = new ArrayList<>();
+
+  protected Author() { }                                 // for JPA
+  public Author(String name) { this.name = name; }
+
+  public void addBook(Book book) { books.add(book); book.setAuthor(this); }   // keep both sides in sync
+
+  public Long getId() { return id; }
+  public String getName() { return name; }
+  public void setName(String name) { this.name = name; }
+  public List<Book> getBooks() { return books; }
+}
+</script>
+<script type="text/plain" class="code" data-file="Book.java">
+package com.example.ch14.library;
+
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = "book", indexes = @Index(columnList = "published"))
+public class Book {
+  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, unique = true, length = 13)
+  private String isbn;
+
+  @Column(nullable = false)
+  private String title;
+
+  private Integer published;
+
+  @Column(precision = 8, scale = 2)
+  private BigDecimal price;
+
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)  // LAZY: load the author only when needed
+  @JoinColumn(name = "author_id")
+  private Author author;
+
+  protected Book() { }
+  public Book(String isbn, String title, Integer published, BigDecimal price) {
+    this.isbn = isbn; this.title = title; this.published = published; this.price = price;
+  }
+
+  public Long getId() { return id; }
+  public String getIsbn() { return isbn; }
+  public String getTitle() { return title; }
+  public void setTitle(String title) { this.title = title; }
+  public Integer getPublished() { return published; }
+  public BigDecimal getPrice() { return price; }
+  public void setPrice(BigDecimal price) { this.price = price; }
+  public Author getAuthor() { return author; }
+  void setAuthor(Author author) { this.author = author; }
+
+  @Override public boolean equals(Object o) {           // identity by business key, not by generated id
+    return o instanceof Book b && isbn.equals(b.isbn);
+  }
+  @Override public int hashCode() { return isbn.hashCode(); }
+  @Override public String toString() { return "Book[" + isbn + " " + title + "]"; }
+}
+</script>
+<p>Key mapping decisions:</p>
+<ul>
+  <li><strong><code>@GeneratedValue</code></strong>: <code>IDENTITY</code> uses the database's auto-increment; <code>SEQUENCE</code> (the default with <code>AUTO</code> on most databases) allows Hibernate to batch inserts.</li>
+  <li><strong>Relationships</strong>: <code>@ManyToOne</code> is the owning side (it has the foreign key column); <code>@OneToMany(mappedBy = …)</code> is the inverse side. Always make <code>@ManyToOne</code> <code>LAZY</code> — the JPA default is <code>EAGER</code>, which loads the parent in every query.</li>
+  <li><strong><code>equals</code>/<code>hashCode</code></strong>: don't use the generated id (it's <code>null</code> before saving, so a new entity's hash changes after persist). A natural business key (ISBN) is ideal; otherwise compare ids but use a constant <code>hashCode</code>.</li>
+</ul>
+
+<h2 id="repositories">Repositories</h2>
+<p>Declare an interface extending <code>JpaRepository&lt;Entity, Id&gt;</code>. Spring Data creates the implementation at startup — you get <code>save</code>, <code>findById</code>, <code>findAll</code>, <code>deleteById</code>, <code>count</code>, <code>existsById</code> and more. Query methods are <strong>derived from their names</strong>:</p>
+<script type="text/plain" class="code" data-file="BookRepository.java">
+package com.example.ch14.library;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface BookRepository extends JpaRepository<Book, Long> {
+
+  Optional<Book> findByIsbn(String isbn);
+
+  List<Book> findByTitleContainingIgnoreCaseOrderByPublishedAsc(String text);
+
+  List<Book> findByPublishedBetween(int from, int to);
+
+  long countByAuthorName(String name);                   // navigates book.author.name
+
+  boolean existsByIsbn(String isbn);
+
+  Page<Book> findByPriceLessThan(BigDecimal max, Pageable pageable);
+
+  @Query("SELECT b FROM Book b WHERE b.author.name = :name AND b.price > :min")      // JPQL: entities, not tables
+  List<Book> expensiveBooksBy(@Param("name") String author, @Param("min") BigDecimal min);
+
+  @Query(value = "SELECT * FROM book WHERE LOWER(title) LIKE LOWER(CONCAT('%', :q, '%'))", nativeQuery = true)
+  List<Book> searchNative(@Param("q") String q);
+
+  @Modifying
+  @Query("UPDATE Book b SET b.price = b.price * :factor WHERE b.published < :year")
+  int reprice(@Param("factor") BigDecimal factor, @Param("year") int year);
+
+  @Query("SELECT b FROM Book b JOIN FETCH b.author")                               // one query for books + authors
+  List<Book> findAllWithAuthors();
+
+  @EntityGraph(attributePaths = "author")                                           // same effect, declaratively
+  List<Book> findByPublishedGreaterThan(int year);
+
+  List<TitleOnly> findAllByOrderByTitleAsc();            // interface projection
+  <T> List<T> findByAuthorName(String name, Class<T> type);   // dynamic projection
+}
+</script>
+<script type="text/plain" class="code" data-file="AuthorRepository.java">
+package com.example.ch14.library;
+
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface AuthorRepository extends JpaRepository<Author, Long> {
+  Optional<Author> findByName(String name);
+}
+</script>
+<script type="text/plain" class="code" data-file="Projections.java">
+package com.example.ch14.library;
+
+import java.math.BigDecimal;
+
+interface TitleOnly { String getTitle(); }                // Spring Data implements it
+
+record BookCard(String title, BigDecimal price) {}       // DTO projection: constructor args by name
+</script>
+<p>Some seed data, inserted by a runner shared by this chapter's examples:</p>
+<script type="text/plain" class="code" data-file="SeedData.java">
+package com.example.ch14.library;
+
+import java.math.BigDecimal;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+@Component
+@Order(0)
+class SeedData implements ApplicationRunner {
+  private final AuthorRepository authors;
+  SeedData(AuthorRepository authors) { this.authors = authors; }
+
+  @Override
+  @Transactional
+  public void run(ApplicationArguments args) {
+    var herbert = new Author("Frank Herbert");
+    herbert.addBook(new Book("9780441013593", "Dune", 1965, new BigDecimal("9.99")));
+    herbert.addBook(new Book("9780441172719", "Dune Messiah", 1969, new BigDecimal("8.99")));
+    var austen = new Author("Jane Austen");
+    austen.addBook(new Book("9780141439518", "Pride and Prejudice", 1813, new BigDecimal("6.50")));
+    austen.addBook(new Book("9780141439587", "Emma", 1815, new BigDecimal("7.25")));
+    var leguin = new Author("Ursula K. Le Guin");
+    leguin.addBook(new Book("9780441478125", "The Left Hand of Darkness", 1969, new BigDecimal("8.75")));
+    authors.saveAll(java.util.List.of(herbert, austen, leguin));   // cascade = ALL saves the books too
+  }
+}
+</script>
+<p>Now use the repository. (With an embedded database and no migration tool, Boot lets Hibernate create the tables: <code>spring.jpa.hibernate.ddl-auto=create-drop</code>. In production use Flyway and <code>ddl-auto=validate</code>.)</p>
+<script type="text/plain" class="code" data-file="RepositoryDemo.java" data-run>
+package com.example.ch14.library;
+
+import java.math.BigDecimal;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
+@SpringBootApplication
+public class RepositoryDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RepositoryDemo.class)) {
+      var books = ctx.getBean(BookRepository.class);
+      System.out.println("count: " + books.count());
+      System.out.println(books.findByIsbn("9780441013593").map(Book::getTitle).orElse("?"));
+      System.out.println(books.findByTitleContainingIgnoreCaseOrderByPublishedAsc("dune"));
+      System.out.println(books.findByPublishedBetween(1960, 1970).size() + " books from the sixties");
+      System.out.println("Austen: " + books.countByAuthorName("Jane Austen") + ", exists: " + books.existsByIsbn("9780141439587"));
+      System.out.println(books.expensiveBooksBy("Frank Herbert", new BigDecimal("9.00")));
+      System.out.println(books.searchNative("PRIDE"));
+
+      var page = books.findByPriceLessThan(new BigDecimal("9.50"), PageRequest.of(0, 2, Sort.by("price").descending()));
+      System.out.println("page " + page.getNumber() + "/" + page.getTotalPages() + " of " + page.getTotalElements() + ": " + page.getContent());
+
+      System.out.println(books.findAllByOrderByTitleAsc().stream().map(TitleOnly::getTitle).toList());
+      System.out.println(books.findByAuthorName("Jane Austen", BookCard.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+count: 5
+Dune
+[Book[9780441013593 Dune], Book[9780441172719 Dune Messiah]]
+3 books from the sixties
+Austen: 2, exists: true
+[Book[9780441013593 Dune]]
+[Book[9780141439518 Pride and Prejudice]]
+page 0/2 of 4: [Book[9780441172719 Dune Messiah], Book[9780441478125 The Left Hand of Darkness]]
+[Dune, Dune Messiah, Emma, Pride and Prejudice, The Left Hand of Darkness]
+[BookCard[title=Pride and Prejudice, price=6.50], BookCard[title=Emma, price=7.25]]
+</script>
+<p>Derived query keywords include <code>And</code>, <code>Or</code>, <code>Between</code>, <code>LessThan</code>, <code>GreaterThanEqual</code>, <code>Like</code>, <code>Containing</code>, <code>StartingWith</code>, <code>In</code>, <code>IsNull</code>, <code>IgnoreCase</code>, <code>OrderBy…Asc/Desc</code>, <code>First</code>/<code>Top3</code>, <code>Distinct</code>. A typo in a property name fails at <strong>startup</strong> — one of Spring Data's best features. When a name gets longer than a sentence, switch to <code>@Query</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: ordering from a menu in plain words.</strong> A derived query is like telling a waiter "the pasta, without onions, extra cheese". The kitchen (Spring Data) understands the sentence and cooks the SQL. For an unusual dish you hand over a written recipe (<code>@Query</code>). If you ask for "the spagetti", the waiter tells you immediately that it's not on the menu — at startup, not when the plate arrives.</p>
+</div>
+
+<h3>Page vs Slice, and sorting from the web</h3>
+<p>A <code>Page</code> runs an extra <code>COUNT</code> query to know the total; a <code>Slice</code> only knows whether there's a next page (it fetches one extra row) — cheaper for infinite scrolling. In a controller, accept a <code>Pageable</code> parameter: Spring Data's web support binds <code>?page=1&amp;size=20&amp;sort=title,desc</code> automatically. Return a <code>PagedModel</code> (or your own DTO) rather than the raw <code>PageImpl</code>, whose JSON structure isn't guaranteed stable.</p>
+
+<h2 id="persistence-context">The persistence context</h2>
+<p>Inside a transaction, JPA keeps a <strong>persistence context</strong>: a map of every entity loaded or saved, keyed by id. It gives you three behaviours that surprise newcomers:</p>
+<ul>
+  <li><strong>Identity</strong>: loading the same row twice returns the <em>same object</em> (the first-level cache) — the second load doesn't even hit the database.</li>
+  <li><strong>Dirty checking</strong>: change a field of a managed entity and the <code>UPDATE</code> is written at commit — no <code>save()</code> call needed.</li>
+  <li><strong>Write-behind</strong>: SQL is sent at <em>flush</em> time (before commit, before queries that need it, or on <code>flush()</code>), not when you call <code>save</code>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="PersistenceContextDemo.java" data-run>
+package com.example.ch14.pc;
+
+import com.example.ch14.library.Book;
+import com.example.ch14.library.BookRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import java.math.BigDecimal;
+import org.hibernate.SessionFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class PriceService {
+  private final BookRepository books;
+  private final EntityManager em;
+  PriceService(BookRepository books, EntityManager em) { this.books = books; this.em = em; }
+
+  @Transactional
+  void demo() {
+    Book a = books.findByIsbn("9780441013593").orElseThrow();
+    Book b = books.findById(a.getId()).orElseThrow();
+    System.out.println("same object: " + (a == b) + ", managed: " + em.contains(a));
+    a.setPrice(new BigDecimal("12.00"));                  // no save() call
+    System.out.println("changed in memory, nothing written yet");
+  }                                                       // commit → flush → UPDATE
+
+  @Transactional(readOnly = true)
+  BigDecimal price(String isbn) { return books.findByIsbn(isbn).orElseThrow().getPrice(); }
+}
+
+@SpringBootApplication(scanBasePackages = { "com.example.ch14.pc", "com.example.ch14.library" })
+@EntityScan("com.example.ch14.library")
+@EnableJpaRepositories("com.example.ch14.library")
+public class PersistenceContextDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PersistenceContextDemo.class, "--spring.jpa.properties.hibernate.generate_statistics=true",
+        "--logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF")) {
+      var stats = ctx.getBean(EntityManagerFactory.class).unwrap(SessionFactory.class).getStatistics();
+      var service = ctx.getBean(PriceService.class);
+      stats.clear();
+      service.demo();
+      System.out.println("entity updates: " + stats.getEntityUpdateCount() + ", queries: " + stats.getPrepareStatementCount());
+      System.out.println("price now: " + service.price("9780441013593"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+same object: true, managed: true
+changed in memory, nothing written yet
+entity updates: 1, queries: 2
+price now: 12.00
+</script>
+<p>Two statements: one <code>SELECT</code> by ISBN (the <code>findById</code> was answered from the persistence context) and the <code>UPDATE</code> generated by dirty checking at commit. Because <code>@SpringBootApplication</code> scans only its own package, this example points scanning, <code>@EntityScan</code> and <code>@EnableJpaRepositories</code> at the shared <code>library</code> package — in a normal project with one root package you need none of these.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Outside a transaction, entities are <em>detached</em>.</strong> Changes to a detached entity are not saved, and touching a lazy relationship throws <code>LazyInitializationException</code>. Do your loading and changing inside a <code>@Transactional</code> service method, and return DTOs to the web layer. (Boot's <code>spring.jpa.open-in-view</code> keeps a session open during web requests to hide this, and warns at startup when enabled; this book turns it off, as most teams do.)</p>
+</div>
+
+<h2 id="n-plus-one">Lazy loading and the N+1 problem</h2>
+<p>With <code>LAZY</code> relationships, Hibernate loads a book's author only when you call <code>book.getAuthor().getName()</code>. Loop over 100 books and print their authors, and you run <strong>1 query for the books + N queries for the authors</strong> — the infamous N+1 problem. It's invisible in development with five rows and crippling in production with five thousand. Count the queries to see it:</p>
+<script type="text/plain" class="code" data-file="NPlusOneDemo.java" data-run>
+package com.example.ch14.nplusone;
+
+import com.example.ch14.library.Book;
+import com.example.ch14.library.BookRepository;
+import jakarta.persistence.EntityManagerFactory;
+import java.util.List;
+import java.util.function.Supplier;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class Report {
+  private final BookRepository books;
+  Report(BookRepository books) { this.books = books; }
+
+  @Transactional(readOnly = true)
+  List<String> lines(Supplier<List<Book>> loader) {
+    return loader.get().stream().map(b -> b.getTitle() + " by " + b.getAuthor().getName()).toList();
+  }
+}
+
+@SpringBootApplication(scanBasePackages = { "com.example.ch14.nplusone", "com.example.ch14.library" })
+@EntityScan("com.example.ch14.library")
+@EnableJpaRepositories("com.example.ch14.library")
+public class NPlusOneDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NPlusOneDemo.class, "--spring.jpa.properties.hibernate.generate_statistics=true",
+        "--logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF")) {
+      Statistics stats = ctx.getBean(EntityManagerFactory.class).unwrap(SessionFactory.class).getStatistics();
+      var report = ctx.getBean(Report.class);
+      var books = ctx.getBean(BookRepository.class);
+
+      stats.clear();
+      report.lines(books::findAll);
+      System.out.println("findAll():            " + stats.getPrepareStatementCount() + " queries");
+
+      stats.clear();
+      report.lines(books::findAllWithAuthors);
+      System.out.println("JOIN FETCH:           " + stats.getPrepareStatementCount() + " query");
+
+      stats.clear();
+      List<String> lines = report.lines(() -> books.findByPublishedGreaterThan(0));
+      System.out.println("@EntityGraph:         " + stats.getPrepareStatementCount() + " query");
+      System.out.println(lines.stream().sorted().toList().getFirst());     // no ORDER BY → sort before picking
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+findAll():            4 queries
+JOIN FETCH:           1 query
+@EntityGraph:         1 query
+Dune Messiah by Frank Herbert
+</script>
+<p>(The derived query has no <code>OrderBy</code>, so rows come back in whatever order the database chooses — never rely on it.) Here N+1 is "only" 1 + 3 (one query per distinct author — the persistence context caches each author once loaded). Fixes, in order of preference:</p>
+<ol>
+  <li><strong>Fetch what the use case needs</strong>: <code>JOIN FETCH</code> in a <code>@Query</code>, or <code>@EntityGraph(attributePaths = …)</code> on the repository method.</li>
+  <li><strong>Use a DTO projection</strong> that selects exactly the columns you show — often the best for read-only screens and APIs.</li>
+  <li><strong>Batch fetching</strong>: <code>spring.jpa.properties.hibernate.default_batch_fetch_size=50</code> loads lazy associations in groups (1 + N/50 queries) — a good global safety net.</li>
+</ol>
+<div class="tip">
+<p>💡 <strong>Watch your queries in development.</strong> Turn on <code>logging.level.org.hibernate.SQL=debug</code> (and <code>org.hibernate.orm.jdbc.bind=trace</code> for parameters), or count statements in tests as above. Assert the query count of important endpoints in tests so an N+1 can't sneak back in.</p>
+</div>
+
+<h2 id="auditing">Auditing</h2>
+<p>Spring Data can fill in "created at", "last modified" and "by whom" fields automatically. Enable it with <code>@EnableJpaAuditing</code>, add the entity listener, and annotate fields:</p>
+<script type="text/plain" class="code" data-file="AuditingDemo.java" data-run>
+package com.example.ch14.auditing;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import java.time.Instant;
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+
+@Entity
+@EntityListeners(AuditingEntityListener.class)
+class Note {
+  @Id @GeneratedValue Long id;
+  String text;
+  @CreatedDate Instant createdAt;
+  @LastModifiedDate Instant updatedAt;
+  @CreatedBy String createdBy;
+  protected Note() { }
+  Note(String text) { this.text = text; }
+}
+
+interface NoteRepository extends JpaRepository<Note, Long> { }
+
+@SpringBootApplication
+@EnableJpaAuditing
+public class AuditingDemo {
+  @Bean AuditorAware<String> auditor() { return () -> Optional.of("ada"); }   // e.g. from Spring Security
+
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(AuditingDemo.class)) {
+      var notes = ctx.getBean(NoteRepository.class);
+      Note n = notes.save(new Note("first draft"));
+      System.out.println("by " + n.createdBy + ", created set: " + (n.createdAt != null) + ", same as updated: " + n.createdAt.equals(n.updatedAt));
+      Thread.sleep(5);
+      n.text = "second draft";
+      n = notes.save(n);
+      System.out.println("after update, updated later than created: " + n.updatedAt.isAfter(n.createdAt));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+by ada, created set: true, same as updated: true
+after update, updated later than created: true
+</script>
+<p>Here the <code>save</code> calls happen outside a transaction, so each one runs in its own: <code>save</code> on an entity with an id <em>merges</em> it — copying the detached object's state onto a managed copy and returning that copy. Always use the returned instance.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Bulk updates and the persistence context</h3>
+<p><code>@Modifying</code> queries go straight to the database, <em>bypassing</em> the persistence context. Entities already loaded keep their old values unless you clear the context:</p>
+<script type="text/plain" class="code" data-file="BulkUpdateDemo.java" data-run>
+package com.example.ch14.bulk;
+
+import com.example.ch14.library.BookRepository;
+import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class Repricing {
+  private final BookRepository books; private final EntityManager em;
+  Repricing(BookRepository books, EntityManager em) { this.books = books; this.em = em; }
+
+  @Transactional
+  void run() {
+    var emma = books.findByIsbn("9780141439587").orElseThrow();
+    int n = books.reprice(new BigDecimal("2"), 1900);         // doubles 19th-century prices in the DB
+    System.out.println(n + " rows updated; loaded entity still says " + emma.getPrice());
+    em.refresh(emma);                                         // or @Modifying(clearAutomatically = true)
+    System.out.println("after refresh: " + emma.getPrice());
+  }
+}
+
+@SpringBootApplication(scanBasePackages = { "com.example.ch14.bulk", "com.example.ch14.library" })
+@EntityScan("com.example.ch14.library")
+@EnableJpaRepositories("com.example.ch14.library")
+public class BulkUpdateDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BulkUpdateDemo.class)) { ctx.getBean(Repricing.class).run(); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 rows updated; loaded entity still says 7.25
+after refresh: 14.50
+</script>
+
+<h3>Specifications for dynamic filters</h3>
+<p>For search screens with many optional filters, extend <code>JpaSpecificationExecutor</code> and combine type-safe predicates:</p>
+<script type="text/plain" class="code" data-file="SpecificationDemo.java" data-run>
+package com.example.ch14.spec;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+
+@Entity
+class Product {
+  @Id @GeneratedValue Long id;
+  String name; String category; int price;
+  protected Product() { }
+  Product(String name, String category, int price) { this.name = name; this.category = category; this.price = price; }
+  public String toString() { return name; }
+}
+
+interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> { }
+
+class ProductSpecs {
+  static Specification<Product> inCategory(String c) { return (root, q, cb) -> c == null ? null : cb.equal(root.get("category"), c); }
+  static Specification<Product> cheaperThan(Integer max) { return (root, q, cb) -> max == null ? null : cb.lessThan(root.get("price"), max); }
+  static Specification<Product> nameContains(String s) {
+    return (root, q, cb) -> s == null ? null : cb.like(cb.lower(root.get("name")), "%" + s.toLowerCase() + "%");
+  }
+}
+
+@SpringBootApplication
+public class SpecificationDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SpecificationDemo.class)) {
+      var repo = ctx.getBean(ProductRepository.class);
+      repo.saveAll(List.of(new Product("Desk lamp", "home", 30), new Product("Floor lamp", "home", 90),
+          new Product("Lamp oil", "garden", 8), new Product("Chair", "home", 60)));
+      var spec = Specification.allOf(ProductSpecs.inCategory("home"), ProductSpecs.cheaperThan(80), ProductSpecs.nameContains(null));
+      System.out.println(repo.findAll(spec, Sort.by("price")));
+      System.out.println(repo.findAll(ProductSpecs.nameContains("LAMP"), Sort.by("name")));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Desk lamp, Chair]
+[Desk lamp, Floor lamp, Lamp oil]
+</script>
+<p>A specification that returns <code>null</code> adds no condition, so absent filters simply drop out. The string attribute names can be replaced by the JPA static metamodel (<code>Product_.price</code>) for compile-time safety.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Entities: <code>@Entity</code>, <code>@Id</code>, a no-arg constructor; <code>@ManyToOne(fetch = LAZY)</code> owns the foreign key; keep both sides of a relationship in sync; base <code>equals</code> on a business key.</li>
+  <li><code>JpaRepository</code> gives CRUD; derived query names are checked at startup; <code>@Query</code> for JPQL or native SQL; <code>@Modifying</code> for bulk updates (which bypass the persistence context).</li>
+  <li><code>Pageable</code> → <code>Page</code> (with count) or <code>Slice</code>; projections with interfaces, records or dynamic <code>Class&lt;T&gt;</code>.</li>
+  <li>Persistence context: same row = same object, dirty checking writes changes at commit, SQL is flushed late. Outside a transaction, entities are detached.</li>
+  <li>N+1: count queries; fix with <code>JOIN FETCH</code>, <code>@EntityGraph</code>, DTO projections or batch fetching. Auditing with <code>@EnableJpaAuditing</code> + <code>@CreatedDate</code>/<code>@CreatedBy</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Translate into SQL-ish English: <code>findTop3ByAuthorNameAndPublishedGreaterThanOrderByPriceDesc(String name, int year)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>"Select the 3 books whose author's name equals <code>name</code> and whose published year is greater than <code>year</code>, ordered by price, highest first." It joins <code>book</code> to <code>author</code> to compare the name.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Inside a <code>@Transactional</code> method you load a book, call <code>book.setTitle("New")</code>, and never call <code>save</code>. Is the change stored? What if the method isn't transactional and you load the book with <code>findById</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Transactional: yes — the entity is managed and dirty checking issues an <code>UPDATE</code> at commit. Not transactional: no — <code>findById</code> runs in its own short transaction and returns a detached entity; you'd have to call <code>save(book)</code>, which merges it in a new transaction.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Add a derived query <code>List&lt;Book&gt; findByAuthorNameOrderByTitle(String name)</code>… without editing the shared repository: declare a small extra repository interface <code>BookFinder extends Repository&lt;Book, Long&gt;</code> with that method, and print Jane Austen's books.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BookFinder.java">
+package com.example.ch14.library;
+
+import java.util.List;
+import org.springframework.data.repository.Repository;
+
+public interface BookFinder extends Repository<Book, Long> {   // exposes only what you declare
+  List<Book> findByAuthorNameOrderByTitle(String name);
+}
+</script>
+<script type="text/plain" class="code" data-file="FinderDemo.java" data-run>
+package com.example.ch14.library;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class FinderDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FinderDemo.class)) {
+      System.out.println(ctx.getBean(BookFinder.class).findByAuthorNameOrderByTitle("Jane Austen"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Book[9780141439587 Emma], Book[9780141439518 Pride and Prejudice]]
+</script>
+<p>Extending the bare <code>Repository</code> marker interface gives you no inherited methods at all — useful for read-only or narrowly scoped repositories.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why is <code>spring.jpa.hibernate.ddl-auto=update</code> a bad idea in production? What should you use instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>update</code> lets Hibernate guess schema changes at startup: it never drops or renames columns, can't migrate data, may create wrong types or indexes, and leaves no reviewed history. Use versioned migrations (Flyway or Liquibase) and set <code>ddl-auto=validate</code>, so the app fails fast if entities and schema disagree.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a JPQL <code>@Query</code> returning a record <code>AuthorStats(String name, long books, BigDecimal avgPrice)</code> per author, using a constructor expression (<code>SELECT new …(…)</code>), ordered by name.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AuthorStats.java">
+package com.example.ch14.library;
+
+public record AuthorStats(String name, long books, Double avgPrice) {}
+</script>
+<script type="text/plain" class="code" data-file="StatsRepository.java">
+package com.example.ch14.library;
+
+import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
+
+public interface StatsRepository extends Repository<Author, Long> {
+  @Query("""
+      SELECT new com.example.ch14.library.AuthorStats(a.name, COUNT(b), AVG(b.price))
+      FROM Author a JOIN a.books b GROUP BY a.name ORDER BY a.name""")
+  List<AuthorStats> stats();
+}
+</script>
+<script type="text/plain" class="code" data-file="StatsDemo.java" data-run>
+package com.example.ch14.library;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class StatsDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(StatsDemo.class)) {
+      ctx.getBean(StatsRepository.class).stats().forEach(System.out::println);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+AuthorStats[name=Frank Herbert, books=2, avgPrice=9.49]
+AuthorStats[name=Jane Austen, books=2, avgPrice=6.875]
+AuthorStats[name=Ursula K. Le Guin, books=1, avgPrice=8.75]
+</script>
+<p>The constructor expression needs the class's fully qualified name; keep such DTOs top-level (a nested record would need the binary name <code>StatsRepository$AuthorStats</code>). A mistake here fails at <strong>startup</strong> — repository queries are validated when the context starts, so one broken query stops the whole application. JPQL's <code>AVG</code> returns a <code>Double</code>, so the record component is <code>Double</code>; use <code>Math.round</code> or a <code>BigDecimal</code> computation if you need exact money values.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Use <code>findAll(PageRequest.of(page, 2, Sort.by("title")))</code> to print every page of books with its number, until <code>hasNext()</code> is false.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="PagesDemo.java" data-run>
+package com.example.ch14.library;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
+@SpringBootApplication
+public class PagesDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PagesDemo.class)) {
+      var books = ctx.getBean(BookRepository.class);
+      var request = PageRequest.of(0, 2, Sort.by("title"));
+      Page<Book> page;
+      do {
+        page = books.findAll(request);
+        System.out.println("page " + page.getNumber() + ": " + page.map(Book::getTitle).getContent());
+        request = request.next();
+      } while (page.hasNext());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+page 0: [Dune, Dune Messiah]
+page 1: [Emma, Pride and Prejudice]
+page 2: [The Left Hand of Darkness]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A controller returns <code>List&lt;Book&gt;</code> directly as JSON. With <code>open-in-view=false</code> it fails with <code>LazyInitializationException</code>; with <code>open-in-view=true</code> it "works", but the endpoint runs dozens of queries and sometimes recurses forever. Explain both symptoms and the proper fix.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Jackson serialises after the service's transaction ended. It calls <code>getAuthor()</code> on each book: without an open session, the lazy proxy can't load → exception. With open-in-view, each author is loaded on demand (N+1), and serialising <code>author.books</code> → <code>book.author</code> → … loops (bidirectional relationship). Fix: don't expose entities; map to DTOs (records) inside a transactional service, fetching exactly what's needed (fetch join or projection).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Remove a book from an author with <code>orphanRemoval = true</code>: inside a transaction, load Frank Herbert and remove "Dune Messiah" from his <code>books</code> list. Show that the book count drops from 5 to 4.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="OrphanDemo.java" data-run>
+package com.example.ch14.library;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class Catalog {
+  private final AuthorRepository authors;
+  Catalog(AuthorRepository authors) { this.authors = authors; }
+
+  @Transactional
+  void dropTitle(String author, String title) {
+    authors.findByName(author).orElseThrow().getBooks().removeIf(b -> b.getTitle().equals(title));
+  }
+}
+
+@SpringBootApplication
+public class OrphanDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(OrphanDemo.class)) {
+      var books = ctx.getBean(BookRepository.class);
+      System.out.println("before: " + books.count());
+      ctx.getBean(Catalog.class).dropTitle("Frank Herbert", "Dune Messiah");
+      System.out.println("after:  " + books.count());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+before: 5
+after:  4
+</script>
+<p>With <code>orphanRemoval</code>, a child removed from its parent's collection is deleted. Use it only when children can't exist without their parent (order lines, not books shared by libraries).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Prove the N+1 fix with batch fetching: run the same "title by author" report over <code>findAll()</code> with <code>spring.jpa.properties.hibernate.default_batch_fetch_size=10</code> and print the statement count.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BatchFetchDemo.java" data-run>
+package com.example.ch14.library;
+
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+class TitlesByAuthor {
+  private final BookRepository books;
+  TitlesByAuthor(BookRepository books) { this.books = books; }
+  @Transactional(readOnly = true)
+  int run() { return books.findAll().stream().map(b -> b.getAuthor().getName()).toList().size(); }
+}
+
+@SpringBootApplication
+public class BatchFetchDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BatchFetchDemo.class,
+        "--spring.jpa.properties.hibernate.default_batch_fetch_size=10",
+        "--spring.jpa.properties.hibernate.generate_statistics=true",
+        "--logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF")) {
+      var stats = ctx.getBean(EntityManagerFactory.class).unwrap(SessionFactory.class).getStatistics();
+      stats.clear();
+      int rows = ctx.getBean(TitlesByAuthor.class).run();
+      System.out.println(rows + " books, " + stats.getPrepareStatementCount() + " queries");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 books, 2 queries
+</script>
+<p>One query for the books, one <code>… WHERE id IN (?, ?, ?)</code> for all three authors. A Java trap to avoid when you measure this: <code>….map(…).count()</code> would report a single query, because since Java 9 <code>count()</code> may skip <code>map</code> entirely when the stream's size is known — the authors would never be touched. Batch fetching doesn't change your code and caps the damage of forgotten fetch joins — many teams set it globally.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Model the Library Loans domain with JPA in its own package: <code>Member</code> (name, unique email), <code>Loan</code> (<code>@ManyToOne</code> member, <code>@ManyToOne</code> book by ISBN string for simplicity, <code>dueDate</code>, <code>returnedAt</code>). Write <code>LoanRepository</code> with a derived query for a member's open loans (<code>returnedAt IsNull</code>), a JPQL query for overdue loans with the member fetched, and a count of open loans per member. Demonstrate them with a few loans.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LoansJpaDemo.java" data-run>
+package com.example.ch14.loans;
+
+import jakarta.persistence.*;
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Entity
+class Member {
+  @Id @GeneratedValue Long id;
+  @Column(nullable = false) String name;
+  @Column(nullable = false, unique = true) String email;
+  protected Member() { }
+  Member(String name, String email) { this.name = name; this.email = email; }
+}
+
+@Entity
+class Loan {
+  @Id @GeneratedValue Long id;
+  @ManyToOne(fetch = FetchType.LAZY, optional = false) Member member;
+  @Column(nullable = false) String isbn;
+  @Column(nullable = false) LocalDate dueDate;
+  LocalDate returnedAt;
+  protected Loan() { }
+  Loan(Member member, String isbn, LocalDate dueDate) { this.member = member; this.isbn = isbn; this.dueDate = dueDate; }
+}
+
+interface MemberRepository extends JpaRepository<Member, Long> { }
+
+interface LoanRepository extends JpaRepository<Loan, Long> {
+  List<Loan> findByMemberIdAndReturnedAtIsNullOrderByDueDate(Long memberId);
+
+  @Query("SELECT l FROM Loan l JOIN FETCH l.member WHERE l.returnedAt IS NULL AND l.dueDate < :today ORDER BY l.dueDate")
+  List<Loan> overdue(@Param("today") LocalDate today);
+
+  long countByMemberIdAndReturnedAtIsNull(Long memberId);
+}
+
+@Service
+class LoanDesk {
+  private final MemberRepository members; private final LoanRepository loans;
+  LoanDesk(MemberRepository members, LoanRepository loans) { this.members = members; this.loans = loans; }
+
+  @Transactional
+  void seed(LocalDate today) {
+    var ada = members.save(new Member("Ada", "ada@example.com"));
+    var bob = members.save(new Member("Bob", "bob@example.com"));
+    loans.save(new Loan(ada, "9780441013593", today.minusDays(2)));
+    loans.save(new Loan(ada, "9780141439587", today.plusDays(5)));
+    var returned = loans.save(new Loan(bob, "9780141439518", today.minusDays(10)));
+    returned.returnedAt = today.minusDays(11);                 // dirty checking saves it
+    loans.save(new Loan(bob, "9780441478125", today.minusDays(1)));
+  }
+
+  @Transactional(readOnly = true)
+  void report(LocalDate today) {
+    Long adaId = members.findAll().getFirst().id;
+    System.out.println("Ada's open loans: " + loans.findByMemberIdAndReturnedAtIsNullOrderByDueDate(adaId).stream().map(l -> l.isbn).toList());
+    System.out.println("Ada open count: " + loans.countByMemberIdAndReturnedAtIsNull(adaId));
+    loans.overdue(today).forEach(l -> System.out.println("OVERDUE " + l.isbn + " " + l.member.name + " due " + l.dueDate));
+  }
+}
+
+@SpringBootApplication
+public class LoansJpaDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LoansJpaDemo.class)) {
+      var desk = ctx.getBean(LoanDesk.class);
+      LocalDate today = LocalDate.of(2026, 3, 10);
+      desk.seed(today);
+      desk.report(today);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ada's open loans: [9780441013593, 9780141439587]
+Ada open count: 2
+OVERDUE 9780441013593 Ada due 2026-03-08
+OVERDUE 9780441478125 Bob due 2026-03-09
+</script>
+<p>The returned loan isn't overdue: <code>returnedAt</code> was set by dirty checking inside the seeding transaction. The <code>JOIN FETCH</code> lets the report print member names without extra queries. In Chapter 20 this model gets Flyway migrations, a service with business rules and a REST API.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-data/jpa/reference/">Spring Data JPA reference</a> · <a href="https://docs.spring.io/spring-data/jpa/reference/repositories/query-methods-details.html">Defining query methods</a></li>
+  <li><a href="https://docs.spring.io/spring-data/jpa/reference/repositories/projections.html">Projections</a> · <a href="https://docs.spring.io/spring-data/jpa/reference/jpa/specifications.html">Specifications</a> · <a href="https://docs.spring.io/spring-data/jpa/reference/auditing.html">Auditing</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data">Spring Boot: JPA and Spring Data JPA</a></li>
+  <li><a href="https://docs.hibernate.org/orm/7.0/userguide/html_single/">Hibernate ORM 7 user guide</a> (fetching, batch fetching, statistics)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

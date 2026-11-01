@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc actuator security security-oauth2-resource-server webmvc-test security-test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>H5. How-To: Security · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">How-To Guides · H5</div>
+<h1>Security</h1>
+<p class="lead">Recipes for securing a typical API with Spring Security 7: public and protected endpoints side by side, tokens from an identity provider with its role claims, ownership checks, password storage with automatic hash upgrades, CORS, the current user in your code, and tests for all of it. Background: Chapter 17.</p>
+
+<ul class="howto-toc">
+  <li><a href="#public">Open some endpoints, protect the rest</a></li>
+  <li><a href="#idp">Accept tokens from Keycloak, Auth0 or Entra ID</a></li>
+  <li><a href="#ownership">Let users access only their own data</a></li>
+  <li><a href="#passwords">Store passwords and upgrade old hashes</a></li>
+  <li><a href="#cors-security">Enable CORS with Spring Security</a></li>
+  <li><a href="#current-user">Get the current user anywhere</a></li>
+  <li><a href="#test">Test secured endpoints</a></li>
+</ul>
+
+<div class="recipe" id="public">
+<h2>Open some endpoints, protect the rest</h2>
+<p class="problem">Health checks, the API docs and <code>GET /api/books</code> must be public; everything else needs a login; admin endpoints need a role.</p>
+<div class="tags"><span>SecurityFilterChain</span><span>EndpointRequest</span><span>Chapter 17</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="PublicPrivateApp.java" data-run>
+package com.example.h5.publicprivate;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class Api {
+  @GetMapping("/api/books") String books() { return "[books]"; }
+  @PostMapping("/api/books") String add() { return "added"; }
+  @DeleteMapping("/api/admin/cache") String clear() { return "cleared"; }
+}
+
+@SpringBootApplication
+public class PublicPrivateApp {
+  @Bean
+  SecurityFilterChain security(HttpSecurity http) throws Exception {
+    return http.authorizeHttpRequests(auth -> auth
+            .requestMatchers(EndpointRequest.to("health", "info")).permitAll()     // actuator, wherever it's mounted
+            .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
+            .requestMatchers("/api/admin/**").hasRole("ADMIN")
+            .anyRequest().authenticated())
+        .httpBasic(Customizer.withDefaults())
+        .csrf(c -> c.disable())
+        .build();
+  }
+
+  @Bean
+  InMemoryUserDetailsManager users() {
+    return new InMemoryUserDetailsManager(
+        User.withUsername("ada").password("{noop}pw").roles("USER").build(),
+        User.withUsername("root").password("{noop}pw").roles("USER", "ADMIN").build());
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PublicPrivateApp.class)) {
+      var anon = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      var ada = anon.mutate().defaultHeaders(h -> h.setBasicAuth("ada", "pw")).build();
+      var root = anon.mutate().defaultHeaders(h -> h.setBasicAuth("root", "pw")).build();
+      System.out.println("health   anon " + anon.get().uri("/actuator/health").retrieve().toBodilessEntity().getStatusCode().value());
+      System.out.println("GET      anon " + anon.get().uri("/api/books").retrieve().toBodilessEntity().getStatusCode().value());
+      System.out.println("POST     anon " + anon.post().uri("/api/books").retrieve().toBodilessEntity().getStatusCode().value()
+          + ", ada " + ada.post().uri("/api/books").retrieve().toBodilessEntity().getStatusCode().value());
+      System.out.println("admin    ada " + ada.delete().uri("/api/admin/cache").retrieve().toBodilessEntity().getStatusCode().value()
+          + ", root " + root.delete().uri("/api/admin/cache").retrieve().toBodilessEntity().getStatusCode().value());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+health   anon 200
+GET      anon 200
+POST     anon 401, ada 200
+admin    ada 403, root 200
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Order matters: the first matching rule wins. Specific rules first, <code>anyRequest()</code> last.</li>
+  <li>Use <code>EndpointRequest</code> for Actuator rather than <code>"/actuator/**"</code> — it follows <code>management.endpoints.web.base-path</code> and management ports.</li>
+  <li>Expose <code>health</code> publicly but not <code>health</code> <em>details</em>: <code>management.endpoint.health.show-details=when-authorized</code>.</li>
+</ul>
+</div>
+
+<div class="recipe" id="idp">
+<h2>Accept tokens from Keycloak, Auth0 or Entra ID</h2>
+<p class="problem">Users log in at your identity provider; the API receives access tokens and must map the provider's role claim to Spring roles.</p>
+<div class="tags"><span>resource server</span><span>JWT</span><span>JwtAuthenticationConverter</span><span>Chapter 17</span></div>
+<h3>Solution</h3>
+<p>Point Boot at the issuer and map the roles claim. Keycloak puts realm roles in <code>realm_access.roles</code>; Auth0 and Entra ID use a (custom) <code>roles</code> claim:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.security.oauth2.resourceserver.jwt.issuer-uri=https://login.example.com/realms/library
+spring.security.oauth2.resourceserver.jwt.audiences=library-api
+</script>
+<script type="text/plain" class="code" data-file="KeycloakRoles.java">
+package com.example.h5.idp;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+
+public final class KeycloakRoles {
+  private KeycloakRoles() { }
+
+  /** realm_access.roles = ["librarian"] → ROLE_LIBRARIAN; the principal name is preferred_username. */
+  public static JwtAuthenticationConverter converter() {
+    var converter = new JwtAuthenticationConverter();
+    converter.setJwtGrantedAuthoritiesConverter(KeycloakRoles::roles);
+    converter.setPrincipalClaimName("preferred_username");
+    return converter;
+  }
+
+  static Collection<GrantedAuthority> roles(Jwt jwt) {
+    Map<String, Object> realm = jwt.getClaimAsMap("realm_access");
+    @SuppressWarnings("unchecked")
+    List<String> roles = realm == null ? List.of() : (List<String>) realm.getOrDefault("roles", List.of());
+    return roles.stream().map(r -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + r.toUpperCase())).toList();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="KeycloakRolesTest.java" data-test>
+package com.example.h5.idp;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+
+class KeycloakRolesTest {
+  @Test
+  void mapsRealmRolesAndUsername() {
+    Jwt jwt = Jwt.withTokenValue("t").header("alg", "none").subject("8f2c…")
+        .claim("preferred_username", "lin").claim("realm_access", Map.of("roles", List.of("librarian", "user")))
+        .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60)).build();
+    var auth = KeycloakRoles.converter().convert(jwt);
+    assertThat(auth.getName()).isEqualTo("lin");
+    assertThat(auth.getAuthorities()).extracting(GrantedAuthority::getAuthority).contains("ROLE_LIBRARIAN", "ROLE_USER");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Register it with <code>.oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtAuthenticationConverter(KeycloakRoles.converter())))</code>, then use <code>hasRole("LIBRARIAN")</code> as usual.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Validate the audience (<code>audiences</code>): a token issued for another application of the same provider must not work for yours.</li>
+  <li>Don't use <code>sub</code> as a display name — for many providers it's an opaque id. Do use it (not the e-mail) as the stable key for the user's data.</li>
+</ul>
+</div>
+
+<div class="recipe" id="ownership">
+<h2>Let users access only their own data</h2>
+<p class="problem"><code>GET /api/members/{id}/loans</code> must work for that member and for librarians, nobody else.</p>
+<div class="tags"><span>@PreAuthorize</span><span>bean references in SpEL</span><span>Chapter 17</span></div>
+<h3>Solution</h3>
+<p>Put the ownership check in a small bean and call it from <code>@PreAuthorize</code> with <code>@beanName</code> — testable and reusable:</p>
+<script type="text/plain" class="code" data-file="OwnershipApp.java" data-run>
+package com.example.h5.ownership;
+
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@Component("access")
+class MemberAccess {
+  private final Map<String, Long> memberIdByUsername = Map.of("ada", 1L, "bob", 2L);   // normally a repository
+  public boolean isSelf(Authentication auth, long memberId) {
+    return memberIdByUsername.getOrDefault(auth.getName(), -1L) == memberId;
+  }
+}
+
+@RestController
+class LoansApi {
+  @GetMapping("/api/members/{id}/loans")
+  @PreAuthorize("@access.isSelf(authentication, #id) or hasRole('LIBRARIAN')")
+  String loans(@PathVariable long id) { return "loans of member " + id; }
+}
+
+@SpringBootApplication
+@EnableMethodSecurity
+public class OwnershipApp {
+  @Bean SecurityFilterChain chain(HttpSecurity http) throws Exception {
+    return http.authorizeHttpRequests(a -> a.anyRequest().authenticated()).httpBasic(Customizer.withDefaults()).build();
+  }
+  @Bean InMemoryUserDetailsManager users() {
+    return new InMemoryUserDetailsManager(User.withUsername("ada").password("{noop}pw").roles("USER").build(),
+        User.withUsername("lin").password("{noop}pw").roles("LIBRARIAN").build());
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(OwnershipApp.class)) {
+      var base = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      for (String[] c : new String[][] { { "ada", "1" }, { "ada", "2" }, { "lin", "2" } }) {
+        var r = base.get().uri("/api/members/{id}/loans", c[1]).headers(h -> h.setBasicAuth(c[0], "pw")).retrieve().toEntity(String.class);
+        System.out.println(c[0] + " → member " + c[1] + ": " + r.getStatusCode().value() + (r.getStatusCode().is2xxSuccessful() ? " " + r.getBody() : ""));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ada → member 1: 200 loans of member 1
+ada → member 2: 403
+lin → member 2: 200 loans of member 2
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Check ownership on the <em>server</em> for every request; hiding links in the UI is not security.</li>
+  <li>For lists ("my loans"), don't take the member id from the URL at all — derive it from the authentication.</li>
+</ul>
+</div>
+
+<div class="recipe" id="passwords">
+<h2>Store passwords and upgrade old hashes</h2>
+<p class="problem">Legacy users have SHA-256 hashes; new ones should get BCrypt — and old hashes should be upgraded as users log in.</p>
+<div class="tags"><span>DelegatingPasswordEncoder</span><span>UserDetailsPasswordService</span><span>Chapter 17</span></div>
+<h3>Solution</h3>
+<p>The delegating encoder verifies any supported <code>{id}</code>-prefixed hash and reports when it should be re-encoded. If your <code>UserDetailsService</code> also implements <code>UserDetailsPasswordService</code>, Spring Security re-hashes the password after a successful login automatically:</p>
+<script type="text/plain" class="code" data-file="PasswordUpgradeApp.java" data-run>
+package com.example.h5.passwords;
+
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsPasswordService;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+
+class UserStore implements UserDetailsService, UserDetailsPasswordService {
+  final ConcurrentHashMap<String, String> hashes = new ConcurrentHashMap<>();
+  public UserDetails loadUserByUsername(String name) {
+    String hash = hashes.get(name);
+    if (hash == null) throw new UsernameNotFoundException(name);
+    return User.withUsername(name).password(hash).roles("USER").build();
+  }
+  public UserDetails updatePassword(UserDetails user, String newHash) {      // called after a successful login
+    hashes.put(user.getUsername(), newHash);
+    return User.withUserDetails(user).password(newHash).build();
+  }
+}
+
+public class PasswordUpgradeApp {
+  public static void main(String[] args) {
+    var store = new UserStore();
+    store.hashes.put("old-user", "{noop}hunter2");                 // stands in for a legacy hash format
+    var provider = new DaoAuthenticationProvider(store);
+    provider.setPasswordEncoder(PasswordEncoderFactories.createDelegatingPasswordEncoder());
+    provider.setUserDetailsPasswordService(store);
+
+    System.out.println("before: " + store.hashes.get("old-user"));
+    provider.authenticate(new UsernamePasswordAuthenticationToken("old-user", "hunter2"));
+    System.out.println("after login: " + store.hashes.get("old-user").substring(0, 15) + "…");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+before: {noop}hunter2
+after login: {bcrypt}$2a$10$…
+</script>
+<p>For hashes stored without a prefix (e.g. bare SHA-256 hex), run a one-off migration that adds the prefix (<code>{sha256}…</code>), and register that id in a custom <code>DelegatingPasswordEncoder</code> map.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Never "upgrade" by decrypting — hashes can't be reversed; upgrades only happen when the user types the password.</li>
+  <li>Rate-limit login attempts; BCrypt slows each guess, but doesn't stop a million parallel ones.</li>
+</ul>
+</div>
+
+<div class="recipe" id="cors-security">
+<h2>Enable CORS with Spring Security</h2>
+<p class="problem">After adding Spring Security, the browser app's requests fail CORS preflights with 401.</p>
+<div class="tags"><span>CORS</span><span>preflight</span><span>Chapters 10, 17</span></div>
+<h3>Solution</h3>
+<p>Enable CORS <em>in the security chain</em> and provide a <code>CorsConfigurationSource</code>; preflights are then answered before authentication:</p>
+<script type="text/plain" class="code" data-file="SecureCorsApp.java" data-run>
+package com.example.h5.cors;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+@RestController class Api { @GetMapping("/api/data") String data() { return "{}"; } }
+
+@SpringBootApplication
+public class SecureCorsApp {
+  @Bean SecurityFilterChain chain(HttpSecurity http) throws Exception {
+    return http.cors(Customizer.withDefaults())                           // uses the CorsConfigurationSource bean
+        .authorizeHttpRequests(a -> a.anyRequest().authenticated())
+        .httpBasic(Customizer.withDefaults()).build();
+  }
+
+  @Bean CorsConfigurationSource corsConfigurationSource() {
+    var config = new CorsConfiguration();
+    config.setAllowedOrigins(List.of("https://app.example.com"));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
+    config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    var source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/api/**", config);
+    return source;
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SecureCorsApp.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      var r = http.method(HttpMethod.OPTIONS).uri("/api/data").header("Origin", "https://app.example.com")
+          .header("Access-Control-Request-Method", "GET").header("Access-Control-Request-Headers", "Authorization")
+          .retrieve().toBodilessEntity();
+      System.out.println("preflight without credentials: " + r.getStatusCode().value() + ", allow-origin " + r.getHeaders().getAccessControlAllowOrigin());
+      System.out.println("actual request without credentials: " + http.get().uri("/api/data").retrieve().toBodilessEntity().getStatusCode().value());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+preflight without credentials: 200, allow-origin https://app.example.com
+actual request without credentials: 401
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Don't fix CORS by permitting all <code>OPTIONS</code> requests or all origins — configure the allowed origins precisely.</li>
+  <li>CORS isn't authentication: it only tells browsers which sites may <em>read</em> responses; servers and scripts ignore it.</li>
+</ul>
+</div>
+
+<div class="recipe" id="current-user">
+<h2>Get the current user anywhere</h2>
+<p class="problem">The service layer needs the logged-in user's name to stamp "created by" — without passing it through every method.</p>
+<div class="tags"><span>SecurityContextHolder</span><span>@AuthenticationPrincipal</span><span>Chapter 17</span></div>
+<h3>Solution</h3>
+<p>In controllers, inject it (<code>@AuthenticationPrincipal Jwt jwt</code>, <code>Principal</code>). Elsewhere, wrap <code>SecurityContextHolder</code> in a small bean so it can be faked in tests:</p>
+<script type="text/plain" class="code" data-file="CurrentUserApp.java" data-run>
+package com.example.h5.currentuser;
+
+import java.util.Optional;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+class CurrentUser {                                   // a @Component in a real application
+  Optional<String> name() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) return Optional.empty();
+    return Optional.of(auth.getName());
+  }
+}
+
+public class CurrentUserApp {
+  public static void main(String[] args) throws InterruptedException {
+    var current = new CurrentUser();
+    System.out.println("nobody: " + current.name());
+    SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("ada", null, "ROLE_USER"));
+    System.out.println("request thread: " + current.name());
+    Thread t = Thread.ofPlatform().start(() -> System.out.println("other thread: " + current.name()));
+    t.join();
+    SecurityContextHolder.clearContext();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+nobody: Optional.empty
+request thread: Optional[ada]
+other thread: Optional.empty
+</script>
+<p>The context is per thread: <code>@Async</code> methods and new threads don't see it unless you propagate it (<code>DelegatingSecurityContextExecutor</code>, or Boot's context propagation for task executors). For JPA auditing, implement <code>AuditorAware</code> with this bean (H3).</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Never trust a user name sent by the client in the body or a header — take it from the authentication.</li>
+  <li>Don't store the <code>Authentication</code> in a singleton field (Chapter 3): it belongs to one request.</li>
+</ul>
+</div>
+
+<div class="recipe" id="test">
+<h2>Test secured endpoints</h2>
+<p class="problem">You want proof that the rules hold — including that anonymous and unauthorised calls are rejected.</p>
+<div class="tags"><span>@WithMockUser</span><span>httpBasic()</span><span>Chapters 16–17</span></div>
+<h3>Solution</h3>
+<p>Test against the real filter chain with MockMvc and simulate users per request or per test. Here, the rules from the first recipe:</p>
+<script type="text/plain" class="code" data-file="PublicPrivateRulesTest.java" data-test>
+package com.example.h5.publicprivate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.test.context.support.WithAnonymousUser;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest(classes = PublicPrivateApp.class)
+@AutoConfigureMockMvc
+class PublicPrivateRulesTest {
+  @Autowired MockMvcTester mvc;
+
+  @Test @WithAnonymousUser
+  void anonymousMayReadButNotWrite() {
+    assertThat(mvc.get().uri("/api/books")).hasStatusOk();
+    assertThat(mvc.post().uri("/api/books")).hasStatus(HttpStatus.UNAUTHORIZED);
+  }
+
+  @Test @WithMockUser(roles = "USER")
+  void usersCannotUseAdminEndpoints() {
+    assertThat(mvc.delete().uri("/api/admin/cache")).hasStatus(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void adminsCan() {
+    assertThat(mvc.delete().uri("/api/admin/cache").with(user("root").roles("ADMIN"))).hasStatusOk();
+  }
+
+  @Test
+  void healthIsPublic() {
+    assertThat(mvc.get().uri("/actuator/health")).hasStatusOk();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li><code>@WebMvcTest</code> includes your <code>SecurityFilterChain</code> only if it's in a configuration class it picks up — when in doubt, <code>@Import(SecurityConfig.class)</code>, or use <code>@SpringBootTest</code> as here.</li>
+  <li>Write the negative tests first; a missing rule shows up as a <em>passing</em> request.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/how-to/security.html">How-to: Security</a> · <a href="https://docs.spring.io/spring-boot/reference/web/spring-security.html">Spring Boot: Spring Security</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html">JWT resource server</a> · <a href="https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html">Method security</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/servlet/test/index.html">Testing</a> · <a href="https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html">Password storage</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

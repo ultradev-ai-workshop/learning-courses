@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc actuator restclient aspectj">
+<meta name="spring-logback" content="boot">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>18. Actuator, Observability &amp; Logging · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 18 · Production</div>
+<h1>Actuator, Observability &amp; Logging</h1>
+<p class="lead">Running software you can't see into is guesswork. Spring Boot Actuator gives every application health checks, metrics and operational endpoints; Micrometer's <strong>Observation API</strong> turns one instrumentation call into both metrics and traces; and Boot's logging supports levels you can change at runtime and <strong>structured JSON logs</strong>. This chapter wires them all up.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <strong>Actuator endpoints</strong> (<code>health</code>, <code>info</code>, <code>metrics</code>, <code>loggers</code>, <code>env</code>…), how to expose and protect them.</li>
+  <li><strong>Health</strong>: built-in indicators, custom <code>HealthIndicator</code>s, liveness and readiness probes for Kubernetes.</li>
+  <li><strong>Metrics</strong> with Micrometer: counters, timers, gauges, tags, and the automatic HTTP metrics.</li>
+  <li><strong>Observations and tracing</strong>: <code>Observation</code>, <code>@Observed</code>, trace ids, OpenTelemetry.</li>
+  <li><strong>Logging</strong>: levels and groups, runtime changes, MDC, and structured logging (ECS, Logstash, GELF).</li>
+</ul>
+</div>
+
+<h2 id="three-pillars">The three signals</h2>
+<table>
+  <tr><th>Signal</th><th>Answers</th><th>Example</th></tr>
+  <tr><td><strong>Metrics</strong></td><td>"how much, how often, how fast?" — aggregated numbers over time</td><td>p99 latency of <code>GET /books</code>, error rate, pool usage</td></tr>
+  <tr><td><strong>Traces</strong></td><td>"where did <em>this</em> request spend its time?" — across services</td><td>a checkout that called 4 services; the slow span was the payment call</td></tr>
+  <tr><td><strong>Logs</strong></td><td>"what exactly happened?" — detailed events</td><td>"payment declined for order 42: insufficient funds"</td></tr>
+</table>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a hospital.</strong> Metrics are the monitors at the bedside: heart rate, blood pressure — numbers you watch and alert on. A trace is the patient's journey through departments, with times at each step. Logs are the doctors' detailed notes. The health endpoint is the nurse's quick check: "is the patient alive (liveness)? Ready to receive visitors (readiness)?"</p>
+</div>
+
+<h2 id="actuator">Actuator endpoints</h2>
+<p>Add <code>spring-boot-starter-actuator</code>. Endpoints are served under <code>/actuator</code>; by default only <code>health</code> is exposed over HTTP (all are available over JMX if enabled). Expose more explicitly — and protect them:</p>
+<table>
+  <tr><th>Endpoint</th><th>Shows</th></tr>
+  <tr><td><code>health</code></td><td>UP/DOWN status, components (db, disk, …), liveness/readiness groups</td></tr>
+  <tr><td><code>info</code></td><td>application info: build version, git commit, Java, OS, custom <code>info.*</code></td></tr>
+  <tr><td><code>metrics</code>, <code>prometheus</code></td><td>Micrometer metrics (JSON) / Prometheus scrape format</td></tr>
+  <tr><td><code>loggers</code></td><td>view and <em>change</em> log levels at runtime</td></tr>
+  <tr><td><code>env</code>, <code>configprops</code></td><td>configuration properties and their sources (values masked by default)</td></tr>
+  <tr><td><code>beans</code>, <code>conditions</code>, <code>mappings</code></td><td>beans, auto-configuration report (Chapter 5), request mappings</td></tr>
+  <tr><td><code>threaddump</code>, <code>heapdump</code>, <code>scheduledtasks</code>, <code>sbom</code></td><td>diagnostics, scheduled jobs, software bill of materials</td></tr>
+</table>
+<script type="text/plain" class="code" data-file="ActuatorTour.java" data-run>
+package com.example.ch18.tour;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@RestController
+class HelloController { @GetMapping("/hello") String hello() { return "hi"; } }
+
+@SpringBootApplication
+public class ActuatorTour {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ActuatorTour.class,
+        "--management.endpoints.web.exposure.include=health,info,metrics,loggers",
+        "--management.endpoint.health.show-details=always",
+        "--management.info.java.enabled=true", "--management.info.env.enabled=true",   // info.* properties are off by default
+        "--info.app.name=library-api", "--info.app.team=books")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      http.get().uri("/hello").retrieve().body(String.class);                   // generate a metric
+
+      JsonNode index = http.get().uri("/actuator").retrieve().body(JsonNode.class);
+      System.out.println("exposed: " + index.get("_links").propertyNames().stream().filter(k -> !k.contains("-") && !k.contains("{")).sorted().toList());
+
+      JsonNode health = http.get().uri("/actuator/health").retrieve().body(JsonNode.class);
+      System.out.println("health: " + health.get("status").asString() + ", components: " + health.get("components").propertyNames().stream().sorted().toList());
+
+      JsonNode info = http.get().uri("/actuator/info").retrieve().body(JsonNode.class);
+      System.out.println("info.app: " + info.get("app") + ", java " + info.get("java").get("version").asString().split("\\.")[0]);
+
+      JsonNode requests = http.get().uri("/actuator/metrics/http.server.requests?tag=uri:/hello").retrieve().body(JsonNode.class);
+      System.out.println("GET /hello count: " + requests.get("measurements").get(0).get("value").asInt());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+exposed: [health, info, loggers, metrics, self]
+health: UP, components: [diskSpace, livenessState, ping, readinessState, ssl]
+info.app: {"name":"library-api","team":"books"}, java 25
+GET /hello count: 1
+</script>
+<p>Since Boot 3, the <code>info.*</code> properties only appear with <code>management.info.env.enabled=true</code>, and the Java and OS sections need <code>management.info.java.enabled</code>/<code>os.enabled</code> — a default that avoids leaking details by accident. The <code>http.server.requests</code> timer is recorded automatically for every request, tagged with <code>method</code>, <code>uri</code> (the <em>template</em>, e.g. <code>/books/{id}</code>, so the number of series stays bounded), <code>status</code>, <code>outcome</code> and <code>exception</code>. Similar automatic metrics exist for clients (<code>http.client.requests</code>), JVM memory and GC, Hikari pools, Tomcat, caches, executors and more.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Actuator is an attack surface.</strong> <code>env</code>, <code>heapdump</code> and <code>threaddump</code> can reveal secrets. Expose only what you need (<code>health,info,prometheus</code> is a common choice), consider a separate management port (<code>management.server.port=8081</code>) that isn't reachable from the internet, and protect the rest with Spring Security (<code>EndpointRequest.toAnyEndpoint()</code> in a separate filter chain, as in Chapter 17).</p>
+</div>
+
+<h2 id="health">Health, liveness and readiness</h2>
+<p>Health is the sum of <strong>health indicators</strong>: Boot adds them for the database, disk space, Redis, mail servers and so on. Add your own for dependencies that matter. Status aggregation is "the worst wins": one <code>DOWN</code> component makes the whole application <code>DOWN</code> (HTTP 503).</p>
+<script type="text/plain" class="code" data-file="CustomHealth.java" data-run>
+package com.example.ch18.health;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@Component("paymentGateway")                       // the bean name is the component name in /health
+class PaymentGatewayHealth implements HealthIndicator {
+  final AtomicBoolean reachable = new AtomicBoolean(true);
+  @Override
+  public Health health() {
+    return reachable.get()
+        ? Health.up().withDetail("latencyMs", 42).build()
+        : Health.down().withDetail("error", "connection refused").build();
+  }
+}
+
+@SpringBootApplication
+public class CustomHealth {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomHealth.class, "--management.endpoint.health.show-details=always")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      var gateway = ctx.getBean(PaymentGatewayHealth.class);
+      for (boolean up : new boolean[] { true, false }) {
+        gateway.reachable.set(up);
+        var r = http.get().uri("/actuator/health").retrieve().toEntity(JsonNode.class);
+        System.out.println(r.getStatusCode().value() + " " + r.getBody().get("status").asString() + " paymentGateway=" + r.getBody().get("components").get("paymentGateway"));
+      }
+      System.out.println("liveness while gateway is down: " + http.get().uri("/actuator/health/liveness").retrieve().body(JsonNode.class).get("status").asString());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 UP paymentGateway={"details":{"latencyMs":42},"status":"UP"}
+503 DOWN paymentGateway={"details":{"error":"connection refused"},"status":"DOWN"}
+liveness while gateway is down: UP
+</script>
+<p>The last line matters: Kubernetes-style <strong>probes</strong> are separate health <em>groups</em>, enabled by default in Boot 4 at <code>/actuator/health/liveness</code> and <code>/actuator/health/readiness</code>:</p>
+<ul>
+  <li><strong>Liveness</strong> — "is the process broken beyond repair?" A failed liveness probe makes Kubernetes <em>restart</em> the container. It should almost never depend on external systems: if the payment gateway is down, restarting your app won't fix it.</li>
+  <li><strong>Readiness</strong> — "can I take traffic right now?" A failed readiness probe removes the instance from the load balancer until it recovers. It's DOWN during startup and graceful shutdown, and you can include dependencies here (<code>management.endpoint.health.group.readiness.include=readinessState,db</code>).</li>
+</ul>
+<p>Your code can change these states by publishing <code>AvailabilityChangeEvent</code>s, e.g. refusing traffic while a cache warms up (Exercise 9).</p>
+
+<h2 id="metrics">Metrics with Micrometer</h2>
+<p>Micrometer is a facade over monitoring systems (Prometheus, Datadog, OTLP, CloudWatch…), like SLF4J for metrics. Inject the <code>MeterRegistry</code> and record:</p>
+<ul>
+  <li><strong>Counter</strong>: a number that only goes up (orders placed, errors). Rates are computed by the monitoring system.</li>
+  <li><strong>Timer</strong>: count + total time + max of an operation, optionally percentiles/histograms.</li>
+  <li><strong>Gauge</strong>: a current value sampled when read (queue size, active users).</li>
+  <li><strong>DistributionSummary</strong>: distribution of non-time values (payload sizes, basket totals).</li>
+</ul>
+<script type="text/plain" class="code" data-file="MetricsDemo.java" data-run>
+package com.example.ch18.metrics;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+
+@Service
+class LoanService {
+  private final MeterRegistry registry;
+  private final Timer borrowTimer;
+  private final ConcurrentLinkedQueue<String> waitlist = new ConcurrentLinkedQueue<>();
+
+  LoanService(MeterRegistry registry) {
+    this.registry = registry;
+    this.borrowTimer = Timer.builder("library.borrow").description("time to process a loan").register(registry);
+    Gauge.builder("library.waitlist.size", waitlist, ConcurrentLinkedQueue::size).register(registry);
+  }
+
+  void borrow(String isbn, String channel) {
+    borrowTimer.record(() -> {
+      Counter.builder("library.loans").tag("channel", channel).register(registry).increment();   // tags: few, bounded values
+    });
+  }
+  void joinWaitlist(String member) { waitlist.add(member); }
+}
+
+@SpringBootApplication
+public class MetricsDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MetricsDemo.class, "--spring.main.web-application-type=none")) {
+      var loans = ctx.getBean(LoanService.class);
+      loans.borrow("111", "web"); loans.borrow("222", "web"); loans.borrow("333", "kiosk");
+      loans.joinWaitlist("ada"); loans.joinWaitlist("bob");
+
+      var registry = ctx.getBean(MeterRegistry.class);
+      System.out.println("registry: " + registry.getClass().getSimpleName());
+      System.out.println("loans via web:   " + registry.get("library.loans").tag("channel", "web").counter().count());
+      System.out.println("loans via kiosk: " + registry.get("library.loans").tag("channel", "kiosk").counter().count());
+      Timer t = registry.get("library.borrow").timer();
+      System.out.println("borrow timer: count=" + t.count() + ", total < 1s: " + (t.totalTime(TimeUnit.SECONDS) < 1));
+      System.out.println("waitlist gauge: " + registry.get("library.waitlist.size").gauge().value());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+registry: SimpleMeterRegistry
+loans via web:   2.0
+loans via kiosk: 1.0
+borrow timer: count=3, total < 1s: true
+waitlist gauge: 2.0
+</script>
+<p>Without an exporter on the classpath, Boot uses an in-memory <code>SimpleMeterRegistry</code> (what <code>/actuator/metrics</code> shows). Add <code>io.micrometer:micrometer-registry-prometheus</code> for a <code>/actuator/prometheus</code> scrape endpoint, or <code>micrometer-registry-otlp</code> to push via OpenTelemetry. Apply common tags to everything with <code>management.metrics.tags.region=eu-west-1</code>.</p>
+<div class="pitfall">
+<p>⚠️ <strong>High-cardinality tags.</strong> Every distinct combination of tag values is a separate time series in your monitoring system. <code>tag("channel", "web")</code> is fine; <code>tag("userId", id)</code> or <code>tag("isbn", isbn)</code> creates millions of series and can take your metrics backend down. Put unbounded values in logs or traces, not metric tags.</p>
+</div>
+
+<h2 id="observations">Observations and tracing</h2>
+<p>Instrumenting the same operation separately for metrics, traces and logs is tedious. Micrometer's <strong>Observation API</strong> lets you instrument once: an observation has a name, low-cardinality key-values (become metric tags and span attributes) and high-cardinality ones (span attributes only); registered handlers turn it into a timer, a trace span, log context, or all three. Spring's own instrumentation (HTTP server and client, <code>@Scheduled</code>, messaging, JDBC with extra libraries) uses it too.</p>
+<script type="text/plain" class="code" data-file="ObservationDemo.java" data-run>
+package com.example.ch18.observation;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.annotation.Observed;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+
+@Service
+class SearchService {
+  private final ObservationRegistry observations;
+  SearchService(ObservationRegistry observations) { this.observations = observations; }
+
+  int search(String query, String type) {
+    return Observation.createNotStarted("library.search", observations)
+        .lowCardinalityKeyValue("type", type)                // metric tag + span attribute
+        .highCardinalityKeyValue("query", query)             // span attribute only
+        .observe(() -> query.length() * 3);                  // timed; errors recorded automatically
+  }
+
+  @Observed(name = "library.recommend", contextualName = "recommend-books")   // needs AspectJ (spring-boot-starter-aspectj)
+  public String recommend(String member) { return "Dune for " + member; }
+}
+
+@SpringBootApplication
+public class ObservationDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ObservationDemo.class, "--spring.main.web-application-type=none",
+        "--management.observations.annotations.enabled=true")) {
+      var search = ctx.getBean(SearchService.class);
+      search.search("dune", "title"); search.search("herbert", "author"); search.search("le guin", "author");
+      System.out.println(search.recommend("ada"));
+
+      var registry = ctx.getBean(MeterRegistry.class);
+      System.out.println("search by author: " + registry.get("library.search").tag("type", "author").timer().count());
+      System.out.println("search by title:  " + registry.get("library.search").tag("type", "title").timer().count());
+      System.out.println("query tag on metric? " + registry.find("library.search").tagKeys("query").timer() != null);
+      System.out.println("recommend timer:  " + registry.get("library.recommend").timer().count());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune for ada
+search by author: 2
+search by title:  1
+...
+recommend timer:  1
+</script>
+<p>The high-cardinality <code>query</code> key-value never became a metric tag — exactly the protection described above. (Printing the third line has a precedence bug; you'll fix it in Exercise 1.)</p>
+<h3>Distributed tracing</h3>
+<p>Add <strong><code>spring-boot-starter-opentelemetry</code></strong> (Boot 4) and every incoming request gets a <strong>trace</strong>; each observation becomes a <strong>span</strong>; <code>RestClient</code>/<code>WebClient</code> calls propagate the trace context to downstream services in the <code>traceparent</code> header (W3C Trace Context); and the trace and span ids are added to your log lines. Spans are exported over OTLP to a collector (Grafana Tempo, Jaeger, Zipkin, a vendor):</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+management.tracing.sampling.probability=0.1          # sample 10% of traces in production (1.0 in dev)
+management.opentelemetry.tracing.export.otlp.endpoint=http://otel-collector:4318/v1/traces
+management.otlp.metrics.export.url=http://otel-collector:4318/v1/metrics
+</script>
+<p>For local development, Boot's Docker Compose support can start a Grafana LGTM container (logs, metrics, traces in one image) and configure these URLs automatically.</p>
+
+<h2 id="logging">Logging</h2>
+<p>Boot uses SLF4J with Logback by default, logging to the console at <code>INFO</code>. Configure levels per logger or logger <em>group</em>, and write to a file if you need to:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+logging.level.root=INFO
+logging.level.com.example.library=DEBUG
+logging.level.org.hibernate.SQL=DEBUG             # see generated SQL
+logging.group.http=org.springframework.web,org.apache.coyote
+logging.level.http=WARN                           # set a whole group at once
+logging.file.name=logs/library.log                # plus rotation: logging.logback.rollingpolicy.*
+</script>
+<p>Two production essentials: <strong>change levels at runtime</strong> via the <code>loggers</code> endpoint (turn on DEBUG for one package while investigating, no restart), and <strong>structured logging</strong> — JSON lines that log platforms can index without fragile regex parsing. Boot supports Elastic Common Schema (<code>ecs</code>), Logstash (<code>logstash</code>) and Graylog (<code>gelf</code>) formats:</p>
+<script type="text/plain" class="code" data-file="StructuredLogging.java" data-run>
+package com.example.ch18.logging;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+@SpringBootApplication
+public class StructuredLogging {
+  private static final Logger log = LoggerFactory.getLogger(StructuredLogging.class);
+
+  public static void main(String[] args) {
+    var out = new java.io.ByteArrayOutputStream();
+    var original = System.out;
+    try (var ctx = SpringApplication.run(StructuredLogging.class, "--spring.main.web-application-type=none",
+        "--logging.structured.format.console=ecs", "--spring.application.name=library-api",
+        "--logging.level.com.example=INFO")) {
+      System.setOut(new java.io.PrintStream(out, true));      // capture console output to inspect it
+      MDC.put("orderId", "A-42");
+      log.atInfo().setMessage("loan created").addKeyValue("isbn", "9780441013593").log();
+      MDC.clear();
+    } finally {
+      System.setOut(original);
+    }
+    String line = out.toString().lines().filter(l -> l.contains("loan created")).findFirst().orElseThrow();
+    JsonNode json = JsonMapper.builder().build().readTree(line);
+    System.out.println("level=" + json.get("log").get("level").asString()
+        + " service=" + json.get("service").get("name").asString()
+        + " message=" + json.get("message").asString()
+        + " orderId=" + json.get("orderId").asString()
+        + " isbn=" + json.get("isbn").asString()
+        + " ecs=" + json.has("ecs"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+level=INFO service=library-api message=loan created orderId=A-42 isbn=9780441013593 ecs=true
+</script>
+<p>Each log event is a single JSON line with standard field names; MDC entries (<code>orderId</code>) and SLF4J key-values (<code>isbn</code>) become fields. With tracing enabled, <code>traceId</code> and <code>spanId</code> appear too, so you can jump from a log line to its trace.</p>
+<div class="tip">
+<p>💡 <strong>Log for the reader at 3 a.m.</strong> Log business events at <code>INFO</code> with identifiers (order id, member id), unexpected failures at <code>ERROR</code> <em>once</em> with the stack trace (where you handle them, not at every layer), and never log secrets or personal data such as passwords, tokens or full card numbers.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Changing a log level at runtime</h3>
+<script type="text/plain" class="code" data-file="RuntimeLogLevels.java" data-run>
+package com.example.ch18.loggers;
+
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@SpringBootApplication
+public class RuntimeLogLevels {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RuntimeLogLevels.class, "--management.endpoints.web.exposure.include=loggers")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var logger = LoggerFactory.getLogger("com.example.library.payments");
+      System.out.println("debug enabled before: " + logger.isDebugEnabled());
+      http.post().uri("/actuator/loggers/com.example.library.payments")
+          .contentType(MediaType.APPLICATION_JSON).body("{\"configuredLevel\":\"DEBUG\"}").retrieve().toBodilessEntity();
+      System.out.println("debug enabled after:  " + logger.isDebugEnabled());
+      JsonNode state = http.get().uri("/actuator/loggers/com.example.library.payments").retrieve().body(JsonNode.class);
+      System.out.println("endpoint says: " + state);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+debug enabled before: false
+debug enabled after:  true
+endpoint says: {"configuredLevel":"DEBUG","effectiveLevel":"DEBUG"}
+</script>
+<p>Don't name this class <code>LoggersEndpoint</code>: its bean name would be <code>loggersEndpoint</code>, the same as Actuator's own endpoint bean, and startup fails with "A bean with that name has already been defined and overriding is disabled" (Chapter 2's naming rule at work). (Before the change, the logger inherited <code>WARN</code> from the root level this book's examples run with.) Posting <code>{"configuredLevel": null}</code> resets the logger to its inherited level.</p>
+
+<h3>A custom Actuator endpoint</h3>
+<script type="text/plain" class="code" data-file="CustomEndpoint.java" data-run>
+package com.example.ch18.endpoint;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
+import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
+import org.springframework.boot.actuate.endpoint.annotation.Selector;
+import org.springframework.boot.actuate.endpoint.annotation.WriteOperation;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+@Component
+@Endpoint(id = "features")                           // → /actuator/features
+class FeaturesEndpoint {
+  private final Map<String, Boolean> flags = new ConcurrentHashMap<>(Map.of("search-v2", false));
+
+  @ReadOperation Map<String, Boolean> all() { return Map.copyOf(flags); }
+  @ReadOperation Boolean one(@Selector String name) { return flags.get(name); }
+  @WriteOperation void set(@Selector String name, boolean enabled) { flags.put(name, enabled); }
+}
+
+@SpringBootApplication
+public class CustomEndpoint {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomEndpoint.class, "--management.endpoints.web.exposure.include=features")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/actuator/features").retrieve().body(String.class));
+      http.post().uri("/actuator/features/search-v2").contentType(MediaType.APPLICATION_JSON).body("{\"enabled\":true}").retrieve().toBodilessEntity();
+      System.out.println(http.get().uri("/actuator/features/search-v2").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"search-v2":false}
+true
+</script>
+<p>An <code>@Endpoint</code> works over HTTP and JMX, is listed under <code>/actuator</code>, and follows the same exposure and security rules as the built-in ones.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Actuator: <code>/actuator/*</code>; only <code>health</code> exposed by default; expose with <code>management.endpoints.web.exposure.include</code>; protect or move to a management port.</li>
+  <li>Health = aggregated <code>HealthIndicator</code>s (worst wins, 503 when DOWN). Liveness (restart) must not depend on externals; readiness (traffic) may.</li>
+  <li>Micrometer: counters, timers, gauges via <code>MeterRegistry</code>; automatic HTTP/JVM/pool metrics; bounded tag values only.</li>
+  <li>Observation API instruments once for metrics and traces (<code>Observation.observe</code>, <code>@Observed</code>); <code>spring-boot-starter-opentelemetry</code> for tracing, OTLP export and trace ids in logs.</li>
+  <li>Logging: levels and groups, runtime changes via <code>/actuator/loggers</code>, MDC and key-values, structured JSON with <code>logging.structured.format.console=ecs</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">debug</span></h3>
+<p>In the observation example, <code>System.out.println("query tag on metric? " + registry.find(…).tagKeys("query").timer() != null)</code> doesn't print what was intended. What does it print, why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It prints just <code>true</code>: <code>+</code> binds tighter than <code>!=</code>, so Java compares the whole string <code>"query tag on metric? " + timer</code> with <code>null</code>. Add parentheses: <code>"query tag on metric? " + (registry.find("library.search").tagKeys("query").timer() != null)</code>, which prints <code>false</code> — no timer has a <code>query</code> tag.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Your app's readiness group includes the database. The database has a 30-second outage. What happens with Kubernetes if the database is in (a) the readiness group, (b) the liveness group?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) All instances become not-ready and are removed from the load balancer; when the database returns they become ready again — clients see errors or "service unavailable" for 30 s, which is honest. (b) Kubernetes restarts every instance repeatedly; startups hammer the recovering database and the outage gets longer. Keep external dependencies out of liveness.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which metric type would you use for: (a) number of failed logins, (b) duration of report generation, (c) number of items currently in a retry queue, (d) size of uploaded files?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Counter (tagged with a bounded <code>reason</code>), (b) Timer, (c) Gauge, (d) DistributionSummary (with base unit bytes).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write a <code>HealthIndicator</code> that reports <code>DOWN</code> when free disk space in the temp directory is below a configured number of bytes (pass <code>Long.MAX_VALUE</code> to force DOWN) and print its status. (Hint: <code>new java.io.File(System.getProperty("java.io.tmpdir")).getUsableSpace()</code>.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TempSpaceHealthDemo.java" data-run>
+package com.example.ch18.ex4;
+
+import java.io.File;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
+
+class TempSpaceHealth implements HealthIndicator {
+  private final long minFree;
+  TempSpaceHealth(long minFree) { this.minFree = minFree; }
+  @Override
+  public Health health() {
+    long free = new File(System.getProperty("java.io.tmpdir")).getUsableSpace();
+    return (free >= minFree ? Health.up() : Health.down()).withDetail("minFree", minFree).build();
+  }
+}
+
+public class TempSpaceHealthDemo {
+  public static void main(String[] args) {
+    System.out.println(new TempSpaceHealth(1).health().getStatus());
+    System.out.println(new TempSpaceHealth(Long.MAX_VALUE).health().getStatus());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+UP
+DOWN
+</script>
+<p>Health indicators are plain classes — easy to unit test without starting anything.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Record a <code>Timer</code> with percentiles: build <code>Timer.builder("report.time").publishPercentiles(0.5, 0.95)</code> on a <code>SimpleMeterRegistry</code>, record durations 10, 20, …, 100 ms, and print the count and max.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TimerPercentiles.java" data-run>
+package com.example.ch18.ex5;
+
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+public class TimerPercentiles {
+  public static void main(String[] args) {
+    var registry = new SimpleMeterRegistry();
+    Timer timer = Timer.builder("report.time").publishPercentiles(0.5, 0.95).register(registry);
+    for (int ms = 10; ms <= 100; ms += 10) timer.record(Duration.ofMillis(ms));
+    System.out.println("count=" + timer.count() + " max=" + timer.max(TimeUnit.MILLISECONDS) + "ms mean=" + timer.mean(TimeUnit.MILLISECONDS) + "ms");
+    var snapshot = timer.takeSnapshot();
+    for (var p : snapshot.percentileValues()) System.out.println("p" + (int) (p.percentile() * 100) + " ≈ " + Math.round(p.value(TimeUnit.MILLISECONDS) / 10) * 10 + "ms");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+count=10 max=100.0ms mean=55.0ms
+p50 ≈ ...
+p95 ≈ ...
+</script>
+<p>Client-side percentiles can't be aggregated across instances; with Prometheus prefer <code>publishPercentileHistogram()</code> and compute percentiles in the query (<code>histogram_quantile</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Wrap a failing operation in <code>Observation.observe</code> and show that the resulting timer is tagged with <code>error=IllegalStateException</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ObservationError.java" data-run>
+package com.example.ch18.ex6;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ObservationError {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ObservationError.class, "--spring.main.web-application-type=none")) {
+      var observations = ctx.getBean(ObservationRegistry.class);
+      try {
+        Observation.createNotStarted("sync.job", observations).observe(() -> { throw new IllegalStateException("upstream down"); });
+      } catch (IllegalStateException expected) { }
+      var timer = ctx.getBean(MeterRegistry.class).get("sync.job").tag("error", "IllegalStateException").timer();
+      System.out.println("failed runs: " + timer.count());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+failed runs: 1
+</script>
+<p>Successful runs are tagged <code>error=none</code>, so one timer gives you both latency and error rate.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Expose <code>info</code> with custom properties and a custom <code>InfoContributor</code> that adds <code>{"catalog":{"books":1234}}</code>. Print the endpoint's <code>catalog</code> field.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="InfoContributorDemo.java" data-run>
+package com.example.ch18.ex7;
+
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.actuate.info.Info;
+import org.springframework.boot.actuate.info.InfoContributor;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@Component
+class CatalogInfo implements InfoContributor {
+  @Override public void contribute(Info.Builder builder) { builder.withDetail("catalog", Map.of("books", 1234)); }
+}
+
+@SpringBootApplication
+public class InfoContributorDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(InfoContributorDemo.class, "--management.endpoints.web.exposure.include=info")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/actuator/info").retrieve().body(JsonNode.class).get("catalog"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"books":1234}
+</script>
+<p>For build version and git commit, add the <code>build-info</code> goal of <code>spring-boot-maven-plugin</code> and the <code>git-commit-id-maven-plugin</code>; Boot then contributes <code>build</code> and <code>git</code> sections automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A team tags their <code>orders.placed</code> counter with <code>customerId</code>. A month later the Prometheus server runs out of memory. Explain, and propose a better design for answering "which customers order the most?".</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each customer id creates a new time series; with 2 million customers that's 2 million series for one metric (times every other tag combination). Metrics systems are built for bounded label sets. Keep the counter with low-cardinality tags (<code>channel</code>, <code>country</code>), and answer per-customer questions from the database or from logs/events in an analytics store, where high cardinality is normal.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a custom readiness check: an application that starts <em>not ready</em> while a "cache warm-up" runs, by publishing <code>AvailabilityChangeEvent</code> with <code>ReadinessState.REFUSING_TRAFFIC</code> from an <code>ApplicationRunner</code>, then <code>ACCEPTING_TRAFFIC</code> when done. Read <code>/actuator/health/readiness</code> before and after.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="WarmupReadiness.java" data-run>
+package com.example.ch18.ex9;
+
+import java.util.concurrent.CountDownLatch;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.availability.AvailabilityChangeEvent;
+import org.springframework.boot.availability.ReadinessState;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.event.EventListener;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@SpringBootApplication
+public class WarmupReadiness {
+  static final CountDownLatch warmupStarted = new CountDownLatch(1), mayFinish = new CountDownLatch(1), warmedUp = new CountDownLatch(1);
+
+  @EventListener(ApplicationReadyEvent.class)       // after Boot has switched readiness to ACCEPTING_TRAFFIC
+  void warmup(ApplicationReadyEvent event) {
+    ApplicationContext ctx = event.getApplicationContext();
+    Thread.ofVirtual().start(() -> {
+      AvailabilityChangeEvent.publish(ctx, ReadinessState.REFUSING_TRAFFIC);
+      warmupStarted.countDown();
+      try { mayFinish.await(); } catch (InterruptedException e) { return; }   // "loading the cache…"
+      AvailabilityChangeEvent.publish(ctx, ReadinessState.ACCEPTING_TRAFFIC);
+      warmedUp.countDown();
+    });
+  }
+
+  public static void main(String[] args) throws Exception {
+    try (var ctx = SpringApplication.run(WarmupReadiness.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      warmupStarted.await();
+      var during = http.get().uri("/actuator/health/readiness").retrieve().toEntity(JsonNode.class);
+      System.out.println("during warm-up: " + during.getStatusCode().value() + " " + during.getBody().get("status").asString());
+      mayFinish.countDown();
+      warmedUp.await();
+      var after = http.get().uri("/actuator/health/readiness").retrieve().toEntity(JsonNode.class);
+      System.out.println("after warm-up:  " + after.getStatusCode().value() + " " + after.getBody().get("status").asString());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+during warm-up: 503 OUT_OF_SERVICE
+after warm-up:  200 UP
+</script>
+<p>Timing matters: Boot itself publishes <code>ACCEPTING_TRAFFIC</code> when the application is ready (after the runners), so a <code>REFUSING_TRAFFIC</code> published from an <code>ApplicationRunner</code> would simply be overwritten — that's why the warm-up starts from <code>ApplicationReadyEvent</code>. Refusing traffic shows as <code>OUT_OF_SERVICE</code> (HTTP 503), so a load balancer won't send requests yet — but liveness stays UP, so nothing restarts the instance.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Instrument the Library Loans service: a <code>LoanService.borrow(isbn, member)</code> that (1) runs inside an <code>Observation</code> named <code>library.loans.borrow</code> with a low-cardinality <code>outcome</code> of <code>ok</code>, <code>limit</code> or <code>unavailable</code>, (2) logs an INFO line with the member and isbn as key-values, and (3) exposes a gauge <code>library.loans.open</code>. Simulate 5 attempts and print the counts per outcome and the gauge.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="InstrumentedLoans.java" data-run>
+package com.example.ch18.ex10;
+
+import io.micrometer.common.KeyValue;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+
+@Service
+class LoanService {
+  private static final Logger log = LoggerFactory.getLogger(LoanService.class);
+  private final ObservationRegistry observations;
+  private final Map<String, Integer> openByMember = new HashMap<>();
+  private final AtomicInteger open = new AtomicInteger();
+  private final Set<String> unavailable = Set.of("000");
+
+  LoanService(ObservationRegistry observations, MeterRegistry meters) {
+    this.observations = observations;
+    Gauge.builder("library.loans.open", open, AtomicInteger::get).register(meters);
+  }
+
+  synchronized String borrow(String isbn, String member) {
+    var observation = Observation.createNotStarted("library.loans.borrow", observations).start();
+    try {
+      String outcome = unavailable.contains(isbn) ? "unavailable"
+          : openByMember.getOrDefault(member, 0) >= 2 ? "limit" : "ok";
+      if (outcome.equals("ok")) { openByMember.merge(member, 1, Integer::sum); open.incrementAndGet(); }
+      observation.lowCardinalityKeyValue(KeyValue.of("outcome", outcome));
+      log.atInfo().setMessage("borrow attempt").addKeyValue("member", member).addKeyValue("isbn", isbn).addKeyValue("outcome", outcome).log();
+      return outcome;
+    } finally {
+      observation.stop();
+    }
+  }
+}
+
+@SpringBootApplication
+public class InstrumentedLoans {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(InstrumentedLoans.class, "--spring.main.web-application-type=none")) {
+      var loans = ctx.getBean(LoanService.class);
+      loans.borrow("111", "ada"); loans.borrow("222", "ada"); loans.borrow("333", "ada");
+      loans.borrow("000", "bob"); loans.borrow("444", "bob");
+      var meters = ctx.getBean(MeterRegistry.class);
+      for (String o : new String[] { "ok", "limit", "unavailable" }) {
+        System.out.println(o + ": " + meters.get("library.loans.borrow").tag("outcome", o).timer().count());
+      }
+      System.out.println("open loans gauge: " + meters.get("library.loans.open").gauge().value());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok: 3
+limit: 1
+unavailable: 1
+open loans gauge: 3.0
+</script>
+<p>Starting and stopping the observation manually lets you add key-values that are only known at the end (the outcome). Note what went where: <code>outcome</code> (3 values) is a metric tag; <code>member</code> and <code>isbn</code> (unbounded) only go to the log line — and would go to the trace span as high-cardinality values.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/actuator/index.html">Spring Boot: Production-ready features</a> · <a href="https://docs.spring.io/spring-boot/reference/actuator/endpoints.html">Endpoints</a> (health, probes, custom endpoints)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/actuator/metrics.html">Metrics</a> · <a href="https://docs.spring.io/spring-boot/reference/actuator/observability.html">Observability</a> · <a href="https://docs.spring.io/spring-boot/reference/actuator/tracing.html">Tracing</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/logging.html">Logging</a> (levels, groups, structured logging) · <a href="https://docs.spring.io/spring-boot/reference/actuator/loggers.html">Loggers endpoint</a></li>
+  <li><a href="https://docs.micrometer.io/micrometer/reference/">Micrometer</a> · <a href="https://docs.micrometer.io/micrometer/reference/observation.html">Observation API</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/observability.html">Spring Framework: Observability support</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

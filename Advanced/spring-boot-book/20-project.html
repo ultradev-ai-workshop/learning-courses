@@ -1,0 +1,1210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc data-jpa flyway h2 validation actuator webmvc-test data-jpa-test org.springframework.boot:spring-boot-resttestclient:test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>20. Project: Library Loans API · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<!-- GENERATED from tools/20-project.template.html by tools/build-project-chapter.mjs — edit the template or playground/reference, not this file. -->
+
+<div class="eyebrow">Chapter 20 · Project</div>
+<h1>Project: Library Loans API</h1>
+<p class="lead">Time to put the whole book together. You'll build a small but production-shaped REST API for a library: a catalogue of books, members, and loans with real rules — at most three books at a time, nothing new while something is overdue, and never lending the last copy twice. It uses Flyway, Spring Data JPA, transactions with optimistic locking, validation, Problem Details, metrics, an injected clock, and tests at every level of the pyramid.</p>
+
+<div class="learn">
+<h2>You will build</h2>
+<ul>
+  <li>A <strong>package-by-feature</strong> layout: <code>catalog</code>, <code>members</code>, <code>loans</code>, <code>web</code>.</li>
+  <li>A <strong>Flyway</strong> schema with seed data, mapped by <strong>JPA entities</strong> that protect their own invariants.</li>
+  <li>Business rules in a plain <strong><code>LoanPolicy</code></strong>, orchestrated by a <strong>transactional service</strong> with a testable <code>Clock</code>.</li>
+  <li>A REST layer with <strong>DTO records</strong>, validation, paging and <strong>RFC 9457 errors</strong> mapped in one advice.</li>
+  <li>Unit, slice and integration <strong>tests</strong>, a metric for loan outcomes, and a runnable demo.</li>
+</ul>
+</div>
+
+<div class="note">
+<p>📝 The complete project is in <code>playground/reference/</code>. Run it with <code>cd playground/reference &amp;&amp; ../mvnw spring-boot:run</code> and try <code>curl localhost:8080/api/books</code>; run its tests with <code>../mvnw test</code>. Every file below is copied from there, and the book's checker compiles and tests them on every build.</p>
+</div>
+
+<h2 id="design">Design</h2>
+<figure class="diagram">
+<svg viewBox="0 0 560 230" role="img" aria-label="Layers: web controllers and ApiErrors call CatalogService and LibraryService; LibraryService uses LoanPolicy and the repositories; repositories map entities to tables created by Flyway">
+  <rect class="hi" x="10" y="10" width="540" height="44" rx="8"/><text x="280" y="30" text-anchor="middle">web: BookController · MemberController · LoanController · ApiErrors</text><text class="mut" x="280" y="46" text-anchor="middle">DTO records, @Valid, ProblemDetail</text>
+  <rect class="bx" x="10" y="70" width="260" height="44" rx="8"/><text x="140" y="90" text-anchor="middle">CatalogService</text><text class="mut" x="140" y="106" text-anchor="middle">books &amp; members</text>
+  <rect class="bx" x="290" y="70" width="260" height="44" rx="8"/><text x="420" y="90" text-anchor="middle">LibraryService (@Transactional)</text><text class="mut" x="420" y="106" text-anchor="middle">borrow · giveBack · overdue · Clock · metrics</text>
+  <rect class="bx" x="290" y="128" width="260" height="34" rx="8"/><text x="420" y="150" text-anchor="middle">LoanPolicy — pure rules</text>
+  <rect class="bx" x="10" y="176" width="540" height="44" rx="8"/><text x="280" y="196" text-anchor="middle">BookRepository · MemberRepository · LoanRepository (Spring Data JPA)</text><text class="mut" x="280" y="212" text-anchor="middle">entities Book (@Version) · Member · Loan → tables from Flyway V1/V2</text>
+</svg>
+<figcaption>Dependencies point downwards only. The web layer never touches repositories or entities' setters; services return entities, controllers turn them into DTOs.</figcaption>
+</figure>
+<table>
+  <tr><th>Endpoint</th><th>Does</th><th>Errors</th></tr>
+  <tr><td><code>GET /api/books?q=&amp;page=&amp;size=</code></td><td>search the catalogue, paged, sorted by title</td><td>—</td></tr>
+  <tr><td><code>GET /api/books/{isbn}</code></td><td>one book with copies and availability</td><td>404</td></tr>
+  <tr><td><code>POST /api/books</code></td><td>add a book (201 + <code>Location</code>)</td><td>400 validation, 409 duplicate ISBN</td></tr>
+  <tr><td><code>POST /api/members</code></td><td>register a member (201)</td><td>400, 409 duplicate e-mail</td></tr>
+  <tr><td><code>GET /api/members/{id}/loans</code></td><td>the member's open loans</td><td>404</td></tr>
+  <tr><td><code>POST /api/loans</code></td><td>borrow <code>{memberId, isbn}</code> (201)</td><td>404, 409 <code>loan-refused</code> with <code>reason</code> = limit / overdue / unavailable</td></tr>
+  <tr><td><code>POST /api/loans/{id}/return</code></td><td>return a book</td><td>404, 409 already returned</td></tr>
+  <tr><td><code>GET /api/loans/overdue</code></td><td>all overdue loans</td><td>—</td></tr>
+</table>
+<div class="analogy">
+<p>🧠 <strong>Analogy: the library itself.</strong> The front desk (controllers) talks to visitors and fills in forms (DTOs); it doesn't walk into the stacks. The librarian (<code>LibraryService</code>) handles each loan as one complete transaction, consulting the rulebook on the wall (<code>LoanPolicy</code>). The shelves and the card index (repositories, tables) only store things. Each role can change without the others noticing.</p>
+</div>
+
+<h2 id="build">Build and configuration</h2>
+<p>The starters: web, JPA, Flyway, validation and Actuator, with H2 for development. Test starters bring the MVC and JPA slices and <code>RestTestClient</code>.</p>
+<script type="text/plain" class="code" data-file="pom.xml" data-norun>
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.2</version>
+    <relativePath/>
+  </parent>
+  <groupId>com.example</groupId>
+  <artifactId>library-loans</artifactId>
+  <version>1.0.0</version>
+  <name>Library Loans API</name>
+
+  <properties>
+    <java.version>25</java.version>
+  </properties>
+
+  <dependencies>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-flyway</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+    <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>runtime</scope></dependency>
+
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-resttestclient</artifactId><scope>test</scope></dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration><argLine>-XX:+EnableDynamicAgentLoading</argLine></configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+</script>
+<p>Configuration lives in YAML. <code>ddl-auto: validate</code> makes Hibernate <em>check</em> the Flyway schema at startup instead of changing it — a mismatch fails fast. The loan rules are typed, validated properties (Chapter 4):</p>
+<script type="text/plain" class="code" data-file="application.yml" data-path="src/main/resources/application.yml">
+spring:
+  application:
+    name: library-loans
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate            # Flyway owns the schema; Hibernate only checks it
+  mvc:
+    problemdetails:
+      enabled: true                 # RFC 9457 errors for Spring MVC's own exceptions too
+
+library:
+  loan-days: 14
+  max-open-loans: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: Library Loans API
+</script>
+<script type="text/plain" class="code" data-file="LibraryProperties.java" data-path="src/main/java/com/example/library/LibraryProperties.java">
+package com.example.library;
+
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
+
+@Validated
+@ConfigurationProperties("library")
+public record LibraryProperties(
+    @DefaultValue("14") @Min(1) @Max(60) int loanDays,
+    @DefaultValue("3") @Min(1) @Max(20) int maxOpenLoans) {}
+</script>
+<script type="text/plain" class="code" data-file="LibraryApplication.java" data-path="src/main/java/com/example/library/LibraryApplication.java">
+package com.example.library;
+
+import java.time.Clock;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+@ConfigurationPropertiesScan
+public class LibraryApplication {
+
+  public static void main(String[] args) {
+    SpringApplication.run(LibraryApplication.class, args);
+  }
+
+  @Bean
+  Clock clock() {                                  // injected everywhere "today" matters; fixed in tests
+    return Clock.systemDefaultZone();
+  }
+}
+</script>
+<p>The <code>Clock</code> bean is the small decision that makes date logic testable: the service never calls <code>LocalDate.now()</code> directly.</p>
+
+<h2 id="schema">Schema and seed data</h2>
+<p>Constraints live in the database too: <code>CHECK (available &gt;= 0)</code> is a last line of defence even if a bug slips through the Java code. The <code>version</code> column backs JPA optimistic locking.</p>
+<script type="text/plain" class="code" data-file="V1__schema.sql" data-path="src/main/resources/db/migration/V1__schema.sql" data-lang="sql">
+CREATE TABLE book (
+  id        BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  isbn      VARCHAR(13)  NOT NULL UNIQUE,
+  title     VARCHAR(200) NOT NULL,
+  author    VARCHAR(100) NOT NULL,
+  copies    INT NOT NULL CHECK (copies >= 0),
+  available INT NOT NULL CHECK (available >= 0),
+  version   BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE member (
+  id     BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name   VARCHAR(100) NOT NULL,
+  email  VARCHAR(200) NOT NULL UNIQUE
+);
+
+CREATE TABLE loan (
+  id           BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  book_id      BIGINT NOT NULL REFERENCES book(id),
+  member_id    BIGINT NOT NULL REFERENCES member(id),
+  borrowed_on  DATE NOT NULL,
+  due_on       DATE NOT NULL,
+  returned_on  DATE
+);
+
+CREATE INDEX loan_open_by_member ON loan (member_id, returned_on);
+</script>
+<script type="text/plain" class="code" data-file="V2__seed.sql" data-path="src/main/resources/db/migration/V2__seed.sql" data-lang="sql">
+INSERT INTO book (isbn, title, author, copies, available) VALUES
+  ('9780441013593', 'Dune', 'Frank Herbert', 2, 2),
+  ('9780141439518', 'Pride and Prejudice', 'Jane Austen', 1, 1),
+  ('9780441478125', 'The Left Hand of Darkness', 'Ursula K. Le Guin', 3, 3);
+
+INSERT INTO member (name, email) VALUES
+  ('Ada Lovelace', 'ada@example.com'),
+  ('Grace Hopper', 'grace@example.com');
+</script>
+
+<h2 id="domain">The domain</h2>
+<p>Entities guard their own invariants: a <code>Book</code> can't be lent when no copy is available, and a <code>Loan</code> can't be returned twice. There are no public setters for state that has rules.</p>
+<script type="text/plain" class="code" data-file="Book.java" data-path="src/main/java/com/example/library/catalog/Book.java">
+package com.example.library.catalog;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Version;
+
+@Entity
+public class Book {
+  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+  @Column(nullable = false, unique = true, length = 13)
+  private String isbn;
+  @Column(nullable = false)
+  private String title;
+  @Column(nullable = false)
+  private String author;
+  private int copies;
+  private int available;
+  @Version
+  private long version;                            // optimistic locking: two loans of the last copy can't both win
+
+  protected Book() { }
+
+  public Book(String isbn, String title, String author, int copies) {
+    this.isbn = isbn; this.title = title; this.author = author; this.copies = copies; this.available = copies;
+  }
+
+  public boolean isAvailable() { return available > 0; }
+
+  public void lend() {
+    if (available == 0) throw new IllegalStateException("no copy of " + isbn + " available");
+    available--;
+  }
+
+  public void giveBack() {
+    if (available == copies) throw new IllegalStateException("all copies of " + isbn + " are already on the shelf");
+    available++;
+  }
+
+  public Long getId() { return id; }
+  public String getIsbn() { return isbn; }
+  public String getTitle() { return title; }
+  public String getAuthor() { return author; }
+  public int getCopies() { return copies; }
+  public int getAvailable() { return available; }
+}
+</script>
+<script type="text/plain" class="code" data-file="Member.java" data-path="src/main/java/com/example/library/members/Member.java">
+package com.example.library.members;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+
+@Entity
+public class Member {
+  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+  @Column(nullable = false)
+  private String name;
+  @Column(nullable = false, unique = true)
+  private String email;
+
+  protected Member() { }
+  public Member(String name, String email) { this.name = name; this.email = email; }
+
+  public Long getId() { return id; }
+  public String getName() { return name; }
+  public String getEmail() { return email; }
+}
+</script>
+<script type="text/plain" class="code" data-file="Loan.java" data-path="src/main/java/com/example/library/loans/Loan.java">
+package com.example.library.loans;
+
+import com.example.library.catalog.Book;
+import com.example.library.members.Member;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import java.time.LocalDate;
+
+@Entity
+public class Loan {
+  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)
+  private Book book;
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)
+  private Member member;
+  private LocalDate borrowedOn;
+  private LocalDate dueOn;
+  private LocalDate returnedOn;
+
+  protected Loan() { }
+
+  public Loan(Book book, Member member, LocalDate borrowedOn, LocalDate dueOn) {
+    this.book = book; this.member = member; this.borrowedOn = borrowedOn; this.dueOn = dueOn;
+  }
+
+  public boolean isOpen() { return returnedOn == null; }
+  public boolean isOverdue(LocalDate today) { return isOpen() && dueOn.isBefore(today); }
+
+  public void close(LocalDate today) {
+    if (!isOpen()) throw new IllegalStateException("loan " + id + " was already returned");
+    returnedOn = today;
+    book.giveBack();
+  }
+
+  public Long getId() { return id; }
+  public Book getBook() { return book; }
+  public Member getMember() { return member; }
+  public LocalDate getBorrowedOn() { return borrowedOn; }
+  public LocalDate getDueOn() { return dueOn; }
+  public LocalDate getReturnedOn() { return returnedOn; }
+}
+</script>
+<p>Repositories use derived queries for the simple cases and <code>JOIN FETCH</code> queries where the API needs related data — no N+1 when listing loans with their book titles (Chapter 14):</p>
+<script type="text/plain" class="code" data-file="BookRepository.java" data-path="src/main/java/com/example/library/catalog/BookRepository.java">
+package com.example.library.catalog;
+
+import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface BookRepository extends JpaRepository<Book, Long> {
+  Optional<Book> findByIsbn(String isbn);
+  boolean existsByIsbn(String isbn);
+  Page<Book> findByTitleContainingIgnoreCase(String text, Pageable pageable);
+}
+</script>
+<script type="text/plain" class="code" data-file="MemberRepository.java" data-path="src/main/java/com/example/library/members/MemberRepository.java">
+package com.example.library.members;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface MemberRepository extends JpaRepository<Member, Long> {
+  boolean existsByEmail(String email);
+}
+</script>
+<script type="text/plain" class="code" data-file="LoanRepository.java" data-path="src/main/java/com/example/library/loans/LoanRepository.java">
+package com.example.library.loans;
+
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+
+public interface LoanRepository extends JpaRepository<Loan, Long> {
+
+  long countByMemberIdAndReturnedOnIsNull(Long memberId);
+
+  boolean existsByMemberIdAndReturnedOnIsNullAndDueOnBefore(Long memberId, LocalDate today);
+
+  @Query("SELECT l FROM Loan l JOIN FETCH l.book WHERE l.member.id = :memberId AND l.returnedOn IS NULL ORDER BY l.dueOn")
+  List<Loan> openLoansOf(Long memberId);
+
+  @Query("SELECT l FROM Loan l JOIN FETCH l.book JOIN FETCH l.member WHERE l.returnedOn IS NULL AND l.dueOn < :today ORDER BY l.dueOn")
+  List<Loan> overdue(LocalDate today);
+}
+</script>
+
+<h2 id="rules">The rules and the service</h2>
+<p>The lending rules are a plain class with no database access: give it the facts, it says yes or throws <code>LoanRefused</code> with a machine-readable code. That makes the rules readable in one place and testable in milliseconds:</p>
+<script type="text/plain" class="code" data-file="LoanPolicy.java" data-path="src/main/java/com/example/library/loans/LoanPolicy.java">
+package com.example.library.loans;
+
+import com.example.library.LibraryProperties;
+import org.springframework.stereotype.Component;
+
+/** The lending rules, kept free of persistence so they are trivial to unit test. */
+@Component
+public class LoanPolicy {
+
+  public static class LoanRefused extends RuntimeException {
+    private final String code;
+    public LoanRefused(String code, String message) { super(message); this.code = code; }
+    public String code() { return code; }
+  }
+
+  private final LibraryProperties props;
+
+  public LoanPolicy(LibraryProperties props) { this.props = props; }
+
+  public void check(int openLoans, boolean hasOverdue, boolean bookAvailable) {
+    if (hasOverdue) throw new LoanRefused("overdue", "Return your overdue books first");
+    if (openLoans >= props.maxOpenLoans())
+      throw new LoanRefused("limit", "You already have " + openLoans + " books (limit " + props.maxOpenLoans() + ")");
+    if (!bookAvailable) throw new LoanRefused("unavailable", "No copy is available right now");
+  }
+}
+</script>
+<p>The service gathers the facts, applies the policy and changes state — all in <strong>one transaction</strong>. If anything fails, nothing is half-done: no copy disappears without a loan, and vice versa. If two requests try to take the last copy at the same moment, the <code>@Version</code> check makes the second commit fail with an optimistic-locking exception instead of over-lending (Chapter 15). Each outcome increments a <code>library.loans</code> counter tagged with a bounded <code>outcome</code> (Chapter 18).</p>
+<script type="text/plain" class="code" data-file="LibraryService.java" data-path="src/main/java/com/example/library/loans/LibraryService.java">
+package com.example.library.loans;
+
+import com.example.library.LibraryProperties;
+import com.example.library.NotFoundException;
+import com.example.library.catalog.Book;
+import com.example.library.catalog.BookRepository;
+import com.example.library.members.Member;
+import com.example.library.members.MemberRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class LibraryService {
+
+  private final BookRepository books;
+  private final MemberRepository members;
+  private final LoanRepository loans;
+  private final LoanPolicy policy;
+  private final LibraryProperties props;
+  private final Clock clock;
+  private final MeterRegistry meters;
+
+  public LibraryService(BookRepository books, MemberRepository members, LoanRepository loans,
+                        LoanPolicy policy, LibraryProperties props, Clock clock, MeterRegistry meters) {
+    this.books = books; this.members = members; this.loans = loans;
+    this.policy = policy; this.props = props; this.clock = clock; this.meters = meters;
+  }
+
+  @Transactional
+  public Loan borrow(Long memberId, String isbn) {
+    Member member = members.findById(memberId).orElseThrow(() -> new NotFoundException("Member", memberId));
+    Book book = books.findByIsbn(isbn).orElseThrow(() -> new NotFoundException("Book", isbn));
+    LocalDate today = LocalDate.now(clock);
+    try {
+      policy.check((int) loans.countByMemberIdAndReturnedOnIsNull(memberId),
+          loans.existsByMemberIdAndReturnedOnIsNullAndDueOnBefore(memberId, today),
+          book.isAvailable());
+    } catch (LoanPolicy.LoanRefused refused) {
+      meters.counter("library.loans", "outcome", refused.code()).increment();
+      throw refused;
+    }
+    book.lend();                                    // dirty checking + @Version write the change at commit
+    Loan loan = loans.save(new Loan(book, member, today, today.plusDays(props.loanDays())));
+    meters.counter("library.loans", "outcome", "ok").increment();
+    return loan;
+  }
+
+  @Transactional
+  public Loan giveBack(Long loanId) {
+    Loan loan = loans.findById(loanId).orElseThrow(() -> new NotFoundException("Loan", loanId));
+    loan.close(LocalDate.now(clock));
+    return loan;
+  }
+
+  public List<Loan> openLoansOf(Long memberId) {
+    if (!members.existsById(memberId)) throw new NotFoundException("Member", memberId);
+    return loans.openLoansOf(memberId);
+  }
+
+  public List<Loan> overdue() {
+    return loans.overdue(LocalDate.now(clock));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="CatalogService.java" data-path="src/main/java/com/example/library/catalog/CatalogService.java">
+package com.example.library.catalog;
+
+import com.example.library.NotFoundException;
+import com.example.library.members.Member;
+import com.example.library.members.MemberRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class CatalogService {
+
+  public static class AlreadyExists extends RuntimeException {
+    public AlreadyExists(String message) { super(message); }
+  }
+
+  private final BookRepository books;
+  private final MemberRepository members;
+
+  public CatalogService(BookRepository books, MemberRepository members) { this.books = books; this.members = members; }
+
+  @Transactional
+  public Book addBook(String isbn, String title, String author, int copies) {
+    if (books.existsByIsbn(isbn)) throw new AlreadyExists("A book with ISBN " + isbn + " already exists");
+    return books.save(new Book(isbn, title, author, copies));
+  }
+
+  @Transactional
+  public Member register(String name, String email) {
+    if (members.existsByEmail(email)) throw new AlreadyExists("A member with email " + email + " already exists");
+    return members.save(new Member(name, email));
+  }
+
+  public Book book(String isbn) { return books.findByIsbn(isbn).orElseThrow(() -> new NotFoundException("Book", isbn)); }
+
+  public Page<Book> search(String q, Pageable pageable) {
+    return q == null || q.isBlank() ? books.findAll(pageable) : books.findByTitleContainingIgnoreCase(q, pageable);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="NotFoundException.java" data-path="src/main/java/com/example/library/NotFoundException.java">
+package com.example.library;
+
+public class NotFoundException extends RuntimeException {
+  public NotFoundException(String what, Object id) {
+    super(what + " " + id + " was not found");
+  }
+}
+</script>
+<div class="tip">
+<p>💡 <strong>Why the class-level <code>@Transactional(readOnly = true)</code>?</strong> Every method is read-only by default (cheaper for Hibernate), and the methods that write opt in with their own <code>@Transactional</code>. Forgetting it on a new write method then fails loudly instead of silently auto-committing statement by statement.</p>
+</div>
+
+<h2 id="web">The web layer</h2>
+<p>The API's contract is a set of records, separate from the entities. Requests carry validation constraints; responses are built from entities with small factory methods:</p>
+<script type="text/plain" class="code" data-file="Dtos.java" data-path="src/main/java/com/example/library/web/Dtos.java">
+package com.example.library.web;
+
+import com.example.library.catalog.Book;
+import com.example.library.loans.Loan;
+import com.example.library.members.Member;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.data.domain.Page;
+
+/** Request and response records: the API's contract, separate from the JPA entities. */
+public final class Dtos {
+  private Dtos() { }
+
+  public record NewBook(@NotBlank @Pattern(regexp = "\\d{13}", message = "must be 13 digits") String isbn,
+                        @NotBlank @Size(max = 200) String title,
+                        @NotBlank @Size(max = 100) String author,
+                        @Positive @Max(1000) int copies) {}
+
+  public record BookDto(String isbn, String title, String author, int copies, int available) {
+    public static BookDto of(Book b) { return new BookDto(b.getIsbn(), b.getTitle(), b.getAuthor(), b.getCopies(), b.getAvailable()); }
+  }
+
+  public record NewMember(@NotBlank @Size(max = 100) String name, @NotBlank @Email String email) {}
+
+  public record MemberDto(Long id, String name, String email) {
+    public static MemberDto of(Member m) { return new MemberDto(m.getId(), m.getName(), m.getEmail()); }
+  }
+
+  public record NewLoan(@NotNull Long memberId, @NotBlank String isbn) {}
+
+  public record LoanDto(Long id, Long memberId, String isbn, String title, LocalDate dueOn, LocalDate returnedOn) {
+    public static LoanDto of(Loan l) {
+      return new LoanDto(l.getId(), l.getMember().getId(), l.getBook().getIsbn(), l.getBook().getTitle(), l.getDueOn(), l.getReturnedOn());
+    }
+  }
+
+  public record PageDto<T>(List<T> content, int page, int size, long totalElements, int totalPages) {
+    public static <T> PageDto<T> of(Page<T> p) {
+      return new PageDto<>(p.getContent(), p.getNumber(), p.getSize(), p.getTotalElements(), p.getTotalPages());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="BookController.java" data-path="src/main/java/com/example/library/web/BookController.java">
+package com.example.library.web;
+
+import com.example.library.catalog.CatalogService;
+import com.example.library.web.Dtos.BookDto;
+import com.example.library.web.Dtos.NewBook;
+import com.example.library.web.Dtos.PageDto;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
+
+@RestController
+@RequestMapping("/api/books")
+public class BookController {
+  private final CatalogService catalog;
+  public BookController(CatalogService catalog) { this.catalog = catalog; }
+
+  @GetMapping
+  public PageDto<BookDto> search(@RequestParam(required = false) String q,
+                                 @RequestParam(defaultValue = "0") int page,
+                                 @RequestParam(defaultValue = "20") int size) {
+    var request = PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100), Sort.by("title"));
+    return PageDto.of(catalog.search(q, request).map(BookDto::of));
+  }
+
+  @GetMapping("/{isbn}")
+  public BookDto get(@PathVariable String isbn) { return BookDto.of(catalog.book(isbn)); }
+
+  @PostMapping
+  public ResponseEntity<BookDto> add(@Valid @RequestBody NewBook req, UriComponentsBuilder uri) {
+    var book = catalog.addBook(req.isbn(), req.title(), req.author(), req.copies());
+    return ResponseEntity.created(uri.path("/api/books/{isbn}").build(book.getIsbn())).body(BookDto.of(book));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="MemberController.java" data-path="src/main/java/com/example/library/web/MemberController.java">
+package com.example.library.web;
+
+import com.example.library.catalog.CatalogService;
+import com.example.library.loans.LibraryService;
+import com.example.library.web.Dtos.LoanDto;
+import com.example.library.web.Dtos.MemberDto;
+import com.example.library.web.Dtos.NewMember;
+import jakarta.validation.Valid;
+import java.util.List;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
+
+@RestController
+@RequestMapping("/api/members")
+public class MemberController {
+  private final CatalogService catalog;
+  private final LibraryService library;
+  public MemberController(CatalogService catalog, LibraryService library) { this.catalog = catalog; this.library = library; }
+
+  @PostMapping
+  public ResponseEntity<MemberDto> register(@Valid @RequestBody NewMember req, UriComponentsBuilder uri) {
+    var member = catalog.register(req.name(), req.email());
+    return ResponseEntity.created(uri.path("/api/members/{id}").build(member.getId())).body(MemberDto.of(member));
+  }
+
+  @GetMapping("/{id}/loans")
+  public List<LoanDto> loans(@PathVariable Long id) {
+    return library.openLoansOf(id).stream().map(LoanDto::of).toList();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="LoanController.java" data-path="src/main/java/com/example/library/web/LoanController.java">
+package com.example.library.web;
+
+import com.example.library.loans.LibraryService;
+import com.example.library.web.Dtos.LoanDto;
+import com.example.library.web.Dtos.NewLoan;
+import jakarta.validation.Valid;
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/loans")
+public class LoanController {
+  private final LibraryService library;
+  public LoanController(LibraryService library) { this.library = library; }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public LoanDto borrow(@Valid @RequestBody NewLoan req) { return LoanDto.of(library.borrow(req.memberId(), req.isbn())); }
+
+  @PostMapping("/{id}/return")
+  public LoanDto giveBack(@PathVariable Long id) { return LoanDto.of(library.giveBack(id)); }
+
+  @GetMapping("/overdue")
+  public List<LoanDto> overdue() { return library.overdue().stream().map(LoanDto::of).toList(); }
+}
+</script>
+<p>All error handling is in one advice: domain exceptions become typed problems, validation errors list every field, and concurrent updates become a 409 instead of a 500 (Chapter 10):</p>
+<script type="text/plain" class="code" data-file="ApiErrors.java" data-path="src/main/java/com/example/library/web/ApiErrors.java">
+package com.example.library.web;
+
+import com.example.library.NotFoundException;
+import com.example.library.catalog.CatalogService.AlreadyExists;
+import com.example.library.loans.LoanPolicy.LoanRefused;
+import java.net.URI;
+import java.util.Map;
+import java.util.TreeMap;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+/** Maps domain exceptions to RFC 9457 problem responses, in one place. */
+@RestControllerAdvice
+public class ApiErrors extends ResponseEntityExceptionHandler {
+  private static final String TYPES = "https://library.example.com/problems/";
+
+  @ExceptionHandler
+  ProblemDetail notFound(NotFoundException e) {
+    return problem(HttpStatus.NOT_FOUND, "not-found", "Not found", e.getMessage());
+  }
+
+  @ExceptionHandler
+  ProblemDetail duplicate(AlreadyExists e) {
+    return problem(HttpStatus.CONFLICT, "duplicate", "Already exists", e.getMessage());
+  }
+
+  @ExceptionHandler
+  ProblemDetail refused(LoanRefused e) {
+    var pd = problem(HttpStatus.CONFLICT, "loan-refused", "Loan refused", e.getMessage());
+    pd.setProperty("reason", e.code());
+    return pd;
+  }
+
+  @ExceptionHandler
+  ProblemDetail stateConflict(IllegalStateException e) {
+    return problem(HttpStatus.CONFLICT, "invalid-state", "Invalid state", e.getMessage());
+  }
+
+  @ExceptionHandler
+  ProblemDetail concurrent(ObjectOptimisticLockingFailureException e) {
+    return problem(HttpStatus.CONFLICT, "concurrent-update", "Concurrent update", "Someone else changed this at the same time; please retry");
+  }
+
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex, HttpHeaders headers,
+                                                                HttpStatusCode status, WebRequest request) {
+    Map<String, String> errors = new TreeMap<>();
+    ex.getFieldErrors().forEach(fe -> errors.put(fe.getField(), fe.getDefaultMessage()));
+    var pd = problem(HttpStatus.BAD_REQUEST, "validation", "Invalid request", "The request has " + errors.size() + " invalid field(s)");
+    pd.setProperty("errors", errors);
+    return ResponseEntity.badRequest().body(pd);
+  }
+
+  private static ProblemDetail problem(HttpStatus status, String type, String title, String detail) {
+    var pd = ProblemDetail.forStatusAndDetail(status, detail);
+    pd.setType(URI.create(TYPES + type));
+    pd.setTitle(title);
+    return pd;
+  }
+}
+</script>
+
+<h2 id="tests">Tests</h2>
+<p><strong>Unit tests</strong> for the rules — no Spring, parameterised:</p>
+<script type="text/plain" class="code" data-file="LoanPolicyTest.java" data-path="src/test/java/com/example/library/loans/LoanPolicyTest.java" data-test>
+package com.example.library.loans;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.library.LibraryProperties;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+class LoanPolicyTest {
+  private final LoanPolicy policy = new LoanPolicy(new LibraryProperties(14, 3));
+
+  @ParameterizedTest(name = "{0} open loans → allowed")
+  @CsvSource({ "0", "1", "2" })
+  void allowsUpToTheLimit(int open) {
+    assertThatCode(() -> policy.check(open, false, true)).doesNotThrowAnyException();
+  }
+
+  @ParameterizedTest(name = "open={0}, overdue={1}, available={2} → {3}")
+  @CsvSource({
+      "3, false, true,  limit",
+      "0, true,  true,  overdue",
+      "5, true,  false, overdue",
+      "0, false, false, unavailable"
+  })
+  void refuses(int open, boolean overdue, boolean available, String code) {
+    assertThatThrownBy(() -> policy.check(open, overdue, available))
+        .isInstanceOfSatisfying(LoanPolicy.LoanRefused.class, e -> org.assertj.core.api.Assertions.assertThat(e.code()).isEqualTo(code));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p><strong>Service tests</strong> with the real database and a clock the test can move forward — the only way to test "overdue" without waiting two weeks. <code>@Transactional</code> on the test class rolls back every test:</p>
+<script type="text/plain" class="code" data-file="LibraryServiceTest.java" data-path="src/test/java/com/example/library/loans/LibraryServiceTest.java" data-test>
+package com.example.library.loans;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.library.catalog.BookRepository;
+import com.example.library.catalog.CatalogService;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.transaction.annotation.Transactional;
+
+@SpringBootTest
+@Transactional                                   // each test rolls back: the seed data stays as in V2__seed.sql
+class LibraryServiceTest {
+
+  static final Instant NOW = Instant.parse("2026-03-02T10:00:00Z");
+  static final MutableClock CLOCK = new MutableClock(NOW);
+
+  @TestConfiguration
+  static class FixedClock {
+    @Bean @Primary Clock testClock() { return CLOCK; }
+  }
+
+  @Autowired LibraryService library;
+  @Autowired CatalogService catalog;
+  @Autowired BookRepository books;
+
+  @Test
+  void borrowingTakesACopyAndSetsTheDueDate() {
+    CLOCK.set(NOW);
+    Loan loan = library.borrow(1L, "9780441013593");
+    assertThat(loan.getDueOn()).isEqualTo(LocalDate.of(2026, 3, 16));
+    assertThat(books.findByIsbn("9780441013593").orElseThrow().getAvailable()).isEqualTo(1);
+  }
+
+  @Test
+  void theLastCopyCannotBeLentTwice() {
+    CLOCK.set(NOW);
+    library.borrow(1L, "9780141439518");                                  // only one copy
+    assertThatThrownBy(() -> library.borrow(2L, "9780141439518"))
+        .isInstanceOfSatisfying(LoanPolicy.LoanRefused.class, e -> assertThat(e.code()).isEqualTo("unavailable"));
+  }
+
+  @Test
+  void overdueLoansBlockNewLoansUntilReturned() {
+    CLOCK.set(NOW);
+    Loan loan = library.borrow(1L, "9780441478125");
+    CLOCK.set(NOW.plusSeconds(20 * 86400));                                // 20 days later
+    assertThat(library.overdue()).extracting(Loan::getId).containsExactly(loan.getId());
+    assertThatThrownBy(() -> library.borrow(1L, "9780441013593"))
+        .isInstanceOfSatisfying(LoanPolicy.LoanRefused.class, e -> assertThat(e.code()).isEqualTo("overdue"));
+
+    library.giveBack(loan.getId());
+    assertThat(library.overdue()).isEmpty();
+    assertThat(library.borrow(1L, "9780441013593").getId()).isNotNull();
+  }
+
+  @Test
+  void limitOfThreeOpenLoans() {
+    CLOCK.set(NOW);
+    catalog.addBook("9780000000001", "Extra", "Anon", 5);
+    library.borrow(2L, "9780441013593");
+    library.borrow(2L, "9780441478125");
+    library.borrow(2L, "9780000000001");
+    assertThatThrownBy(() -> library.borrow(2L, "9780000000001"))
+        .isInstanceOfSatisfying(LoanPolicy.LoanRefused.class, e -> assertThat(e.code()).isEqualTo("limit"));
+  }
+
+  /** A Clock the test can move forward. */
+  static final class MutableClock extends Clock {
+    private volatile Instant instant;
+    MutableClock(Instant instant) { this.instant = instant; }
+    void set(Instant instant) { this.instant = instant; }
+    @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+    @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+    @Override public Instant instant() { return instant; }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>A <strong>web slice test</strong> for JSON, validation and error mapping:</p>
+<script type="text/plain" class="code" data-file="BookControllerTest.java" data-path="src/test/java/com/example/library/web/BookControllerTest.java" data-test>
+package com.example.library.web;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import com.example.library.NotFoundException;
+import com.example.library.catalog.Book;
+import com.example.library.catalog.CatalogService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@WebMvcTest(BookController.class)
+class BookControllerTest {
+  @Autowired MockMvcTester mvc;
+  @MockitoBean CatalogService catalog;
+
+  @Test
+  void returnsABook() {
+    given(catalog.book("9780441013593")).willReturn(new Book("9780441013593", "Dune", "Frank Herbert", 2));
+    assertThat(mvc.get().uri("/api/books/9780441013593")).hasStatusOk().bodyJson().isLenientlyEqualTo("""
+        {"isbn":"9780441013593","title":"Dune","author":"Frank Herbert","copies":2,"available":2}""");
+  }
+
+  @Test
+  void unknownBookIsAProblem() {
+    given(catalog.book("1")).willThrow(new NotFoundException("Book", "1"));
+    assertThat(mvc.get().uri("/api/books/1")).hasStatus(HttpStatus.NOT_FOUND)
+        .bodyJson().extractingPath("$.type").isEqualTo("https://library.example.com/problems/not-found");
+  }
+
+  @Test
+  void validatesNewBooks() {
+    assertThat(mvc.post().uri("/api/books").contentType(MediaType.APPLICATION_JSON)
+        .content("""
+            {"isbn":"123","title":"","author":"X","copies":0}"""))
+        .hasStatus(HttpStatus.BAD_REQUEST)
+        .bodyJson().extractingPath("$.errors").asMap().containsOnlyKeys("copies", "isbn", "title");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>And an <strong>integration test</strong> over real HTTP, through every layer:</p>
+<script type="text/plain" class="code" data-file="LibraryApiIntegrationTest.java" data-path="src/test/java/com/example/library/LibraryApiIntegrationTest.java" data-test>
+package com.example.library;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.example.library.web.Dtos.LoanDto;
+import com.example.library.web.Dtos.MemberDto;
+import com.example.library.web.Dtos.NewBook;
+import com.example.library.web.Dtos.NewLoan;
+import com.example.library.web.Dtos.NewMember;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
+class LibraryApiIntegrationTest {
+  @Autowired RestTestClient client;
+
+  @Test
+  void fullLoanCycleOverHttp() {
+    client.post().uri("/api/books").body(new NewBook("9781111111111", "Integration Testing", "QA Team", 1))
+        .exchange()
+        .expectStatus().isCreated()
+        .expectHeader().value("Location", loc -> assertThat(loc).endsWith("/api/books/9781111111111"));
+
+    MemberDto member = client.post().uri("/api/members").body(new NewMember("Test Reader", "reader@example.com"))
+        .exchange().expectStatus().isCreated()
+        .expectBody(MemberDto.class).returnResult().getResponseBody();
+
+    LoanDto loan = client.post().uri("/api/loans").body(new NewLoan(member.id(), "9781111111111"))
+        .exchange().expectStatus().isCreated()
+        .expectBody(LoanDto.class).returnResult().getResponseBody();
+    assertThat(loan.title()).isEqualTo("Integration Testing");
+
+    client.post().uri("/api/loans").body(new NewLoan(member.id(), "9781111111111"))       // the only copy is out
+        .exchange().expectStatus().isEqualTo(409)
+        .expectBody().jsonPath("$.reason").isEqualTo("unavailable");
+
+    client.post().uri("/api/loans/{id}/return", loan.id()).exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.returnedOn").isNotEmpty();
+
+    client.get().uri("/api/books/9781111111111").exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.available").isEqualTo(1);
+  }
+
+  @Test
+  void seedDataAndPaging() {
+    client.get().uri("/api/books?size=2").exchange().expectStatus().isOk()
+        .expectBody()
+        .jsonPath("$.content.length()").isEqualTo(2)
+        .jsonPath("$.content[0].title").isEqualTo("Dune")
+        .jsonPath("$.totalElements").value(n -> assertThat(((Number) n).intValue()).isGreaterThanOrEqualTo(3));
+  }
+
+  @Test
+  void healthIsUp() {
+    client.get().uri("/actuator/health").exchange().expectStatus().isOk().expectBody().jsonPath("$.status").isEqualTo("UP");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+</script>
+
+<h2 id="run">Running it</h2>
+<p>This demo (in <code>src/test/java</code>, so it isn't packaged) starts the API on a free port and behaves like a client:</p>
+<script type="text/plain" class="code" data-file="LibraryDemo.java" data-path="src/test/java/com/example/library/LibraryDemo.java" data-run>
+package com.example.library;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+/** Starts the API on a free port, walks through a loan as a client would, and stops. */
+public class LibraryDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LibraryApplication.class, "--server.port=0")) {
+      var http = RestClient.builder()
+          .baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultHeader("Content-Type", "application/json")
+          .defaultStatusHandler(status -> true, (req, res) -> { })      // print errors instead of throwing
+          .build();
+
+      JsonNode page = http.get().uri("/api/books?size=2").retrieve().body(JsonNode.class);
+      System.out.println("catalog: " + page.get("totalElements") + " books, first page " + page.get("content").findValuesAsString("title"));
+
+      JsonNode loan = http.post().uri("/api/loans").body("{\"memberId\":1,\"isbn\":\"9780141439518\"}").retrieve().body(JsonNode.class);
+      System.out.println("ada borrowed: " + loan.get("title").asString() + ", due in 14 days: " + !loan.get("dueOn").isNull());
+
+      var refused = http.post().uri("/api/loans").body("{\"memberId\":2,\"isbn\":\"9780141439518\"}").retrieve().toEntity(JsonNode.class);
+      System.out.println("grace: " + refused.getStatusCode().value() + " " + refused.getBody().get("title").asString()
+          + " (" + refused.getBody().get("reason").asString() + ")");
+
+      var invalid = http.post().uri("/api/books").body("{\"isbn\":\"12\",\"title\":\"\",\"author\":\"X\",\"copies\":1}").retrieve().toEntity(JsonNode.class);
+      System.out.println("invalid book: " + invalid.getStatusCode().value() + " " + invalid.getBody().get("errors").propertyNames());
+
+      http.post().uri("/api/loans/{id}/return", loan.get("id").asLong()).retrieve().toBodilessEntity();
+      System.out.println("after return, ada has " + http.get().uri("/api/members/1/loans").retrieve().body(JsonNode.class).size() + " open loans");
+
+      JsonNode metric = http.get().uri("/actuator/metrics/library.loans").retrieve().body(JsonNode.class);
+      System.out.println("loan attempts recorded: " + metric.get("measurements").get(0).get("value").asInt());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+catalog: 3 books, first page [Dune, Pride and Prejudice]
+ada borrowed: Pride and Prejudice, due in 14 days: true
+grace: 409 Loan refused (unavailable)
+invalid book: 400 [isbn, title]
+after return, ada has 0 open loans
+loan attempts recorded: 2
+</script>
+<p>Or start it for real and use <code>curl</code>:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ cd playground/reference && ../mvnw spring-boot:run
+$ curl -s localhost:8080/api/books/9780441013593
+{"isbn":"9780441013593","title":"Dune","author":"Frank Herbert","copies":2,"available":2}
+$ curl -s -X POST localhost:8080/api/loans -H 'Content-Type: application/json' -d '{"memberId":1,"isbn":"9780441013593"}'
+$ curl -s localhost:8080/actuator/metrics/library.loans
+</script>
+
+<h2 id="more-examples">Where to go next</h2>
+<ul>
+  <li><strong>Security</strong> (Chapter 17): make it a JWT resource server; members may only see their own loans (<code>@PreAuthorize("#id == …")</code>), librarians manage the catalogue.</li>
+  <li><strong>PostgreSQL</strong>: add the driver, run the same Flyway migrations, and switch the integration tests to Testcontainers with <code>@ServiceConnection</code> (Chapter 16).</li>
+  <li><strong>Events</strong> (Chapters 8 and 15): publish <code>BookBorrowed</code>/<code>BookReturned</code> and send reminders in an after-commit listener; a nightly <code>@Scheduled</code> job e-mails overdue members.</li>
+  <li><strong>Deployment</strong> (Chapter 19): <code>application-prod.yml</code> from Chapter 19's exercise, a layered image with <code>spring-boot:build-image</code>, and Kubernetes probes.</li>
+  <li><strong>Resilience</strong> (Chapter 11): retry an optimistic-lock conflict once with <code>@Retryable</code> on <code>borrow</code>, before reporting 409.</li>
+</ul>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Package by feature; dependencies point downwards; DTOs at the edge, entities inside.</li>
+  <li>Flyway owns the schema (<code>ddl-auto: validate</code>); database constraints back up the Java rules.</li>
+  <li>Entities guard invariants; a pure policy class holds the rules; one transactional service method per business operation; <code>@Version</code> for concurrency.</li>
+  <li>One <code>@RestControllerAdvice</code> maps every failure to a typed RFC 9457 problem.</li>
+  <li>Tests at three levels — policy, service with a movable <code>Clock</code>, web slice — plus one end-to-end HTTP test.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why does <code>LoanController</code> return <code>LoanDto</code> instead of the <code>Loan</code> entity? Name three problems returning the entity would cause.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Lazy relationships (<code>book</code>, <code>member</code>) would be serialised after the transaction ends → <code>LazyInitializationException</code>, or N+1 queries with open-in-view. (2) The JSON shape would change whenever the entity changes — the API contract would follow the database. (3) Internal fields (the member's e-mail, the book's version) would leak, and bidirectional links could recurse.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>The loan limit is configured as <code>library.max-open-loans: 3</code>. How would you set it to 5 in production without rebuilding, and what happens if someone sets it to 0?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Set the environment variable <code>LIBRARY_MAXOPENLOANS=5</code> (or <code>--library.max-open-loans=5</code>). <code>LibraryProperties</code> is <code>@Validated</code> with <code>@Min(1)</code>, so 0 makes the application fail at startup with a binding report naming the property and its origin — rather than refusing every loan at runtime.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Two members request the last copy of a book at exactly the same moment. Walk through what happens, step by step.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Both transactions load the book (available = 1, version = n), both pass the policy, both call <code>lend()</code> (available = 0 in memory) and insert a loan. At commit, each issues <code>UPDATE book … WHERE id = ? AND version = n</code>. The first succeeds (version becomes n+1); the second updates 0 rows, Hibernate throws an optimistic-lock exception, the whole second transaction — including its loan insert — rolls back, and <code>ApiErrors</code> returns 409 "Concurrent update". The database <code>CHECK</code> would also have caught a negative value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which test would fail first, and with what kind of message, if someone removed <code>@Transactional</code> from <code>LibraryService.borrow</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Because the class is <code>@Transactional(readOnly = true)</code>, <code>borrow</code> would run read-only: Hibernate wouldn't flush the change to <code>available</code>, and on some databases the insert would be rejected. <code>LibraryServiceTest.borrowingTakesACopyAndSetsTheDueDate</code> would fail its assertion that one copy is left (expected 1 but was 2) — the class-level default turned a silent bug into a visible one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">design · playground</span></h3>
+<p>Add <strong>loan renewal</strong>: <code>POST /api/loans/{id}/renew</code> extends the due date by <code>loanDays</code>, at most twice, and never for an overdue loan. Where does each rule go? Sketch the changes to <code>Loan</code>, the service and the advice.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add a <code>renewals</code> column (Flyway <code>V3__loan_renewals.sql</code>: <code>ALTER TABLE loan ADD COLUMN renewals INT NOT NULL DEFAULT 0</code>). In <code>Loan</code>, a method <code>renew(LocalDate today, int days, int maxRenewals)</code> that throws if the loan is closed, overdue (<code>isOverdue(today)</code>) or already renewed <code>maxRenewals</code> times, then does <code>dueOn = dueOn.plusDays(days); renewals++</code>. In <code>LibraryService</code>, a <code>@Transactional renew(Long loanId)</code> that loads the loan and calls it with the clock and properties. Throw a <code>LoanRefused("renewal-limit", …)</code> so the existing advice maps it to 409. Tests: unit-test <code>Loan.renew</code> directly; one service test that moves the clock.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code · playground</span></h3>
+<p>Add a test to <code>BookControllerTest</code> that checks a duplicate ISBN returns 409 with the <code>duplicate</code> problem type.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="java" data-norun>
+@Test
+void duplicateIsbnIs409() {
+  given(catalog.addBook("9780441013593", "Dune", "Frank Herbert", 1))
+      .willThrow(new CatalogService.AlreadyExists("A book with ISBN 9780441013593 already exists"));
+  assertThat(mvc.post().uri("/api/books").contentType(MediaType.APPLICATION_JSON)
+      .content("""
+          {"isbn":"9780441013593","title":"Dune","author":"Frank Herbert","copies":1}"""))
+      .hasStatus(HttpStatus.CONFLICT)
+      .bodyJson().extractingPath("$.type").isEqualTo("https://library.example.com/problems/duplicate");
+}
+</script>
+<p>Stub the exact arguments the controller passes (taken from the JSON), or use <code>any()</code> matchers.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>The checks in <code>borrow</code> count open loans and then insert. Two concurrent requests from the <em>same member</em> for two <em>different</em> books could both see 2 open loans and both succeed, giving 4. The book's <code>@Version</code> doesn't help here. Propose two fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Lock the member row first: a repository method with <code>@Lock(PESSIMISTIC_WRITE)</code> (<code>SELECT … FOR UPDATE</code>) so a member's concurrent borrows are serialised; cheap, because conflicts per member are rare. (2) Give <code>Member</code> an <code>openLoans</code> counter with <code>@Version</code>, incremented in <code>borrow</code> — then the second transaction fails optimistically like the book does. (A database-level constraint isn't easy for "count ≤ 3"; a trigger would work but hides logic.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">ops</span></h3>
+<p>Write the PromQL-style questions you'd put on a dashboard for this service using its metrics: <code>http.server.requests</code> and <code>library.loans</code>. What would you alert on?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Panels: request rate and p95 latency per <code>uri</code> (<code>http_server_requests_seconds</code>), 5xx ratio, loans per minute by <code>outcome</code> (<code>rate(library_loans_total[5m])</code>), and the share of <code>outcome="unavailable"</code> (demand the library can't meet). Alerts: 5xx ratio above 1% for 5 minutes; p95 latency above an SLO; readiness DOWN; a sudden drop of <code>outcome="ok"</code> to zero during opening hours.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design · playground</span></h3>
+<p>Add <strong>reservations</strong>: when no copy is available, a member can reserve the book; when a copy is returned, the oldest reservation gets a 3-day hold and an e-mail. Describe the schema change, the transaction boundaries and how the e-mail is sent safely.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Schema (<code>V3</code>): <code>reservation(id, book_id, member_id, created_at, status, hold_until)</code> with an index on <code>(book_id, status, created_at)</code>. <code>giveBack</code> (one transaction): close the loan, then — instead of <code>book.giveBack()</code> putting the copy on the shelf — find the oldest <code>WAITING</code> reservation; if one exists, set it to <code>HOLD</code> with <code>hold_until = today + 3</code> and keep the copy reserved (a <code>reserved</code> count on <code>Book</code>), then publish <code>HoldPlaced</code>. A <code>@TransactionalEventListener</code> sends the e-mail <em>after commit</em> (optionally <code>@Async</code>, or via an outbox table for guaranteed delivery). A daily <code>@Scheduled</code> job expires holds and passes the copy to the next reservation. <code>borrow</code> must then allow the holder to take the reserved copy and refuse others.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Secure the API (Chapter 17): JWT resource server; <code>SCOPE_library:admin</code> may add books and see overdue loans; any authenticated member may borrow, but only for themselves (the JWT <code>sub</code> is the member's e-mail). List the changes and the tests you'd add.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>spring-boot-starter-security-oauth2-resource-server</code> (+ <code>-security-test</code>). A <code>SecurityFilterChain</code>: <code>POST /api/books</code> and <code>GET /api/loans/overdue</code> → <code>hasAuthority("SCOPE_library:admin")</code>; <code>/actuator/health/**</code> → <code>permitAll()</code>; everything else <code>authenticated()</code>; stateless; resource server with <code>issuer-uri</code>. Change <code>NewLoan</code> to only carry the ISBN and resolve the member from <code>@AuthenticationPrincipal Jwt</code> (<code>members.findByEmail(jwt.getSubject())</code>) — the client can no longer borrow for someone else. Protect <code>GET /api/members/{id}/loans</code> with <code>@PreAuthorize</code> comparing the member's e-mail to <code>authentication.name</code>, or an admin scope. Tests: <code>jwt()</code> post-processors for admin vs member on each endpoint, 401 without a token, and 403 for a member reading someone else's loans; the integration test gets a <code>@TestConfiguration</code> <code>JwtDecoder</code> or uses MockMvc with <code>jwt()</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html">Structuring your code</a> · <a href="https://spring.io/guides/tutorials/rest">Building REST services with Spring</a></li>
+  <li><a href="https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html">Spring Data JPA: Locking</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html">Error responses</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html">Testing Spring Boot applications</a> · <a href="https://docs.spring.io/spring-boot/how-to/data-initialization.html">Database initialization</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

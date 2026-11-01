@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>1. Spring &amp; Spring Boot: the Big Picture · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Foundations</div>
+<h1>Spring &amp; Spring Boot: the Big Picture</h1>
+<p class="lead">Spring Framework is the toolkit; Spring Boot is the opinionated way to assemble it into a running application in minutes. This chapter maps the territory: what each project does, how they fit together, what's new in Spring Framework 7 and Spring Boot 4, and what really happens when you call <code>SpringApplication.run</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What the <strong>Spring Framework</strong> provides: the container, AOP, data access, web stacks, integration and testing.</li>
+  <li>What <strong>Spring Boot</strong> adds on top: starters, auto-configuration, an embedded server and production features.</li>
+  <li>The current generation: <strong>Spring Framework 7 + Spring Boot 4</strong>, Java 17+ (this book uses Java 25), Jakarta EE 11.</li>
+  <li>The anatomy of a Boot project: the build file, the main class and <code>@SpringBootApplication</code>.</li>
+  <li>What happens at startup, and how to look inside the <code>ApplicationContext</code>.</li>
+</ul>
+</div>
+
+<h2 id="framework">What is the Spring Framework?</h2>
+<p>The <strong>Spring Framework</strong> is a set of libraries for building Java applications. At its centre is an <strong>Inversion of Control (IoC) container</strong>: you describe the objects your application needs (called <em>beans</em>) and how they depend on each other, and the container creates them, wires them together and manages their lifecycle. Everything else in Spring is built on top of that container.</p>
+<p>The reference documentation groups the framework into these areas:</p>
+<table>
+  <tr><th>Area</th><th>What it gives you</th><th>Chapter</th></tr>
+  <tr><td><strong>Core</strong></td><td>IoC container, resources, validation, data binding, type conversion, SpEL, AOP, null safety</td><td>2–8</td></tr>
+  <tr><td><strong>Data Access</strong></td><td>transactions, DAO support, JDBC (<code>JdbcClient</code>), R2DBC, ORM integration</td><td>13–15</td></tr>
+  <tr><td><strong>Web Servlet</strong></td><td>Spring MVC, REST clients, WebSocket</td><td>9–11</td></tr>
+  <tr><td><strong>Web Reactive</strong></td><td>Spring WebFlux, <code>WebClient</code>, reactive WebSocket</td><td>12</td></tr>
+  <tr><td><strong>Integration</strong></td><td>REST clients, JMS, email, scheduling, caching, observability, JVM checkpoint restore</td><td>8, 11, 18</td></tr>
+  <tr><td><strong>Testing</strong></td><td>the TestContext framework, MockMvc, <code>RestTestClient</code>, <code>WebTestClient</code></td><td>16</td></tr>
+</table>
+<p>Other Spring projects build on the framework: <strong>Spring Data</strong> (repositories for JPA, MongoDB, Redis…), <strong>Spring Security</strong>, <strong>Spring Batch</strong>, <strong>Spring Cloud</strong>, <strong>Spring AI</strong> and more. They all follow the same model: beans in a container.</p>
+
+<h2 id="boot">What does Spring Boot add?</h2>
+<p>Using the framework directly means making many decisions: which server, which JSON library, how to configure a connection pool, which logging setup. <strong>Spring Boot</strong> makes those decisions for you with sensible defaults, and lets you change any of them. Its main features:</p>
+<ul>
+  <li><strong>Starters</strong>: one dependency per capability. <code>spring-boot-starter-webmvc</code> brings Spring MVC, Jackson, an embedded Tomcat and logging, all in versions that work together.</li>
+  <li><strong>Auto-configuration</strong>: Boot looks at your classpath and your configuration, then creates the beans you would otherwise write by hand: a <code>DataSource</code> if there's a database driver, a <code>JsonMapper</code> if Jackson is present, and so on. Your own beans always win (Chapter 5).</li>
+  <li><strong>Embedded server</strong>: the application is a plain <code>main</code> method. There's no WAR file to deploy into an external Tomcat; the server lives inside your jar.</li>
+  <li><strong>Externalized configuration</strong>: <code>application.properties</code>/<code>.yml</code>, environment variables and command-line arguments, with a clear order of precedence (Chapter 4).</li>
+  <li><strong>Production features</strong>: health checks, metrics, tracing and info endpoints through Actuator (Chapter 18), plus layered jars, container images and native images (Chapter 19).</li>
+</ul>
+<figure class="diagram">
+<svg viewBox="0 0 560 250" role="img" aria-label="Layers: your code on top, Spring Boot starters and auto-configuration, Spring Framework and other Spring projects, then the JVM">
+  <rect class="hi" x="20" y="10" width="520" height="40" rx="8"/><text x="280" y="35" text-anchor="middle">Your code: @RestController, @Service, @Repository, @Configuration</text>
+  <rect class="bx" x="20" y="65" width="520" height="40" rx="8"/><text x="280" y="90" text-anchor="middle">Spring Boot: starters · auto-configuration · embedded server · Actuator</text>
+  <rect class="bx" x="20" y="120" width="250" height="56" rx="8"/><text x="145" y="143" text-anchor="middle">Spring Framework 7</text><text class="mut" x="145" y="163" text-anchor="middle">container, AOP, MVC, JDBC, tx</text>
+  <rect class="bx" x="290" y="120" width="250" height="56" rx="8"/><text x="415" y="143" text-anchor="middle">Spring Data · Security · …</text><text class="mut" x="415" y="163" text-anchor="middle">projects built on the container</text>
+  <rect class="bx" x="20" y="192" width="520" height="40" rx="8"/><text x="280" y="217" text-anchor="middle">Java 17+ (JVM) · Jakarta EE 11 APIs · Tomcat / Jetty / Netty</text>
+</svg>
+<figcaption>Boot doesn't replace the framework: it configures it. Every Boot app is a Spring Framework app.</figcaption>
+</figure>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a kitchen and a meal kit.</strong> Spring Framework is a professional kitchen: every tool you could want, but you choose the pans, buy the ingredients and decide the recipe. Spring Boot is a <em>meal kit delivered to that kitchen</em>: the ingredients are measured, the recipe card is written, and the oven is preheated. You can still swap any ingredient — the kit just stops you from starting with an empty counter.</p>
+</div>
+
+<h2 id="versions">The current generation: Framework 7 and Boot 4</h2>
+<p>Spring Boot 4.0 (November 2025) and Spring Framework 7.0 are a major generation. This book uses <strong>Spring Boot 4.1</strong> on <strong>Java 25</strong>. The important facts:</p>
+<ul>
+  <li><strong>Java 17 is the minimum</strong>; Java 21 and 25 (LTS releases) are recommended. Virtual threads (Java 21+) are a one-line switch.</li>
+  <li><strong>Jakarta EE 11</strong>: Servlet 6.1, JPA 3.2, Bean Validation 3.1. Packages are <code>jakarta.*</code>, not <code>javax.*</code>.</li>
+  <li><strong>Modular Boot</strong>: auto-configuration is split into small modules and starters are named after the technology (<code>spring-boot-starter-webmvc</code>, <code>-flyway</code>, <code>-restclient</code>…).</li>
+  <li><strong>Jackson 3</strong> (package <code>tools.jackson</code>), <strong>JSpecify</strong> null-safety annotations, built-in <strong>API versioning</strong>, <strong>HTTP service clients</strong> and <strong>retry</strong> in the core framework.</li>
+</ul>
+<div class="java">
+<p>☕ <strong>Coming from Boot 2 or 3?</strong> Most code still compiles, but some starters, packages and test annotations changed. <a href="appendix-migration.html">Appendix B</a> lists everything you need when you upgrade.</p>
+</div>
+
+<h2 id="project">Anatomy of a Boot project</h2>
+<p>The easiest way to start is <a href="https://start.spring.io">start.spring.io</a> (also built into IntelliJ IDEA, VS Code and Eclipse). Choose Maven or Gradle, Java 25, Boot 4.1 and the dependencies (for example <em>Spring Web</em>), and download the zip. Inside you get:</p>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+demo/
+├── mvnw, mvnw.cmd, .mvn/            ← Maven wrapper: no Maven install needed
+├── pom.xml                          ← build file: parent + starters
+└── src/
+    ├── main/java/com/example/demo/DemoApplication.java
+    ├── main/resources/application.properties
+    └── test/java/com/example/demo/DemoApplicationTests.java
+</script>
+<p>The build file inherits versions from the Boot parent, so the starters have no version numbers:</p>
+<script type="text/plain" class="code" data-file="pom.xml" data-norun>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.2</version>
+  </parent>
+  <groupId>com.example</groupId>
+  <artifactId>demo</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <properties>
+    <java.version>25</java.version>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+</script>
+<p>The Gradle equivalent applies the <code>org.springframework.boot</code> and <code>io.spring.dependency-management</code> plugins and lists the same starters. Commands you'll use every day:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ ./mvnw spring-boot:run          # compile and run
+$ ./mvnw test                     # run the tests
+$ ./mvnw package                  # build target/demo-0.0.1-SNAPSHOT.jar
+$ java -jar target/demo-0.0.1-SNAPSHOT.jar
+</script>
+
+<h3>Your first Spring Boot application</h3>
+<p>The main class is short. This one doesn't start a web server (<code>WebApplicationType.NONE</code>), runs a bit of code at startup and then closes the context so the program ends:</p>
+<script type="text/plain" class="code" data-file="HelloApplication.java" data-run>
+package com.example.ch01.hello;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringBootVersion;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.SpringVersion;
+
+@SpringBootApplication
+public class HelloApplication {
+
+  public static void main(String[] args) {
+    new SpringApplicationBuilder(HelloApplication.class)
+        .web(WebApplicationType.NONE)   // no server for this example
+        .run(args)
+        .close();                       // stop the context, so main() returns
+  }
+
+  @Bean
+  CommandLineRunner hello() {
+    return args -> {
+      System.out.println("Hello from Spring Boot " + SpringBootVersion.getVersion());
+      System.out.println("Spring Framework " + SpringVersion.getVersion());
+      System.out.println("Java " + Runtime.version().feature());
+    };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello from Spring Boot 4.1.2
+Spring Framework 7.0.10
+Java 25
+</script>
+<p>A real application usually just calls <code>SpringApplication.run(HelloApplication.class, args)</code> and keeps running until you stop it. In this book most examples close the context themselves, so they print their result and finish, just like a script.</p>
+
+<h3>A web endpoint in ten lines</h3>
+<p>With the web starter on the classpath, the same kind of main class starts an embedded Tomcat. This example exposes <code>GET /hello</code>, then calls itself with Spring's <code>RestClient</code> and shuts down:</p>
+<script type="text/plain" class="code" data-file="WebApplication.java" data-run>
+package com.example.ch01.web;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@SpringBootApplication
+public class WebApplication {
+
+  public static void main(String[] args) {
+    var context = SpringApplication.run(WebApplication.class, "--server.port=0"); // 0 = any free port
+    String port = context.getEnvironment().getProperty("local.server.port");
+
+    RestClient client = RestClient.create("http://localhost:" + port);
+    System.out.println(client.get().uri("/hello?name=Ada").retrieve().body(String.class));
+    System.out.println(client.get().uri("/hello").retrieve().body(String.class));
+    context.close();
+  }
+}
+
+@RestController
+class HelloController {
+  @GetMapping("/hello")
+  String hello(@RequestParam(defaultValue = "world") String name) {
+    return "Hello, " + name + "!";
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello, Ada!
+Hello, world!
+</script>
+<p>Notice what you <em>didn't</em> write: no server setup, no servlet registration, no <code>DispatcherServlet</code>, no thread pool configuration. Auto-configuration saw Spring MVC and Tomcat on the classpath and did it all.</p>
+
+<h2 id="annotation">What <code>@SpringBootApplication</code> means</h2>
+<p><code>@SpringBootApplication</code> is a shortcut for three annotations:</p>
+<table>
+  <tr><th>Annotation</th><th>Effect</th></tr>
+  <tr><td><code>@SpringBootConfiguration</code></td><td>This class is a configuration class (a specialised <code>@Configuration</code>): its <code>@Bean</code> methods define beans.</td></tr>
+  <tr><td><code>@EnableAutoConfiguration</code></td><td>Turn on Boot's auto-configuration.</td></tr>
+  <tr><td><code>@ComponentScan</code></td><td>Find <code>@Component</code>, <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code>, <code>@Configuration</code> classes in <strong>this package and its sub-packages</strong>.</td></tr>
+</table>
+<p>That last line is why the main class belongs in a root package such as <code>com.example.shop</code>, with everything else below it (<code>com.example.shop.orders</code>, <code>com.example.shop.web</code>…). A class in a sibling package like <code>com.example.other</code> is simply not found.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Don't put the main class in the default package</strong> (a file with no <code>package</code> line). Component scanning would then scan <em>every</em> jar on the classpath, which is slow and usually fails with confusing errors.</p>
+</div>
+
+<h2 id="startup">What happens in <code>SpringApplication.run</code></h2>
+<p>Startup follows a fixed sequence. Knowing it makes most error messages easy to read:</p>
+<ol>
+  <li><strong>Create the <code>Environment</code></strong>: read command-line arguments, environment variables, <code>application.properties</code> and profiles (Chapter 4).</li>
+  <li><strong>Create the <code>ApplicationContext</code></strong>, the container. Its type depends on the classpath: servlet web, reactive web, or none.</li>
+  <li><strong>Register bean definitions</strong>: component scanning, your <code>@Bean</code> methods, then auto-configuration (which backs off where you defined your own beans).</li>
+  <li><strong>Refresh the context</strong>: create all singleton beans in dependency order, inject them, run initialisation callbacks, and start the web server.</li>
+  <li><strong>Call runners</strong>: every <code>CommandLineRunner</code> and <code>ApplicationRunner</code> bean.</li>
+  <li><strong>Publish events</strong> such as <code>ApplicationReadyEvent</code>; the application is now live.</li>
+</ol>
+<p>You can watch the main events go by with a listener added to <code>SpringApplication</code> itself:</p>
+<script type="text/plain" class="code" data-file="LifecycleApplication.java" data-run>
+package com.example.ch01.lifecycle;
+
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class LifecycleApplication {
+
+  public static void main(String[] args) {
+    var app = new SpringApplication(LifecycleApplication.class);
+    app.setWebApplicationType(WebApplicationType.NONE);
+    app.addListeners(event -> {
+      String name = event.getClass().getSimpleName();
+      if (name.startsWith("Application")) System.out.println("event:  " + name);
+    });
+    app.run(args).close();
+  }
+
+  @Bean
+  ApplicationRunner runner() {
+    return args -> System.out.println("runner: the context is ready");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+event:  ApplicationStartingEvent
+event:  ApplicationEnvironmentPreparedEvent
+event:  ApplicationContextInitializedEvent
+event:  ApplicationPreparedEvent
+event:  ApplicationStartedEvent
+runner: the context is ready
+event:  ApplicationReadyEvent
+</script>
+<p>The runner runs after <code>ApplicationStartedEvent</code> and before <code>ApplicationReadyEvent</code>. (Closing the context publishes a <code>ContextClosedEvent</code>; its name doesn't start with "Application", so it's filtered out here.)</p>
+
+<h2 id="context">Looking inside the ApplicationContext</h2>
+<p>The <code>ApplicationContext</code> returned by <code>run</code> is the container itself. You rarely use it directly in application code (you <em>inject</em> beans instead, Chapter 2), but it's very useful for learning and debugging:</p>
+<script type="text/plain" class="code" data-file="ContextApplication.java" data-run>
+package com.example.ch01.context;
+
+import java.util.Arrays;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.stereotype.Service;
+
+@SpringBootApplication
+public class ContextApplication {
+
+  public static void main(String[] args) {
+    try (var ctx = new SpringApplicationBuilder(ContextApplication.class).web(WebApplicationType.NONE).run(args)) {
+      System.out.println("beans in the context: " + ctx.getBeanDefinitionCount());
+      System.out.println("my beans: " + Arrays.stream(ctx.getBeanDefinitionNames())
+          .filter(n -> !n.contains(".") && !n.startsWith("spring") && Character.isLowerCase(n.charAt(0)))
+          .filter(n -> n.equals("contextApplication") || n.equals("greetingService"))
+          .toList());
+      GreetingService service = ctx.getBean(GreetingService.class);
+      System.out.println(service.greet("Spring"));
+      System.out.println("same instance? " + (service == ctx.getBean(GreetingService.class)));
+    }
+  }
+}
+
+@Service
+class GreetingService {
+  String greet(String name) { return "Hi " + name; }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+beans in the context: ...
+my beans: [contextApplication, greetingService]
+Hi Spring
+same instance? true
+</script>
+<p>Even a small application has dozens of beans, most created by auto-configuration. Your beans are named after their class with a lower-case first letter. Asking twice gives the <strong>same instance</strong>: beans are singletons by default (Chapter 3). <code>ConfigurableApplicationContext</code> is <code>AutoCloseable</code>, so try-with-resources closes it for you.</p>
+
+<h2 id="why">Why a container at all?</h2>
+<p>Without Spring you'd wire objects by hand in <code>main</code>:</p>
+<script type="text/plain" class="code" data-file="ManualWiring.java" data-run>
+package com.example.ch01.manual;
+
+interface PriceRepository { double priceOf(String sku); }
+
+class InMemoryPrices implements PriceRepository {
+  public double priceOf(String sku) { return sku.equals("BOOK") ? 12.5 : 3.0; }
+}
+
+class CheckoutService {
+  private final PriceRepository prices;
+  CheckoutService(PriceRepository prices) { this.prices = prices; }
+  double total(String... skus) {
+    double sum = 0;
+    for (String s : skus) sum += prices.priceOf(s);
+    return sum;
+  }
+}
+
+public class ManualWiring {
+  public static void main(String[] args) {
+    PriceRepository prices = new InMemoryPrices();         // you choose the implementation
+    CheckoutService checkout = new CheckoutService(prices); // you pass the dependency in
+    System.out.println(checkout.total("BOOK", "PEN", "PEN"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+18.5
+</script>
+<p>That's fine for three classes. With three hundred, plus transactions, security, caching and configuration that differs per environment, the <code>main</code> method becomes a maze. Spring keeps the good part — <code>CheckoutService</code> still receives its dependency through the constructor and knows nothing about Spring — and takes over the wiring. That idea, <strong>dependency injection</strong>, is the subject of Chapter 2.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a theatre's stage manager.</strong> Actors (your classes) shouldn't have to find their own props and fellow actors before each scene. The stage manager (the container) reads the script (your configuration), places every prop and calls every actor at the right moment. The actors just perform.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Returning JSON</h3>
+<p>Return a Java record from a controller and Spring MVC converts it to JSON with Jackson. The client converts it back:</p>
+<script type="text/plain" class="code" data-file="JsonApplication.java" data-run>
+package com.example.ch01.json;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@SpringBootApplication
+public class JsonApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JsonApplication.class, "--server.port=0")) {
+      var client = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(client.get().uri("/books").retrieve().body(String.class));
+      Book[] books = client.get().uri("/books").retrieve().body(Book[].class);
+      System.out.println(books[1].title() + " has " + books[1].pages() + " pages");
+    }
+  }
+}
+
+record Book(String title, int pages) {}
+
+@RestController
+class BookController {
+  @GetMapping("/books")
+  List<Book> books() {
+    return List.of(new Book("Dune", 412), new Book("Emma", 474));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[{"title":"Dune","pages":412},{"title":"Emma","pages":474}]
+Emma has 474 pages
+</script>
+
+<h3>Command-line arguments reach your code</h3>
+<p>Arguments starting with <code>--</code> become configuration properties; the rest are "non-option" arguments. <code>ApplicationRunner</code> receives them already parsed:</p>
+<script type="text/plain" class="code" data-file="ArgsApplication.java" data-run data-args="--greeting=Howdy report.csv">
+package com.example.ch01.args;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class ArgsApplication {
+  public static void main(String[] args) {
+    new SpringApplicationBuilder(ArgsApplication.class).web(WebApplicationType.NONE).run(args).close();
+  }
+
+  @Bean
+  ApplicationRunner show(@Value("${greeting:Hello}") String greeting) {
+    return args -> {
+      System.out.println(greeting + "!");
+      System.out.println("options: " + args.getOptionNames());
+      System.out.println("files:   " + args.getNonOptionArgs());
+    };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Howdy!
+options: [greeting]
+files:   [report.csv]
+</script>
+<p>Run as <code>java -jar app.jar --greeting=Howdy report.csv</code>. Without the option, <code>${greeting:Hello}</code> falls back to <code>Hello</code>.</p>
+
+<h3>Customising <code>SpringApplication</code></h3>
+<p>The builder (or a <code>SpringApplication</code> instance) controls startup: the banner, default properties, extra listeners, lazy initialisation and more.</p>
+<script type="text/plain" class="code" data-file="CustomApplication.java" data-run>
+package com.example.ch01.custom;
+
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class CustomApplication {
+  public static void main(String[] args) {
+    new SpringApplicationBuilder(CustomApplication.class)
+        .web(WebApplicationType.NONE)
+        .properties(Map.of("app.name", "inventory", "app.region", "eu-west"))  // lowest-priority defaults
+        .lazyInitialization(true)
+        .run(args)
+        .close();
+  }
+
+  @Bean
+  CommandLineRunner info(@Value("${app.name}") String name, @Value("${app.region}") String region) {
+    return args -> System.out.println(name + " running in " + region);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+inventory running in eu-west
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Spring Framework = an IoC container plus modules (AOP, data access, MVC/WebFlux, integration, testing). Other Spring projects build on the container.</li>
+  <li>Spring Boot = starters + auto-configuration + embedded server + externalized config + production features. It configures the framework; it doesn't replace it.</li>
+  <li>Current generation: Boot 4 / Framework 7, Java 17+ (25 recommended), Jakarta EE 11, Jackson 3, modular starters.</li>
+  <li><code>@SpringBootApplication</code> = <code>@SpringBootConfiguration</code> + <code>@EnableAutoConfiguration</code> + <code>@ComponentScan</code> (current package and below).</li>
+  <li>Startup: environment → context → bean definitions → refresh (create beans, start server) → runners → <code>ApplicationReadyEvent</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Name the three annotations combined in <code>@SpringBootApplication</code> and say in one line what each does.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@SpringBootConfiguration</code> marks the class as a configuration class (its <code>@Bean</code> methods define beans). <code>@EnableAutoConfiguration</code> turns on Boot's classpath-driven auto-configuration. <code>@ComponentScan</code> registers components found in the class's package and its sub-packages.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Your main class is <code>com.acme.shop.ShopApplication</code>. Which of these <code>@Service</code> classes are found by component scanning? <code>com.acme.shop.orders.OrderService</code>, <code>com.acme.billing.InvoiceService</code>, <code>com.acme.shop.ShopService</code>, <code>com.acme.shopping.CartService</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>OrderService</code> (a sub-package) and <code>ShopService</code> (the same package) are found. <code>InvoiceService</code> (sibling package) and <code>CartService</code> are not: <code>com.acme.shopping</code> is a <em>different</em> package from <code>com.acme.shop</code>, even though the name starts the same way. Scanning works on package segments, not string prefixes.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write a non-web Boot application whose <code>CommandLineRunner</code> prints <code>Total: 6</code>, the sum of the integers passed as arguments <code>1 2 3</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SumApplication.java" data-run data-args="1 2 3">
+package com.example.ch01.ex3;
+
+import java.util.Arrays;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class SumApplication {
+  public static void main(String[] args) {
+    new SpringApplicationBuilder(SumApplication.class).web(WebApplicationType.NONE).run(args).close();
+  }
+
+  @Bean
+  CommandLineRunner sum() {
+    return args -> System.out.println("Total: " + Arrays.stream(args).mapToInt(Integer::parseInt).sum());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Total: 6
+</script>
+<p><code>CommandLineRunner</code> receives the raw <code>String[]</code>, exactly as passed to <code>main</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which starter would you add for (a) a Spring MVC REST API, (b) JPA with Hibernate, (c) Actuator endpoints? Why don't the starters in <code>pom.xml</code> need a <code>&lt;version&gt;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>spring-boot-starter-webmvc</code>, (b) <code>spring-boot-starter-data-jpa</code>, (c) <code>spring-boot-starter-actuator</code>. Versions come from <code>spring-boot-starter-parent</code>, which imports Boot's <em>dependency management</em> (a bill of materials): one Boot version pins hundreds of library versions that are tested together.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Add a <code>@RestController</code> with <code>GET /square/{n}</code> that returns <code>n * n</code> as JSON <code>{"n":7,"square":49}</code>. Use a record for the response, and make <code>main</code> call it with <code>RestClient</code> and print the body.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SquareApplication.java" data-run>
+package com.example.ch01.ex5;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@SpringBootApplication
+public class SquareApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SquareApplication.class, "--server.port=0")) {
+      var client = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(client.get().uri("/square/{n}", 7).retrieve().body(String.class));
+    }
+  }
+}
+
+record Square(int n, int square) {}
+
+@RestController
+class SquareController {
+  @GetMapping("/square/{n}")
+  Square square(@PathVariable int n) { return new Square(n, n * n); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"n":7,"square":49}
+</script>
+<p><code>uri("/square/{n}", 7)</code> expands the URI template and encodes the value for you.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write an application with two runners: an <code>ApplicationRunner</code> that prints <code>second</code> and a <code>CommandLineRunner</code> that prints <code>first</code>. Make them run in that order using <code>@Order</code>. Which order do they run in without it?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="OrderApplication.java" data-run>
+package com.example.ch01.ex6;
+
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.annotation.Order;
+
+@SpringBootApplication
+public class OrderApplication {
+  public static void main(String[] args) {
+    new SpringApplicationBuilder(OrderApplication.class).web(WebApplicationType.NONE).run(args).close();
+  }
+
+  @Bean @Order(2)
+  ApplicationRunner second() { return args -> System.out.println("second"); }
+
+  @Bean @Order(1)
+  CommandLineRunner first() { return args -> System.out.println("first"); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+first
+second
+</script>
+<p>Lower <code>@Order</code> values run first. Without an order, runners have the lowest precedence and their relative order is not something you should rely on — so add <code>@Order</code> whenever order matters.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A teammate's application has the main class in <code>com.acme.app</code> and a controller in <code>com.acme.web.StatusController</code>. Requests to <code>/status</code> return 404, and there's no error at startup. What's wrong, and what are two ways to fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The controller is outside the scanned packages (<code>com.acme.app</code> and below), so it is never registered and the URL isn't mapped. Fix 1 (best): move the main class up to <code>com.acme</code>, or move the controller to <code>com.acme.app.web</code>. Fix 2: widen the scan with <code>@SpringBootApplication(scanBasePackages = "com.acme")</code>. Prefer fix 1: a single root package keeps scanning predictable.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Print the type of <code>ApplicationContext</code> Boot creates for a non-web application and for a servlet web application (use <code>getClass().getSimpleName()</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ContextTypes.java" data-run>
+package com.example.ch01.ex8;
+
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+
+@SpringBootApplication
+public class ContextTypes {
+  public static void main(String[] args) {
+    for (var type : new WebApplicationType[] { WebApplicationType.NONE, WebApplicationType.SERVLET }) {
+      try (var ctx = new SpringApplicationBuilder(ContextTypes.class).web(type).run("--server.port=0")) {
+        System.out.println(type + " -> " + ctx.getClass().getSimpleName());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+NONE -> AnnotationConfigApplicationContext
+SERVLET -> AnnotationConfigServletWebServerApplicationContext
+</script>
+<p>Boot normally picks the type by looking at the classpath (Spring MVC → <code>SERVLET</code>, only WebFlux → <code>REACTIVE</code>, neither → <code>NONE</code>). The web context's extra job is to create and start the embedded server during refresh.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write an application that measures its own startup: record <code>System.nanoTime()</code> in <code>main</code> before <code>run</code>, and print <code>ready</code> plus whether startup took less than 10 seconds from an <code>ApplicationReadyEvent</code> listener (use <code>@EventListener</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="StartupTimer.java" data-run>
+package com.example.ch01.ex9;
+
+import java.time.Duration;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+
+@SpringBootApplication
+public class StartupTimer {
+  static long start;
+
+  public static void main(String[] args) {
+    start = System.nanoTime();
+    new SpringApplicationBuilder(StartupTimer.class).web(WebApplicationType.NONE).run(args).close();
+  }
+
+  @EventListener
+  void onReady(ApplicationReadyEvent event) {
+    Duration took = Duration.ofNanos(System.nanoTime() - start);
+    System.out.println("ready, under 10 s: " + (took.toSeconds() < 10));
+    System.out.println("Boot measured it too: " + (event.getTimeTaken() != null));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ready, under 10 s: true
+Boot measured it too: true
+</script>
+<p><code>ApplicationReadyEvent.getTimeTaken()</code> gives Boot's own measurement (the same number logged as "Started … in 1.2 seconds"). <code>@EventListener</code> methods on any bean receive application events — Chapter 8 covers events in depth.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a tiny "status" service: <code>GET /status</code> returns <code>{"app":"…","javaVersion":…,"beans":…}</code> where <code>app</code> comes from the property <code>app.name</code> (default <code>demo</code>), and <code>beans</code> is the bean count, read by injecting the <code>ApplicationContext</code> into the controller's constructor. Call it once and print <code>app</code> and whether <code>beans &gt; 50</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="StatusApplication.java" data-run>
+package com.example.ch01.ex10;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ApplicationContext;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@SpringBootApplication
+public class StatusApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(StatusApplication.class, "--server.port=0", "--app.name=library")) {
+      var client = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      Status s = client.get().uri("/status").retrieve().body(Status.class);
+      System.out.println(s.app() + ", java " + s.javaVersion() + ", many beans: " + (s.beans() > 50));
+    }
+  }
+}
+
+record Status(String app, int javaVersion, int beans) {}
+
+@RestController
+class StatusController {
+  private final ApplicationContext context;
+  private final String appName;
+
+  StatusController(ApplicationContext context, @Value("${app.name:demo}") String appName) {
+    this.context = context;
+    this.appName = appName;
+  }
+
+  @GetMapping("/status")
+  Status status() {
+    return new Status(appName, Runtime.version().feature(), context.getBeanDefinitionCount());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+library, java 25, many beans: true
+</script>
+<p>The container can inject itself (<code>ApplicationContext</code>) like any other bean. A web app with Spring MVC has well over 50 beans, almost all from auto-configuration. In the Chapter 18 you'll get this for free from Actuator's <code>/actuator/info</code> and <code>/actuator/beans</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/overview.html">Spring Framework Overview</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/index.html">Spring Boot reference</a> · <a href="https://docs.spring.io/spring-boot/system-requirements.html">System requirements</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/tutorial/first-application/index.html">Developing your first Spring Boot application</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html">Structuring your code</a> · <a href="https://docs.spring.io/spring-boot/reference/using/using-the-springbootapplication-annotation.html">Using @SpringBootApplication</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/spring-application.html">SpringApplication</a> (startup, events, runners)</li>
+  <li><a href="https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Release-Notes">Spring Boot 4.0 release notes</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="aspectj">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>7. AOP &amp; Proxies · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Core Framework</div>
+<h1>AOP &amp; Proxies</h1>
+<p class="lead"><code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>, <code>@PreAuthorize</code>, <code>@Retryable</code>, <code>@Validated</code> — some of Spring's most useful features are one annotation. They all work the same way: Spring wraps your bean in a <strong>proxy</strong> that runs extra code around your methods. This chapter explains proxies and Aspect-Oriented Programming (AOP), shows you how to write your own aspects, and explains the classic trap that catches every Spring developer once: self-invocation.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a <strong>proxy</strong> is, and the difference between JDK dynamic proxies and CGLIB class proxies.</li>
+  <li>AOP vocabulary: aspect, join point, advice, pointcut, weaving.</li>
+  <li>Writing <code>@Aspect</code> classes with <code>@Before</code>, <code>@Around</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@After</code>.</li>
+  <li>The <strong>pointcut language</strong>: <code>execution</code>, <code>within</code>, <code>@annotation</code>, <code>bean</code>, <code>args</code>, combining with <code>&amp;&amp;</code>/<code>||</code>/<code>!</code>.</li>
+  <li>The limits of proxy-based AOP: <strong>self-invocation</strong>, private and final methods, and how to work around them.</li>
+</ul>
+</div>
+
+<h2 id="proxies">What is a proxy?</h2>
+<p>A <strong>proxy</strong> is an object that stands in for another one. It has the same type, so callers can't tell the difference, and it forwards each call to the real object (the <em>target</em>) — doing something extra before, after or instead of it.</p>
+<figure class="diagram">
+<svg viewBox="0 0 560 150" role="img" aria-label="A caller calls the proxy, which runs advice such as starting a transaction, then calls the target bean, then runs advice such as commit, and returns to the caller">
+  <rect class="bx" x="10" y="45" width="110" height="56" rx="8"/><text x="65" y="78" text-anchor="middle">caller</text>
+  <rect class="hi" x="165" y="20" width="210" height="106" rx="8"/><text x="270" y="44" text-anchor="middle">proxy</text>
+  <text class="mut" x="270" y="68" text-anchor="middle">before: begin tx, check auth…</text>
+  <text class="mut" x="270" y="108" text-anchor="middle">after: commit/rollback, cache…</text>
+  <rect class="bx" x="420" y="45" width="130" height="56" rx="8"/><text x="485" y="70" text-anchor="middle">target bean</text><text class="mut" x="485" y="88" text-anchor="middle">your code</text>
+  <line class="ln" x1="120" y1="73" x2="163" y2="73"/><line class="ln" x1="375" y1="73" x2="418" y2="73"/>
+</svg>
+<figcaption>Injection hands out the proxy, never the raw target. Every call through it can be intercepted.</figcaption>
+</figure>
+<p>Spring creates proxies in a <code>BeanPostProcessor</code> (step 6 of the lifecycle in Chapter 3): the post-processor receives the finished bean and returns a proxy in its place. There are two kinds:</p>
+<ul>
+  <li><strong>JDK dynamic proxy</strong>: implements the target's <em>interfaces</em>. Only interface methods can be intercepted, and you can't cast it to the class.</li>
+  <li><strong>CGLIB proxy</strong>: a generated <em>subclass</em> of the target class, overriding its methods. Works without interfaces. <strong>Spring Boot uses CGLIB by default</strong> (<code>spring.aop.proxy-target-class=true</code>).</li>
+</ul>
+<p>You can build a proxy by hand with <code>ProxyFactory</code> to see the mechanics:</p>
+<script type="text/plain" class="code" data-file="ProxyByHand.java" data-run>
+package com.example.ch07.byhand;
+
+import org.aopalliance.intercept.MethodInterceptor;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.AopUtils;
+
+class Calculator {
+  public int add(int a, int b) { return a + b; }
+}
+
+public class ProxyByHand {
+  public static void main(String[] args) {
+    var factory = new ProxyFactory(new Calculator());
+    factory.setProxyTargetClass(true);                         // CGLIB subclass
+    factory.addAdvice((MethodInterceptor) invocation -> {
+      System.out.println("→ " + invocation.getMethod().getName() + java.util.Arrays.toString(invocation.getArguments()));
+      Object result = invocation.proceed();                    // call the real method
+      System.out.println("← " + result);
+      return result;
+    });
+    Calculator calc = (Calculator) factory.getProxy();
+
+    System.out.println("result = " + calc.add(2, 3));
+    System.out.println("is a Calculator: " + (calc instanceof Calculator));
+    System.out.println("is a CGLIB proxy: " + AopUtils.isCglibProxy(calc));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+→ add[2, 3]
+← 5
+result = 5
+is a Calculator: true
+is a CGLIB proxy: true
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a personal assistant.</strong> You never call the busy executive directly — you call their assistant, who looks exactly like the front door to the executive. The assistant checks your appointment (security), writes down the call in the log (auditing), passes the question through, and on the way back might remember the answer for the next caller (caching). The executive just answers questions. But if the executive phones <em>themself</em> from inside their office, the assistant never hears about it — that's self-invocation.</p>
+</div>
+
+<h2 id="vocabulary">AOP vocabulary</h2>
+<table>
+  <tr><th>Term</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><strong>Cross-cutting concern</strong></td><td>behaviour needed in many places that isn't the business logic</td><td>logging, transactions, security, metrics</td></tr>
+  <tr><td><strong>Aspect</strong></td><td>a module that implements a cross-cutting concern</td><td>an <code>@Aspect</code> class</td></tr>
+  <tr><td><strong>Join point</strong></td><td>a point in execution where an aspect can run; in Spring AOP always a <em>method execution</em></td><td><code>OrderService.place(..)</code> running</td></tr>
+  <tr><td><strong>Pointcut</strong></td><td>an expression that selects join points</td><td><code>execution(* com.shop..*Service.*(..))</code></td></tr>
+  <tr><td><strong>Advice</strong></td><td>the code that runs at selected join points, and when</td><td><code>@Around</code>, <code>@Before</code>…</td></tr>
+  <tr><td><strong>Weaving</strong></td><td>applying aspects to targets; Spring does it at runtime with proxies</td><td>(AspectJ can also weave at compile or load time)</td></tr>
+</table>
+
+<h2 id="aspects">Writing an aspect</h2>
+<p>With <code>spring-boot-starter-aspectj</code> on the classpath, any bean annotated <code>@Aspect</code> is applied automatically. Here is every kind of advice on one method:</p>
+<script type="text/plain" class="code" data-file="AdviceKinds.java" data-run>
+package com.example.ch07.kinds;
+
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.After;
+import org.aspectj.lang.annotation.AfterReturning;
+import org.aspectj.lang.annotation.AfterThrowing;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Service
+class PaymentService {
+  public String pay(String account, int amount) {
+    System.out.println("        [pay " + amount + " from " + account + "]");
+    if (amount <= 0) throw new IllegalArgumentException("amount must be positive");
+    return "receipt-" + amount;
+  }
+}
+
+@Aspect
+@Component
+class TracingAspect {
+  private static final String PAYMENTS = "execution(* com.example.ch07.kinds.PaymentService.*(..))";
+
+  @Around(PAYMENTS)
+  public Object around(ProceedingJoinPoint pjp) throws Throwable {
+    System.out.println("around  → " + pjp.getSignature().getName());
+    try {
+      return pjp.proceed();
+    } finally {
+      System.out.println("around  ←");
+    }
+  }
+
+  @Before(PAYMENTS)
+  public void before(JoinPoint jp) { System.out.println("before    args=" + java.util.Arrays.toString(jp.getArgs())); }
+
+  @AfterReturning(pointcut = PAYMENTS, returning = "result")
+  public void ok(Object result) { System.out.println("returned  " + result); }
+
+  @AfterThrowing(pointcut = PAYMENTS, throwing = "ex")
+  public void failed(Exception ex) { System.out.println("threw     " + ex.getMessage()); }
+
+  @After(PAYMENTS)
+  public void after() { System.out.println("after     (always, like finally)"); }
+}
+
+@SpringBootApplication
+public class AdviceKinds {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AdviceKinds.class)) {
+      var payments = ctx.getBean(PaymentService.class);
+      payments.pay("ACC-1", 50);
+      System.out.println("---");
+      try { payments.pay("ACC-1", 0); } catch (IllegalArgumentException e) { System.out.println("caller saw: " + e.getMessage()); }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+around  → pay
+before    args=[ACC-1, 50]
+        [pay 50 from ACC-1]
+returned  receipt-50
+after     (always, like finally)
+around  ←
+---
+around  → pay
+before    args=[ACC-1, 0]
+        [pay 0 from ACC-1]
+threw     amount must be positive
+after     (always, like finally)
+around  ←
+caller saw: amount must be positive
+</script>
+<p>Within one aspect, <code>@Around</code> wraps everything; <code>@Before</code> runs just before the method; <code>@AfterReturning</code>/<code>@AfterThrowing</code> run on the matching outcome; <code>@After</code> runs in both cases. Use the <strong>least powerful</strong> advice that does the job: <code>@Around</code> can forget to call <code>proceed()</code>, swallow exceptions or change the result — powerful, but easy to get wrong.</p>
+
+<h2 id="pointcuts">The pointcut language</h2>
+<p>Spring AOP uses AspectJ's pointcut syntax. The most common designators:</p>
+<table>
+  <tr><th>Pointcut</th><th>Matches</th></tr>
+  <tr><td><code>execution(public * *(..))</code></td><td>any public method</td></tr>
+  <tr><td><code>execution(* com.shop.service.*.*(..))</code></td><td>any method of a class directly in <code>com.shop.service</code></td></tr>
+  <tr><td><code>execution(* com.shop..*Service.find*(Long, ..))</code></td><td><code>find…</code> methods of <code>…Service</code> classes anywhere under <code>com.shop</code>, first parameter <code>Long</code></td></tr>
+  <tr><td><code>within(com.shop.web..*)</code></td><td>every method of classes in that package tree</td></tr>
+  <tr><td><code>@annotation(com.shop.Audited)</code></td><td>methods annotated <code>@Audited</code></td></tr>
+  <tr><td><code>@within(org.springframework.stereotype.Service)</code></td><td>methods of classes annotated <code>@Service</code></td></tr>
+  <tr><td><code>bean(*Repository)</code></td><td>beans whose <em>name</em> ends with <code>Repository</code> (Spring-specific)</td></tr>
+  <tr><td><code>args(String, ..)</code></td><td>methods whose first runtime argument is a <code>String</code></td></tr>
+</table>
+<p>In <code>execution(modifiers? return-type declaring-type? name(params) throws?)</code>, <code>*</code> matches one element, <code>..</code> matches any number of parameters or sub-packages. Combine pointcuts with <code>&amp;&amp;</code>, <code>||</code> and <code>!</code>, and name them with <code>@Pointcut</code> to reuse them.</p>
+
+<h3>The most useful pattern: annotation-driven aspects</h3>
+<p>Instead of matching by package names, define an annotation and advise methods that carry it. It's explicit (readers see <code>@Timed</code> on the method) and refactoring-proof. Bind the annotation to a parameter to read its attributes:</p>
+<script type="text/plain" class="code" data-file="TimedAspectApplication.java" data-run>
+package com.example.ch07.timed;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME)
+@interface Timed { String value(); }
+
+@Aspect
+@Component
+class TimingAspect {
+  final ConcurrentHashMap<String, LongAdder> calls = new ConcurrentHashMap<>();
+
+  @Around("@annotation(timed)")                          // binds the annotation instance
+  public Object time(ProceedingJoinPoint pjp, Timed timed) throws Throwable {
+    long start = System.nanoTime();
+    try {
+      return pjp.proceed();
+    } finally {
+      calls.computeIfAbsent(timed.value(), k -> new LongAdder()).increment();
+      long ms = (System.nanoTime() - start) / 1_000_000;
+      System.out.println(timed.value() + " took " + (ms < 100 ? "<100" : ">=100") + " ms");
+    }
+  }
+}
+
+@Service
+class SearchService {
+  @Timed("search.books")
+  public java.util.List<String> search(String q) { return java.util.List.of(q + " (1st ed.)", q + " (2nd ed.)"); }
+
+  public String notTimed() { return "no aspect here"; }
+}
+
+@SpringBootApplication
+public class TimedAspectApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TimedAspectApplication.class)) {
+      var search = ctx.getBean(SearchService.class);
+      System.out.println(search.search("Dune"));
+      search.search("Emma");
+      System.out.println(search.notTimed());
+      System.out.println("counts: " + ctx.getBean(TimingAspect.class).calls);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+search.books took <100 ms
+[Dune (1st ed.), Dune (2nd ed.)]
+search.books took <100 ms
+no aspect here
+counts: {search.books=2}
+</script>
+<p>This is roughly how Micrometer's <code>@Timed</code> and <code>@Observed</code> work (Chapter 18) — you rarely need your own timing aspect in production, but the pattern applies to auditing, rate limiting, feature flags and more.</p>
+
+<h3>Ordering several aspects</h3>
+<p>When several aspects apply to the same method, they nest like layers of an onion. <code>@Order</code> decides the layering: the <strong>lowest</strong> value is the <strong>outermost</strong> layer — first on the way in, last on the way out:</p>
+<script type="text/plain" class="code" data-file="AspectOrder.java" data-run>
+package com.example.ch07.order;
+
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Service class Inventory { public void reserve() { System.out.println("      reserve()"); } }
+
+@Aspect @Component @Order(1)
+class SecurityAspect {
+  @Around("execution(* com.example.ch07.order.Inventory.*(..))")
+  public Object around(ProceedingJoinPoint p) throws Throwable {
+    System.out.println("security in"); try { return p.proceed(); } finally { System.out.println("security out"); }
+  }
+}
+
+@Aspect @Component @Order(2)
+class TransactionAspect {
+  @Around("execution(* com.example.ch07.order.Inventory.*(..))")
+  public Object around(ProceedingJoinPoint p) throws Throwable {
+    System.out.println("  tx begin"); try { return p.proceed(); } finally { System.out.println("  tx end"); }
+  }
+}
+
+@SpringBootApplication
+public class AspectOrder {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AspectOrder.class)) { ctx.getBean(Inventory.class).reserve(); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+security in
+  tx begin
+      reserve()
+  tx end
+security out
+</script>
+<p>Security runs outside the transaction, so an unauthorised call never opens a database transaction. Spring's own infrastructure advisors have orders too (for example <code>@EnableTransactionManagement(order = …)</code>).</p>
+
+<h2 id="self-invocation">The self-invocation trap</h2>
+<p>A proxy only sees calls that go <em>through</em> it. When a method of the bean calls another method of the same bean, it calls <code>this.method()</code> — the target, not the proxy — so no advice runs:</p>
+<script type="text/plain" class="code" data-file="SelfInvocation.java" data-run>
+package com.example.ch07.self;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME) @interface Audited {}
+
+@Aspect @Component
+class AuditAspect {
+  @Around("@annotation(com.example.ch07.self.Audited)")
+  public Object audit(ProceedingJoinPoint p) throws Throwable {
+    System.out.println("  AUDIT " + p.getSignature().getName());
+    return p.proceed();
+  }
+}
+
+@Service
+class AccountService {
+  private final ObjectProvider<AccountService> self;       // a lazy handle to our own proxy
+  AccountService(ObjectProvider<AccountService> self) { this.self = self; }
+
+  @Audited public void close(String id) { System.out.println("  closing " + id); }
+
+  public void closeAllBroken(String... ids) {
+    for (String id : ids) close(id);                        // this.close(): bypasses the proxy
+  }
+
+  public void closeAllViaProxy(String... ids) {
+    for (String id : ids) self.getObject().close(id);       // goes through the proxy
+  }
+}
+
+@SpringBootApplication
+public class SelfInvocation {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SelfInvocation.class)) {
+      var accounts = ctx.getBean(AccountService.class);
+      System.out.println("direct call from outside:");
+      accounts.close("A");
+      System.out.println("self-invocation:");
+      accounts.closeAllBroken("B");
+      System.out.println("through the proxy:");
+      accounts.closeAllViaProxy("C");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+direct call from outside:
+  AUDIT close
+  closing A
+self-invocation:
+  closing B
+through the proxy:
+  AUDIT close
+  closing C
+</script>
+<p>The same thing silently breaks <code>@Transactional</code>, <code>@Cacheable</code> and <code>@Async</code> on internal calls. Ways out, best first:</p>
+<ol>
+  <li><strong>Restructure</strong>: move the advised method to another bean and inject it. Usually clearer anyway.</li>
+  <li><strong>Inject yourself lazily</strong> (<code>ObjectProvider&lt;Self&gt;</code> or <code>@Lazy</code> self-injection) as above.</li>
+  <li><strong>Use the programmatic API</strong> for that one spot — <code>TransactionTemplate</code> instead of <code>@Transactional</code> (Chapter 15).</li>
+  <li>Use AspectJ <em>weaving</em> (compile- or load-time) instead of proxies — powerful but adds build complexity.</li>
+</ol>
+<div class="pitfall">
+<p>⚠️ <strong>Other things proxies can't intercept.</strong> <code>private</code> methods, <code>final</code> methods and <code>static</code> methods can't be overridden by a CGLIB subclass, so advice on them never runs — and no error tells you. Calls made in the constructor or in <code>@PostConstruct</code> run on the raw target before the proxy exists. Keep advised methods <code>public</code> (package-private works with CGLIB, but public is the convention).</p>
+</div>
+
+<h2 id="builtin">Spring features built on proxies</h2>
+<table>
+  <tr><th>Annotation</th><th>What the proxy does</th><th>Chapter</th></tr>
+  <tr><td><code>@Transactional</code></td><td>begin, commit or roll back a transaction</td><td>15</td></tr>
+  <tr><td><code>@Cacheable</code>, <code>@CacheEvict</code></td><td>return a cached result instead of calling the method</td><td>8</td></tr>
+  <tr><td><code>@Async</code></td><td>run the method on another thread, return a <code>CompletableFuture</code></td><td>8</td></tr>
+  <tr><td><code>@Validated</code></td><td>validate parameters and return value</td><td>6</td></tr>
+  <tr><td><code>@PreAuthorize</code>, <code>@PostAuthorize</code></td><td>check permissions</td><td>17</td></tr>
+  <tr><td><code>@Retryable</code>, <code>@ConcurrencyLimit</code></td><td>retry on failure, limit concurrent calls (Spring Framework 7 core)</td><td>11</td></tr>
+  <tr><td><code>@Observed</code>, <code>@Timed</code></td><td>record metrics and traces</td><td>18</td></tr>
+</table>
+<p>Once you understand one, you understand all of them — including their shared limitations.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Named, reusable pointcuts</h3>
+<script type="text/plain" class="code" data-file="NamedPointcuts.java" data-run>
+package com.example.ch07.named;
+
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.annotation.Pointcut;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
+
+@Repository class BookRepository { public String findById(Long id) { return "book " + id; } public void save(String b) {} }
+@Service class BookService { public String describe(Long id) { return "described " + id; } }
+
+@Aspect @Component
+class Pointcuts {
+  @Pointcut("within(@org.springframework.stereotype.Repository *)") void repositories() {}
+  @Pointcut("execution(* find*(..))") void finders() {}
+
+  @Before("repositories() && finders()")
+  public void logFind(JoinPoint jp) { System.out.println("finder: " + jp.getSignature().toShortString()); }
+
+  @Before("repositories() && !finders()")
+  public void logWrite(JoinPoint jp) { System.out.println("write:  " + jp.getSignature().toShortString()); }
+}
+
+@SpringBootApplication
+public class NamedPointcuts {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NamedPointcuts.class)) {
+      var repo = ctx.getBean(BookRepository.class);
+      repo.findById(1L);
+      repo.save("x");
+      ctx.getBean(BookService.class).describe(2L);    // not a repository: nothing printed
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+finder: BookRepository.findById(..)
+write:  BookRepository.save(..)
+</script>
+
+<h3>Retrying with <code>@Around</code></h3>
+<p>An <code>@Around</code> advice can call <code>proceed()</code> more than once. (In real code, use Spring Framework 7's built-in <code>@Retryable</code> — Chapter 11. This shows how such a feature is built.)</p>
+<script type="text/plain" class="code" data-file="RetryAspectApplication.java" data-run>
+package com.example.ch07.retry;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME)
+@interface Retry { int attempts() default 3; }
+
+@Aspect @Component
+class RetryAspect {
+  @Around("@annotation(retry)")
+  public Object retry(ProceedingJoinPoint pjp, Retry retry) throws Throwable {
+    for (int attempt = 1; ; attempt++) {
+      try {
+        return pjp.proceed();
+      } catch (RuntimeException e) {
+        System.out.println("attempt " + attempt + " failed: " + e.getMessage());
+        if (attempt == retry.attempts()) throw e;
+      }
+    }
+  }
+}
+
+@Service
+class FlakyClient {
+  private final AtomicInteger calls = new AtomicInteger();
+  @Retry(attempts = 4)
+  public String fetch() {
+    if (calls.incrementAndGet() < 3) throw new IllegalStateException("timeout");
+    return "data after " + calls.get() + " calls";
+  }
+}
+
+@SpringBootApplication
+public class RetryAspectApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RetryAspectApplication.class)) {
+      System.out.println(ctx.getBean(FlakyClient.class).fetch());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attempt 1 failed: timeout
+attempt 2 failed: timeout
+data after 3 calls
+</script>
+
+<h3>Is this bean a proxy?</h3>
+<script type="text/plain" class="code" data-file="InspectProxies.java" data-run>
+package com.example.ch07.inspect;
+
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.springframework.aop.framework.Advised;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Service class Advised1 { public void work() {} }
+@Service class Plain { public void work() {} }
+
+@Aspect @Component
+class OnlyAdvised1 { @Before("execution(* com.example.ch07.inspect.Advised1.*(..))") public void b() {} }
+
+@SpringBootApplication
+public class InspectProxies {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(InspectProxies.class)) {
+      Object a = ctx.getBean(Advised1.class), p = ctx.getBean(Plain.class);
+      System.out.println("Advised1 proxy? " + AopUtils.isAopProxy(a) + ", class " + a.getClass().getSimpleName().replaceAll("\\$\\$SpringCGLIB\\$\\$\\d+", "\\$\\$SpringCGLIB\\$\\$N"));
+      System.out.println("Plain proxy?    " + AopUtils.isAopProxy(p));
+      System.out.println("target class:   " + AopUtils.getTargetClass(a).getSimpleName());
+      System.out.println("advisors:       " + ((Advised) a).getAdvisors().length);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Advised1 proxy? true, class Advised1$$SpringCGLIB$$N
+Plain proxy?    false
+target class:   Advised1
+advisors:       2
+</script>
+<p>Spring only proxies beans that at least one advisor applies to. The second advisor is an internal one that exposes the current invocation to AspectJ-style advice.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A proxy stands in for a bean and intercepts calls. Boot uses CGLIB subclass proxies by default; JDK proxies only implement interfaces.</li>
+  <li>Aspect = advice + pointcut. Advice kinds: <code>@Before</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@After</code>, <code>@Around</code> (most powerful, use with care).</li>
+  <li>Pointcuts: <code>execution(…)</code>, <code>within(…)</code>, <code>@annotation(…)</code>, <code>bean(…)</code>, <code>args(…)</code>, combined with <code>&amp;&amp; || !</code>. Annotation-driven aspects are the most maintainable.</li>
+  <li><code>@Order</code>: lowest value = outermost aspect.</li>
+  <li>Self-invocation, private/final/static methods and constructor calls bypass the proxy — for your aspects <em>and</em> for <code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>…</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Explain the difference between a JDK dynamic proxy and a CGLIB proxy. Which one does Spring Boot use by default, and what does that let you do?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A JDK proxy implements the target's interfaces and can only intercept interface methods; it can't be cast to the concrete class. A CGLIB proxy is a runtime subclass that overrides the class's (non-final) methods. Boot defaults to CGLIB (<code>spring.aop.proxy-target-class=true</code>), so you can inject beans by their concrete class and advise classes that have no interface.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>What does each pointcut match? (a) <code>execution(* com.shop..*.delete*(..))</code> (b) <code>within(com.shop.web.*)</code> (c) <code>@annotation(org.springframework.transaction.annotation.Transactional)</code> (d) <code>execution(String *(String))</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Methods whose name starts with <code>delete</code>, any parameters, in any class in <code>com.shop</code> or its sub-packages. (b) All methods of classes <em>directly</em> in <code>com.shop.web</code> (not sub-packages; that would be <code>com.shop.web..*</code>). (c) Methods annotated <code>@Transactional</code> (not classes annotated with it — that's <code>@within</code>). (d) Any method returning <code>String</code> with exactly one <code>String</code> parameter.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write an aspect that prints <code>calling &lt;method&gt;</code> before every public method of a <code>Greeter</code> service.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BeforeGreeter.java" data-run>
+package com.example.ch07.ex3;
+
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Service
+class Greeter {
+  public String hello(String n) { return "hello " + n; }
+  public String bye(String n) { return "bye " + n; }
+}
+
+@Aspect @Component
+class CallLogger {
+  @Before("execution(public * com.example.ch07.ex3.Greeter.*(..))")
+  public void log(JoinPoint jp) { System.out.println("calling " + jp.getSignature().getName()); }
+}
+
+@SpringBootApplication
+public class BeforeGreeter {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BeforeGreeter.class)) {
+      var g = ctx.getBean(Greeter.class);
+      System.out.println(g.hello("Ada"));
+      System.out.println(g.bye("Ada"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+calling hello
+hello Ada
+calling bye
+bye Ada
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A <code>@Service</code> has <code>@Cacheable("prices") public Price price(String sku)</code> and <code>public List&lt;Price&gt; prices(List&lt;String&gt; skus)</code> which calls <code>price(sku)</code> in a loop. Calling <code>prices(...)</code> twice with the same SKUs hits the database how many times per SKU?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Twice — once per call — because <code>prices()</code> calls <code>price()</code> on <code>this</code>, bypassing the caching proxy. Only external calls to <code>price()</code> are cached. Fix: move <code>price()</code> to a separate bean (e.g. <code>PriceLookup</code>) or use a self-reference through the proxy.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Create an <code>@Around</code> aspect for methods annotated <code>@Masked</code> that replaces every digit in a <code>String</code> return value with <code>*</code>, except the last 4 characters. Apply it to <code>String cardNumber()</code> returning <code>"4111111111111111"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="MaskingAspect.java" data-run>
+package com.example.ch07.ex5;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME) @interface Masked {}
+
+@Aspect @Component
+class Masker {
+  @Around("@annotation(com.example.ch07.ex5.Masked)")
+  public Object mask(ProceedingJoinPoint pjp) throws Throwable {
+    Object result = pjp.proceed();
+    if (!(result instanceof String s) || s.length() <= 4) return result;
+    String head = s.substring(0, s.length() - 4).replaceAll("\\d", "*");
+    return head + s.substring(s.length() - 4);
+  }
+}
+
+@Service
+class CardService {
+  @Masked public String cardNumber() { return "4111111111111111"; }
+}
+
+@SpringBootApplication
+public class MaskingAspect {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MaskingAspect.class)) {
+      System.out.println(ctx.getBean(CardService.class).cardNumber());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+************1111
+</script>
+<p>Changing a return value is only possible with <code>@Around</code>. <code>@AfterReturning</code> can <em>see</em> the result but not replace it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write an aspect that counts exceptions per exception class thrown by any method in a package, using <code>@AfterThrowing</code>. Trigger an <code>IllegalArgumentException</code> twice and an <code>IllegalStateException</code> once, then print the counts.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ErrorCounter.java" data-run>
+package com.example.ch07.ex6;
+
+import java.util.Map;
+import java.util.TreeMap;
+import org.aspectj.lang.annotation.AfterThrowing;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Service
+class Risky {
+  public void bad(int n) {
+    if (n < 0) throw new IllegalArgumentException("negative");
+    throw new IllegalStateException("not ready");
+  }
+}
+
+@Aspect @Component
+class Errors {
+  final Map<String, Integer> counts = new TreeMap<>();
+  @AfterThrowing(pointcut = "within(com.example.ch07.ex6..*) && !within(com.example.ch07.ex6.Errors)", throwing = "ex")
+  public synchronized void count(RuntimeException ex) { counts.merge(ex.getClass().getSimpleName(), 1, Integer::sum); }
+}
+
+@SpringBootApplication
+public class ErrorCounter {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ErrorCounter.class)) {
+      var r = ctx.getBean(Risky.class);
+      for (int n : new int[] { -1, -2, 1 }) { try { r.bad(n); } catch (RuntimeException ignored) { } }
+      System.out.println(ctx.getBean(Errors.class).counts);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{IllegalArgumentException=2, IllegalStateException=1}
+</script>
+<p>Declaring the advice parameter as <code>RuntimeException</code> also filters: only exceptions of that type trigger it. The exception still reaches the caller — <code>@AfterThrowing</code> observes, it doesn't handle.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>An aspect on <code>@Audited</code> methods works for <code>public void approve()</code> but never runs for <code>@Audited private void notifyManager()</code> or <code>@Audited public final void archive()</code>. No error is reported. Explain each case.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A CGLIB proxy is a subclass that intercepts by overriding methods. <code>private</code> methods aren't inherited, and <code>final</code> methods can't be overridden, so the proxy can't intercept either — and calls to them from other methods of the class are self-invocations anyway. Make advised methods public and non-final, and call them from another bean.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Use <code>ProxyFactory</code> (no Spring container) to create a JDK dynamic proxy for an interface <code>Store</code> with a <code>MethodInterceptor</code> that returns <code>"cached"</code> for <code>get("hot")</code> without calling the target, and delegates otherwise.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="JdkProxyDemo.java" data-run>
+package com.example.ch07.ex8;
+
+import org.aopalliance.intercept.MethodInterceptor;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.AopUtils;
+
+interface Store { String get(String key); }
+
+class SlowStore implements Store {
+  public String get(String key) { System.out.println("  (slow lookup of " + key + ")"); return "value-of-" + key; }
+}
+
+public class JdkProxyDemo {
+  public static void main(String[] args) {
+    var factory = new ProxyFactory(new SlowStore());
+    factory.addInterface(Store.class);                    // interface-based: JDK proxy
+    factory.addAdvice((MethodInterceptor) inv ->
+        "hot".equals(inv.getArguments()[0]) ? "cached" : inv.proceed());
+    Store store = (Store) factory.getProxy();
+    System.out.println(store.get("hot"));
+    System.out.println(store.get("cold"));
+    System.out.println("JDK proxy: " + AopUtils.isJdkDynamicProxy(store) + ", is SlowStore: " + (store instanceof SlowStore));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cached
+  (slow lookup of cold)
+value-of-cold
+JDK proxy: true, is SlowStore: false
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Implement a <code>@RateLimited(perSecond = 2)</code> aspect: per annotated method, allow at most N calls in the current second and throw <code>IllegalStateException("rate limit exceeded")</code> otherwise. Call the method 3 times quickly and print the outcomes.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RateLimitApplication.java" data-run>
+package com.example.ch07.ex9;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.concurrent.ConcurrentHashMap;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME)
+@interface RateLimited { int perSecond(); }
+
+@Aspect @Component
+class RateLimiter {
+  private record Window(long second, int count) {}
+  private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
+
+  @Around("@annotation(limit)")
+  public Object limit(ProceedingJoinPoint pjp, RateLimited limit) throws Throwable {
+    long now = System.currentTimeMillis() / 1000;
+    Window w = windows.compute(pjp.getSignature().toLongString(),
+        (k, old) -> old == null || old.second() != now ? new Window(now, 1) : new Window(now, old.count() + 1));
+    if (w.count() > limit.perSecond()) throw new IllegalStateException("rate limit exceeded");
+    return pjp.proceed();
+  }
+}
+
+@Service
+class SmsSender {
+  @RateLimited(perSecond = 2)
+  public String send(String to) { return "sent to " + to; }
+}
+
+@SpringBootApplication
+public class RateLimitApplication {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(RateLimitApplication.class)) {
+      var sms = ctx.getBean(SmsSender.class);
+      // start at the beginning of a second so the three calls share one window
+      Thread.sleep(1000 - System.currentTimeMillis() % 1000);
+      for (String to : new String[] { "a", "b", "c" }) {
+        try { System.out.println(sms.send(to)); } catch (IllegalStateException e) { System.out.println(to + ": " + e.getMessage()); }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sent to a
+sent to b
+c: rate limit exceeded
+</script>
+<p><code>ConcurrentHashMap.compute</code> makes the read-modify-write atomic per key. A fixed one-second window is the simplest algorithm; token buckets (as in Bucket4j or Resilience4j) give smoother limits. Spring Framework 7 also ships <code>@ConcurrencyLimit</code>, which limits <em>concurrent</em> calls rather than calls per second.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build an <strong>audit trail</strong>: an <code>@Audited(action = "…")</code> annotation; an aspect that, after a <em>successful</em> call, records <code>action</code>, the method's first argument and the current user (from a <code>CurrentUser</code> bean holding a name) into an <code>AuditTrail</code> bean (a thread-safe list). Failed calls are recorded with <code>FAILED</code>. Annotate <code>approve(String invoiceId)</code> and <code>reject(String invoiceId)</code> (which throws for ids starting with <code>X</code>), run a few calls and print the trail.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AuditTrailApplication.java" data-run>
+package com.example.ch07.ex10;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.AfterReturning;
+import org.aspectj.lang.annotation.AfterThrowing;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME)
+@interface Audited { String action(); }
+
+@Component class CurrentUser { volatile String name = "system"; }
+
+@Component class AuditTrail { final List<String> entries = new CopyOnWriteArrayList<>(); }
+
+@Aspect @Component
+class AuditAspect {
+  private final CurrentUser user; private final AuditTrail trail;
+  AuditAspect(CurrentUser user, AuditTrail trail) { this.user = user; this.trail = trail; }
+
+  @AfterReturning("@annotation(audited)")
+  public void ok(JoinPoint jp, Audited audited) { record(jp, audited, "OK"); }
+
+  @AfterThrowing(pointcut = "@annotation(audited)", throwing = "ex")
+  public void failed(JoinPoint jp, Audited audited, Exception ex) { record(jp, audited, "FAILED (" + ex.getMessage() + ")"); }
+
+  private void record(JoinPoint jp, Audited audited, String outcome) {
+    Object subject = jp.getArgs().length > 0 ? jp.getArgs()[0] : "-";
+    trail.entries.add(user.name + " " + audited.action() + " " + subject + " " + outcome);
+  }
+}
+
+@Service
+class InvoiceService {
+  @Audited(action = "APPROVE") public void approve(String id) { }
+  @Audited(action = "REJECT") public void reject(String id) {
+    if (id.startsWith("X")) throw new IllegalArgumentException("locked invoice");
+  }
+}
+
+@SpringBootApplication
+public class AuditTrailApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AuditTrailApplication.class)) {
+      var invoices = ctx.getBean(InvoiceService.class);
+      ctx.getBean(CurrentUser.class).name = "ada";
+      invoices.approve("INV-1");
+      invoices.reject("INV-2");
+      try { invoices.reject("X-9"); } catch (IllegalArgumentException ignored) { }
+      ctx.getBean(CurrentUser.class).name = "bob";
+      invoices.approve("INV-3");
+      ctx.getBean(AuditTrail.class).entries.forEach(System.out::println);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ada APPROVE INV-1 OK
+ada REJECT INV-2 OK
+ada REJECT X-9 FAILED (locked invoice)
+bob APPROVE INV-3 OK
+</script>
+<p>In a real application, <code>CurrentUser</code> would read Spring Security's <code>SecurityContextHolder</code> (Chapter 17), the trail would be a database table written in the same transaction, and you might publish an event instead of writing directly (Chapter 8).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/aop.html">Aspect Oriented Programming with Spring</a> · <a href="https://docs.spring.io/spring-framework/reference/core/aop/introduction-defn.html">AOP concepts</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/pointcuts.html">Declaring a pointcut</a> · <a href="https://docs.spring.io/spring-framework/reference/core/aop/ataspectj/advice.html">Declaring advice</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/aop/proxying.html">Proxying mechanisms</a> (including self-invocation)</li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/aop-api.html">Spring AOP APIs</a> (<code>ProxyFactory</code>, advisors)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/aop.html">Spring Boot: Aspect-Oriented Programming</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

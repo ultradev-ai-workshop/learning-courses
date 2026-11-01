@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc validation">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>H1. How-To: Application &amp; Configuration · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">How-To Guides · H1</div>
+<h1>Application &amp; Configuration</h1>
+<p class="lead">Recipes for the configuration tasks every project meets in its first week: ports and paths, environments, secrets, startup code, typed settings, external files and switching the web server. Each recipe is self-contained; the chapter links point to the background.</p>
+
+<ul class="howto-toc">
+  <li><a href="#port">Change the port and context path</a></li>
+  <li><a href="#profiles">Set up dev / test / prod configuration</a></li>
+  <li><a href="#secrets">Keep secrets out of the repository</a></li>
+  <li><a href="#startup">Run code when the application starts</a></li>
+  <li><a href="#typed">Add your own typed, validated settings</a></li>
+  <li><a href="#external">Load an extra configuration file</a></li>
+  <li><a href="#jetty">Switch from Tomcat to Jetty</a></li>
+  <li><a href="#debug-config">Find out where a property's value comes from</a></li>
+</ul>
+
+<div class="recipe" id="port">
+<h2>Change the port and context path</h2>
+<p class="problem">The app must run on port 9090 under <code>/library</code>, behind a reverse proxy that sets <code>X-Forwarded-*</code> headers.</p>
+<div class="tags"><span>server.port</span><span>context path</span><span>Chapter 4</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+server.port=9090                            # 0 = any free port (tests); -1 = no HTTP server
+server.servlet.context-path=/library
+server.forward-headers-strategy=framework   # trust X-Forwarded-Host/Proto/Prefix from the proxy
+</script>
+<script type="text/plain" class="code" data-file="ContextPathApp.java" data-run>
+package com.example.h1.port;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+@RestController
+class PingController {
+  @GetMapping("/ping") String ping() { return "pong from " + ServletUriComponentsBuilder.fromCurrentRequest().toUriString().replaceAll(":\\d+", ":PORT"); }
+}
+
+@SpringBootApplication
+public class ContextPathApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ContextPathApp.class, "--server.port=0", "--server.servlet.context-path=/library",
+        "--server.forward-headers-strategy=framework")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(http.get().uri("/library/ping").retrieve().body(String.class));
+      System.out.println(http.get().uri("/library/ping").header("X-Forwarded-Proto", "https")
+          .header("X-Forwarded-Host", "books.example.com").header("X-Forwarded-Port", "443").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+pong from http://localhost:PORT/library/ping
+pong from https://books.example.com/library/ping
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Only trust forwarded headers when a proxy you control sets them; otherwise clients can spoof the host in generated links.</li>
+  <li>Actuator moves with the context path (<code>/library/actuator</code>) unless you give it its own <code>management.server.port</code>.</li>
+  <li>The port can also come from the environment: <code>SERVER_PORT=9090</code> (and many platforms set <code>PORT</code>; map it with <code>server.port=${PORT:8080}</code>).</li>
+</ul>
+</div>
+
+<div class="recipe" id="profiles">
+<h2>Set up dev / test / prod configuration</h2>
+<p class="problem">Local development uses H2 and verbose logging, production uses PostgreSQL and JSON logs. One jar must serve both.</p>
+<div class="tags"><span>profiles</span><span>profile groups</span><span>Chapters 3–4</span></div>
+<h3>Solution</h3>
+<p>Put shared defaults in <code>application.yml</code>, differences in profile documents or files, and activate the profile from outside (an environment variable in production):</p>
+<script type="text/plain" class="code" data-file="application.yml" data-norun>
+spring:
+  application:
+    name: library
+  profiles:
+    group:
+      prod: [postgres, json-logs]          # --spring.profiles.active=prod turns on all three
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+logging:
+  level:
+    com.example: debug
+---
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: ${DB_URL}
+---
+spring:
+  config:
+    activate:
+      on-profile: json-logs
+logging:
+  structured:
+    format:
+      console: ecs
+</script>
+<script type="text/plain" class="code" data-file="ProfileGroupsApp.java" data-run>
+package com.example.h1.profiles;
+
+import java.util.Arrays;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ProfileGroupsApp {
+  public static void main(String[] args) {
+    var app = new SpringApplication(ProfileGroupsApp.class);
+    app.setDefaultProperties(Map.of("spring.profiles.group.prod", "postgres,json-logs", "spring.main.web-application-type", "none"));
+    for (String active : new String[] { "dev", "prod" }) {
+      try (var ctx = app.run("--spring.profiles.active=" + active)) {
+        System.out.println(active + " → " + Arrays.toString(ctx.getEnvironment().getActiveProfiles()));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dev → [dev]
+prod → [prod, postgres, json-logs]
+</script>
+<p>Activate with <code>SPRING_PROFILES_ACTIVE=prod</code> in the deployment, <code>@ActiveProfiles("test")</code> in tests, and <code>spring.profiles.default=dev</code> in <code>application.yml</code> so a plain local run picks <code>dev</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li><code>spring.profiles.active</code> inside a profile-specific document is not allowed (it would be circular) — use groups.</li>
+  <li>Prefer different <em>values</em> to different <em>beans</em>; keep <code>@Profile</code> for genuine alternatives (a fake mail sender).</li>
+  <li>Don't make a profile called <code>default</code> meaningful — it's the special "no profile active" profile.</li>
+</ul>
+</div>
+
+<div class="recipe" id="secrets">
+<h2>Keep secrets out of the repository</h2>
+<p class="problem">The database password and an API key must not be in <code>application.yml</code> or in git, but the app needs them at startup.</p>
+<div class="tags"><span>environment variables</span><span>configtree</span><span>Chapter 4</span></div>
+<h3>Solution</h3>
+<p>Reference secrets by placeholder and supply them from the environment, or from files mounted by Kubernetes/Docker (one file per secret) with <code>configtree:</code>:</p>
+<script type="text/plain" class="code" data-file="SecretsApp.java" data-run>
+package com.example.h1.secrets;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SecretsApp {
+  public static void main(String[] args) throws Exception {
+    Path secrets = Files.createTempDirectory("secrets");                // what Kubernetes mounts at /run/secrets
+    Files.createDirectories(secrets.resolve("payments"));
+    Files.writeString(secrets.resolve("payments/api-key"), "pk_live_123\n");
+    Files.writeString(secrets.resolve("db-password"), "s3cr3t");
+
+    try (var ctx = SpringApplication.run(SecretsApp.class, "--spring.main.web-application-type=none",
+        "--spring.config.import=optional:configtree:" + secrets + "/")) {
+      var env = ctx.getEnvironment();
+      System.out.println("payments.api-key = " + env.getProperty("payments.api-key"));
+      System.out.println("db-password length = " + env.getProperty("db-password").length());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+payments.api-key = pk_live_123
+db-password length = 6
+</script>
+<p>Folders become dots in the property name (<code>payments/api-key</code> → <code>payments.api-key</code>) and the trailing newline is trimmed. In <code>application.yml</code> you then write <code>spring.datasource.password: ${db-password}</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Don't print or log secrets (this recipe prints only a length); Actuator's <code>/env</code> masks values by default — keep <code>management.endpoint.env.show-values=never</code>.</li>
+  <li>For local development, use an untracked <code>dev.properties</code> imported with <code>optional:file:./dev.properties</code> and add it to <code>.gitignore</code>.</li>
+  <li>Rotate any secret that ever reached git history — deleting the line later doesn't remove it from history.</li>
+</ul>
+</div>
+
+<div class="recipe" id="startup">
+<h2>Run code when the application starts</h2>
+<p class="problem">You need to warm a cache, check a connection or print a summary once the application is up.</p>
+<div class="tags"><span>ApplicationRunner</span><span>ApplicationReadyEvent</span><span>Chapters 1, 3</span></div>
+<h3>Solution</h3>
+<p>Pick the hook by <em>when</em> it must run:</p>
+<script type="text/plain" class="code" data-file="StartupHooksApp.java" data-run>
+package com.example.h1.startup;
+
+import jakarta.annotation.PostConstruct;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+@Component
+class Catalog {
+  @PostConstruct void load() { System.out.println("1 @PostConstruct: this bean is ready (others may not be)"); }
+}
+
+@SpringBootApplication
+public class StartupHooksApp {
+  @Bean ApplicationRunner runner() { return args -> System.out.println("2 ApplicationRunner: all beans ready, before 'ready'"); }
+
+  @EventListener(ApplicationReadyEvent.class)
+  void ready() { System.out.println("3 ApplicationReadyEvent: serving traffic"); }
+
+  public static void main(String[] args) {
+    SpringApplication.run(StartupHooksApp.class).close();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 @PostConstruct: this bean is ready (others may not be)
+2 ApplicationRunner: all beans ready, before 'ready'
+3 ApplicationReadyEvent: serving traffic
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>A runner that throws stops the application — good for "fail fast" checks, bad for optional work. Wrap optional work in try/catch.</li>
+  <li>Long work in a runner delays readiness (and Kubernetes' startup probe). Run slow warm-ups asynchronously and control readiness explicitly (Chapter 18, Exercise 9).</li>
+  <li><code>@PostConstruct</code> runs before proxies exist: calling your own <code>@Transactional</code> methods from it doesn't start a transaction.</li>
+</ul>
+</div>
+
+<div class="recipe" id="typed">
+<h2>Add your own typed, validated settings</h2>
+<p class="problem">Your feature needs a URL, a timeout and a list of allowed countries — with sensible defaults, and a clear error if someone misconfigures them.</p>
+<div class="tags"><span>@ConfigurationProperties</span><span>records</span><span>Chapter 4</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="ShippingSettingsApp.java" data-run>
+package com.example.h1.typed;
+
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
+import java.net.URI;
+import java.time.Duration;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
+
+@Validated
+@ConfigurationProperties("shipping")
+record ShippingProperties(
+    @DefaultValue("https://shipping.example.com") URI baseUrl,
+    @DefaultValue("3s") Duration timeout,
+    @DefaultValue({ "DE", "FR" }) @NotEmpty List<@Pattern(regexp = "[A-Z]{2}") String> countries) {}
+
+@SpringBootApplication
+@ConfigurationPropertiesScan
+public class ShippingSettingsApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ShippingSettingsApp.class, "--spring.main.web-application-type=none",
+        "--shipping.countries=DE,NL,AT", "--shipping.timeout=1500ms")) {
+      System.out.println(ctx.getBean(ShippingProperties.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ShippingProperties[baseUrl=https://shipping.example.com, timeout=PT1.5S, countries=[DE, NL, AT]]
+</script>
+<p>Inject <code>ShippingProperties</code> into the beans that need it. Add <code>spring-boot-configuration-processor</code> (optional, annotation processor) to get IDE auto-completion for <code>shipping.*</code>. A value like <code>shipping.countries=de</code> fails at startup with a report naming the property, the value and where it came from.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li><code>@Validated</code> needs <code>spring-boot-starter-validation</code> on the classpath; without it, constraints are silently ignored.</li>
+  <li>Don't inject <code>ShippingProperties</code> into static fields or read it in constructors of unrelated classes — keep configuration flowing through injection.</li>
+</ul>
+</div>
+
+<div class="recipe" id="external">
+<h2>Load an extra configuration file</h2>
+<p class="problem">Operations wants to drop a <code>library-overrides.properties</code> next to the jar that overrides a few settings, without rebuilding.</p>
+<div class="tags"><span>spring.config.import</span><span>config locations</span><span>Chapter 4</span></div>
+<h3>Solution</h3>
+<p>Either put it at one of the default locations (<code>./config/application.properties</code> is picked up automatically), or import it explicitly — <code>optional:</code> makes a missing file fine:</p>
+<script type="text/plain" class="code" data-file="ExternalFileApp.java" data-run>
+package com.example.h1.external;
+
+import java.nio.file.Files;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ExternalFileApp {
+  public static void main(String[] args) throws Exception {
+    var file = Files.createTempFile("library-overrides", ".properties");
+    Files.writeString(file, "library.max-open-loans=5\nlibrary.greeting=Welcome back!\n");
+    try (var ctx = SpringApplication.run(ExternalFileApp.class, "--spring.main.web-application-type=none",
+        "--spring.config.import=optional:file:" + file + ",optional:file:./does-not-exist.properties")) {
+      var env = ctx.getEnvironment();
+      System.out.println(env.getProperty("library.max-open-loans") + " / " + env.getProperty("library.greeting"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 / Welcome back!
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Without <code>optional:</code>, a missing file stops startup with <code>ConfigDataResourceNotFoundException</code> — use it deliberately for files that <em>must</em> exist.</li>
+  <li>Imported files override the file that imports them; command-line arguments and environment variables still win over both.</li>
+</ul>
+</div>
+
+<div class="recipe" id="jetty">
+<h2>Switch from Tomcat to Jetty</h2>
+<p class="problem">Your organisation standardises on Jetty, or you want to compare servers.</p>
+<div class="tags"><span>embedded server</span><span>starters</span><span>Chapter 5</span></div>
+<h3>Solution</h3>
+<p>Exclude Tomcat from the web starter and add the Jetty starter; auto-configuration does the rest:</p>
+<script type="text/plain" class="code" data-file="pom.xml" data-norun>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-webmvc</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-tomcat</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-jetty</artifactId>
+</dependency>
+</script>
+<p>Server-neutral settings (<code>server.port</code>, <code>server.shutdown</code>, compression, SSL) keep working; server-specific ones move from <code>server.tomcat.*</code> to <code>server.jetty.*</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Undertow is no longer supported in Spring Boot 4 (it doesn't support Servlet 6.1).</li>
+  <li>Check <code>mvn dependency:tree</code> afterwards: another dependency may pull Tomcat back in, and with both on the classpath the result is confusing.</li>
+</ul>
+</div>
+
+<div class="recipe" id="debug-config">
+<h2>Find out where a property's value comes from</h2>
+<p class="problem">A setting has a value nobody expects. Is it the YAML file, an environment variable, a profile document?</p>
+<div class="tags"><span>Environment</span><span>/actuator/env</span><span>Chapters 4, 18</span></div>
+<h3>Solution</h3>
+<p>Ask the environment for the property's <strong>origin</strong>. With Actuator, <code>GET /actuator/env/library.max-open-loans</code> lists every source that defines the key, highest priority first. In code:</p>
+<script type="text/plain" class="code" data-file="PropertyOriginApp.java" data-run>
+package com.example.h1.origin;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+
+@SpringBootApplication
+public class PropertyOriginApp {
+  public static void main(String[] args) {
+    System.setProperty("library.mode", "from-system-property");
+    try (var ctx = SpringApplication.run(PropertyOriginApp.class, "--spring.main.web-application-type=none", "--library.mode=from-command-line")) {
+      var name = ConfigurationPropertyName.of("library.mode");
+      for (var source : ConfigurationPropertySources.get(ctx.getEnvironment())) {
+        var property = source.getConfigurationProperty(name);
+        if (property != null) System.out.println(property.getValue() + "  ← " + property.getOrigin());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+from-command-line  ← "library.mode" from property source "commandLineArgs"
+from-system-property  ← "library.mode" from property source "systemProperties"
+</script>
+<p>The first line wins. For files, the origin includes the file name and line number — e.g. <code>class path resource [application.yml] - 12:20</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Remember relaxed binding: <code>LIBRARY_MODE</code> in the environment also sets <code>library.mode</code> — search for both spellings.</li>
+  <li>IDE run configurations often inject properties or environment variables invisibly; check them when "it only happens on my machine".</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html">How-to: Properties and Configuration</a> · <a href="https://docs.spring.io/spring-boot/how-to/webserver.html">How-to: Embedded Web Servers</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/how-to/application.html">How-to: Spring Boot Application</a> · <a href="https://docs.spring.io/spring-boot/reference/features/external-config.html">Externalized Configuration</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

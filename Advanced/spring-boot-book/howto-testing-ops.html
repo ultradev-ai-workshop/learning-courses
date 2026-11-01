@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc actuator webmvc-test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>H6. How-To: Testing &amp; Operations · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">How-To Guides · H6</div>
+<h1>Testing &amp; Operations</h1>
+<p class="lead">Recipes for getting an application tested, observable and running in production: fast web tests, real databases in tests, health checks and business metrics, virtual threads, graceful shutdown, container images and native builds. Background: Chapters 16, 18 and 19.</p>
+
+<ul class="howto-toc">
+  <li><a href="#web-test">Test a controller without starting the app</a></li>
+  <li><a href="#testcontainers">Test against a real PostgreSQL</a></li>
+  <li><a href="#health">Add a health check for a dependency</a></li>
+  <li><a href="#metric">Count business events</a></li>
+  <li><a href="#virtual">Handle requests on virtual threads</a></li>
+  <li><a href="#graceful">Shut down without dropping requests</a></li>
+  <li><a href="#image">Build a container image</a></li>
+  <li><a href="#native">Build a native executable</a></li>
+</ul>
+
+<div class="recipe" id="web-test">
+<h2>Test a controller without starting the app</h2>
+<p class="problem">Full <code>@SpringBootTest</code>s take seconds each; you want many fast tests for a controller's mapping, JSON and status codes.</p>
+<div class="tags"><span>@WebMvcTest</span><span>MockMvcTester</span><span>Chapter 16</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="GreetingController.java">
+package com.example.h6.web;
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@Service
+class GreetingService { String greet(String name) { return "Hello, " + name; } }
+
+@RestController
+class GreetingController {
+  private final GreetingService service;
+  GreetingController(GreetingService service) { this.service = service; }
+  record Greeting(String message) {}
+  @GetMapping("/greet") Greeting greet(@RequestParam String name) { return new Greeting(service.greet(name)); }
+}
+</script>
+<script type="text/plain" class="code" data-file="GreetingControllerTest.java" data-test>
+package com.example.h6.web;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@WebMvcTest(GreetingController.class)
+class GreetingControllerTest {
+  @Autowired MockMvcTester mvc;
+  @MockitoBean GreetingService service;
+
+  @Test void greets() {
+    given(service.greet("Ada")).willReturn("Hi Ada");
+    assertThat(mvc.get().uri("/greet?name=Ada")).hasStatusOk().bodyJson().extractingPath("$.message").isEqualTo("Hi Ada");
+  }
+
+  @Test void nameIsRequired() {
+    assertThat(mvc.get().uri("/greet")).hasStatus(HttpStatus.BAD_REQUEST);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>The test needs a <code>@SpringBootConfiguration</code> somewhere above its package to start from — your main application class. (On this page it's the one in <code>com.example.h6</code> below.)</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Every distinct set of <code>@MockitoBean</code>s creates a new cached context; keep them consistent across test classes.</li>
+  <li>Boot 4: add <code>spring-boot-starter-webmvc-test</code>; <code>@MockBean</code> is gone — use <code>@MockitoBean</code>.</li>
+</ul>
+</div>
+
+<div class="recipe" id="testcontainers">
+<h2>Test against a real PostgreSQL</h2>
+<p class="problem">Your repository uses PostgreSQL features (JSONB, <code>ON CONFLICT</code>) that H2 doesn't have.</p>
+<div class="tags"><span>Testcontainers</span><span>@ServiceConnection</span><span>Chapter 16</span></div>
+<h3>Solution</h3>
+<p>Add <code>spring-boot-testcontainers</code> and <code>org.testcontainers:postgresql</code> (test scope). Declare the container once in a shared configuration, and import it where needed:</p>
+<script type="text/plain" class="code" data-file="ContainersConfig.java" data-norun>
+@TestConfiguration(proxyBeanMethods = false)
+public class ContainersConfig {
+  @Bean
+  @ServiceConnection                                  // Boot derives spring.datasource.* from the container
+  PostgreSQLContainer postgres() {
+    return new PostgreSQLContainer("postgres:18-alpine").withReuse(true);
+  }
+}
+
+@SpringBootTest
+@Import(ContainersConfig.class)
+class OrderRepositoryIT { /* … real PostgreSQL, real Flyway migrations … */ }
+</script>
+<p>The same configuration gives you a local development database: a <code>TestLibraryApplication</code> in <code>src/test/java</code> with <code>SpringApplication.from(LibraryApplication::main).with(ContainersConfig.class).run(args)</code> — run it from the IDE and a PostgreSQL container starts with the app.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Containers need Docker (or a compatible runtime) on the CI agent.</li>
+  <li>Declaring the container as a bean (rather than a <code>static</code> field per test class) lets the context cache share one container across test classes.</li>
+</ul>
+</div>
+
+<div class="recipe" id="health">
+<h2>Add a health check for a dependency</h2>
+<p class="problem">The app depends on a search service; operations want to see its state in <code>/actuator/health</code> — without restarting pods when it's down.</p>
+<div class="tags"><span>HealthIndicator</span><span>readiness</span><span>Chapter 18</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="SearchHealthApp.java" data-run>
+package com.example.h6;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@Component("search")
+class SearchHealth implements HealthIndicator {
+  volatile boolean reachable = false;                     // in reality: a cheap ping with a short timeout
+  @Override public Health health() {
+    return reachable ? Health.up().build() : Health.down().withDetail("reason", "connection refused").build();
+  }
+}
+
+@SpringBootApplication
+public class SearchHealthApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SearchHealthApp.class,
+        "--management.endpoint.health.show-components=always",
+        "--management.endpoint.health.group.readiness.include=readinessState,search")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      for (String path : new String[] { "/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness" }) {
+        var r = http.get().uri(path).retrieve().toEntity(JsonNode.class);
+        System.out.println(path + " → " + r.getStatusCode().value() + " " + r.getBody().get("status").asString());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/actuator/health → 503 DOWN
+/actuator/health/liveness → 200 UP
+/actuator/health/readiness → 503 DOWN
+</script>
+<p>Search being down takes the instance out of the load balancer (readiness) but doesn't restart it (liveness). If the app can work in a degraded mode without search, leave it out of readiness too and only alert on it.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Health checks run on every probe — keep them cheap and give network checks a short timeout (or cache the result).</li>
+  <li><code>show-components</code>/<code>show-details</code> reveal your architecture; use <code>when-authorized</code> on public endpoints.</li>
+</ul>
+</div>
+
+<div class="recipe" id="metric">
+<h2>Count business events</h2>
+<p class="problem">Product wants a dashboard of registrations per channel; operations want an alert when sign-ups drop to zero.</p>
+<div class="tags"><span>Micrometer</span><span>Counter</span><span>Chapter 18</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="SignupMetricsApp.java" data-run>
+package com.example.h6.metrics;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@Service
+class Signups {
+  private final MeterRegistry meters;
+  Signups(MeterRegistry meters) { this.meters = meters; }
+  void register(String email, String channel) {
+    // … save the member …
+    Counter.builder("library.signups").description("new members").tag("channel", channel).register(meters).increment();
+  }
+}
+
+@SpringBootApplication(scanBasePackages = "com.example.h6.metrics")
+public class SignupMetricsApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SignupMetricsApp.class, "--management.endpoints.web.exposure.include=metrics")) {
+      var signups = ctx.getBean(Signups.class);
+      signups.register("a@x", "web"); signups.register("b@x", "web"); signups.register("c@x", "app");
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      JsonNode all = http.get().uri("/actuator/metrics/library.signups").retrieve().body(JsonNode.class);
+      JsonNode web = http.get().uri("/actuator/metrics/library.signups?tag=channel:web").retrieve().body(JsonNode.class);
+      System.out.println("total " + all.get("measurements").get(0).get("value").asInt() + ", web " + web.get("measurements").get(0).get("value").asInt()
+          + ", channels " + all.get("availableTags").get(0).get("values"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+total 3, web 2, channels ["app","web"]
+</script>
+<p>With <code>micrometer-registry-prometheus</code>, this appears as <code>library_signups_total{channel="web"}</code>; graph <code>rate(…[5m])</code> and alert when it stays at 0 during the day.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Tag values must be few and bounded — never the e-mail or user id.</li>
+  <li><code>scanBasePackages</code> here only keeps the other recipe's classes out of this demo; you don't need it in a normal app.</li>
+</ul>
+</div>
+
+<div class="recipe" id="virtual">
+<h2>Handle requests on virtual threads</h2>
+<p class="problem">The service spends most of its time waiting for other services and the database; Tomcat's 200 threads are the bottleneck.</p>
+<div class="tags"><span>virtual threads</span><span>Java 21+</span><span>Chapter 19</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="VirtualThreadsApp.java" data-run>
+package com.example.h6.virtual;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class ThreadInfo { @GetMapping("/thread") String thread() { return "virtual=" + Thread.currentThread().isVirtual(); } }
+
+@SpringBootApplication(scanBasePackages = "com.example.h6.virtual")
+public class VirtualThreadsApp {
+  public static void main(String[] args) {
+    for (String enabled : new String[] { "false", "true" }) {
+      try (var ctx = SpringApplication.run(VirtualThreadsApp.class, "--spring.threads.virtual.enabled=" + enabled)) {
+        var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+        System.out.println("spring.threads.virtual.enabled=" + enabled + " → " + http.get().uri("/thread").retrieve().body(String.class));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+spring.threads.virtual.enabled=false → virtual=false
+spring.threads.virtual.enabled=true → virtual=true
+</script>
+<p>One property switches Tomcat, <code>@Async</code>, <code>@Scheduled</code> and other Boot-managed executors to virtual threads.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>The connection pool is now the limit: 10 000 virtual threads still share 10 database connections. Size the pool for the database, and protect dependencies with <code>@ConcurrencyLimit</code>.</li>
+  <li>Thread-local caches (some old libraries) multiply with thousands of threads; measure memory after switching.</li>
+</ul>
+</div>
+
+<div class="recipe" id="graceful">
+<h2>Shut down without dropping requests</h2>
+<p class="problem">During deployments, a few requests fail with connection errors each time a pod is replaced.</p>
+<div class="tags"><span>graceful shutdown</span><span>Kubernetes</span><span>Chapter 19</span></div>
+<h3>Solution</h3>
+<p>Graceful shutdown is on by default: on <code>SIGTERM</code> (or <code>context.close()</code>) the server stops accepting connections and waits for active requests, up to <code>spring.lifecycle.timeout-per-shutdown-phase</code>:</p>
+<script type="text/plain" class="code" data-file="GracefulShutdownApp.java" data-run>
+package com.example.h6.graceful;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class SlowReport {
+  static final CountDownLatch started = new CountDownLatch(1);
+  @GetMapping("/report") String report() throws InterruptedException {
+    started.countDown();
+    Thread.sleep(500);                                    // still working when shutdown begins
+    return "report done";
+  }
+}
+
+@SpringBootApplication(scanBasePackages = "com.example.h6.graceful")
+public class GracefulShutdownApp {
+  public static void main(String[] args) throws Exception {
+    var ctx = SpringApplication.run(GracefulShutdownApp.class, "--spring.lifecycle.timeout-per-shutdown-phase=5s");
+    var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+    var inFlight = CompletableFuture.supplyAsync(() -> http.get().uri("/report").retrieve().body(String.class));
+    SlowReport.started.await();
+    long t0 = System.nanoTime();
+    ctx.close();                                          // what SIGTERM triggers
+    System.out.println("in-flight request: " + inFlight.join());
+    System.out.println("close waited for it: " + ((System.nanoTime() - t0) / 1_000_000 >= 300));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+in-flight request: report done
+close waited for it: true
+</script>
+<p>On Kubernetes, also add a <code>preStop</code> sleep (5–10 s) so the endpoint is removed from the Service before shutdown starts, and keep <code>terminationGracePeriodSeconds</code> above preStop + shutdown timeout.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>The JVM must receive SIGTERM: use the exec form of <code>ENTRYPOINT</code>, not <code>sh -c</code>.</li>
+  <li>Long-running jobs need their own stop logic (<code>SmartLifecycle.stop</code> or checking interruption).</li>
+</ul>
+</div>
+
+<div class="recipe" id="image">
+<h2>Build a container image</h2>
+<p class="problem">You need a small, secure image of the application for Kubernetes, without writing and maintaining a Dockerfile.</p>
+<div class="tags"><span>buildpacks</span><span>layers</span><span>Chapter 19</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-lang="shell">
+$ ./mvnw spring-boot:build-image -Dspring-boot.build-image.imageName=registry.example.com/library:1.4.0
+$ docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=prod registry.example.com/library:1.4.0
+$ docker push registry.example.com/library:1.4.0
+</script>
+<p>Configure it once in the plugin (Java version, AOT cache, environment):</p>
+<script type="text/plain" class="code" data-file="pom.xml" data-norun>
+<plugin>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-maven-plugin</artifactId>
+  <configuration>
+    <image>
+      <name>registry.example.com/library:${project.version}</name>
+      <env>
+        <BP_JVM_VERSION>25</BP_JVM_VERSION>
+        <BP_JVM_AOTCACHE_ENABLED>true</BP_JVM_AOTCACHE_ENABLED>
+      </env>
+    </image>
+  </configuration>
+</plugin>
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Tag images with immutable versions (or the git SHA), not just <code>latest</code>.</li>
+  <li>The image's JVM sizes its heap from the container limit — set memory limits in Kubernetes.</li>
+</ul>
+</div>
+
+<div class="recipe" id="native">
+<h2>Build a native executable</h2>
+<p class="problem">A small service must start in milliseconds and use little memory (scale to zero, CLI tool, serverless).</p>
+<div class="tags"><span>GraalVM</span><span>AOT</span><span>Chapter 19</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-lang="shell">
+$ sdk install java 25-graalce                    # GraalVM for JDK 25
+$ ./mvnw -Pnative native:compile                 # 1–5 minutes
+$ ./target/library                               # starts in ~50 ms
+$ ./mvnw -PnativeTest test                       # run the tests as a native image too
+$ ./mvnw -Pnative spring-boot:build-image        # or a native container image, no local GraalVM needed
+</script>
+<p>Spring's AOT engine generates the reflection, proxy and resource hints for Spring itself. For your own reflection, register hints with <code>@RegisterReflectionForBinding</code> or a <code>RuntimeHintsRegistrar</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Bean conditions and profiles are fixed at build time: <code>--spring.profiles.active=prod</code> at runtime can't add beans that weren't in the build.</li>
+  <li>Peak throughput is lower than a warmed-up JIT; for long-running services, the JVM with an AOT cache is often the better trade-off.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/how-to/testing.html">How-to: Testing</a> · <a href="https://docs.spring.io/spring-boot/how-to/actuator.html">How-to: Actuator</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/how-to/deployment/index.html">How-to: Deploying Spring Boot applications</a> · <a href="https://docs.spring.io/spring-boot/how-to/native-image/index.html">How-to: GraalVM native applications</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

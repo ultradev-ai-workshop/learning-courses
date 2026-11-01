@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="cache">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Events, Async, Scheduling &amp; Caching · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Core Framework</div>
+<h1>Events, Async, Scheduling &amp; Caching</h1>
+<p class="lead">Four everyday tools from Spring's core, each enabled with an annotation: <strong>application events</strong> to decouple components, <strong><code>@Async</code></strong> to run work on another thread, <strong><code>@Scheduled</code></strong> for recurring jobs, and the <strong>cache abstraction</strong> to avoid repeating expensive work. Three of them are proxies (Chapter 7) — so you already know their limits.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Publishing and listening to <strong>application events</strong>: <code>@EventListener</code>, conditions, ordering, chaining and transaction-bound listeners.</li>
+  <li><strong><code>@Async</code></strong>: return types, the executor Boot configures, error handling and virtual threads.</li>
+  <li><strong><code>@Scheduled</code></strong>: fixed rate vs fixed delay, cron expressions, time zones and the scheduler thread pool.</li>
+  <li>The <strong>cache abstraction</strong>: <code>@Cacheable</code>, <code>@CachePut</code>, <code>@CacheEvict</code>, keys, conditions and cache providers.</li>
+</ul>
+</div>
+
+<h2 id="events">Application events</h2>
+<p>An event is an ordinary object (a record is ideal) that one bean publishes and any number of others receive. The publisher doesn't know who listens; listeners don't know who published. That makes events the standard way to keep modules independent — <em>"an order was placed"</em> instead of the order service calling the email, stock and analytics services directly.</p>
+<script type="text/plain" class="code" data-file="EventsApplication.java" data-run>
+package com.example.ch08.events;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+record OrderPlaced(long orderId, String customer, double total) {}
+
+@Service
+class OrderService {
+  private final ApplicationEventPublisher events;
+  OrderService(ApplicationEventPublisher events) { this.events = events; }
+
+  void place(long id, String customer, double total) {
+    System.out.println("order " + id + " saved");
+    events.publishEvent(new OrderPlaced(id, customer, total));   // fire and forget
+    System.out.println("place() returns");
+  }
+}
+
+@Component
+class Listeners {
+  @EventListener @Order(1)
+  void email(OrderPlaced e) { System.out.println("  email to " + e.customer()); }
+
+  @EventListener @Order(2)
+  void stock(OrderPlaced e) { System.out.println("  reserve stock for " + e.orderId()); }
+
+  @EventListener(condition = "#event.total > 100")              // SpEL on the event
+  void vip(OrderPlaced event) { System.out.println("  big order! " + event.total()); }
+}
+
+@SpringBootApplication
+public class EventsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(EventsApplication.class)) {
+      var orders = ctx.getBean(OrderService.class);
+      orders.place(1, "ada@example.com", 40);
+      orders.place(2, "bob@example.com", 250);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+order 1 saved
+  email to ada@example.com
+  reserve stock for 1
+place() returns
+order 2 saved
+  email to bob@example.com
+  reserve stock for 2
+  big order! 250.0
+place() returns
+</script>
+<p>Notice that "place() returns" comes <em>after</em> the listeners: by default events are delivered <strong>synchronously, on the publisher's thread</strong>. A listener that throws makes <code>publishEvent</code> throw too, and a slow listener slows the publisher. Make a listener asynchronous with <code>@Async</code> (next section) when that matters.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a radio station.</strong> The station broadcasts "order placed" without knowing who's tuned in. Any number of radios (listeners) can be switched on or off without the station changing anything. By default, though, this is a very polite station: it waits until every radio has finished reacting before it plays the next song (synchronous delivery).</p>
+</div>
+
+<h3>Listeners that return events</h3>
+<p>If a listener method returns a value, it is published as a new event. That lets you build small workflows:</p>
+<script type="text/plain" class="code" data-file="ChainedEvents.java" data-run>
+package com.example.ch08.chained;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+record PaymentReceived(String orderId) {}
+record OrderShipped(String orderId, String tracking) {}
+
+@Component
+class Workflow {
+  @EventListener
+  OrderShipped ship(PaymentReceived e) {                  // returned value = next event
+    System.out.println("paid: " + e.orderId());
+    return new OrderShipped(e.orderId(), "TRK-" + e.orderId().hashCode() % 1000);
+  }
+
+  @EventListener
+  void notifyCustomer(OrderShipped e) { System.out.println("shipped: " + e.orderId() + " " + e.tracking().startsWith("TRK-")); }
+}
+
+@SpringBootApplication
+public class ChainedEvents {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ChainedEvents.class)) {
+      ctx.publishEvent(new PaymentReceived("A42"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+paid: A42
+shipped: A42 true
+</script>
+
+<h3>Events and transactions</h3>
+<p>A common bug: a listener sends a "welcome" e-mail, then the transaction that created the user rolls back. The user doesn't exist, but the e-mail was sent. <code>@TransactionalEventListener</code> delays delivery until the transaction reaches a phase — <strong><code>AFTER_COMMIT</code></strong> by default:</p>
+<script type="text/plain" class="code" data-lang="java" data-norun>
+@TransactionalEventListener                       // runs only if the publishing transaction commits
+void sendWelcome(UserRegistered event) { mailer.welcome(event.email()); }
+
+@TransactionalEventListener(phase = TransactionPhase.AFTER_ROLLBACK)
+void alert(UserRegistered event) { … }
+</script>
+<p>If no transaction is active when the event is published, a transactional listener is skipped (unless <code>fallbackExecution = true</code>). Chapter 15 runs this with a real database. For events that must not be lost even if the app crashes after commit, look at <em>Spring Modulith</em>'s event publication registry (the "outbox" pattern).</p>
+
+<h2 id="async">Running work asynchronously with <code>@Async</code></h2>
+<p>Add <code>@EnableAsync</code>, annotate a method with <code>@Async</code>, and calls to it return immediately while the work runs on a thread pool. Return <code>void</code> (fire and forget) or <code>CompletableFuture&lt;T&gt;</code> (the caller can wait for or combine results):</p>
+<script type="text/plain" class="code" data-file="AsyncApplication.java" data-run>
+package com.example.ch08.async;
+
+import java.util.concurrent.CompletableFuture;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.stereotype.Service;
+
+@Service
+class PriceService {
+  @Async
+  public CompletableFuture<Double> price(String shop, double base) throws InterruptedException {
+    Thread.sleep(300);                                        // a slow remote call
+    String thread = Thread.currentThread().getName();
+    System.out.println(shop + " computed on " + thread.replaceAll("\\d+$", "N"));
+    return CompletableFuture.completedFuture(base);
+  }
+}
+
+@SpringBootApplication
+@EnableAsync
+public class AsyncApplication {
+  public static void main(String[] args) throws Exception {
+    try (var ctx = SpringApplication.run(AsyncApplication.class)) {
+      var prices = ctx.getBean(PriceService.class);
+      long start = System.nanoTime();
+      var a = prices.price("shop-a", 19.0);                    // all three start at once
+      var b = prices.price("shop-b", 17.5);
+      var c = prices.price("shop-c", 21.0);
+      CompletableFuture.allOf(a, b, c).join();
+      double best = Math.min(a.get(), Math.min(b.get(), c.get()));
+      long ms = (System.nanoTime() - start) / 1_000_000;
+      System.out.println("best price " + best + ", parallel: " + (ms < 800));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+shop-...
+shop-...
+shop-...
+best price 17.5, parallel: true
+</script>
+<p>The three calls ran in parallel on Boot's <code>applicationTaskExecutor</code> (threads named <code>task-1</code>, <code>task-2</code>…), so the total is about 300 ms rather than 900 ms. The order of the first three lines varies from run to run — that's concurrency.</p>
+<p>Tune the auto-configured executor with properties, or switch to virtual threads:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.task.execution.pool.core-size=8
+spring.task.execution.pool.max-size=16
+spring.task.execution.pool.queue-capacity=100
+spring.task.execution.thread-name-prefix=async-
+
+# Java 21+: one virtual thread per task (also used by Tomcat and @Scheduled)
+spring.threads.virtual.enabled=true
+</script>
+
+<h3>Errors in async methods</h3>
+<p>An exception in an <code>@Async</code> method can't reach the caller's <code>try</code>/<code>catch</code> — the caller has already moved on. With <code>CompletableFuture</code>, the exception completes the future exceptionally. With <code>void</code>, it goes to an <code>AsyncUncaughtExceptionHandler</code> (by default it's only logged):</p>
+<script type="text/plain" class="code" data-file="AsyncErrors.java" data-run>
+package com.example.ch08.asyncerrors;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.AsyncConfigurer;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.stereotype.Service;
+
+@Service
+class Jobs {
+  @Async public CompletableFuture<String> withResult() { throw new IllegalStateException("db down"); }
+  @Async public void fireAndForget() { throw new IllegalStateException("smtp down"); }
+}
+
+@SpringBootApplication
+@EnableAsync
+public class AsyncErrors implements AsyncConfigurer {
+  static final CountDownLatch handled = new CountDownLatch(1);
+
+  @Override
+  public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+    return (ex, method, params) -> { System.out.println("handler: " + method.getName() + " failed: " + ex.getMessage()); handled.countDown(); };
+  }
+
+  public static void main(String[] args) throws Exception {
+    try (var ctx = SpringApplication.run(AsyncErrors.class)) {
+      var jobs = ctx.getBean(Jobs.class);
+      String r = jobs.withResult().exceptionally(ex -> "fallback (" + ex.getCause().getMessage() + ")").join();
+      System.out.println(r);
+      jobs.fireAndForget();
+      handled.await();
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+fallback (db down)
+handler: fireAndForget failed: smtp down
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>What's lost on another thread.</strong> An <code>@Async</code> method runs outside the caller's <em>transaction</em> and, by default, without its security context, MDC logging context or request scope. Pass what it needs as parameters. Boot can propagate some context through a <code>TaskDecorator</code> bean (for example for tracing, Chapter 18).</p>
+</div>
+
+<h2 id="scheduling">Scheduled tasks</h2>
+<p>With <code>@EnableScheduling</code>, methods annotated <code>@Scheduled</code> run on a schedule. They take no arguments and return <code>void</code>:</p>
+<table>
+  <tr><th>Attribute</th><th>Meaning</th></tr>
+  <tr><td><code>fixedRate = 5000</code></td><td>start every 5 s, measured from the previous <em>start</em></td></tr>
+  <tr><td><code>fixedDelay = 5000</code></td><td>wait 5 s after the previous run <em>finishes</em></td></tr>
+  <tr><td><code>initialDelay = 1000</code></td><td>wait before the first run</td></tr>
+  <tr><td><code>timeUnit = TimeUnit.SECONDS</code></td><td>unit for the numbers above (default milliseconds)</td></tr>
+  <tr><td><code>fixedRateString = "${jobs.rate:PT30S}"</code></td><td>from configuration; ISO-8601 or simple durations like <code>30s</code></td></tr>
+  <tr><td><code>cron = "0 0 3 * * MON-FRI", zone = "Europe/Paris"</code></td><td>cron expression with seconds field, optional time zone</td></tr>
+</table>
+<script type="text/plain" class="code" data-file="SchedulingApplication.java" data-run>
+package com.example.ch08.scheduling;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+class Heartbeat {
+  static final CountDownLatch done = new CountDownLatch(3);
+  private final AtomicInteger beats = new AtomicInteger();
+
+  @Scheduled(fixedRate = 100, initialDelay = 50, timeUnit = TimeUnit.MILLISECONDS)
+  void beat() {
+    if (done.getCount() > 0) {
+      System.out.println("beat " + beats.incrementAndGet() + " on " + Thread.currentThread().getName().replaceAll("\\d+$", "N"));
+      done.countDown();
+    }
+  }
+}
+
+@SpringBootApplication
+@EnableScheduling
+public class SchedulingApplication {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(SchedulingApplication.class)) {
+      Heartbeat.done.await(5, TimeUnit.SECONDS);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+beat 1 on scheduling-N
+beat 2 on scheduling-N
+beat 3 on scheduling-N
+</script>
+<p>Boot's scheduler has <strong>one thread</strong> by default (<code>spring.task.scheduling.pool.size=1</code>), so a slow job delays every other job. Increase the pool, or enable virtual threads, if you have several jobs.</p>
+
+<h3>Cron expressions</h3>
+<p>Spring's cron format has <strong>six fields</strong>: second, minute, hour, day of month, month, day of week. Macros like <code>@daily</code> and <code>@hourly</code> are also accepted. <code>CronExpression</code> lets you check an expression before deploying it:</p>
+<script type="text/plain" class="code" data-file="CronDemo.java" data-run>
+package com.example.ch08.cron;
+
+import java.time.LocalDateTime;
+import org.springframework.scheduling.support.CronExpression;
+
+public class CronDemo {
+  public static void main(String[] args) {
+    LocalDateTime now = LocalDateTime.of(2026, 3, 6, 14, 7, 30);       // Friday 14:07:30
+    String[] crons = {
+        "0 */15 * * * *",          // every 15 minutes
+        "0 0 3 * * MON-FRI",       // 03:00 on weekdays
+        "0 30 9 1 * *",            // 09:30 on the 1st of every month
+        "0 0 12 * * SAT,SUN",      // noon on weekends
+        "0 0 0 L * *",             // midnight on the last day of the month
+        "@daily",
+    };
+    for (String c : crons) System.out.printf("%-20s next: %s%n", c, CronExpression.parse(c).next(now));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 */15 * * * *       next: 2026-03-06T14:15
+0 0 3 * * MON-FRI    next: 2026-03-09T03:00
+0 30 9 1 * *         next: 2026-04-01T09:30
+0 0 12 * * SAT,SUN   next: 2026-03-07T12:00
+0 0 0 L * *          next: 2026-03-31T00:00
+@daily               next: 2026-03-07T00:00
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Scheduled jobs and multiple instances.</strong> Run three instances of your app and each <code>@Scheduled</code> job runs three times. For jobs that must run once per cluster, use a distributed lock (ShedLock is popular), a dedicated single-instance worker, or the platform's scheduler (a Kubernetes <code>CronJob</code>).</p>
+</div>
+
+<h2 id="caching">The cache abstraction</h2>
+<p><code>@EnableCaching</code> plus <code>@Cacheable</code> on a method: the first call runs the method and stores the result; later calls with the same arguments return the stored value without running the method. Boot auto-configures a <code>CacheManager</code> for the first provider it finds (Caffeine, Redis, Hazelcast, JCache…), falling back to a simple in-memory <code>ConcurrentHashMap</code>.</p>
+<script type="text/plain" class="code" data-file="CachingApplication.java" data-run>
+package com.example.ch08.caching;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.stereotype.Service;
+
+record Book(String isbn, String title) {}
+
+@Service
+class BookService {
+  private final AtomicInteger lookups = new AtomicInteger();
+  public int lookups() { return lookups.get(); }         // read state through a method (see below)
+
+  @Cacheable("books")                                     // key = the argument
+  public Book find(String isbn) {
+    lookups.incrementAndGet();
+    System.out.println("  (database lookup " + isbn + ")");
+    return new Book(isbn, "Title of " + isbn);
+  }
+
+  @CachePut(cacheNames = "books", key = "#book.isbn")    // always runs, then updates the cache
+  public Book update(Book book) { return book; }
+
+  @CacheEvict(cacheNames = "books", key = "#isbn")       // removes one entry
+  public void delete(String isbn) { }
+}
+
+@SpringBootApplication
+@EnableCaching
+public class CachingApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CachingApplication.class)) {
+      var books = ctx.getBean(BookService.class);
+      System.out.println(books.find("111").title());
+      System.out.println(books.find("111").title());              // from the cache
+      books.update(new Book("111", "Revised edition"));
+      System.out.println(books.find("111").title());              // updated cache entry
+      books.delete("111");
+      System.out.println(books.find("111").title());              // looked up again
+      System.out.println("lookups: " + books.lookups() + ", cache manager: " + ctx.getBean(CacheManager.class).getClass().getSimpleName());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+  (database lookup 111)
+Title of 111
+Title of 111
+Revised edition
+  (database lookup 111)
+Title of 111
+lookups: 2, cache manager: ConcurrentMapCacheManager
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Never read fields of a proxied bean directly.</strong> <code>books</code> is a CGLIB proxy — a subclass instance whose own copy of every field is empty. Writing <code>books.lookups</code> would read the <em>proxy's</em> field (<code>null</code> here) instead of the target's. Method calls are forwarded to the target; field access isn't. Expose state through methods.</p>
+</div>
+
+<h3>Keys, conditions and <code>unless</code></h3>
+<p>The default key is built from all arguments. Use SpEL to choose: <code>key = "#user.id"</code>, <code>key = "#country + ':' + #page"</code>. <code>condition</code> is checked <em>before</em> the call (don't cache at all if false), <code>unless</code> <em>after</em> it, with access to <code>#result</code>:</p>
+<script type="text/plain" class="code" data-file="CacheConditions.java" data-run>
+package com.example.ch08.conditions;
+
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.stereotype.Service;
+
+@Service
+class UserDirectory {
+  private int calls;
+  public int calls() { return calls; }
+
+  @Cacheable(cacheNames = "users", key = "#id.toLowerCase()",
+             condition = "#id.length() > 2",     // don't cache short (suspicious) ids
+             unless = "#result == null")          // don't cache "not found"
+  public Optional<String> lookup(String id) {
+    calls++;
+    return id.startsWith("u") ? Optional.of("User " + id.toLowerCase()) : Optional.empty();
+  }
+}
+
+@SpringBootApplication
+@EnableCaching
+public class CacheConditions {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CacheConditions.class)) {
+      var dir = ctx.getBean(UserDirectory.class);
+      for (String id : new String[] { "u100", "U100", "x999", "x999", "u1", "u1" }) dir.lookup(id);
+      System.out.println("method calls: " + dir.calls());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+method calls: 5
+</script>
+<p>Only <code>U100</code> was served from the cache (same lower-cased key as <code>u100</code>). <code>x999</code> returned empty and wasn't cached (<code>unless</code>); <code>u1</code> failed the <code>condition</code>. Spring unwraps <code>Optional</code>: the cache stores the value inside it, and <code>#result</code> is that value — <code>null</code> for an empty <code>Optional</code>, which is why the test is <code>#result == null</code> (writing <code>#result.isEmpty()</code> fails with "method call on null context object").</p>
+
+<h3>Choosing a cache provider</h3>
+<p>The default <code>ConcurrentMapCacheManager</code> never expires entries — fine for tests, dangerous in production. Add Caffeine for a local cache with size limits and expiry, or Redis for a cache shared by all instances:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+# with com.github.ben-manes.caffeine:caffeine on the classpath
+spring.cache.cache-names=books,users
+spring.cache.caffeine.spec=maximumSize=10000,expireAfterWrite=10m
+
+# or with spring-boot-starter-data-redis
+# spring.cache.type=redis
+# spring.cache.redis.time-to-live=10m
+</script>
+<div class="tip">
+<p>💡 <strong>Cache what's expensive and stable.</strong> Good candidates: reference data, remote lookups, computed reports. Bad candidates: anything that must always be fresh, or per-user data with a huge key space. Always decide how entries become stale (TTL or explicit eviction) <em>before</em> adding <code>@Cacheable</code>.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>An async event listener</h3>
+<script type="text/plain" class="code" data-file="AsyncListener.java" data-run>
+package com.example.ch08.asynclistener;
+
+import java.util.concurrent.CountDownLatch;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.stereotype.Component;
+
+record ReportRequested(String name) {}
+
+@Component
+class ReportGenerator {
+  static final CountDownLatch done = new CountDownLatch(1);
+  @Async @EventListener
+  void generate(ReportRequested e) throws InterruptedException {
+    Thread.sleep(100);
+    System.out.println("report " + e.name() + " generated on a task thread: " + Thread.currentThread().getName().startsWith("task-"));
+    done.countDown();
+  }
+}
+
+@SpringBootApplication
+@EnableAsync
+public class AsyncListener {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(AsyncListener.class)) {
+      ctx.publishEvent(new ReportRequested("Q3"));
+      System.out.println("publisher continues immediately");
+      ReportGenerator.done.await();
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+publisher continues immediately
+report Q3 generated on a task thread: true
+</script>
+
+<h3>Evicting a whole cache on a schedule</h3>
+<script type="text/plain" class="code" data-file="ScheduledEviction.java" data-run>
+package com.example.ch08.eviction;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+@Service
+class Rates {
+  static final CountDownLatch evicted = new CountDownLatch(1);
+
+  @Cacheable("rates") public double rate(String currency) { return currency.equals("USD") ? 1.08 : 0.86; }
+
+  @CacheEvict(cacheNames = "rates", allEntries = true)
+  @Scheduled(fixedRate = 200, initialDelay = 200, timeUnit = TimeUnit.MILLISECONDS)
+  public void refresh() { evicted.countDown(); }
+}
+
+@SpringBootApplication
+@EnableCaching
+@EnableScheduling
+public class ScheduledEviction {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(ScheduledEviction.class)) {
+      var rates = ctx.getBean(Rates.class);
+      rates.rate("USD"); rates.rate("GBP");
+      var cache = (java.util.concurrent.ConcurrentMap<?, ?>) ctx.getBean(CacheManager.class).getCache("rates").getNativeCache();
+      System.out.println("entries before: " + cache.size());
+      Rates.evicted.await(5, TimeUnit.SECONDS);
+      Thread.sleep(50);
+      System.out.println("entries after:  " + cache.size());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+entries before: 2
+entries after:  0
+</script>
+<p>The scheduler calls <code>refresh()</code> through the proxy, so <code>@CacheEvict</code> applies. <code>allEntries = true</code> clears the whole cache.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Events: publish any object with <code>ApplicationEventPublisher</code>; receive with <code>@EventListener</code> (with <code>condition</code>, <code>@Order</code>, return values as new events). Delivery is synchronous unless the listener is <code>@Async</code>; use <code>@TransactionalEventListener</code> for after-commit work.</li>
+  <li><code>@EnableAsync</code> + <code>@Async</code>: return <code>CompletableFuture</code> for results; <code>void</code> errors go to <code>AsyncUncaughtExceptionHandler</code>. Configure with <code>spring.task.execution.*</code> or <code>spring.threads.virtual.enabled</code>.</li>
+  <li><code>@EnableScheduling</code> + <code>@Scheduled</code>: <code>fixedRate</code> (from start), <code>fixedDelay</code> (from end), 6-field <code>cron</code> with <code>zone</code>. One scheduler thread by default; every instance runs every job.</li>
+  <li><code>@EnableCaching</code> + <code>@Cacheable</code>/<code>@CachePut</code>/<code>@CacheEvict</code> with SpEL keys, <code>condition</code> and <code>unless</code>. Use a real provider (Caffeine, Redis) with expiry in production.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A listener for <code>UserRegistered</code> throws an exception. The publisher calls <code>publishEvent</code> inside <code>register()</code>. What does the caller of <code>register()</code> see, with a plain <code>@EventListener</code>? And with <code>@Async @EventListener</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Plain listener: the exception propagates out of <code>publishEvent</code>, so <code>register()</code> throws (and, inside a transaction, it would roll back). Async listener: the caller sees nothing; the exception happens on another thread and goes to the <code>AsyncUncaughtExceptionHandler</code> (logged by default).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A job takes 3 seconds. What's the difference between <code>@Scheduled(fixedRate = 2000)</code> and <code>@Scheduled(fixedDelay = 2000)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>fixedDelay</code> waits 2 s after each run ends: runs start every 5 s. <code>fixedRate</code> aims to start every 2 s from the previous start; since the job takes longer, the next run starts as soon as the previous one finishes (with the default single thread, runs never overlap; they just run back to back).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write cron expressions and verify their next run from Friday 2026-03-06 14:07:30 with <code>CronExpression</code>: (a) every day at 18:45, (b) every 10 seconds, (c) at 08:00 on the first Monday of each month (<code>MON#1</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="CronExercise.java" data-run>
+package com.example.ch08.ex3;
+
+import java.time.LocalDateTime;
+import org.springframework.scheduling.support.CronExpression;
+
+public class CronExercise {
+  public static void main(String[] args) {
+    LocalDateTime now = LocalDateTime.of(2026, 3, 6, 14, 7, 30);
+    for (String c : new String[] { "0 45 18 * * *", "*/10 * * * * *", "0 0 8 * * MON#1" }) {
+      System.out.println(c + " -> " + CronExpression.parse(c).next(now));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 45 18 * * * -> 2026-03-06T18:45
+*/10 * * * * * -> 2026-03-06T14:07:40
+0 0 8 * * MON#1 -> 2026-04-06T08:00
+</script>
+<p>March 2026's first Monday (the 2nd) has already passed, so the next one is April 6.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which key does <code>@Cacheable("prices") Price price(String sku, Locale locale)</code> use? How would you cache by <code>sku</code> only?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The default <code>SimpleKeyGenerator</code> combines all arguments into a <code>SimpleKey(sku, locale)</code>. To ignore the locale: <code>@Cacheable(cacheNames = "prices", key = "#sku")</code> — only correct if the price really doesn't depend on the locale.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Publish a <code>StockLow(String sku, int left)</code> event. Write two listeners: one that always logs, and one that only reacts when <code>left == 0</code> (use <code>condition</code>) and prints <code>REORDER sku</code>. Publish for left = 3 and left = 0.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="StockEvents.java" data-run>
+package com.example.ch08.ex5;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+record StockLow(String sku, int left) {}
+
+@Component
+class StockListeners {
+  @EventListener void log(StockLow e) { System.out.println("low stock: " + e.sku() + " (" + e.left() + ")"); }
+  @EventListener(condition = "#e.left == 0") void reorder(StockLow e) { System.out.println("REORDER " + e.sku()); }
+}
+
+@SpringBootApplication
+public class StockEvents {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(StockEvents.class)) {
+      ctx.publishEvent(new StockLow("PEN", 3));
+      ctx.publishEvent(new StockLow("INK", 0));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+low stock: PEN (3)
+low stock: INK (0)
+REORDER INK
+</script>
+<p>In <code>condition</code>, refer to the event by the parameter name (<code>#e</code>), or by <code>#root.event</code>. Record components are read through their accessors, so <code>#e.left</code> works.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write an <code>@Async</code> method <code>CompletableFuture&lt;Integer&gt; wordCount(String text)</code> and use it to count the words of three texts in parallel, then sum them with <code>thenCombine</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="WordCounts.java" data-run>
+package com.example.ch08.ex6;
+
+import java.util.concurrent.CompletableFuture;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.stereotype.Service;
+
+@Service
+class Counter {
+  @Async
+  public CompletableFuture<Integer> wordCount(String text) {
+    return CompletableFuture.completedFuture(text.isBlank() ? 0 : text.trim().split("\\s+").length);
+  }
+}
+
+@SpringBootApplication
+@EnableAsync
+public class WordCounts {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(WordCounts.class)) {
+      var c = ctx.getBean(Counter.class);
+      int total = c.wordCount("the quick brown fox")
+          .thenCombine(c.wordCount("jumps over"), Integer::sum)
+          .thenCombine(c.wordCount("the lazy dog"), Integer::sum)
+          .join();
+      System.out.println("total words: " + total);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+total words: 9
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Cache a slow <code>fibonacci(int n)</code> (recursive) method with <code>@Cacheable</code>. Show that calling it from outside twice runs the body once — and explain why the <em>recursive</em> calls inside it are not cached.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="FibCache.java" data-run>
+package com.example.ch08.ex7;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.stereotype.Service;
+
+@Service
+class MathService {
+  private int bodyRuns;
+  public int bodyRuns() { return bodyRuns; }
+  @Cacheable("fib")
+  public long fibonacci(int n) {
+    bodyRuns++;
+    return n < 2 ? n : fib(n - 1) + fib(n - 2);
+  }
+  private long fib(int n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
+}
+
+@SpringBootApplication
+@EnableCaching
+public class FibCache {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FibCache.class)) {
+      var m = ctx.getBean(MathService.class);
+      System.out.println(m.fibonacci(30) + " " + m.fibonacci(30));
+      System.out.println("body ran " + m.bodyRuns() + " time(s)");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+832040 832040
+body ran 1 time(s)
+</script>
+<p>Even if <code>fibonacci</code> called itself directly, those calls would go to <code>this</code>, not to the caching proxy (self-invocation, Chapter 7), so they'd never hit the cache. For memoising recursion, use a local map, not <code>@Cacheable</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>Every <code>@Scheduled</code> job in an app sometimes runs minutes late. One job calls a slow external API. What's happening, and what are two fixes?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Boot's scheduler has a single thread by default, so while the slow job is running, every other job waits. Fixes: increase <code>spring.task.scheduling.pool.size</code>; enable virtual threads (<code>spring.threads.virtual.enabled=true</code>); or have the slow job hand its work to <code>@Async</code> so the scheduler thread returns quickly. Also add a timeout to the API call.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Implement a <strong>generic event</strong> <code>EntityChanged&lt;T&gt;</code> implementing <code>ResolvableTypeProvider</code>, so a listener for <code>EntityChanged&lt;Customer&gt;</code> doesn't receive <code>EntityChanged&lt;Invoice&gt;</code>. Publish one of each and show which listeners fire.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="GenericEvents.java" data-run>
+package com.example.ch08.ex9;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.ResolvableType;
+import org.springframework.core.ResolvableTypeProvider;
+import org.springframework.stereotype.Component;
+
+record Customer(String name) {}
+record Invoice(String number) {}
+
+record EntityChanged<T>(T entity) implements ResolvableTypeProvider {
+  @Override
+  public ResolvableType getResolvableType() {
+    return ResolvableType.forClassWithGenerics(getClass(), ResolvableType.forInstance(entity));
+  }
+}
+
+@Component
+class ChangeListeners {
+  @EventListener void customers(EntityChanged<Customer> e) { System.out.println("customer changed: " + e.entity().name()); }
+  @EventListener void invoices(EntityChanged<Invoice> e) { System.out.println("invoice changed: " + e.entity().number()); }
+  @EventListener void all(EntityChanged<?> e) { System.out.println("something changed: " + e.entity().getClass().getSimpleName()); }
+}
+
+@SpringBootApplication
+public class GenericEvents {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(GenericEvents.class)) {
+      ctx.publishEvent(new EntityChanged<>(new Customer("Ada")));
+      ctx.publishEvent(new EntityChanged<>(new Invoice("INV-7")));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+customer changed: Ada
+something changed: Customer
+invoice changed: INV-7
+something changed: Invoice
+</script>
+<p>Because of type erasure, an <code>EntityChanged</code> object doesn't know its <code>T</code> at runtime. <code>ResolvableTypeProvider</code> tells Spring the full generic type so it can route the event correctly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a <strong>digest mailer</strong>: <code>CommentPosted(String author, String text)</code> events are collected by a listener into a thread-safe queue; a <code>@Scheduled(fixedDelay = 100ms)</code> job drains the queue and, if not empty, prints one digest line <code>digest: N comments (authors…)</code>. Publish 3 comments, wait for one digest, publish 1 more, wait for the second digest.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="DigestApplication.java" data-run>
+package com.example.ch08.ex10;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+record CommentPosted(String author, String text) {}
+
+@Component
+class DigestMailer {
+  static final Semaphore digests = new Semaphore(0);
+  private final ConcurrentLinkedQueue<CommentPosted> pending = new ConcurrentLinkedQueue<>();
+
+  @EventListener
+  void collect(CommentPosted e) { pending.add(e); }
+
+  @Scheduled(fixedDelay = 100, timeUnit = TimeUnit.MILLISECONDS)
+  void send() {
+    List<CommentPosted> batch = new ArrayList<>();
+    for (CommentPosted c; (c = pending.poll()) != null; ) batch.add(c);
+    if (batch.isEmpty()) return;
+    var authors = new TreeSet<String>();
+    batch.forEach(c -> authors.add(c.author()));
+    System.out.println("digest: " + batch.size() + " comments " + authors);
+    digests.release();
+  }
+}
+
+@SpringBootApplication
+@EnableScheduling
+public class DigestApplication {
+  public static void main(String[] args) throws InterruptedException {
+    try (var ctx = SpringApplication.run(DigestApplication.class)) {
+      ctx.publishEvent(new CommentPosted("bob", "nice"));
+      ctx.publishEvent(new CommentPosted("ada", "+1"));
+      ctx.publishEvent(new CommentPosted("bob", "also..."));
+      DigestMailer.digests.tryAcquire(5, TimeUnit.SECONDS);
+      ctx.publishEvent(new CommentPosted("cy", "late"));
+      DigestMailer.digests.tryAcquire(5, TimeUnit.SECONDS);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+digest: 3 comments [ada, bob]
+digest: 1 comments [cy]
+</script>
+<p>The three events are published before the job's first run (it starts right after startup, but the context is published synchronously in <code>main</code> faster than 100 ms). Batching like this turns many small notifications into one — a common pattern for e-mails and webhooks. In a cluster, the queue would live in a database or message broker instead of memory.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/context-introduction.html#context-functionality-events">Standard and custom events</a> · <a href="https://docs.spring.io/spring-framework/reference/data-access/transaction/event.html">Transaction-bound events</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/scheduling.html">Task execution and scheduling</a> (<code>@Async</code>, <code>@Scheduled</code>, cron expressions)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html">Spring Boot: Task execution and scheduling</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/cache.html">Cache abstraction</a> · <a href="https://docs.spring.io/spring-boot/reference/io/caching.html">Spring Boot: Caching</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

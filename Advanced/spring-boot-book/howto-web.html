@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc validation data-jpa h2">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>H2. How-To: Web &amp; REST · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">How-To Guides · H2</div>
+<h1>Web &amp; REST</h1>
+<p class="lead">Recipes for everyday API work: consistent errors, paging and sorting, files in and out, request logging, JSON settings, CORS for a frontend, and versioning. Each one is runnable as shown; the chapters behind them are Chapters 9–10.</p>
+
+<ul class="howto-toc">
+  <li><a href="#errors">Return consistent errors for the whole API</a></li>
+  <li><a href="#paging">Paginate and sort a list endpoint</a></li>
+  <li><a href="#files">Upload and download files</a></li>
+  <li><a href="#logging">Log every request with its duration</a></li>
+  <li><a href="#json">Adjust JSON output (dates, nulls, naming)</a></li>
+  <li><a href="#cors">Let a browser frontend call the API (CORS)</a></li>
+  <li><a href="#versioning">Version the API in the URL path</a></li>
+</ul>
+
+<div class="recipe" id="errors">
+<h2>Return consistent errors for the whole API</h2>
+<p class="problem">Some endpoints return Boot's default error JSON, others plain strings, others stack traces. Clients want one shape.</p>
+<div class="tags"><span>ProblemDetail</span><span>@RestControllerAdvice</span><span>Chapter 10</span></div>
+<h3>Solution</h3>
+<p>Turn on Problem Details for Spring's own errors and map your exceptions in one advice that extends <code>ResponseEntityExceptionHandler</code>, with a safe catch-all:</p>
+<script type="text/plain" class="code" data-file="ConsistentErrorsApp.java" data-run>
+package com.example.h2.errors;
+
+import java.net.URI;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+class NotFound extends RuntimeException { NotFound(String m) { super(m); } }
+
+@RestController
+class OrderApi {
+  @GetMapping("/orders/{id}") String get(@PathVariable long id) {
+    if (id == 1) return "order 1";
+    if (id == 2) throw new IllegalStateException("NPE in OrderMapper line 42");   // a bug
+    throw new NotFound("Order " + id + " does not exist");
+  }
+}
+
+@RestControllerAdvice
+class ApiErrors extends ResponseEntityExceptionHandler {
+  @ExceptionHandler ProblemDetail notFound(NotFound e) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+    pd.setType(URI.create("https://api.example.com/problems/not-found"));
+    return pd;
+  }
+  @ExceptionHandler ProblemDetail bug(Exception e) {
+    // log e with its stack trace here; never send internals to the client
+    return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error");
+  }
+}
+
+@SpringBootApplication
+public class ConsistentErrorsApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ConsistentErrorsApp.class, "--spring.mvc.problemdetails.enabled=true",
+        "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      for (String path : new String[] { "/orders/7", "/orders/2", "/orders/abc", "/nope" }) {
+        System.out.println(path + " → " + http.get().uri(path).retrieve().body(String.class));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/orders/7 → {"detail":"Order 7 does not exist","instance":"/orders/7","status":404,"title":"Not Found","type":"https://api.example.com/problems/not-found"}
+/orders/2 → {"detail":"Unexpected error","instance":"/orders/2","status":500,"title":"Internal Server Error"}
+/orders/abc → {"detail":"Failed to convert 'id' with value: 'abc'","instance":"/orders/abc","status":400,"title":"Bad Request"}
+/nope → {"detail":"No static resource nope.","instance":"/nope","status":404,"title":"Not Found"}
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>The <code>Exception</code> catch-all also catches Spring Security's <code>AccessDeniedException</code> if it reaches MVC — rethrow it or map it to 403 explicitly.</li>
+  <li>Log unexpected exceptions once, in the catch-all, with an id you also put in the problem (<code>pd.setProperty("errorId", …)</code>) so support can find the log line.</li>
+</ul>
+</div>
+
+<div class="recipe" id="paging">
+<h2>Paginate and sort a list endpoint</h2>
+<p class="problem"><code>GET /books</code> returns 50 000 rows. Clients need <code>?page=2&amp;size=20&amp;sort=title,desc</code>, with limits.</p>
+<div class="tags"><span>Pageable</span><span>Spring Data web support</span><span>Chapter 14</span></div>
+<h3>Solution</h3>
+<p>Accept a <code>Pageable</code> parameter — Spring Data binds <code>page</code>, <code>size</code> and <code>sort</code> — and return a stable JSON shape with <code>PagedModel</code>. Boot configures all of it with <code>spring.data.web.pageable.*</code> properties:</p>
+<script type="text/plain" class="code" data-file="PagingApp.java" data-run>
+package com.example.h2.paging;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import java.util.stream.IntStream;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.web.PagedModel;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+
+@Entity
+class Book {
+  @Id @GeneratedValue Long id;
+  String title; int published;                 // not "year": reserved in H2
+  protected Book() { }
+  Book(String title, int published) { this.title = title; this.published = published; }
+  public String getTitle() { return title; }
+  public int getPublished() { return published; }
+}
+
+interface BookRepository extends JpaRepository<Book, Long> { }
+
+record BookDto(String title, int published) {}
+
+@RestController
+class BookApi {
+  private final BookRepository books;
+  BookApi(BookRepository books) { this.books = books; }
+
+  @GetMapping("/books")
+  PagedModel<BookDto> list(@PageableDefault(size = 5, sort = "title") Pageable pageable) {
+    return new PagedModel<>(books.findAll(pageable).map(b -> new BookDto(b.getTitle(), b.getPublished())));
+  }
+}
+
+@SpringBootApplication
+public class PagingApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PagingApp.class,
+        "--spring.data.web.pageable.serialization-mode=via-dto", "--spring.data.web.pageable.max-page-size=50")) {
+      ctx.getBean(BookRepository.class).saveAll(IntStream.rangeClosed(1, 12).mapToObj(i -> new Book("Book " + (char) ('A' + i - 1), 1990 + i)).toList());
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      JsonNode first = http.get().uri("/books").retrieve().body(JsonNode.class);
+      System.out.println("default: " + first.get("content").findValuesAsString("title") + " " + first.get("page"));
+      JsonNode sorted = http.get().uri("/books?page=1&size=3&sort=published,desc").retrieve().body(JsonNode.class);
+      System.out.println("page 1, newest first: " + sorted.get("content").findValuesAsString("title"));
+      JsonNode huge = http.get().uri("/books?size=10000").retrieve().body(JsonNode.class);
+      System.out.println("size=10000 capped to: " + huge.get("page").get("size").asInt());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+default: [Book A, Book B, Book C, Book D, Book E] {"size":5,"number":0,"totalElements":12,"totalPages":3}
+page 1, newest first: [Book I, Book H, Book G]
+size=10000 capped to: 50
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Sorting by arbitrary client input can sort by unindexed columns (slow) or leak field names; restrict allowed sort properties if the table is large.</li>
+  <li>Deep pages (<code>page=5000</code>) are slow with OFFSET; offer keyset/"after id" pagination or <code>Slice</code> for infinite scrolling.</li>
+  <li>Don't add <code>@EnableSpringDataWebSupport</code> yourself: it makes Boot's auto-configuration back off, and <code>spring.data.web.*</code> settings such as <code>max-page-size</code> are silently ignored (the limit falls back to 2000).</li>
+  <li>Don't return <code>PageImpl</code> directly — its JSON structure isn't a stable API (Spring Data warns about it at runtime).</li>
+</ul>
+</div>
+
+<div class="recipe" id="files">
+<h2>Upload and download files</h2>
+<p class="problem">Users upload a cover image for a book and download it later with the right content type and a file name.</p>
+<div class="tags"><span>MultipartFile</span><span>Resource</span><span>Content-Disposition</span><span>Chapter 10</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="FilesApp.java" data-run>
+package com.example.h2.files;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.UUID;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController
+@RequestMapping("/covers")
+class CoverApi {
+  private final Path storage;
+  CoverApi() throws IOException { storage = Files.createTempDirectory("covers"); }
+
+  @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  ResponseEntity<String> upload(@RequestParam("file") MultipartFile file) throws IOException {
+    byte[] head = file.getBytes();
+    boolean png = head.length > 4 && (head[0] & 0xFF) == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G';
+    if (!png) throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "only PNG images");
+    String id = UUID.randomUUID().toString();                     // our name, never the client's
+    file.transferTo(storage.resolve(id + ".png"));
+    return ResponseEntity.status(HttpStatus.CREATED).body(id);
+  }
+
+  @GetMapping("/{id}")
+  ResponseEntity<Resource> download(@PathVariable UUID id) {
+    var file = new FileSystemResource(storage.resolve(id + ".png"));
+    if (!file.exists()) return ResponseEntity.notFound().build();
+    return ResponseEntity.ok()
+        .contentType(MediaType.IMAGE_PNG)
+        .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename("cover.png").build().toString())
+        .body(file);                                                // streamed, not loaded into memory
+  }
+}
+
+@SpringBootApplication
+public class FilesApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FilesApp.class, "--spring.servlet.multipart.max-file-size=2MB",
+        "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      byte[] png = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 0, 0 };
+      var form = new LinkedMultiValueMap<String, Object>();
+      form.add("file", new ByteArrayResource(png) { public String getFilename() { return "../../etc/evil.png"; } });
+      String id = http.post().uri("/covers").contentType(MediaType.MULTIPART_FORM_DATA).body(form).retrieve().body(String.class);
+      var r = http.get().uri("/covers/{id}", id).retrieve().toEntity(byte[].class);
+      System.out.println(r.getStatusCode() + " " + r.getHeaders().getContentType() + " " + r.getBody().length + " bytes, "
+          + r.getHeaders().getContentDisposition());
+
+      var text = new LinkedMultiValueMap<String, Object>();
+      text.add("file", new ByteArrayResource("hello".getBytes()) { public String getFilename() { return "fake.png"; } });
+      System.out.println("text disguised as png: " + http.post().uri("/covers").contentType(MediaType.MULTIPART_FORM_DATA).body(text).retrieve().toBodilessEntity().getStatusCode());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 OK image/png 10 bytes, inline; filename="cover.png"
+text disguised as png: 415 UNSUPPORTED_MEDIA_TYPE
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Never use <code>getOriginalFilename()</code> as a path — the upload above tried <code>../../etc/evil.png</code>. Generate your own name.</li>
+  <li>Check content by its bytes (magic numbers), not by the declared content type or extension.</li>
+  <li>Set <code>spring.servlet.multipart.max-file-size</code>/<code>max-request-size</code>; for very large files stream to object storage (S3) instead of the local disk, which disappears with the container.</li>
+</ul>
+</div>
+
+<div class="recipe" id="logging">
+<h2>Log every request with its duration</h2>
+<p class="problem">Operations wants one log line per request: method, path, status and time — including 404s.</p>
+<div class="tags"><span>OncePerRequestFilter</span><span>MDC</span><span>Chapters 10, 18</span></div>
+<h3>Solution</h3>
+<p>A filter sees every request, including those no controller handles. (For metrics, prefer the automatic <code>http.server.requests</code> timer; this is for logs.)</p>
+<script type="text/plain" class="code" data-file="AccessLogApp.java" data-run>
+package com.example.h2.logging;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+class AccessLogFilter extends OncePerRequestFilter {
+  private static final Logger log = LoggerFactory.getLogger("access");
+
+  @Override
+  protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws ServletException, IOException {
+    long start = System.nanoTime();
+    try {
+      chain.doFilter(req, res);
+    } finally {
+      long ms = (System.nanoTime() - start) / 1_000_000;
+      log.info("{} {} {} {}ms", req.getMethod(), req.getRequestURI(), res.getStatus(), ms < 1000 ? "<1000" : ms);
+    }
+  }
+
+  @Override
+  protected boolean shouldNotFilter(HttpServletRequest req) { return req.getRequestURI().startsWith("/actuator"); }   // skip probes
+}
+
+@RestController
+class Api { @GetMapping("/books") String books() { return "[]"; } }
+
+@SpringBootApplication
+public class AccessLogApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AccessLogApp.class, "--logging.level.access=INFO",
+        "--logging.pattern.console=%logger: %msg%n")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      http.get().uri("/books").retrieve().toBodilessEntity();
+      http.get().uri("/missing").retrieve().toBodilessEntity();
+      Thread.sleep(100);
+    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+access: GET /books 200 <1000ms
+...
+access: GET /missing 404 <1000ms
+</script>
+<p>(The <code>...</code> stands for Spring's own warning about the missing resource.) Tomcat can also write a classic access log file: <code>server.tomcat.accesslog.enabled=true</code>.</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Don't log request or response bodies by default — they contain personal data and passwords. If you must, mask fields and limit size.</li>
+  <li>With tracing enabled (Chapter 18), the trace id is in the MDC and appears in each line, linking access logs to traces.</li>
+</ul>
+</div>
+
+<div class="recipe" id="json">
+<h2>Adjust JSON output (dates, nulls, naming)</h2>
+<p class="problem">The frontend wants <code>snake_case</code>, no <code>null</code> fields and dates without time; one field needs a custom format.</p>
+<div class="tags"><span>spring.jackson.*</span><span>Jackson 3</span><span>Chapters 5, 9</span></div>
+<h3>Solution</h3>
+<p>Global settings as properties; per-field annotations for exceptions:</p>
+<script type="text/plain" class="code" data-file="JsonSettingsApp.java" data-run>
+package com.example.h2.json;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import java.time.Instant;
+import java.time.LocalDate;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import tools.jackson.databind.json.JsonMapper;
+
+record Member(String fullName, LocalDate joinedOn, Instant lastLogin, String nickname,
+              @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "dd.MM.yyyy") LocalDate birthday) {}
+
+@SpringBootApplication
+public class JsonSettingsApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JsonSettingsApp.class, "--spring.main.web-application-type=none",
+        "--spring.jackson.property-naming-strategy=SNAKE_CASE",
+        "--spring.jackson.default-property-inclusion=non_null")) {
+      var mapper = ctx.getBean(JsonMapper.class);                        // the same mapper Spring MVC uses
+      var m = new Member("Ada Lovelace", LocalDate.of(2024, 3, 1), Instant.parse("2026-01-02T03:04:05Z"), null, LocalDate.of(1990, 12, 10));
+      System.out.println(mapper.writeValueAsString(m));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"full_name":"Ada Lovelace","joined_on":"2024-03-01","last_login":"2026-01-02T03:04:05Z","birthday":"10.12.1990"}
+</script>
+<p>Jackson 3 writes dates as ISO strings by default (no more <code>WRITE_DATES_AS_TIMESTAMPS</code> to switch off). For anything properties can't express, add a <code>JsonMapperBuilderCustomizer</code> bean (Chapter 5).</p>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Changing naming strategy globally changes every API at once — coordinate with all clients, or apply it per DTO with <code>@JsonNaming</code>.</li>
+  <li>Use <code>Instant</code>/<code>OffsetDateTime</code> for points in time; <code>LocalDateTime</code> has no zone and is ambiguous across systems.</li>
+</ul>
+</div>
+
+<div class="recipe" id="cors">
+<h2>Let a browser frontend call the API (CORS)</h2>
+<p class="problem">The React app on <code>https://app.example.com</code> (and <code>http://localhost:5173</code> in development) gets CORS errors.</p>
+<div class="tags"><span>CORS</span><span>Chapters 10, 17</span></div>
+<h3>Solution</h3>
+<script type="text/plain" class="code" data-file="CorsRecipeApp.java" data-run>
+package com.example.h2.cors;
+
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@RestController
+class Api { @GetMapping("/api/books") String books() { return "[]"; } }
+
+@SpringBootApplication
+public class CorsRecipeApp {
+  @Bean
+  WebMvcConfigurer cors(@Value("${app.cors.origins}") List<String> origins) {      // configure per environment
+    return new WebMvcConfigurer() {
+      @Override public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**").allowedOrigins(origins.toArray(String[]::new))
+            .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE").allowedHeaders("*").maxAge(3600);
+      }
+    };
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CorsRecipeApp.class, "--app.cors.origins=https://app.example.com,http://localhost:5173")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      for (String origin : new String[] { "http://localhost:5173", "https://evil.example" }) {
+        var r = http.get().uri("/api/books").header("Origin", origin).retrieve().toBodilessEntity();
+        System.out.println(origin + " → " + r.getStatusCode().value() + " allow-origin=" + r.getHeaders().getAccessControlAllowOrigin());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+http://localhost:5173 → 200 allow-origin=http://localhost:5173
+https://evil.example → 403 allow-origin=null
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>With Spring Security, also call <code>http.cors(Customizer.withDefaults())</code> — otherwise preflight requests are rejected before MVC sees them (Chapter 17).</li>
+  <li><code>allowedOrigins("*")</code> can't be combined with <code>allowCredentials(true)</code>; list origins explicitly (or use <code>allowedOriginPatterns</code>).</li>
+  <li>A dev-server proxy (Vite's <code>server.proxy</code>) avoids CORS in development entirely.</li>
+</ul>
+</div>
+
+<div class="recipe" id="versioning">
+<h2>Version the API in the URL path</h2>
+<p class="problem">You need <code>/api/v1/…</code> and <code>/api/v2/…</code> side by side, without copying every controller.</p>
+<div class="tags"><span>API versioning</span><span>Spring 7</span><span>Chapter 9</span></div>
+<h3>Solution</h3>
+<p>Tell Spring which path segment holds the version and declare versions on mappings; unchanged endpoints use a baseline version (<code>"1+"</code>) and serve every later version too:</p>
+<script type="text/plain" class="code" data-file="PathVersionApp.java" data-run>
+package com.example.h2.versioning;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+@RequestMapping("/api/v{version}")
+class BookApi {
+  @GetMapping(path = "/books", version = "1+") String booksV1() { return "[\"Dune\"]"; }
+  @GetMapping(path = "/books", version = "2+") String booksV2() { return "{\"items\":[\"Dune\"],\"total\":1}"; }
+  @GetMapping(path = "/authors", version = "1+") String authors() { return "[\"Herbert\"]"; }     // unchanged in v2
+}
+
+@SpringBootApplication
+public class PathVersionApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PathVersionApp.class, "--spring.mvc.apiversion.use.path-segment=1",
+        "--spring.mvc.apiversion.supported=1,2", "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      for (String path : new String[] { "/api/v1/books", "/api/v2/books", "/api/v2/authors", "/api/v3/books" }) {
+        var r = http.get().uri(path).retrieve().toEntity(String.class);
+        System.out.println(path + " → " + r.getStatusCode().value() + " " + (r.getStatusCode().is2xxSuccessful() ? r.getBody() : ""));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/api/v1/books → 200 ["Dune"]
+/api/v2/books → 200 {"items":["Dune"],"total":1}
+/api/v2/authors → 200 ["Herbert"]
+/api/v3/books → 400
+</script>
+<h3>Pitfalls</h3>
+<ul>
+  <li>Version only when you must break clients; additive changes (new optional fields, new endpoints) don't need a new version.</li>
+  <li>Announce removals: Spring can add <code>Deprecation</code>/<code>Sunset</code> headers for old versions — and monitor which versions clients still call.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/how-to/spring-mvc.html">How-to: Spring MVC</a> · <a href="https://docs.spring.io/spring-boot/how-to/http-clients.html">How-to: HTTP clients</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html">Error responses</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html">API versioning</a></li>
+  <li><a href="https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html#core.web">Spring Data web support</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

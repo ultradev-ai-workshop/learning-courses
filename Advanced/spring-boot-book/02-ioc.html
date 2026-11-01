@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>2. The IoC Container &amp; Dependency Injection · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Foundations</div>
+<h1>The IoC Container &amp; Dependency Injection</h1>
+<p class="lead">Everything in Spring is a bean in a container. This chapter shows how the container learns about your beans (component scanning, <code>@Bean</code> methods, programmatic registration), how it injects them into each other, and how to resolve the classic problems: two candidates for one dependency, optional dependencies and circular references.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What <strong>Inversion of Control</strong> and <strong>dependency injection</strong> mean, and what a bean definition is.</li>
+  <li>Three ways to define beans: <strong>stereotype annotations</strong>, <strong><code>@Bean</code> methods</strong> and Spring 7's <strong><code>BeanRegistrar</code></strong>.</li>
+  <li>Why <strong>constructor injection</strong> is the default, and when setter or field injection appear.</li>
+  <li>Full vs lite <code>@Configuration</code> classes and what <code>proxyBeanMethods</code> changes.</li>
+  <li>How to choose between candidates: <code>@Primary</code>, <code>@Qualifier</code>, <code>@Fallback</code>, parameter names, collections and <code>ObjectProvider</code>.</li>
+</ul>
+</div>
+
+<h2 id="ioc">Inversion of Control in one example</h2>
+<p>In ordinary code, an object <em>creates or looks up</em> what it needs. With <strong>Inversion of Control</strong>, the object just <em>declares</em> what it needs (usually as constructor parameters) and something outside — the <strong>container</strong> — provides it. Supplying dependencies that way is called <strong>dependency injection (DI)</strong>.</p>
+<p>The container's interface is <code>BeanFactory</code>; in practice you always use its richer sub-interface <code>ApplicationContext</code>, which adds events, resources, internationalisation and environment support. You don't need Spring Boot to use it:</p>
+<script type="text/plain" class="code" data-file="PlainSpring.java" data-run>
+package com.example.ch02.plain;
+
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+interface Clock { String now(); }
+
+class FixedClock implements Clock {
+  public String now() { return "09:30"; }
+}
+
+class Greeter {
+  private final Clock clock;
+  Greeter(Clock clock) { this.clock = clock; }       // declares what it needs
+  String greet(String name) { return "[" + clock.now() + "] Hello, " + name; }
+}
+
+@Configuration
+class AppConfig {
+  @Bean Clock clock() { return new FixedClock(); }
+  @Bean Greeter greeter(Clock clock) { return new Greeter(clock); }  // the container passes the Clock bean
+}
+
+public class PlainSpring {
+  public static void main(String[] args) {
+    try (var ctx = new AnnotationConfigApplicationContext(AppConfig.class)) {
+      Greeter greeter = ctx.getBean(Greeter.class);
+      System.out.println(greeter.greet("Grace"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[09:30] Hello, Grace
+</script>
+<p><code>Greeter</code> has no idea where its <code>Clock</code> comes from. In a test you'd pass a different <code>Clock</code>; in production the container passes the real one. That is the whole point: <strong>classes depend on abstractions, and the wiring lives in one place</strong>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a staffing agency.</strong> Without IoC, every manager recruits their own staff — each department has its own hiring process. With IoC, managers send the agency a job description ("I need a <code>Clock</code>"), and the agency (the container) finds a matching person, hires them once, and sends the same person to whoever asks. Managers never deal with hiring again.</p>
+</div>
+
+<h3>What the container knows: bean definitions</h3>
+<p>Before creating any object, the container builds a <strong>bean definition</strong> for each bean: its class (or factory method), its name, its scope (singleton by default), whether it's lazy, its dependencies and its lifecycle callbacks. Only after all definitions are registered does it start creating instances, in dependency order. You can look at definitions directly:</p>
+<script type="text/plain" class="code" data-file="Definitions.java" data-run>
+package com.example.ch02.defs;
+
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Scope;
+
+@Configuration
+class Config {
+  @Bean StringBuilder log() { return new StringBuilder(); }
+  @Bean @Lazy String banner() { return "*** shop ***"; }
+  @Bean @Scope("prototype") java.util.ArrayList<String> cart() { return new java.util.ArrayList<>(); }
+}
+
+public class Definitions {
+  public static void main(String[] args) {
+    try (var ctx = new AnnotationConfigApplicationContext(Config.class)) {
+      for (String name : new String[] { "log", "banner", "cart" }) {
+        var def = ctx.getBeanFactory().getBeanDefinition(name);
+        System.out.printf("%-7s scope=%-9s lazy=%-5s factory=%s()%n",
+            name, def.getScope().isEmpty() ? "singleton" : def.getScope(), def.isLazyInit(), def.getFactoryMethodName());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+log     scope=singleton lazy=false factory=log()
+banner  scope=singleton lazy=true  factory=banner()
+cart    scope=prototype lazy=false factory=cart()
+</script>
+
+<h2 id="defining">Three ways to define beans</h2>
+<h3>1. Stereotype annotations + component scanning</h3>
+<p>Annotate your own classes and let scanning find them. The stereotypes are all <code>@Component</code> with a more specific meaning:</p>
+<table>
+  <tr><th>Annotation</th><th>Use for</th><th>Extra behaviour</th></tr>
+  <tr><td><code>@Component</code></td><td>any bean</td><td>—</td></tr>
+  <tr><td><code>@Service</code></td><td>business logic</td><td>none (documents intent)</td></tr>
+  <tr><td><code>@Repository</code></td><td>data access</td><td>persistence exceptions translated to Spring's <code>DataAccessException</code></td></tr>
+  <tr><td><code>@Controller</code> / <code>@RestController</code></td><td>web endpoints</td><td>detected by Spring MVC as handlers</td></tr>
+  <tr><td><code>@Configuration</code></td><td>classes with <code>@Bean</code> methods</td><td>proxied so <code>@Bean</code> methods return singletons (below)</td></tr>
+</table>
+<h3>2. <code>@Bean</code> methods</h3>
+<p>Use <code>@Bean</code> methods for classes you don't own (a library's client, a <code>Clock</code>, an <code>ObjectMapper</code>) or when creating the object takes logic. The method's return value is the bean; its parameters are injected.</p>
+<h3>3. Programmatic registration with <code>BeanRegistrar</code> <span class="es">Spring 7</span></h3>
+<p>When you need to register a <em>variable</em> number of beans, or decide in code, implement <code>BeanRegistrar</code> and <code>@Import</code> it. It replaces most uses of the older, lower-level <code>ImportBeanDefinitionRegistrar</code>:</p>
+<script type="text/plain" class="code" data-file="RegistrarApplication.java" data-run>
+package com.example.ch02.registrar;
+
+import org.springframework.beans.factory.BeanRegistrar;
+import org.springframework.beans.factory.BeanRegistry;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
+
+record Queue(String name) {}
+
+class QueueRegistrar implements BeanRegistrar {
+  @Override
+  public void register(BeanRegistry registry, Environment env) {
+    for (String name : env.getProperty("app.queues", "orders").split(",")) {
+      registry.registerBean(name + "Queue", Queue.class, spec -> spec.supplier(ctx -> new Queue(name)));
+    }
+  }
+}
+
+@SpringBootApplication
+@Import(QueueRegistrar.class)
+public class RegistrarApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RegistrarApplication.class, "--app.queues=orders,emails,audit")) {
+      ctx.getBeansOfType(Queue.class).forEach((bean, q) -> System.out.println(bean + " -> " + q));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ordersQueue -> Queue[name=orders]
+emailsQueue -> Queue[name=emails]
+auditQueue -> Queue[name=audit]
+</script>
+
+<h2 id="injection">Constructor injection (and the alternatives)</h2>
+<p>If a class has <strong>one constructor</strong>, Spring uses it and injects every parameter. No <code>@Autowired</code> is needed. If it has several, mark the one to use with <code>@Autowired</code>.</p>
+<script type="text/plain" class="code" data-file="InjectionApplication.java" data-run>
+package com.example.ch02.injection;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
+
+@Repository
+class OrderRepository {
+  int count() { return 3; }
+}
+
+@Component
+class AuditLog {
+  void record(String msg) { System.out.println("audit: " + msg); }
+}
+
+@Service
+class OrderService {
+  private final OrderRepository orders;      // final: required, set once
+  private AuditLog audit;                     // optional collaborator
+
+  OrderService(OrderRepository orders) {      // constructor injection (preferred)
+    this.orders = orders;
+  }
+
+  @Autowired(required = false)                // setter injection: optional, changeable
+  void setAudit(AuditLog audit) { this.audit = audit; }
+
+  String summary() {
+    if (audit != null) audit.record("summary requested");
+    return orders.count() + " orders";
+  }
+}
+
+@SpringBootApplication
+public class InjectionApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(InjectionApplication.class)) {
+      System.out.println(ctx.getBean(OrderService.class).summary());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+audit: summary requested
+3 orders
+</script>
+<p>Why constructor injection is the recommended default:</p>
+<ul>
+  <li><strong>Dependencies are explicit</strong>: the constructor is the list of what the class needs. Too many parameters is a visible signal the class does too much.</li>
+  <li><strong>Fields can be <code>final</code></strong>, so the object is never half-built.</li>
+  <li><strong>It's testable without Spring</strong>: <code>new OrderService(fakeRepo)</code> in a unit test.</li>
+  <li><strong>Cycles fail fast</strong> at startup instead of silently working with half-initialised objects.</li>
+</ul>
+<p><strong>Field injection</strong> (<code>@Autowired private OrderRepository orders;</code>) still works but hides dependencies and needs reflection to test. You'll see it in older code and in test classes, where it's fine.</p>
+<div class="java">
+<p>☕ <strong>Records and Lombok.</strong> A record's canonical constructor is a single constructor, so records can be beans with constructor injection too. Lombok's <code>@RequiredArgsConstructor</code> generates a constructor for <code>final</code> fields — popular in Spring code, but plain Java constructors work just as well.</p>
+</div>
+
+<h2 id="configuration">Full vs lite <code>@Configuration</code></h2>
+<p>When one <code>@Bean</code> method calls another, what happens depends on the class. A <code>@Configuration</code> class is subclassed with CGLIB (<code>proxyBeanMethods = true</code>, the default) so the call is intercepted and returns the existing singleton. In <strong>lite mode</strong> (<code>proxyBeanMethods = false</code>, or <code>@Bean</code> methods in a <code>@Component</code>), the call is just a Java method call and creates a new object:</p>
+<script type="text/plain" class="code" data-file="ProxyBeanMethods.java" data-run>
+package com.example.ch02.proxy;
+
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+class Pool { }
+record Dao(Pool pool) { }
+
+@Configuration                          // full mode
+class FullConfig {
+  @Bean Pool pool() { return new Pool(); }
+  @Bean Dao dao() { return new Dao(pool()); }      // intercepted: returns the pool bean
+}
+
+@Configuration(proxyBeanMethods = false) // lite mode
+class LiteConfig {
+  @Bean Pool pool() { return new Pool(); }
+  @Bean Dao dao() { return new Dao(pool()); }      // plain call: a second Pool!
+}
+
+public class ProxyBeanMethods {
+  public static void main(String[] args) {
+    for (Class<?> config : new Class<?>[] { FullConfig.class, LiteConfig.class }) {
+      try (var ctx = new AnnotationConfigApplicationContext(config)) {
+        boolean same = ctx.getBean(Dao.class).pool() == ctx.getBean(Pool.class);
+        System.out.println(config.getSimpleName() + ": same pool = " + same
+            + ", proxied = " + ctx.getBean(config).getClass().getName().contains("$$SpringCGLIB$$"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+FullConfig: same pool = true, proxied = true
+LiteConfig: same pool = false, proxied = false
+</script>
+<p>Lite mode starts faster and works better with native images, which is why <strong>Boot's own auto-configurations use <code>proxyBeanMethods = false</code></strong>. The safe habit in lite mode is to ask for collaborators as <em>method parameters</em> (<code>Dao dao(Pool pool)</code>) instead of calling other <code>@Bean</code> methods — then both modes behave the same.</p>
+
+<h2 id="candidates">Choosing between candidates</h2>
+<p>Injection is <strong>by type</strong>. If exactly one bean matches, it's injected. If none match, startup fails with <code>NoSuchBeanDefinitionException</code>. If several match, Spring tries, in order:</p>
+<ol>
+  <li>a <code>@Qualifier</code> on the injection point,</li>
+  <li>a bean marked <code>@Primary</code> (and ignores beans marked <code>@Fallback</code> if exactly one other is left),</li>
+  <li>a bean whose <strong>name equals the parameter name</strong>,</li>
+  <li>otherwise it fails with <code>NoUniqueBeanDefinitionException</code>.</li>
+</ol>
+<script type="text/plain" class="code" data-file="CandidatesApplication.java" data-run>
+package com.example.ch02.candidates;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Component;
+
+interface Notifier { String send(String msg); }
+
+@Component @Primary
+class EmailNotifier implements Notifier {
+  public String send(String msg) { return "email: " + msg; }
+}
+
+@Component("sms")
+class SmsNotifier implements Notifier {
+  public String send(String msg) { return "sms: " + msg; }
+}
+
+@Component
+class PushNotifier implements Notifier {
+  public String send(String msg) { return "push: " + msg; }
+}
+
+@SpringBootApplication
+public class CandidatesApplication {
+  public static void main(String[] args) {
+    SpringApplication.run(CandidatesApplication.class).close();
+  }
+
+  @Bean
+  CommandLineRunner demo(Notifier any,                       // → @Primary
+                         @Qualifier("sms") Notifier urgent,  // → by qualifier (the bean name)
+                         Notifier pushNotifier) {            // → @Primary still wins over the name!
+    return args -> {
+      System.out.println(any.send("hi"));
+      System.out.println(urgent.send("hi"));
+      System.out.println(pushNotifier.send("hi"));
+    };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+email: hi
+sms: hi
+email: hi
+</script>
+<p>Watch the third line: <code>@Primary</code> beats a matching parameter name. Parameter-name matching is only a last resort for when nothing is primary. Be explicit with <code>@Qualifier</code> when it matters.</p>
+
+<h3><code>@Fallback</code>: the bean to use only if nothing else exists</h3>
+<p><code>@Fallback</code> is the opposite of <code>@Primary</code>: "use me only if there's no other candidate". It's ideal for defaults that users may replace:</p>
+<script type="text/plain" class="code" data-file="FallbackApplication.java" data-run>
+package com.example.ch02.fallback;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Fallback;
+
+interface PriceFormatter { String format(long cents); }
+
+@SpringBootApplication
+public class FallbackApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FallbackApplication.class)) {
+      System.out.println(ctx.getBean(PriceFormatter.class).format(1999));
+    }
+  }
+
+  @Bean @Fallback
+  PriceFormatter plain() { return c -> c / 100 + "." + String.format("%02d", c % 100); }
+
+  @Bean
+  PriceFormatter euros() { return c -> "€" + c / 100 + "," + String.format("%02d", c % 100); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+€19,99
+</script>
+<p>Remove the <code>euros</code> bean and the fallback is used: <code>19.99</code>.</p>
+
+<h3>Injecting all candidates</h3>
+<p>Ask for a <code>List</code> to get every bean of a type (sorted by <code>@Order</code>/<code>Ordered</code>, otherwise in registration order) or a <code>Map&lt;String, T&gt;</code> keyed by bean name. This is the Spring way to build plug-in style designs:</p>
+<script type="text/plain" class="code" data-file="AllCandidates.java" data-run>
+package com.example.ch02.all;
+
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+interface Check { String name(); boolean passes(String password); }
+
+@Component @Order(2) class LengthCheck implements Check {
+  public String name() { return "length>=8"; }
+  public boolean passes(String p) { return p.length() >= 8; }
+}
+@Component @Order(1) class DigitCheck implements Check {
+  public String name() { return "has digit"; }
+  public boolean passes(String p) { return p.chars().anyMatch(Character::isDigit); }
+}
+@Component @Order(3) class UpperCheck implements Check {
+  public String name() { return "has upper"; }
+  public boolean passes(String p) { return p.chars().anyMatch(Character::isUpperCase); }
+}
+
+@Service
+class PasswordPolicy {
+  private final List<Check> checks;
+  private final Map<String, Check> byName;
+  PasswordPolicy(List<Check> checks, Map<String, Check> byName) { this.checks = checks; this.byName = byName; }
+
+  void report(String password) {
+    checks.forEach(c -> System.out.println((c.passes(password) ? "✓ " : "✗ ") + c.name()));
+    System.out.println("bean names: " + byName.keySet());
+  }
+}
+
+@SpringBootApplication
+public class AllCandidates {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AllCandidates.class)) {
+      ctx.getBean(PasswordPolicy.class).report("secret42");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+✓ has digit
+✓ length>=8
+✗ has upper
+bean names: [digitCheck, lengthCheck, upperCheck]
+</script>
+<p>To add a rule, you add a class. <code>PasswordPolicy</code> never changes — the open/closed principle, powered by the container.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Bean names follow class names.</strong> A scanned component is named after its short class name with a lower-case first letter (<code>DigitCheck</code> → <code>digitCheck</code>). Rename the class and the map key changes too, so if anything depends on the key (a URL, a config value), give the component an explicit name: <code>@Component("digit")</code>.</p>
+</div>
+
+<h3>Optional dependencies: <code>ObjectProvider</code>, <code>Optional</code> and <code>@Nullable</code></h3>
+<script type="text/plain" class="code" data-file="OptionalApplication.java" data-run>
+package com.example.ch02.optional;
+
+import java.util.Optional;
+import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+interface Metrics { void count(String name); }
+
+@SpringBootApplication
+public class OptionalApplication {
+  public static void main(String[] args) {
+    SpringApplication.run(OptionalApplication.class).close();
+  }
+
+  @Bean
+  CommandLineRunner demo(ObjectProvider<Metrics> provider, Optional<Metrics> optional, @Nullable Metrics nullable) {
+    return args -> {
+      System.out.println("provider: " + provider.getIfAvailable(() -> name -> {}).getClass().isSynthetic());
+      System.out.println("optional present: " + optional.isPresent());
+      System.out.println("nullable: " + nullable);
+      provider.ifAvailable(m -> m.count("startup"));   // does nothing: no Metrics bean
+    };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+provider: true
+optional present: false
+nullable: null
+</script>
+<p><code>ObjectProvider</code> is the most flexible: it's resolved <em>lazily</em> (when you call it), it has <code>getIfAvailable</code>, <code>getIfUnique</code>, <code>ifAvailable</code>, <code>orderedStream()</code>, and it works for prototype beans too. Boot's auto-configurations use it everywhere.</p>
+
+<h2 id="cycles">Circular dependencies</h2>
+<p>If <code>A</code> needs <code>B</code> in its constructor and <code>B</code> needs <code>A</code>, neither can be created first. Spring detects the cycle and fails at startup:</p>
+<script type="text/plain" class="code" data-file="CycleDemo.java" data-run>
+package com.example.ch02.cycle;
+
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.stereotype.Component;
+
+@Component class A { A(B b) { } }
+@Component class B { B(A a) { } }
+
+public class CycleDemo {
+  public static void main(String[] args) {
+    var ctx = new AnnotationConfigApplicationContext();
+    ctx.register(A.class, B.class);
+    try {
+      ctx.refresh();
+    } catch (Exception e) {
+      Throwable root = NestedExceptionUtils.getMostSpecificCause(e);
+      System.out.println(root.getClass().getSimpleName());
+      System.out.println(root.getMessage());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+BeanCurrentlyInCreationException
+Error creating bean with name 'a': Requested bean is currently in creation: Is there an unresolvable circular reference or an asynchronous initialization dependency?
+</script>
+<p>(The <code>...</code> stands for a <code>WARN</code> log line in which the context reports that it cancelled the refresh.) Spring Boot goes further: it sets <code>spring.main.allow-circular-references=false</code>, so even setter/field cycles fail. The right fix is nearly always design: extract the shared logic into a third bean, publish an event instead of calling back (Chapter 8), or inject an <code>ObjectProvider</code> and resolve lazily.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Generic types act as qualifiers</h3>
+<p>Spring matches generic type arguments, so <code>Repository&lt;User&gt;</code> and <code>Repository&lt;Order&gt;</code> are different candidates — no qualifier needed:</p>
+<script type="text/plain" class="code" data-file="GenericsApplication.java" data-run>
+package com.example.ch02.generics;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+interface Store<T> { String describe(); }
+record User(String name) {}
+record Order(long id) {}
+
+@Component class UserStore implements Store<User> { public String describe() { return "users"; } }
+@Component class OrderStore implements Store<Order> { public String describe() { return "orders"; } }
+
+@Service
+class Report {
+  final Store<User> users; final Store<Order> orders;
+  Report(Store<User> users, Store<Order> orders) { this.users = users; this.orders = orders; }
+}
+
+@SpringBootApplication
+public class GenericsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(GenericsApplication.class)) {
+      Report r = ctx.getBean(Report.class);
+      System.out.println(r.users.describe() + " / " + r.orders.describe());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+users / orders
+</script>
+
+<h3>A custom qualifier annotation</h3>
+<p>Strings in <code>@Qualifier("…")</code> are easy to mistype. Meta-annotate your own annotation instead:</p>
+<script type="text/plain" class="code" data-file="CustomQualifier.java" data-run>
+package com.example.ch02.qualifier;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+@Qualifier @Retention(RetentionPolicy.RUNTIME) @interface Fast {}
+@Qualifier @Retention(RetentionPolicy.RUNTIME) @interface Cheap {}
+
+interface Shipping { String quote(); }
+
+@SpringBootApplication
+public class CustomQualifier {
+  public static void main(String[] args) { SpringApplication.run(CustomQualifier.class).close(); }
+
+  @Bean @Fast  Shipping express() { return () -> "express: 1 day, €15"; }
+  @Bean @Cheap Shipping ground()  { return () -> "ground: 5 days, €4"; }
+
+  @Bean CommandLineRunner quote(@Fast Shipping fast, @Cheap Shipping cheap) {
+    return args -> { System.out.println(fast.quote()); System.out.println(cheap.quote()); };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+express: 1 day, €15
+ground: 5 days, €4
+</script>
+
+<h3>Injecting the infrastructure</h3>
+<p>Some container objects can be injected like any bean: <code>ApplicationContext</code>, <code>Environment</code>, <code>ResourceLoader</code>, <code>ApplicationEventPublisher</code>.</p>
+<script type="text/plain" class="code" data-file="InfraApplication.java" data-run>
+package com.example.ch02.infra;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.stereotype.Component;
+
+@Component
+class Inspector {
+  Inspector(Environment env, ResourceLoader loader) throws Exception {
+    System.out.println("java.version set: " + env.containsProperty("java.version"));
+    System.out.println("application.properties exists: " + loader.getResource("classpath:application.properties").exists());
+  }
+}
+
+@SpringBootApplication
+public class InfraApplication {
+  public static void main(String[] args) { SpringApplication.run(InfraApplication.class).close(); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+java.version set: true
+application.properties exists: true
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>IoC: objects declare dependencies; the container (<code>ApplicationContext</code>) creates and injects them from <strong>bean definitions</strong>.</li>
+  <li>Define beans with stereotypes + scanning, <code>@Bean</code> methods, or programmatically with <code>BeanRegistrar</code> (Spring 7).</li>
+  <li>Prefer constructor injection: explicit, <code>final</code>, testable, cycle-detecting. A single constructor needs no <code>@Autowired</code>.</li>
+  <li><code>@Configuration</code> (full) proxies <code>@Bean</code> method calls; lite mode (<code>proxyBeanMethods = false</code>) doesn't — take collaborators as parameters.</li>
+  <li>Resolution order: <code>@Qualifier</code> → <code>@Primary</code>/<code>@Fallback</code> → parameter name → error. Inject <code>List</code>/<code>Map</code> for all candidates, <code>ObjectProvider</code> for optional or lazy ones.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Explain the difference between <code>BeanFactory</code> and <code>ApplicationContext</code>. Which one does Spring Boot create?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>BeanFactory</code> is the basic container: bean definitions, creation and injection. <code>ApplicationContext</code> extends it with event publishing, resource loading, message sources (i18n), the <code>Environment</code>, and automatic registration of post-processors. Boot always creates an <code>ApplicationContext</code> (for example <code>AnnotationConfigServletWebServerApplicationContext</code> for a web app).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Without Spring Boot, create an <code>AnnotationConfigApplicationContext</code> from a <code>@Configuration</code> class that defines a <code>List&lt;String&gt;</code> bean named <code>colors</code> containing <code>red, green</code>, and print it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ColorsApp.java" data-run>
+package com.example.ch02.ex2;
+
+import java.util.List;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+class ColorConfig {                     // not "Colors": see below
+  @Bean List<String> colors() { return List.of("red", "green"); }
+}
+
+public class ColorsApp {
+  public static void main(String[] args) {
+    try (var ctx = new AnnotationConfigApplicationContext(ColorConfig.class)) {
+      System.out.println(ctx.getBean("colors"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[red, green]
+</script>
+<p>A trap worth knowing: if the configuration class itself were called <code>Colors</code>, its bean name would be <code>colors</code> too, and Spring refuses to start with <em>"Bean name derived from @Bean method 'colors' clashes with bean name for containing configuration class"</em>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Give three reasons to prefer constructor injection over field injection.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Dependencies are visible in the constructor signature and can be <code>final</code>. (2) The class can be created in a plain unit test with <code>new</code>, no reflection or Spring. (3) Required dependencies can't be missing (the object can't exist without them), and circular dependencies fail fast at startup.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Two beans implement <code>Notifier</code>, neither is <code>@Primary</code>, and a constructor asks for <code>Notifier notifier</code>. Neither bean is named <code>notifier</code>. What happens? Give two fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Startup fails with <code>NoUniqueBeanDefinitionException</code> ("expected single matching bean but found 2"). Fixes: mark one bean <code>@Primary</code>; add <code>@Qualifier("beanName")</code> to the parameter; rename the parameter to match one bean's name; or inject <code>List&lt;Notifier&gt;</code> if you actually need both.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>@Configuration(proxyBeanMethods = false)</code> class where a <code>Dao</code> bean receives the <code>Pool</code> bean <em>correctly</em> (the same instance) and prove it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LiteFixed.java" data-run>
+package com.example.ch02.ex5;
+
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+class Pool { }
+record Dao(Pool pool) { }
+
+@Configuration(proxyBeanMethods = false)
+class LiteConfig {
+  @Bean Pool pool() { return new Pool(); }
+  @Bean Dao dao(Pool pool) { return new Dao(pool); }   // injected, not called
+}
+
+public class LiteFixed {
+  public static void main(String[] args) {
+    try (var ctx = new AnnotationConfigApplicationContext(LiteConfig.class)) {
+      System.out.println(ctx.getBean(Dao.class).pool() == ctx.getBean(Pool.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Create a <code>DiscountRule</code> interface with <code>int percentFor(int total)</code>, and three <code>@Component</code> rules (5% over 100, 10% over 500, 0% otherwise). A <code>Pricing</code> service gets <code>List&lt;DiscountRule&gt;</code> and applies the <em>largest</em> discount. Print the final price for 80, 200 and 900.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="PricingApplication.java" data-run>
+package com.example.ch02.ex6;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+interface DiscountRule { int percentFor(int total); }
+
+@Component class NoDiscount implements DiscountRule { public int percentFor(int t) { return 0; } }
+@Component class Over100 implements DiscountRule { public int percentFor(int t) { return t > 100 ? 5 : 0; } }
+@Component class Over500 implements DiscountRule { public int percentFor(int t) { return t > 500 ? 10 : 0; } }
+
+@Service
+class Pricing {
+  private final List<DiscountRule> rules;
+  Pricing(List<DiscountRule> rules) { this.rules = rules; }
+  double finalPrice(int total) {
+    int best = rules.stream().mapToInt(r -> r.percentFor(total)).max().orElse(0);
+    return total * (100 - best) / 100.0;
+  }
+}
+
+@SpringBootApplication
+public class PricingApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(PricingApplication.class)) {
+      Pricing p = ctx.getBean(Pricing.class);
+      for (int t : new int[] { 80, 200, 900 }) System.out.println(t + " -> " + p.finalPrice(t));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+80 -> 80.0
+200 -> 190.0
+900 -> 810.0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a library-style default: a <code>@Bean @Fallback</code> <code>Greeting</code> that returns <code>"Hello"</code>. Then, controlled by the property <code>app.formal=true</code>, add a <code>@Bean</code> returning <code>"Good day"</code> using <code>@ConditionalOnProperty</code>. Run once with and once without the property.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="GreetingDefaults.java" data-run>
+package com.example.ch02.ex7;
+
+import java.util.function.Supplier;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Fallback;
+
+interface Greeting extends Supplier<String> {}
+
+@SpringBootApplication
+public class GreetingDefaults {
+  public static void main(String[] args) {
+    for (String[] a : new String[][] { {}, { "--app.formal=true" } }) {
+      try (var ctx = SpringApplication.run(GreetingDefaults.class, a)) {
+        System.out.println(ctx.getBean(Greeting.class).get());
+      }
+    }
+  }
+
+  @Bean @Fallback Greeting casual() { return () -> "Hello"; }
+
+  @Bean @ConditionalOnProperty("app.formal")
+  Greeting formal() { return () -> "Good day"; }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello
+Good day
+</script>
+<p><code>@ConditionalOnProperty("app.formal")</code> matches when the property is present and not <code>false</code>. Conditions are the heart of auto-configuration (Chapter 5).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p><code>InvoiceService</code> needs <code>EmailService</code>, and <code>EmailService</code> needs <code>InvoiceService</code> to look up the invoice total when it builds an email. Startup fails with a circular reference. Propose a design that removes the cycle.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Pass the data instead of the service: <code>emailService.sendInvoice(invoice)</code> gives <code>EmailService</code> everything it needs, so it no longer depends on <code>InvoiceService</code>. Alternatives: extract the shared logic (e.g. <code>InvoiceTotals</code>) into a third bean both depend on; or have <code>InvoiceService</code> publish an <code>InvoiceCreated</code> event that an email listener handles (Chapter 8). <code>@Lazy</code> or <code>ObjectProvider</code> also break the cycle technically, but they hide the design problem.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a <code>BeanRegistrar</code> that registers one <code>Tenant</code> bean per entry in the property <code>app.tenants</code> (e.g. <code>acme,globex</code>), marks the first one <code>primary()</code>, and print the primary tenant plus all tenants.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TenantsApplication.java" data-run>
+package com.example.ch02.ex9;
+
+import org.springframework.beans.factory.BeanRegistrar;
+import org.springframework.beans.factory.BeanRegistry;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
+
+record Tenant(String id) {}
+
+class TenantRegistrar implements BeanRegistrar {
+  @Override
+  public void register(BeanRegistry registry, Environment env) {
+    String[] ids = env.getRequiredProperty("app.tenants").split(",");
+    for (int i = 0; i < ids.length; i++) {
+      String id = ids[i].trim();
+      boolean first = i == 0;
+      registry.registerBean("tenant-" + id, Tenant.class, spec -> {
+        spec.supplier(ctx -> new Tenant(id));
+        if (first) spec.primary();
+      });
+    }
+  }
+}
+
+@SpringBootApplication
+@Import(TenantRegistrar.class)
+public class TenantsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TenantsApplication.class, "--app.tenants=acme, globex, initech")) {
+      System.out.println("primary: " + ctx.getBean(Tenant.class).id());
+      System.out.println("all: " + ctx.getBeansOfType(Tenant.class).keySet());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+primary: acme
+all: [tenant-acme, tenant-globex, tenant-initech]
+</script>
+<p>Copy the loop variables into effectively-final locals (<code>id</code>, <code>first</code>) before using them in the lambdas.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a tiny <strong>command dispatcher</strong>: an interface <code>Command</code> with <code>String name()</code> and <code>String run(String arg)</code>; beans <code>upper</code>, <code>reverse</code> and <code>count</code>; and a <code>Dispatcher</code> that receives <code>List&lt;Command&gt;</code>, indexes them by <code>name()</code>, and runs <code>"upper spring"</code>, <code>"reverse spring"</code>, <code>"count spring"</code> and <code>"nope x"</code> (print <code>unknown command: nope</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="DispatcherApplication.java" data-run>
+package com.example.ch02.ex10;
+
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+interface Command { String name(); String run(String arg); }
+
+@Component class Upper implements Command {
+  public String name() { return "upper"; }
+  public String run(String a) { return a.toUpperCase(); }
+}
+@Component class Reverse implements Command {
+  public String name() { return "reverse"; }
+  public String run(String a) { return new StringBuilder(a).reverse().toString(); }
+}
+@Component class Count implements Command {
+  public String name() { return "count"; }
+  public String run(String a) { return a.length() + " chars"; }
+}
+
+@Service
+class Dispatcher {
+  private final Map<String, Command> commands;
+  Dispatcher(List<Command> all) {
+    this.commands = all.stream().collect(Collectors.toMap(Command::name, Function.identity()));
+  }
+  String dispatch(String line) {
+    String[] parts = line.split(" ", 2);
+    Command c = commands.get(parts[0]);
+    return c == null ? "unknown command: " + parts[0] : c.run(parts.length > 1 ? parts[1] : "");
+  }
+}
+
+@SpringBootApplication
+public class DispatcherApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(DispatcherApplication.class)) {
+      Dispatcher d = ctx.getBean(Dispatcher.class);
+      for (String line : List.of("upper spring", "reverse spring", "count spring", "nope x")) {
+        System.out.println(d.dispatch(line));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SPRING
+gnirps
+6 chars
+unknown command: nope
+</script>
+<p>Indexing by a method of the bean (instead of the bean name) keeps command names independent of class names. New commands are just new <code>@Component</code> classes.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/introduction.html">Introduction to the Spring IoC Container and Beans</a> · <a href="https://docs.spring.io/spring-framework/reference/core/beans/basics.html">Container overview</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html">Dependency Injection</a> · <a href="https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/autowired-qualifiers.html">Fine-tuning with qualifiers</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/java/basic-concepts.html">@Bean and @Configuration</a> · <a href="https://docs.spring.io/spring-framework/reference/core/beans/java/configuration-annotation.html">Using @Configuration</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/java/programmatic-bean-registration.html">Programmatic bean registration (BeanRegistrar)</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/classpath-scanning.html">Classpath scanning and managed components</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/using/spring-beans-and-dependency-injection.html">Spring Boot: Spring Beans and Dependency Injection</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

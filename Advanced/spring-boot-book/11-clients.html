@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc restclient">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Calling HTTP Services · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Web</div>
+<h1>Calling HTTP Services</h1>
+<p class="lead">Most services call other services. Spring gives you <strong><code>RestClient</code></strong>, a fluent synchronous client; <strong>HTTP service clients</strong>, where you declare a Java interface and Spring implements it; and, new in Spring Framework 7, <strong>resilience annotations</strong> — <code>@Retryable</code> and <code>@ConcurrencyLimit</code> — in the core framework. This chapter covers all three, plus timeouts and error handling, the things that decide whether a slow dependency takes your service down with it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><strong><code>RestClient</code></strong>: the auto-configured builder, requests, typed responses, headers and generic types.</li>
+  <li>Handling <strong>errors</strong>: default exceptions, <code>onStatus</code>, and <code>exchange</code> for full control.</li>
+  <li>Configuring <strong>timeouts</strong> and the underlying HTTP library.</li>
+  <li><strong>HTTP service clients</strong>: <code>@HttpExchange</code> interfaces, <code>@ImportHttpServices</code> and per-group configuration.</li>
+  <li><strong>Resilience</strong>: <code>@Retryable</code> with back-off and jitter, <code>RetryTemplate</code>, <code>@ConcurrencyLimit</code>.</li>
+</ul>
+</div>
+
+<h2 id="setup">How the examples work</h2>
+<p>Every example in this chapter starts two Spring applications in one JVM: a small <strong>remote service</strong> on a random port (playing the part of another team's API), and a <strong>client application</strong> without a web server that calls it. That's exactly the situation in production — just with both processes squeezed into one <code>main</code>.</p>
+
+<h2 id="restclient">RestClient</h2>
+<p>With <code>spring-boot-starter-restclient</code>, Boot provides a <strong>prototype-scoped <code>RestClient.Builder</code></strong> bean, pre-configured with the application's message converters (Jackson 3), timeouts and any <code>RestClientCustomizer</code> beans. Inject the builder and build one client per remote service:</p>
+<script type="text/plain" class="code" data-file="RestClientBasics.java" data-run>
+package com.example.ch11.basics.client;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.basics.remote.CatalogService;
+
+record Book(String isbn, String title, int stock) {}
+
+@Service
+class CatalogClient {
+  private final RestClient http;
+
+  CatalogClient(RestClient.Builder builder, @Value("${catalog.url}") String baseUrl) {
+    this.http = builder.baseUrl(baseUrl)
+        .defaultHeader("User-Agent", "shop-service/1.0")
+        .build();
+  }
+
+  Book book(String isbn) {
+    return http.get().uri("/books/{isbn}", isbn).accept(MediaType.APPLICATION_JSON).retrieve().body(Book.class);
+  }
+
+  List<Book> search(String q, int limit) {
+    return http.get()
+        .uri(b -> b.path("/books").queryParam("q", q).queryParam("limit", limit).build())   // encodes values
+        .retrieve()
+        .body(new ParameterizedTypeReference<List<Book>>() {});                            // generic type
+  }
+
+  Book restock(String isbn, int amount) {
+    return http.post().uri("/books/{isbn}/restock", isbn)
+        .contentType(MediaType.APPLICATION_JSON).body(new Restock(amount))
+        .retrieve().body(Book.class);
+  }
+  record Restock(int amount) {}
+}
+
+@SpringBootApplication
+public class RestClientBasics {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(CatalogService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(RestClientBasics.class).web(WebApplicationType.NONE).run("--catalog.url=" + url)) {
+        var catalog = app.getBean(CatalogClient.class);
+        System.out.println(catalog.book("111"));
+        System.out.println(catalog.search("dune & co", 5));
+        System.out.println(catalog.restock("111", 10));
+      }
+    }
+  }
+}
+</script>
+<p>And the remote service it calls (a separate package, so the two applications don't scan each other):</p>
+<script type="text/plain" class="code" data-file="CatalogService.java">
+package com.example.ch11.basics.remote;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class CatalogService {
+  record Book(String isbn, String title, int stock) {}
+  record Restock(int amount) {}
+
+  @RestController
+  static class Api {
+    private final Map<String, Book> books = new ConcurrentHashMap<>(Map.of("111", new Book("111", "Dune", 2)));
+
+    @GetMapping("/books/{isbn}") Book get(@PathVariable String isbn) { return books.get(isbn); }
+
+    @GetMapping("/books")
+    List<Book> search(@RequestParam String q, @RequestParam int limit, @RequestHeader("User-Agent") String agent) {
+      return List.of(new Book("q", q + " / " + agent, limit));
+    }
+
+    @PostMapping("/books/{isbn}/restock")
+    Book restock(@PathVariable String isbn, @RequestBody Restock r) {
+      return books.computeIfPresent(isbn, (k, b) -> new Book(k, b.title(), b.stock() + r.amount()));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book[isbn=111, title=Dune, stock=2]
+[Book[isbn=q, title=dune & co / shop-service/1.0, stock=5]]
+Book[isbn=111, title=Dune, stock=12]
+</script>
+<p>Use the <code>uri(builder -&gt; …)</code> or <code>uri("/x/{v}", value)</code> forms rather than string concatenation: values are encoded correctly (<code>dune &amp; co</code> arrived intact) and URLs can't be broken by user input.</p>
+<div class="tip">
+<p>💡 <strong>One client per remote service.</strong> Build the <code>RestClient</code> once (in a constructor or <code>@Bean</code>) and reuse it — it's thread-safe. Inject the <em>builder</em> rather than calling <code>RestClient.create()</code>, so Boot's converters, timeouts, observability (traces and metrics for every call, Chapter 18) and customizers apply.</p>
+</div>
+
+<h2 id="errors">Handling errors</h2>
+<p>By default, <code>retrieve()</code> throws on error statuses: <code>HttpClientErrorException</code> for 4xx (with subclasses like <code>HttpClientErrorException.NotFound</code>) and <code>HttpServerErrorException</code> for 5xx. Connection problems and timeouts throw <code>ResourceAccessException</code>. Both are <code>RestClientException</code>s. You can replace the default with <code>onStatus</code>, or take full control with <code>exchange</code>:</p>
+<script type="text/plain" class="code" data-file="ClientErrors.java" data-run>
+package com.example.ch11.errors.client;
+
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.errors.remote.UserService;
+
+record User(long id, String name) {}
+
+class UserNotFound extends RuntimeException {
+  UserNotFound(String msg) { super(msg); }
+}
+
+@SpringBootApplication
+public class ClientErrors {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(UserService.class, "--logging.level.org.springframework.web=ERROR")) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(ClientErrors.class).web(WebApplicationType.NONE).run()) {
+        RestClient http = app.getBean(RestClient.Builder.class).baseUrl(url).build();
+
+        // 1. default behaviour: an exception per status family
+        try {
+          http.get().uri("/users/42").retrieve().body(User.class);
+        } catch (HttpClientErrorException.NotFound e) {
+          System.out.println("1: " + e.getStatusCode() + " " + e.getResponseBodyAsString().contains("\"status\":404"));
+        }
+
+        // 2. onStatus: translate to your own exception
+        try {
+          http.get().uri("/users/42").retrieve()
+              .onStatus(s -> s.value() == 404, (req, res) -> { throw new UserNotFound("no user at " + req.getURI().getPath()); })
+              .body(User.class);
+        } catch (UserNotFound e) {
+          System.out.println("2: " + e.getMessage());
+        }
+
+        // 3. exchange: read status and body yourself, no exceptions
+        Optional<User> user = http.get().uri("/users/{id}", 1).exchange((req, res) ->
+            res.getStatusCode().is2xxSuccessful() ? Optional.ofNullable(res.bodyTo(User.class)) : Optional.empty());
+        System.out.println("3: " + user);
+
+        // 4. 5xx
+        try {
+          http.get().uri("/users/boom").retrieve().toBodilessEntity();
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+          System.out.println("4: " + e.getStatusCode().value() + " server error, retryable: " + (e.getStatusCode() == HttpStatus.SERVICE_UNAVAILABLE));
+        }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="UserService.java">
+package com.example.ch11.errors.remote;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+@SpringBootApplication
+public class UserService {
+  record User(long id, String name) {}
+
+  @RestController
+  static class Api {
+    @GetMapping("/users/{id:\\d+}")
+    User get(@PathVariable long id) {
+      if (id != 1) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      return new User(1, "Ada");
+    }
+    @GetMapping("/users/boom")
+    void boom() { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1: 404 NOT_FOUND true
+2: no user at /users/42
+3: Optional[User[id=1, name=Ada]]
+4: 503 server error, retryable: true
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Don't let remote errors leak through your API.</strong> An uncaught <code>HttpClientErrorException.NotFound</code> from a downstream call becomes a 500 in <em>your</em> API (or worse, a misleading 404). Translate downstream failures into your own domain exceptions at the client boundary, then map those in your <code>@RestControllerAdvice</code> (Chapter 10).</p>
+</div>
+
+<h2 id="timeouts">Timeouts</h2>
+<p>Without timeouts, a dependency that stops answering keeps your request threads waiting until they're all used up — and then <em>your</em> service stops answering too. Always set a <strong>connect timeout</strong> (establishing the TCP connection) and a <strong>read timeout</strong> (waiting for data). In Boot 4 they're shared settings for all auto-configured HTTP clients:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.http.clients.connect-timeout=2s
+spring.http.clients.read-timeout=5s
+# which library to use: jdk (default when nothing else is present), jetty, reactor, http-components, simple
+spring.http.clients.imperative.factory=jdk
+</script>
+<script type="text/plain" class="code" data-file="TimeoutDemo.java" data-run>
+package com.example.ch11.timeout.client;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.timeout.remote.SlowService;
+
+@SpringBootApplication
+public class TimeoutDemo {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(SlowService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(TimeoutDemo.class).web(WebApplicationType.NONE)
+          .run("--spring.http.clients.read-timeout=300ms")) {
+        RestClient http = app.getBean(RestClient.Builder.class).baseUrl(url).build();
+        System.out.println(http.get().uri("/slow?ms=50").retrieve().body(String.class));
+        long start = System.nanoTime();
+        try {
+          http.get().uri("/slow?ms=2000").retrieve().body(String.class);
+        } catch (ResourceAccessException e) {
+          long ms = (System.nanoTime() - start) / 1_000_000;
+          System.out.println("gave up after ~300 ms: " + (ms >= 250 && ms < 1500) + " (" + e.getCause().getClass().getSimpleName() + ")");
+        }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="SlowService.java">
+package com.example.ch11.timeout.remote;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class SlowService {
+  @RestController
+  static class Api {
+    @GetMapping("/slow") String slow(@RequestParam long ms) throws InterruptedException {
+      Thread.sleep(ms);
+      return "answered after " + ms + " ms";
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+answered after 50 ms
+gave up after ~300 ms: true (HttpTimeoutException)
+</script>
+<p>The JDK's <code>java.net.http.HttpClient</code> is used here; its timeout exception is <code>HttpTimeoutException</code>. Pick a read timeout from the dependency's real latency (for example its p99 plus a margin), not a round number like 30 s.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: waiting on hold.</strong> You call a supplier and get put on hold. Without a timeout you'd hold forever, while your own customers queue up behind you. A read timeout is deciding up front: "If nobody answers within five minutes, I hang up and tell my customer we'll call back." A retry is calling again; a concurrency limit is having only three phone lines, so you never have every employee on hold at once.</p>
+</div>
+
+<h2 id="interfaces">HTTP service clients: declare an interface</h2>
+<p>Instead of writing request code, describe the remote API as a Java interface with <code>@HttpExchange</code> annotations — like a controller, but from the client side. Spring generates the implementation. <code>@ImportHttpServices</code> registers interfaces in a named <strong>group</strong>, and Boot configures each group from <code>spring.http.serviceclient.&lt;group&gt;.*</code> properties:</p>
+<script type="text/plain" class="code" data-file="WeatherClient.java">
+package com.example.ch11.iface.client;
+
+import java.util.List;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.service.annotation.GetExchange;
+import org.springframework.web.service.annotation.HttpExchange;
+import org.springframework.web.service.annotation.PostExchange;
+
+@HttpExchange("/api")
+public interface WeatherClient {
+  record Forecast(String city, int celsius) {}
+  record Alert(String city, String message) {}
+
+  @GetExchange("/forecast/{city}")
+  Forecast forecast(@PathVariable String city, @RequestParam(defaultValue = "metric") String units);
+
+  @GetExchange("/forecast")
+  List<Forecast> all();
+
+  @PostExchange("/alerts")
+  void alert(@RequestBody Alert alert);
+}
+</script>
+<script type="text/plain" class="code" data-file="InterfaceClientApplication.java" data-run>
+package com.example.ch11.iface.client;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.web.service.registry.ImportHttpServices;
+import com.example.ch11.iface.remote.WeatherService;
+
+@SpringBootApplication
+@ImportHttpServices(group = "weather", types = WeatherClient.class)
+public class InterfaceClientApplication {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(WeatherService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(InterfaceClientApplication.class).web(WebApplicationType.NONE)
+          .run("--spring.http.serviceclient.weather.base-url=" + url,
+               "--spring.http.serviceclient.weather.read-timeout=2s",
+               "--spring.http.serviceclient.weather.default-header.X-Api-Key=demo-key")) {
+        WeatherClient weather = app.getBean(WeatherClient.class);       // inject it like any bean
+        System.out.println(weather.forecast("Paris", "metric"));
+        System.out.println(weather.all());
+        weather.alert(new WeatherClient.Alert("Oslo", "snow"));
+        System.out.println(weather.forecast("Oslo", "metric"));
+        System.out.println("implemented by a proxy: " + weather.getClass().getSimpleName().startsWith("$Proxy"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="WeatherService.java">
+package com.example.ch11.iface.remote;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class WeatherService {
+  record Forecast(String city, int celsius) {}
+  record Alert(String city, String message) {}
+
+  @RestController
+  @RequestMapping("/api")
+  static class Api {
+    private final Map<String, String> alerts = new ConcurrentHashMap<>();
+
+    @GetMapping("/forecast/{city}")
+    Forecast forecast(@PathVariable String city, @RequestHeader("X-Api-Key") String key) {
+      return new Forecast(city + alerts.getOrDefault(city, ""), city.length() * 3);
+    }
+    @GetMapping("/forecast") List<Forecast> all() { return List.of(new Forecast("Rome", 21), new Forecast("Oslo", 4)); }
+    @PostMapping("/alerts") void alert(@RequestBody Alert a) { alerts.put(a.city(), " (alert: " + a.message() + ")"); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Forecast[city=Paris, celsius=15]
+[Forecast[city=Rome, celsius=21], Forecast[city=Oslo, celsius=4]]
+Forecast[city=Oslo (alert: snow), celsius=12]
+implemented by a proxy: true
+</script>
+<p>The remote service required the <code>X-Api-Key</code> header, which the group's <code>default-header</code> property added to every call. Method parameters use the same annotations as controllers: <code>@PathVariable</code>, <code>@RequestParam</code>, <code>@RequestHeader</code>, <code>@RequestBody</code>, plus <code>URI</code> for a dynamic base URL. Return types can be a body type, <code>ResponseEntity&lt;T&gt;</code>, <code>HttpHeaders</code> or <code>void</code>. Errors behave exactly like <code>retrieve()</code>.</p>
+<div class="java">
+<p>☕ <strong>Coming from OpenFeign?</strong> HTTP service clients are Spring's built-in answer to Feign: an annotated interface, configured per group. For new code you don't need Spring Cloud OpenFeign; Feign's interceptors map to <code>RestClientHttpServiceGroupConfigurer</code> beans or <code>RestClientCustomizer</code>s.</p>
+</div>
+
+<h2 id="resilience">Resilience: retries and concurrency limits <span class="es">Spring 7</span></h2>
+<p>Spring Framework 7 moved retry support into the core (the separate Spring Retry project is in maintenance mode). Add <code>@EnableResilientMethods</code> and annotate methods:</p>
+<ul>
+  <li><strong><code>@Retryable</code></strong> retries a method that throws, with a configurable number of retries, <code>delay</code>, exponential <code>multiplier</code>, <code>maxDelay</code> and random <code>jitter</code>. <code>includes</code>/<code>excludes</code> choose which exceptions are retried.</li>
+  <li><strong><code>@ConcurrencyLimit</code></strong> caps how many threads can be inside a method at once — a bulkhead that protects a fragile dependency (and is especially useful with virtual threads, which are otherwise unlimited).</li>
+</ul>
+<script type="text/plain" class="code" data-file="ResilienceApplication.java" data-run>
+package com.example.ch11.retry.client;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.resilience.annotation.EnableResilientMethods;
+import org.springframework.resilience.annotation.Retryable;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.retry.remote.FlakyService;
+
+@Service
+class StockClient {
+  final AtomicInteger attempts = new AtomicInteger();
+  private final RestClient http;
+  StockClient(RestClient.Builder b, @Value("${stock.url}") String url) { this.http = b.baseUrl(url).build(); }
+
+  @Retryable(includes = HttpServerErrorException.class,     // retry 5xx only, never 4xx
+             maxRetries = 4, delay = 20, multiplier = 2, maxDelay = 200)
+  public String level(String sku) {
+    attempts.incrementAndGet();
+    return http.get().uri("/stock/{sku}", sku).retrieve().body(String.class);
+  }
+  public int attempts() { return attempts.getAndSet(0); }
+}
+
+@SpringBootApplication
+@EnableResilientMethods
+public class ResilienceApplication {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(FlakyService.class, "--logging.level.org.springframework.web=ERROR")) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(ResilienceApplication.class).web(WebApplicationType.NONE).run("--stock.url=" + url)) {
+        var stock = app.getBean(StockClient.class);
+        System.out.println(stock.level("PEN") + " after " + stock.attempts() + " attempts");
+        try {
+          stock.level("UNKNOWN");
+        } catch (HttpClientErrorException e) {
+          System.out.println(e.getStatusCode() + " after " + stock.attempts() + " attempt (4xx is not retried)");
+        }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="FlakyService.java">
+package com.example.ch11.retry.remote;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+@SpringBootApplication
+public class FlakyService {
+  @RestController
+  static class Api {
+    private final AtomicInteger calls = new AtomicInteger();
+    @GetMapping("/stock/{sku}")
+    String stock(@PathVariable String sku) {
+      if (sku.equals("UNKNOWN")) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      if (calls.incrementAndGet() < 3) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);   // fails twice
+      return sku + ": 42 in stock";
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+PEN: 42 in stock after 3 attempts
+404 NOT_FOUND after 1 attempt (4xx is not retried)
+</script>
+<p>The delays here grow 20 ms → 40 ms → 80 ms (capped at 200 ms). In production, add <code>jitter</code> so a thousand clients that failed at the same moment don't all retry at the same moment.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Only retry what is safe to repeat.</strong> GET is safe; a <code>POST /payments</code> that timed out may have <em>succeeded</em> on the server — retrying charges the customer twice. Retry non-idempotent calls only with an idempotency key the server deduplicates. And never retry 4xx errors: the request is wrong, and sending it again won't fix it.</p>
+</div>
+
+<h3>Programmatic retries with <code>RetryTemplate</code></h3>
+<p>When an annotation doesn't fit (a lambda, a loop, a call inside the same class), use <code>RetryTemplate</code> with a <code>RetryPolicy</code>:</p>
+<script type="text/plain" class="code" data-file="RetryTemplateDemo.java" data-run>
+package com.example.ch11.template;
+
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.core.retry.RetryException;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
+
+public class RetryTemplateDemo {
+  public static void main(String[] args) throws RetryException {
+    var policy = RetryPolicy.builder()
+        .maxRetries(3)
+        .delay(Duration.ofMillis(10))
+        .includes(IllegalStateException.class)
+        .build();
+    var retry = new RetryTemplate(policy);
+
+    AtomicInteger calls = new AtomicInteger();
+    String result = retry.execute(() -> {
+      if (calls.incrementAndGet() < 3) throw new IllegalStateException("not yet");
+      return "done on call " + calls.get();
+    });
+    System.out.println(result);
+
+    try {
+      retry.execute(() -> { throw new IllegalStateException("always failing"); });
+    } catch (RetryException e) {
+      System.out.println("gave up: " + e.getMessage() + " / cause: " + e.getCause().getMessage() + " / suppressed: " + e.getSuppressed().length);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+done on call 3
+gave up: Retry policy for operation '...' exhausted; aborting execution / cause: always failing / suppressed: 3
+</script>
+<p>When retries are exhausted, <code>RetryException</code> carries the last failure as its cause and the earlier ones as suppressed exceptions — handy for logging what happened on every attempt.</p>
+
+<h3>Limiting concurrency</h3>
+<script type="text/plain" class="code" data-file="ConcurrencyLimitDemo.java" data-run>
+package com.example.ch11.limit;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.resilience.annotation.ConcurrencyLimit;
+import org.springframework.resilience.annotation.EnableResilientMethods;
+import org.springframework.stereotype.Service;
+
+@Service
+class ReportGenerator {
+  private final AtomicInteger inside = new AtomicInteger();
+  final AtomicInteger maxSeen = new AtomicInteger();
+
+  @ConcurrencyLimit(2)                                   // at most 2 threads at a time; others wait
+  public void generate() throws InterruptedException {
+    int now = inside.incrementAndGet();
+    maxSeen.accumulateAndGet(now, Math::max);
+    Thread.sleep(50);
+    inside.decrementAndGet();
+  }
+  public int maxSeen() { return maxSeen.get(); }
+}
+
+@SpringBootApplication
+@EnableResilientMethods
+public class ConcurrencyLimitDemo {
+  public static void main(String[] args) {
+    try (var ctx = new SpringApplicationBuilder(ConcurrencyLimitDemo.class).web(WebApplicationType.NONE).run()) {
+      var reports = ctx.getBean(ReportGenerator.class);
+      try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+        for (int i = 0; i < 10; i++) pool.submit(() -> { reports.generate(); return null; });
+      }
+      System.out.println("10 calls, max concurrent inside: " + reports.maxSeen());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10 calls, max concurrent inside: 2
+</script>
+<p>Both annotations are proxy-based (Chapter 7): they only apply to calls from other beans. For circuit breakers and rate limiters, use Resilience4j (with Spring Cloud Circuit Breaker) — Spring's core covers the two most common needs.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A customizer for all clients</h3>
+<p>A <code>RestClientCustomizer</code> bean applies to every builder Boot hands out — perfect for a company-wide header or an authentication interceptor:</p>
+<script type="text/plain" class="code" data-file="CustomizerDemo.java" data-run>
+package com.example.ch11.customizer.client;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.customizer.remote.EchoService;
+
+@SpringBootApplication
+public class CustomizerDemo {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(EchoService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(CustomizerDemo.class).web(WebApplicationType.NONE).run()) {
+        RestClient http = app.getBean(RestClient.Builder.class).baseUrl(url).build();
+        System.out.println(http.get().uri("/headers").retrieve().body(String.class));
+      }
+    }
+  }
+
+  @Bean
+  RestClientCustomizer companyDefaults() {
+    return builder -> builder
+        .defaultHeader("X-Caller", "billing-service")
+        .requestInterceptor((request, body, execution) -> {
+          request.getHeaders().setBearerAuth("token-123");          // e.g. from a token provider
+          return execution.execute(request, body);
+        });
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="EchoService.java">
+package com.example.ch11.customizer.remote;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class EchoService {
+  @RestController
+  static class Api {
+    @GetMapping("/headers")
+    String headers(@RequestHeader("X-Caller") String caller, @RequestHeader("Authorization") String auth) {
+      return "caller=" + caller + " auth=" + auth;
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+caller=billing-service auth=Bearer token-123
+</script>
+<p>For OAuth2 client credentials, Spring Security provides a ready-made interceptor (<code>OAuth2ClientHttpRequestInterceptor</code>) that fetches and refreshes tokens for you.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Inject Boot's <code>RestClient.Builder</code>, build one client per service; use URI templates and <code>ParameterizedTypeReference</code> for generic types.</li>
+  <li>Errors: 4xx → <code>HttpClientErrorException</code>, 5xx → <code>HttpServerErrorException</code>, I/O and timeouts → <code>ResourceAccessException</code>. Customise with <code>onStatus</code>; use <code>exchange</code> for full control. Translate to domain exceptions.</li>
+  <li>Always set <code>spring.http.clients.connect-timeout</code> and <code>read-timeout</code>.</li>
+  <li>HTTP service clients: <code>@HttpExchange</code> interfaces + <code>@ImportHttpServices(group = …)</code> + <code>spring.http.serviceclient.&lt;group&gt;.base-url</code>, timeouts and default headers.</li>
+  <li>Spring 7 resilience: <code>@EnableResilientMethods</code>, <code>@Retryable</code> (retries, delay, multiplier, jitter, includes), <code>RetryTemplate</code>, <code>@ConcurrencyLimit</code>. Retry only idempotent calls and 5xx/I/O errors.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why should you inject <code>RestClient.Builder</code> instead of calling <code>RestClient.create()</code> in a Spring Boot application?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The auto-configured builder carries Boot's setup: the application's message converters (with your <code>spring.jackson.*</code> settings), the configured HTTP library and timeouts, SSL bundles, observability (metrics and tracing of every call) and every <code>RestClientCustomizer</code>. <code>RestClient.create()</code> gets none of that.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which exception does <code>retrieve().body(…)</code> throw for (a) a 404, (b) a 502, (c) a read timeout, (d) a connection refused?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>HttpClientErrorException.NotFound</code>, (b) <code>HttpServerErrorException.BadGateway</code>, (c) and (d) <code>ResourceAccessException</code> (wrapping the I/O exception). All extend <code>RestClientException</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Which of these calls is safe to retry automatically after a timeout? <code>GET /orders/7</code>, <code>PUT /orders/7</code> with the full order, <code>POST /orders</code>, <code>DELETE /orders/7</code>, <code>POST /payments</code> with an <code>Idempotency-Key</code> header.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>GET, PUT and DELETE are idempotent by HTTP semantics — repeating them leaves the same state. <code>POST /orders</code> isn't: it may create two orders. <code>POST /payments</code> with an idempotency key is safe <em>if</em> the server stores keys and returns the original result for repeats.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write a <code>RetryTemplate</code> with 2 retries and no delay that runs an operation failing on the first call only, and print how many calls were made.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RetryOnce.java" data-run>
+package com.example.ch11.ex4;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
+
+public class RetryOnce {
+  public static void main(String[] args) throws Exception {
+    var retry = new RetryTemplate(RetryPolicy.builder().maxRetries(2).delay(java.time.Duration.ZERO).build());
+    AtomicInteger calls = new AtomicInteger();
+    String r = retry.execute(() -> {
+      if (calls.incrementAndGet() == 1) throw new RuntimeException("first call fails");
+      return "ok";
+    });
+    System.out.println(r + " after " + calls.get() + " calls");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok after 2 calls
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Declare an <code>@HttpExchange</code> interface <code>QuoteClient</code> with <code>@GetExchange("/quote") String quote(@RequestParam String symbol)</code>, register it in a group <code>quotes</code>, and call a small remote service that returns <code>symbol + " = 123.45"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="QuoteClient.java">
+package com.example.ch11.ex5.client;
+
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.service.annotation.GetExchange;
+
+public interface QuoteClient {
+  @GetExchange("/quote")
+  String quote(@RequestParam String symbol);
+}
+</script>
+<script type="text/plain" class="code" data-file="QuoteApp.java" data-run>
+package com.example.ch11.ex5.client;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.web.service.registry.ImportHttpServices;
+import com.example.ch11.ex5.remote.QuoteService;
+
+@SpringBootApplication
+@ImportHttpServices(group = "quotes", types = QuoteClient.class)
+public class QuoteApp {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(QuoteService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(QuoteApp.class).web(WebApplicationType.NONE)
+          .run("--spring.http.serviceclient.quotes.base-url=" + url)) {
+        System.out.println(app.getBean(QuoteClient.class).quote("ACME"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="QuoteService.java">
+package com.example.ch11.ex5.remote;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class QuoteService {
+  @RestController
+  static class Api {
+    @GetMapping("/quote") String quote(@RequestParam String symbol) { return symbol + " = 123.45"; }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ACME = 123.45
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a client method <code>Optional&lt;String&gt; profile(long id)</code> that returns <code>Optional.empty()</code> on 404 and the body otherwise, using <code>exchange</code>. Any other error status should throw <code>IllegalStateException</code> with the status code.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ProfileClientApp.java" data-run>
+package com.example.ch11.ex6.client;
+
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.ex6.remote.ProfileService;
+
+@SpringBootApplication
+public class ProfileClientApp {
+  static Optional<String> profile(RestClient http, long id) {
+    return http.get().uri("/profiles/{id}", id).exchange((req, res) -> {
+      if (res.getStatusCode().value() == 404) return Optional.empty();
+      if (res.getStatusCode().isError()) throw new IllegalStateException("profile service returned " + res.getStatusCode().value());
+      return Optional.of(res.bodyTo(String.class));
+    });
+  }
+
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(ProfileService.class, "--logging.level.org.springframework.web=ERROR")) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(ProfileClientApp.class).web(WebApplicationType.NONE).run()) {
+        var http = app.getBean(RestClient.Builder.class).baseUrl(url).build();
+        System.out.println(profile(http, 1));
+        System.out.println(profile(http, 2));
+        try { profile(http, 3); } catch (IllegalStateException e) { System.out.println(e.getMessage()); }
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="ProfileService.java">
+package com.example.ch11.ex6.remote;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+@SpringBootApplication
+public class ProfileService {
+  @RestController
+  static class Api {
+    @GetMapping("/profiles/{id}") String get(@PathVariable long id) {
+      if (id == 2) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      if (id == 3) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+      return "profile of user " + id;
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Optional[profile of user 1]
+Optional.empty
+profile service returned 403
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A service annotates a private method <code>fetchRates()</code> with <code>@Retryable</code> and calls it from a public method of the same class. Retries never happen. Give two fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@Retryable</code> is applied by a proxy, which can't intercept private methods or self-invocation (Chapter 7). Fix 1: move <code>fetchRates()</code> to a separate bean (for example the HTTP client class) as a public method. Fix 2: use a <code>RetryTemplate</code> inside the method instead of the annotation. (Also check that <code>@EnableResilientMethods</code> is present.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>Your service handles 200 requests/s; each calls a dependency that normally answers in 50 ms. The dependency becomes slow: every call hangs for 30 s until the default timeout. Using Little's law (concurrent requests = arrival rate × time in system), how many requests are in flight on your side? What happens to Tomcat's default 200 worker threads?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Normally 200 × 0.05 s = 10 concurrent calls. With 30 s waits, 200 × 30 = 6000 — far more than 200 threads, so all workers block within about a second, and every other endpoint (even ones that don't use the dependency) stops responding. A 500 ms read timeout would cap it at 200 × 0.5 = 100; a <code>@ConcurrencyLimit</code> on the client call would protect the rest of the service even more directly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Combine a timeout and a retry: a remote endpoint <code>/maybe-slow</code> takes 1 s on the first call and 10 ms afterwards. With <code>read-timeout=200ms</code> and <code>@Retryable(includes = ResourceAccessException.class, maxRetries = 2, delay = 10)</code>, show that the second attempt succeeds and the whole call takes well under 1 s.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TimeoutRetryApp.java" data-run>
+package com.example.ch11.ex9.client;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.resilience.annotation.EnableResilientMethods;
+import org.springframework.resilience.annotation.Retryable;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClient;
+import com.example.ch11.ex9.remote.MaybeSlowService;
+
+@Service
+class MaybeSlowClient {
+  private final RestClient http;
+  private final AtomicInteger attempts = new AtomicInteger();
+  MaybeSlowClient(RestClient.Builder b, @Value("${remote.url}") String url) { this.http = b.baseUrl(url).build(); }
+
+  @Retryable(includes = ResourceAccessException.class, maxRetries = 2, delay = 10)
+  public String call() {
+    attempts.incrementAndGet();
+    return http.get().uri("/maybe-slow").retrieve().body(String.class);
+  }
+  public int attempts() { return attempts.get(); }
+}
+
+@SpringBootApplication
+@EnableResilientMethods
+public class TimeoutRetryApp {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(MaybeSlowService.class)) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(TimeoutRetryApp.class).web(WebApplicationType.NONE)
+          .run("--remote.url=" + url, "--spring.http.clients.read-timeout=200ms")) {
+        var client = app.getBean(MaybeSlowClient.class);
+        long start = System.nanoTime();
+        String r = client.call();
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        System.out.println(r + " on attempt " + client.attempts() + ", fast: " + (ms < 900));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="MaybeSlowService.java">
+package com.example.ch11.ex9.remote;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+public class MaybeSlowService {
+  @RestController
+  static class Api {
+    private final AtomicInteger calls = new AtomicInteger();
+    @GetMapping("/maybe-slow") String get() throws InterruptedException {
+      Thread.sleep(calls.incrementAndGet() == 1 ? 1000 : 10);
+      return "answer";
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+answer on attempt 2, fast: true
+</script>
+<p>Timeout + retry is the classic pair against occasional slow responses ("tail latency"). The timeout should be small enough that <code>timeout × (retries + 1)</code> still fits within <em>your</em> callers' timeout.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>For the Library Loans project, write an <strong>ISBN lookup client</strong> as an HTTP service interface <code>BookInfoClient</code> (<code>@GetExchange("/isbn/{isbn}") BookInfo lookup(@PathVariable String isbn)</code>), wrapped in a <code>BookInfoService</code> that (1) retries 5xx up to 2 times, (2) returns <code>Optional.empty()</code> on 404, and (3) falls back to <code>BookInfo(isbn, "unknown title")</code> when the remote service stays unavailable. Demonstrate the three cases.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BookInfoClient.java">
+package com.example.ch11.ex10.client;
+
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.service.annotation.GetExchange;
+
+public interface BookInfoClient {
+  record BookInfo(String isbn, String title) {}
+  @GetExchange("/isbn/{isbn}") BookInfo lookup(@PathVariable String isbn);
+}
+</script>
+<script type="text/plain" class="code" data-file="BookInfoApp.java" data-run>
+package com.example.ch11.ex10.client;
+
+import java.util.Optional;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.resilience.annotation.EnableResilientMethods;
+import org.springframework.resilience.annotation.Retryable;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.service.registry.ImportHttpServices;
+import com.example.ch11.ex10.client.BookInfoClient.BookInfo;
+import com.example.ch11.ex10.remote.IsbnService;
+
+@Component
+class RetryingLookup {                                   // separate bean so the retry proxy applies
+  private final BookInfoClient client;
+  RetryingLookup(BookInfoClient client) { this.client = client; }
+
+  @Retryable(includes = HttpServerErrorException.class, maxRetries = 2, delay = 10)
+  public BookInfo lookup(String isbn) { return client.lookup(isbn); }
+}
+
+@Service
+class BookInfoService {
+  private final RetryingLookup lookup;
+  BookInfoService(RetryingLookup lookup) { this.lookup = lookup; }
+
+  Optional<BookInfo> find(String isbn) {
+    try {
+      return Optional.of(lookup.lookup(isbn));
+    } catch (HttpClientErrorException.NotFound e) {
+      return Optional.empty();
+    } catch (HttpServerErrorException e) {
+      return Optional.of(new BookInfo(isbn, "unknown title"));     // degrade gracefully
+    }
+  }
+}
+
+@SpringBootApplication
+@EnableResilientMethods
+@ImportHttpServices(group = "isbn", types = BookInfoClient.class)
+public class BookInfoApp {
+  public static void main(String[] args) {
+    try (var remote = SpringApplication.run(IsbnService.class, "--logging.level.org.springframework.web=ERROR")) {
+      String url = "http://localhost:" + remote.getEnvironment().getProperty("local.server.port");
+      try (var app = new SpringApplicationBuilder(BookInfoApp.class).web(WebApplicationType.NONE)
+          .run("--spring.http.serviceclient.isbn.base-url=" + url)) {
+        var books = app.getBean(BookInfoService.class);
+        System.out.println("flaky: " + books.find("9780441013593"));
+        System.out.println("missing: " + books.find("0000000000000"));
+        System.out.println("down: " + books.find("9999999999999"));
+        System.out.println("remote calls: " + remote.getBean(IsbnService.Api.class).calls());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="IsbnService.java">
+package com.example.ch11.ex10.remote;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+@SpringBootApplication
+public class IsbnService {
+  record BookInfo(String isbn, String title) {}
+
+  @RestController
+  public static class Api {
+    private final AtomicInteger calls = new AtomicInteger(), flaky = new AtomicInteger();
+    public int calls() { return calls.get(); }
+
+    @GetMapping("/isbn/{isbn}")
+    BookInfo get(@PathVariable String isbn) {
+      calls.incrementAndGet();
+      if (isbn.startsWith("0")) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+      if (isbn.startsWith("9999")) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);   // always down
+      if (flaky.incrementAndGet() == 1) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY);      // fails once
+      return new BookInfo(isbn, "Dune");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+flaky: Optional[BookInfo[isbn=9780441013593, title=Dune]]
+missing: Optional.empty
+down: Optional[BookInfo[isbn=9999999999999, title=unknown title]]
+remote calls: 6
+</script>
+<p>Six remote calls: 2 for the flaky one (fail, then succeed), 1 for the 404 (never retried) and 3 for the dead one (1 + 2 retries). Notice the layering: <em>retry</em> inside, <em>fallback</em> outside, and each in its own bean so the proxy sees the call.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/rest-clients.html">REST Clients</a> (<code>RestClient</code>, <code>WebClient</code>, HTTP interfaces)</li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/integration/rest-clients.html#rest-http-service-client">HTTP Service Clients</a> · <a href="https://docs.spring.io/spring-framework/reference/core/resilience.html">Resilience features</a> (<code>@Retryable</code>, <code>@ConcurrencyLimit</code>, <code>RetryTemplate</code>)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/io/rest-client.html">Spring Boot: Calling REST services</a> (RestClient, HTTP service interface clients, HTTP client configuration)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

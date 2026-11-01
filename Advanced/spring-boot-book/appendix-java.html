@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="jackson">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>A. Modern Java for Spring Developers · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A</div>
+<h1>Modern Java for Spring Developers</h1>
+<p class="lead">This book uses Java 25 freely: records for DTOs and configuration, text blocks for SQL and JSON, pattern matching, sequenced collections, virtual threads. If your Java habits come from Java 8 or 11, this appendix covers everything the chapters assume — each feature with the Spring situation where you'll meet it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><strong>Records</strong>, and why they're ideal for DTOs, projections, events and <code>@ConfigurationProperties</code>.</li>
+  <li><strong>Sealed types</strong> and <strong>pattern matching</strong> (<code>instanceof</code>, <code>switch</code>, record patterns, unnamed <code>_</code>).</li>
+  <li><strong>Text blocks</strong>, <code>var</code>, and modern collection and stream APIs (<code>toList()</code>, sequenced collections).</li>
+  <li><strong>Virtual threads</strong> and <strong>scoped values</strong> — the concurrency model behind <code>spring.threads.virtual.enabled</code>.</li>
+  <li>Java 25 conveniences: flexible constructor bodies, compact source files, module imports.</li>
+</ul>
+</div>
+
+<h2 id="records">Records</h2>
+<p>A <strong>record</strong> is a transparent, immutable data carrier: you declare the components, Java generates the constructor, accessors (<code>title()</code>, not <code>getTitle()</code>), <code>equals</code>, <code>hashCode</code> and <code>toString</code>. A <em>compact constructor</em> validates or normalises the values:</p>
+<script type="text/plain" class="code" data-file="RecordsDemo.java" data-run>
+package com.example.appa.records;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Objects;
+
+record Money(BigDecimal amount, String currency) {
+  Money {                                                   // compact constructor: validate, normalise
+    Objects.requireNonNull(amount, "amount");
+    if (amount.signum() < 0) throw new IllegalArgumentException("negative amount");
+    currency = currency.toUpperCase();
+    amount = amount.setScale(2);
+  }
+  static Money eur(String value) { return new Money(new BigDecimal(value), "eur"); }
+  Money plus(Money other) { return new Money(amount.add(other.amount), currency); }   // "withers" return new records
+}
+
+record Order(long id, List<String> items, Money total) {
+  Order { items = List.copyOf(items); }                    // defensive copy: truly immutable
+}
+
+public class RecordsDemo {
+  public static void main(String[] args) {
+    var price = Money.eur("9.5");
+    System.out.println(price + " → " + price.plus(Money.eur("0.49")));
+    System.out.println("equal by value: " + price.equals(new Money(new BigDecimal("9.50"), "EUR")));
+    var order = new Order(1, new java.util.ArrayList<>(List.of("Dune")), price);
+    System.out.println(order.items().getClass().getSimpleName().startsWith("List") + " " + order.total().currency());
+    try { Money.eur("-1"); } catch (IllegalArgumentException e) { System.out.println("rejected: " + e.getMessage()); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Money[amount=9.50, currency=EUR] → Money[amount=9.99, currency=EUR]
+equal by value: true
+true EUR
+rejected: negative amount
+</script>
+<p>Where Spring uses them: <strong>request/response DTOs</strong> (Jackson reads and writes records), <strong><code>@ConfigurationProperties</code></strong> (constructor binding, Chapter 4), <strong>Spring Data projections</strong> (Chapter 14), <strong>application events</strong> (Chapter 8), <code>JdbcClient</code> row mapping (Chapter 13). Not as JPA entities: those need a no-arg constructor and mutability.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a printed receipt.</strong> A record is like a receipt: it states its contents, can be compared with another receipt line by line, and nobody edits it after printing — if something changes, you print a new one.</p>
+</div>
+
+<h2 id="sealed">Sealed types and pattern matching</h2>
+<p>A <strong>sealed</strong> interface lists exactly which classes may implement it. Combined with records and <strong>pattern matching for <code>switch</code></strong>, the compiler checks that you've handled every case — no <code>default</code> needed, and adding a new case breaks the build where it's not handled:</p>
+<script type="text/plain" class="code" data-file="SealedDemo.java" data-run>
+package com.example.appa.sealed;
+
+import java.util.List;
+
+sealed interface LoanResult permits Approved, Refused, Waitlisted {}
+record Approved(long loanId, String dueOn) implements LoanResult {}
+record Refused(String reason) implements LoanResult {}
+record Waitlisted(int position) implements LoanResult {}
+
+public class SealedDemo {
+  static String describe(LoanResult result) {
+    return switch (result) {                                       // exhaustive: no default needed
+      case Approved(long id, String due) -> "loan " + id + " due " + due;     // record pattern
+      case Refused(String reason) when reason.equals("overdue") -> "return your overdue books first";   // guard
+      case Refused r -> "refused: " + r.reason();
+      case Waitlisted(var position) -> "you are number " + position + " in the queue";
+    };
+  }
+
+  static int httpStatus(LoanResult result) {
+    return switch (result) {
+      case Approved _ -> 201;                                      // unnamed pattern: we don't need the fields
+      case Refused _, Waitlisted _ -> 409;
+    };
+  }
+
+  public static void main(String[] args) {
+    for (LoanResult r : List.of(new Approved(7, "2026-03-16"), new Refused("overdue"), new Refused("limit"), new Waitlisted(3))) {
+      System.out.println(httpStatus(r) + " " + describe(r));
+    }
+    Object o = "hello";
+    if (o instanceof String s && s.length() > 3) System.out.println("instanceof pattern: " + s.toUpperCase());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 loan 7 due 2026-03-16
+409 return your overdue books first
+409 refused: limit
+409 you are number 3 in the queue
+instanceof pattern: HELLO
+</script>
+<p>Where it helps in Spring code: modelling outcomes of a service method instead of exceptions for expected cases, mapping them to HTTP statuses in one exhaustive <code>switch</code>, handling different event types, and parsing polymorphic JSON (Jackson's <code>@JsonTypeInfo</code>/<code>@JsonSubTypes</code> work with sealed records).</p>
+
+<h2 id="text-var">Text blocks, <code>var</code> and small conveniences</h2>
+<script type="text/plain" class="code" data-file="TextBlocksDemo.java" data-run>
+package com.example.appa.text;
+
+import java.util.List;
+import java.util.Map;
+
+public class TextBlocksDemo {
+  public static void main(String[] args) {
+    String sql = """
+        SELECT b.title, a.name
+        FROM book b
+        JOIN author a ON a.id = b.author_id
+        WHERE b.published > :year
+        ORDER BY b.title""";                                  // indentation relative to the closing quotes is removed
+    System.out.println(sql.lines().count() + " lines, starts with: " + sql.lines().findFirst().orElseThrow());
+
+    String json = """
+        {"title": "%s", "copies": %d}""".formatted("Dune", 2);
+    System.out.println(json);
+
+    var counts = Map.of("web", 2, "app", 1);                  // var: the type is still static (Map<String, Integer>)
+    for (var entry : counts.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
+      System.out.println(entry.getKey() + "=" + entry.getValue());
+    }
+    System.out.println(List.of(3, 1, 2).stream().sorted().toList());   // Stream.toList(): unmodifiable
+    System.out.println("  padded  ".strip() + "|" + "ab".repeat(3) + "|" + " ".isBlank());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 lines, starts with: SELECT b.title, a.name
+{"title": "Dune", "copies": 2}
+app=1
+web=2
+[1, 2, 3]
+padded|ababab|true
+</script>
+<p>Text blocks appear in this book for SQL in <code>@Query</code> and <code>JdbcClient</code>, JSON in tests (<code>isLenientlyEqualTo("""…""")</code>) and multi-line messages. Use <code>var</code> where the type is obvious from the right-hand side; spell it out where it documents intent.</p>
+
+<h2 id="collections">Sequenced collections and streams</h2>
+<p>Java 21 added <strong>sequenced collections</strong>: <code>getFirst()</code>, <code>getLast()</code>, <code>reversed()</code>, <code>addFirst()</code> on lists, deques, <code>LinkedHashSet</code>/<code>LinkedHashMap</code> and sorted collections. Combined with modern stream collectors, many loops disappear:</p>
+<script type="text/plain" class="code" data-file="CollectionsDemo.java" data-run>
+package com.example.appa.collections;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
+import java.util.stream.Gatherers;
+
+record Loan(String member, String title, int days) {}
+
+public class CollectionsDemo {
+  public static void main(String[] args) {
+    var loans = List.of(new Loan("ada", "Dune", 3), new Loan("bob", "Emma", 20), new Loan("ada", "Ulysses", 16), new Loan("cy", "Beloved", 1));
+    System.out.println("first/last: " + loans.getFirst().title() + " / " + loans.getLast().title());
+    System.out.println("reversed: " + loans.reversed().stream().map(Loan::title).toList());
+
+    Map<String, List<String>> byMember = loans.stream().collect(Collectors.groupingBy(Loan::member, TreeMap::new,
+        Collectors.mapping(Loan::title, Collectors.toList())));
+    System.out.println("grouped: " + byMember);
+
+    Map<Boolean, Long> overdue = loans.stream().collect(Collectors.partitioningBy(l -> l.days() > 14, Collectors.counting()));
+    System.out.println("overdue: " + overdue.get(true) + ", on time: " + overdue.get(false));
+
+    var ordered = new LinkedHashMap<String, Integer>();
+    ordered.put("b", 2); ordered.put("a", 1); ordered.putFirst("z", 26);
+    System.out.println("LinkedHashMap first entry: " + ordered.firstEntry());
+
+    System.out.println("batches of 3: " + java.util.stream.IntStream.rangeClosed(1, 7).boxed().gather(Gatherers.windowFixed(3)).toList());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+first/last: Dune / Beloved
+reversed: [Beloved, Ulysses, Emma, Dune]
+grouped: {ada=[Dune, Ulysses], bob=[Emma], cy=[Beloved]}
+overdue: 2, on time: 2
+LinkedHashMap first entry: z=26
+batches of 3: [[1, 2, 3], [4, 5, 6], [7]]
+</script>
+<p><strong>Stream gatherers</strong> (Java 24) add custom intermediate operations — <code>windowFixed</code> above batches items, useful when calling <code>JdbcTemplate.batchUpdate</code> or an API that accepts at most N items per request.</p>
+
+<h2 id="virtual-threads">Virtual threads and scoped values</h2>
+<p>A <strong>virtual thread</strong> is a lightweight thread managed by the JVM rather than the OS. Blocking (waiting for I/O, sleeping) unmounts it from its carrier OS thread, so you can have hundreds of thousands. That's what makes "one thread per request" scale again — the model Spring MVC and JDBC are built on:</p>
+<script type="text/plain" class="code" data-file="VirtualThreadsDemo.java" data-run>
+package com.example.appa.virtual;
+
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
+
+public class VirtualThreadsDemo {
+  public static void main(String[] args) throws Exception {
+    long start = System.nanoTime();
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var futures = IntStream.range(0, 10_000)
+          .mapToObj(i -> executor.submit(() -> { Thread.sleep(Duration.ofMillis(100)); return i; }))   // 10 000 blocking "calls"
+          .toList();
+      long sum = 0;
+      for (var f : futures) sum += f.get();
+      System.out.println("sum=" + sum);
+    }
+    long ms = (System.nanoTime() - start) / 1_000_000;
+    System.out.println("10 000 tasks sleeping 100 ms each finished in under 3 s: " + (ms < 3000));
+    Thread vt = Thread.ofVirtual().start(() -> { });
+    vt.join();
+    System.out.println("virtual: " + vt.isVirtual() + ", daemon: " + vt.isDaemon());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+sum=49995000
+10 000 tasks sleeping 100 ms each finished in under 3 s: true
+virtual: true, daemon: true
+</script>
+<p>With 200 platform threads, the same work would take about 5 seconds (10 000 / 200 × 100 ms). <strong>Scoped values</strong> (final in Java 25) are the virtual-thread-friendly replacement for many <code>ThreadLocal</code> uses: an immutable value bound for the duration of a call, visible to everything it calls:</p>
+<script type="text/plain" class="code" data-file="ScopedValueDemo.java" data-run>
+package com.example.appa.scoped;
+
+public class ScopedValueDemo {
+  static final ScopedValue<String> TENANT = ScopedValue.newInstance();
+
+  static String loadBooks() { return "books of " + (TENANT.isBound() ? TENANT.get() : "nobody"); }   // deep in the call stack
+
+  public static void main(String[] args) {
+    System.out.println(ScopedValue.where(TENANT, "acme").call(ScopedValueDemo::loadBooks));
+    System.out.println(ScopedValue.where(TENANT, "globex").call(ScopedValueDemo::loadBooks));
+    System.out.println(loadBooks());                                // unbound outside the scope
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+books of acme
+books of globex
+books of nobody
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Spring still uses <code>ThreadLocal</code> for context</strong> — transactions, the security context, request attributes. They work with virtual threads (each request still runs on one thread), but the context doesn't flow to threads you start yourself. Use Spring's executors (which can propagate context) instead of raw <code>new Thread</code>.</p>
+</div>
+
+<h2 id="java25">Java 25 conveniences</h2>
+<p><strong>Flexible constructor bodies</strong> let you validate arguments before calling <code>super(…)</code> or <code>this(…)</code> — handy in exception classes and entity hierarchies:</p>
+<script type="text/plain" class="code" data-file="FlexibleConstructorDemo.java" data-run>
+package com.example.appa.flexible;
+
+class NotFoundException extends RuntimeException {
+  NotFoundException(String type, Object id) {
+    if (type == null || type.isBlank()) throw new IllegalArgumentException("type required");   // before super()
+    String message = type + " " + id + " was not found";
+    super(message);
+  }
+}
+
+public class FlexibleConstructorDemo {
+  public static void main(String[] args) {
+    System.out.println(new NotFoundException("Book", 42).getMessage());
+    try { new NotFoundException(" ", 1); } catch (IllegalArgumentException e) { System.out.println("rejected: " + e.getMessage()); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book 42 was not found
+rejected: type required
+</script>
+<p><strong>Compact source files and instance <code>main</code></strong> (<code>void main() { IO.println("hi"); }</code> in a file without a class) and <strong>module imports</strong> (<code>import module java.base;</code>) make small scripts and experiments shorter — great for trying an API quickly, while Spring applications keep their normal class structure.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Records as configuration properties and JSON</h3>
+<script type="text/plain" class="code" data-file="RecordJsonDemo.java" data-run>
+package com.example.appa.json;
+
+import java.util.List;
+import tools.jackson.databind.json.JsonMapper;
+
+record Author(String name, int born) {}
+record Book(String title, List<Author> authors) {}
+
+public class RecordJsonDemo {
+  public static void main(String[] args) {
+    var mapper = JsonMapper.builder().build();                       // Jackson 3 (Spring Boot 4)
+    String json = mapper.writeValueAsString(new Book("Good Omens", List.of(new Author("Pratchett", 1948), new Author("Gaiman", 1960))));
+    System.out.println(json);
+    Book back = mapper.readValue(json, Book.class);
+    System.out.println(back.authors().getLast().name() + ", equal: " + back.equals(mapper.readValue(json, Book.class)));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"title":"Good Omens","authors":[{"name":"Pratchett","born":1948},{"name":"Gaiman","born":1960}]}
+Gaiman, equal: true
+</script>
+<p>Jackson 3 reads and writes records out of the box — properties in declaration order, created through the canonical constructor — so a record is all a DTO needs.</p>
+
+<h3>Optional done right</h3>
+<script type="text/plain" class="code" data-file="OptionalDemo.java" data-run>
+package com.example.appa.optional;
+
+import java.util.Map;
+import java.util.Optional;
+
+public class OptionalDemo {
+  static final Map<String, String> TITLES = Map.of("111", "Dune");
+  static Optional<String> findTitle(String isbn) { return Optional.ofNullable(TITLES.get(isbn)); }   // like a repository
+
+  public static void main(String[] args) {
+    System.out.println(findTitle("111").map(String::toUpperCase).orElse("?"));
+    System.out.println(findTitle("999").map(String::toUpperCase).orElse("?"));
+    try {
+      findTitle("999").orElseThrow(() -> new IllegalStateException("Book 999 not found"));
+    } catch (IllegalStateException e) { System.out.println(e.getMessage()); }
+    findTitle("111").ifPresentOrElse(t -> System.out.println("found " + t), () -> System.out.println("none"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE
+?
+Book 999 not found
+found Dune
+</script>
+<p>Return <code>Optional</code> from lookups (Spring Data does: <code>findById</code>); don't use it for fields, parameters or collections (return an empty list instead).</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Records: immutable data carriers with compact constructors — DTOs, properties, projections, events; not JPA entities.</li>
+  <li>Sealed interfaces + record patterns + <code>switch</code> give exhaustive, compiler-checked handling of alternatives; <code>_</code> for unused parts.</li>
+  <li>Text blocks for SQL/JSON, <code>var</code> for obvious types, <code>Stream.toList()</code>, sequenced collections (<code>getFirst</code>, <code>reversed</code>), gatherers.</li>
+  <li>Virtual threads make blocking cheap; scoped values replace many thread-locals; Spring's own context still lives in thread-locals.</li>
+  <li>Java 25: statements before <code>super(…)</code>, compact source files, module imports.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write a record <code>Isbn(String value)</code> whose compact constructor removes dashes and rejects anything that isn't 13 digits. Print <code>new Isbn("978-0-441-01359-3")</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="IsbnRecord.java" data-run>
+package com.example.appa.ex1;
+
+record Isbn(String value) {
+  Isbn {
+    value = value.replace("-", "");
+    if (!value.matches("\\d{13}")) throw new IllegalArgumentException("not an ISBN-13: " + value);
+  }
+}
+
+public class IsbnRecord {
+  public static void main(String[] args) {
+    System.out.println(new Isbn("978-0-441-01359-3"));
+    try { new Isbn("12-34"); } catch (IllegalArgumentException e) { System.out.println(e.getMessage()); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Isbn[value=9780441013593]
+not an ISBN-13: 1234
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why can't a record be a JPA entity? Name two record features that conflict with JPA's requirements.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>JPA needs a no-argument constructor to instantiate entities and mutable, non-final fields for dirty checking, lazy-loading proxies (subclasses) and id generation after insert. Records have only the canonical constructor, final fields, and are implicitly final classes (no proxy subclass). Use records for projections and DTOs instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Rewrite this with a text block and <code>formatted</code>: <code>"SELECT * FROM book\n" + "WHERE author = '" + a + "'"</code> — and explain why the result is still wrong for SQL.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TextBlockSql.java" data-run>
+package com.example.appa.ex3;
+
+public class TextBlockSql {
+  public static void main(String[] args) {
+    String a = "O'Brien";
+    String sql = """
+        SELECT * FROM book
+        WHERE author = '%s'""".formatted(a);
+    System.out.println(sql);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SELECT * FROM book
+WHERE author = 'O'Brien'
+</script>
+<p>The quote in <code>O'Brien</code> breaks the statement — and a malicious value could inject SQL. Text blocks make SQL readable, but values must still be passed as parameters (<code>WHERE author = :author</code> with <code>.param("author", a)</code>), never formatted in.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does <code>List.of(1, 2, 3).stream().map(i -&gt; i * 2).toList().add(8)</code> do?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It throws <code>UnsupportedOperationException</code>: <code>Stream.toList()</code> returns an unmodifiable list (unlike <code>collect(Collectors.toList())</code>, which in practice returns an <code>ArrayList</code>). Copy it into <code>new ArrayList&lt;&gt;(…)</code> if you need to modify it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Model payment methods as a sealed interface <code>Payment</code> with records <code>Card(String last4)</code>, <code>Iban(String country)</code> and <code>Voucher(int value)</code>. Write an exhaustive <code>switch</code> computing a fee: card 1.5%, IBAN 0 except outside <code>DE</code> 1.00, voucher 0. Print fees for an amount of 100.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="PaymentFees.java" data-run>
+package com.example.appa.ex5;
+
+import java.util.List;
+
+sealed interface Payment permits Card, Iban, Voucher {}
+record Card(String last4) implements Payment {}
+record Iban(String country) implements Payment {}
+record Voucher(int value) implements Payment {}
+
+public class PaymentFees {
+  static double fee(Payment p, double amount) {
+    return switch (p) {
+      case Card _ -> amount * 0.015;
+      case Iban(String country) when !country.equals("DE") -> 1.00;
+      case Iban _ -> 0;
+      case Voucher _ -> 0;
+    };
+  }
+  public static void main(String[] args) {
+    for (Payment p : List.of(new Card("4242"), new Iban("DE"), new Iban("FR"), new Voucher(20))) {
+      System.out.println(p + " → " + fee(p, 100));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Card[last4=4242] → 1.5
+Iban[country=DE] → 0.0
+Iban[country=FR] → 1.0
+Voucher[value=20] → 0.0
+</script>
+<p>The guarded case must come before the general <code>Iban _</code> case — the compiler rejects the reverse order as dominated.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Given loans with member and days, compute the member with the most borrowing days using streams (<code>groupingBy</code> + <code>summingInt</code>, then <code>max</code> by value).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TopBorrower.java" data-run>
+package com.example.appa.ex6;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+record Loan(String member, int days) {}
+
+public class TopBorrower {
+  public static void main(String[] args) {
+    var loans = List.of(new Loan("ada", 3), new Loan("bob", 20), new Loan("ada", 16), new Loan("cy", 1));
+    var top = loans.stream()
+        .collect(Collectors.groupingBy(Loan::member, Collectors.summingInt(Loan::days)))
+        .entrySet().stream().max(Map.Entry.comparingByValue()).orElseThrow();
+    System.out.println(top.getKey() + " with " + top.getValue() + " days");
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+bob with 20 days
+</script>
+<p>In a real application, let the database do this (<code>GROUP BY member ORDER BY SUM(days) DESC LIMIT 1</code>) instead of loading every loan.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Use a virtual-thread executor to "fetch" prices for 5 shops concurrently (each a <code>Thread.sleep(200)</code> returning a price), and show the total time is well under 1 second.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ConcurrentPrices.java" data-run>
+package com.example.appa.ex7;
+
+import java.util.List;
+import java.util.concurrent.Executors;
+
+public class ConcurrentPrices {
+  public static void main(String[] args) throws Exception {
+    long t0 = System.nanoTime();
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var futures = List.of(10, 12, 9, 11, 13).stream()
+          .map(p -> executor.submit(() -> { Thread.sleep(200); return p; }))
+          .toList();
+      int best = Integer.MAX_VALUE;
+      for (var f : futures) best = Math.min(best, f.get());
+      System.out.println("best price " + best + ", fast: " + ((System.nanoTime() - t0) / 1_000_000 < 800));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+best price 9, fast: true
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">concept</span></h3>
+<p>A teammate replaces a <code>ThreadLocal&lt;Tenant&gt;</code> in a Spring MVC app with a <code>ScopedValue</code>. Where must <code>ScopedValue.where(...).run(...)</code> be called so that controllers, services and repositories all see the tenant?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Around the whole request processing — in a servlet <code>Filter</code> (<code>OncePerRequestFilter</code>) that reads the tenant from the request and calls <code>ScopedValue.where(TENANT, t).run(() -&gt; chain.doFilter(req, res))</code> (rethrowing checked exceptions). Everything called within <code>chain.doFilter</code> on that thread sees the value, and it's automatically unbound afterwards — no clean-up needed, unlike a <code>ThreadLocal</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a small "result" type for service methods: a sealed interface <code>Result&lt;T&gt;</code> with records <code>Ok&lt;T&gt;(T value)</code> and <code>Err&lt;T&gt;(String code, String message)</code>, plus a <code>map</code> method. Use it for a <code>borrow</code> function and translate results to HTTP status codes with a <code>switch</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ResultType.java" data-run>
+package com.example.appa.ex9;
+
+import java.util.function.Function;
+
+sealed interface Result<T> permits Ok, Err {
+  default <R> Result<R> map(Function<T, R> f) {
+    return switch (this) {
+      case Ok<T>(T value) -> new Ok<>(f.apply(value));
+      case Err<T>(String code, String message) -> new Err<>(code, message);
+    };
+  }
+}
+record Ok<T>(T value) implements Result<T> {}
+record Err<T>(String code, String message) implements Result<T> {}
+
+public class ResultType {
+  static Result<Long> borrow(String isbn, int openLoans) {
+    if (openLoans >= 3) return new Err<>("limit", "too many loans");
+    if (isbn.startsWith("0")) return new Err<>("not-found", "no such book");
+    return new Ok<>(42L);
+  }
+
+  static String toHttp(Result<String> r) {
+    return switch (r) {
+      case Ok<String>(String body) -> "201 " + body;
+      case Err<String>(String code, String msg) when code.equals("not-found") -> "404 " + msg;
+      case Err<String>(String code, String msg) -> "409 " + msg;
+    };
+  }
+
+  public static void main(String[] args) {
+    System.out.println(toHttp(borrow("978", 0).map(id -> "loan #" + id)));
+    System.out.println(toHttp(borrow("978", 3).map(id -> "loan #" + id)));
+    System.out.println(toHttp(borrow("000", 0).map(id -> "loan #" + id)));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 loan #42
+409 too many loans
+404 no such book
+</script>
+<p>Result types make expected failures explicit in the signature. In Spring applications, exceptions mapped by <code>@RestControllerAdvice</code> are more common — and transactions roll back on exceptions, not on <code>Err</code> values, so choose deliberately.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Use gatherers to process a list of 10 ISBNs in batches of 4, "saving" each batch (print its size and contents), and use a sequenced collection to report the first and last batch.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BatchSaver.java" data-run>
+package com.example.appa.ex10;
+
+import java.util.List;
+import java.util.stream.Gatherers;
+import java.util.stream.IntStream;
+
+public class BatchSaver {
+  public static void main(String[] args) {
+    List<String> isbns = IntStream.rangeClosed(1, 10).mapToObj(i -> "978%010d".formatted(i)).toList();
+    List<List<String>> batches = isbns.stream().gather(Gatherers.windowFixed(4)).toList();
+    batches.forEach(b -> System.out.println("saving " + b.size() + ": " + b.getFirst() + " … " + b.getLast()));
+    System.out.println("first batch starts " + batches.getFirst().getFirst() + ", last batch ends " + batches.getLast().getLast());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+saving 4: 9780000000001 … 9780000000004
+saving 4: 9780000000005 … 9780000000008
+saving 2: 9780000000009 … 9780000000010
+first batch starts 9780000000001, last batch ends 9780000000010
+</script>
+<p>Each batch would be one <code>JdbcTemplate.batchUpdate</code> or <code>saveAll</code> call (Chapter 13) — batching keeps memory and round trips under control for large imports.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://openjdk.org/projects/jdk/25/">JDK 25 features</a> · <a href="https://docs.oracle.com/en/java/javase/25/language/java-language-changes-release.html">Java language changes by release</a></li>
+  <li><a href="https://openjdk.org/jeps/395">JEP 395: Records</a> · <a href="https://openjdk.org/jeps/409">JEP 409: Sealed classes</a> · <a href="https://openjdk.org/jeps/441">JEP 441: Pattern matching for switch</a></li>
+  <li><a href="https://openjdk.org/jeps/444">JEP 444: Virtual threads</a> · <a href="https://openjdk.org/jeps/506">JEP 506: Scoped values</a> · <a href="https://openjdk.org/jeps/513">JEP 513: Flexible constructor bodies</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/kotlin.html">Spring Boot: language support</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

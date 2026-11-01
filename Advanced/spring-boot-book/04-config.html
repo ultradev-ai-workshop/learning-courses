@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="validation">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Externalized Configuration · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Foundations</div>
+<h1>Externalized Configuration</h1>
+<p class="lead">The same jar should run on your laptop, in CI and in production, with only its <em>configuration</em> changing. Spring Boot reads configuration from a dozen places in a well-defined order, binds it to typed Java objects, and validates it at startup. This chapter shows how, and how to keep secrets out of your code.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <code>Environment</code>, <strong>property sources</strong> and their <strong>precedence order</strong>.</li>
+  <li><code>application.properties</code> vs YAML, profile-specific files, multi-document files and <code>spring.config.import</code>.</li>
+  <li>Injecting single values with <code>@Value</code> and placeholders with defaults.</li>
+  <li>Type-safe <strong><code>@ConfigurationProperties</code></strong> with records: nested objects, lists, maps, <code>Duration</code> and <code>DataSize</code>, defaults and validation.</li>
+  <li><strong>Relaxed binding</strong>: how <code>APP_MAIL_HOST</code> becomes <code>app.mail.host</code>.</li>
+</ul>
+</div>
+
+<h2 id="environment">The Environment and property sources</h2>
+<p>All configuration ends up in one object, the <code>Environment</code>. It's a list of <strong>property sources</strong> searched in order: the first source that has a key wins. Boot registers them in this order (highest priority first; the full list has 15 entries):</p>
+<ol>
+  <li>properties in tests (<code>@SpringBootTest(properties=…)</code>, <code>@TestPropertySource</code>, <code>@DynamicPropertySource</code>),</li>
+  <li><strong>command-line arguments</strong> (<code>--server.port=9000</code>),</li>
+  <li><code>SPRING_APPLICATION_JSON</code> (inline JSON in an environment variable or system property),</li>
+  <li>Java <strong>system properties</strong> (<code>-Dserver.port=9000</code>),</li>
+  <li>OS <strong>environment variables</strong> (<code>SERVER_PORT=9000</code>),</li>
+  <li><code>random.*</code> values,</li>
+  <li><strong>config files</strong>: profile-specific <code>application-{profile}.properties</code> before <code>application.properties</code>; files outside the jar before files inside it,</li>
+  <li><code>@PropertySource</code> on configuration classes,</li>
+  <li>default properties (<code>SpringApplication.setDefaultProperties</code>).</li>
+</ol>
+<p>The rule of thumb: <strong>the closer to the deployment, the higher the priority.</strong> Defaults live in the jar, the environment overrides them, and an explicit command-line flag overrides everything.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a stack of transparent sheets.</strong> Imagine each property source as a transparent sheet with a few values written on it, stacked on top of each other: <code>application.properties</code> at the bottom, environment variables above it, command-line arguments on top. Looking down through the stack, you see the top-most value for each key. Values not overridden show through from the sheets below.</p>
+</div>
+<p>Let's see the order in action. This file goes in <code>src/main/resources</code>:</p>
+<script type="text/plain" class="code" data-path="src/main/resources/application.properties" data-file="application.properties">
+shop.name=Corner Shop
+shop.currency=EUR
+shop.greeting=Welcome to ${shop.name}!
+</script>
+<script type="text/plain" class="code" data-file="PrecedenceApplication.java" data-run data-args="--shop.currency=USD">
+package com.example.ch04.precedence;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class PrecedenceApplication {
+  public static void main(String[] args) {
+    System.setProperty("shop.name", "Big Store");          // a JVM system property, like -Dshop.name=…
+    try (var ctx = SpringApplication.run(PrecedenceApplication.class, args)) {
+      var env = ctx.getEnvironment();
+      System.out.println(env.getProperty("shop.name"));     // system property beats the file
+      System.out.println(env.getProperty("shop.currency")); // command line beats the file
+      System.out.println(env.getProperty("shop.greeting")); // placeholder resolved with the winning value
+      System.out.println(env.getProperty("shop.city", "unknown"));
+      int i = 0;
+      for (var source : ctx.getEnvironment().getPropertySources()) {
+        if (i++ < 4) System.out.println("  source: " + source.getName());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Big Store
+USD
+Welcome to Big Store!
+unknown
+  source: configurationProperties
+  source: commandLineArgs
+  source: systemProperties
+  source: systemEnvironment
+</script>
+<p>Placeholders like <code>${shop.name}</code> are resolved <em>when read</em>, against the whole environment, so they pick up overrides. The list of sources confirms the order: command line, then system properties, then environment variables, then (further down) the config files. <code>configurationProperties</code> at the top isn't a real source: it's a view over all the others, used by binding.</p>
+
+<h2 id="files">Configuration files</h2>
+<h3>Properties or YAML</h3>
+<p>Boot reads <code>application.properties</code> and <code>application.yml</code> (or <code>.yaml</code>). They're equivalent; choose one style per project. YAML is easier to read for nested structures, properties files are harder to get wrong (indentation matters in YAML).</p>
+<div class="cols">
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+app.mail.host=smtp.example.com
+app.mail.port=587
+app.mail.recipients[0]=ops@example.com
+app.mail.recipients[1]=dev@example.com
+app.mail.timeouts.connect=2s
+</script>
+<script type="text/plain" class="code" data-file="application.yml" data-norun>
+app:
+  mail:
+    host: smtp.example.com
+    port: 587
+    recipients:
+      - ops@example.com
+      - dev@example.com
+    timeouts:
+      connect: 2s
+</script>
+</div>
+
+<h3>Where files are found</h3>
+<p>Boot looks in four locations, later ones overriding earlier ones: <code>classpath:/</code>, <code>classpath:/config/</code>, the current directory <code>./</code>, and <code>./config/</code> (plus its sub-directories). So a <code>config/application.properties</code> next to the jar overrides the one inside it — no rebuild needed. You can change this with <code>spring.config.location</code> or add more with <code>spring.config.additional-location</code>.</p>
+
+<h3>Profile-specific files and documents</h3>
+<p>For each active profile, Boot also loads <code>application-{profile}.properties</code>, which overrides the plain file. Inside one file, you can split into <strong>documents</strong> (<code>#---</code> in properties, <code>---</code> in YAML) and activate a document conditionally:</p>
+<script type="text/plain" class="code" data-path="src/main/resources/application.properties" data-file="application.properties">
+pool.size=5
+pool.name=default-pool
+#---
+spring.config.activate.on-profile=prod
+pool.size=50
+#---
+spring.config.activate.on-profile=prod & eu
+pool.name=eu-pool
+</script>
+<script type="text/plain" class="code" data-file="ProfileFilesApplication.java" data-run>
+package com.example.ch04.profilefiles;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ProfileFilesApplication {
+  public static void main(String[] args) {
+    for (String profiles : new String[] { "", "prod", "prod,eu" }) {
+      try (var ctx = SpringApplication.run(ProfileFilesApplication.class, "--spring.profiles.active=" + profiles)) {
+        var env = ctx.getEnvironment();
+        System.out.println("[" + profiles + "] size=" + env.getProperty("pool.size") + " name=" + env.getProperty("pool.name"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[] size=5 name=default-pool
+[prod] size=50 name=default-pool
+[prod,eu] size=50 name=eu-pool
+</script>
+<p>Later documents override earlier ones. <strong>Profile groups</strong> name a set of profiles: <code>spring.profiles.group.production=prod,eu,metrics</code> lets you activate all three with <code>--spring.profiles.active=production</code>.</p>
+
+<h3>Importing more configuration</h3>
+<p><code>spring.config.import</code> pulls in other files or sources. Prefix a location with <code>optional:</code> so a missing file isn't an error:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.config.import=optional:file:./dev.properties,optional:configtree:/run/secrets/
+</script>
+<p><code>configtree:</code> reads a directory where each <em>file name</em> is a key and its <em>content</em> is the value — exactly how Kubernetes and Docker mount secrets. Other importers come from Spring Cloud (Config Server, Vault, Consul).</p>
+
+<h2 id="value">Single values with <code>@Value</code></h2>
+<p><code>@Value("${key:default}")</code> injects one property, converted to the parameter's type. It's fine for one or two values; for groups of related settings, use <code>@ConfigurationProperties</code> (next section).</p>
+<script type="text/plain" class="code" data-file="ValueApplication.java" data-run data-args="--feature.limits=3,5,8">
+package com.example.ch04.value;
+
+import java.time.Duration;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+
+@Component
+class Feature {
+  Feature(@Value("${feature.enabled:false}") boolean enabled,
+          @Value("${feature.timeout:5s}") Duration timeout,
+          @Value("${feature.limits}") List<Integer> limits,
+          @Value("${feature.owner:${user.name}}") String owner,        // default from another property
+          @Value("#{'${feature.limits}'.split(',').length * 2}") int doubled) { // #{...} is SpEL (Chapter 6)
+    System.out.println("enabled=" + enabled + " timeout=" + timeout + " limits=" + limits);
+    System.out.println("owner set: " + !owner.isBlank() + ", doubled count: " + doubled);
+  }
+}
+
+@SpringBootApplication
+public class ValueApplication {
+  public static void main(String[] args) { SpringApplication.run(ValueApplication.class, args).close(); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+enabled=false timeout=PT5S limits=[3, 5, 8]
+owner set: true, doubled count: 6
+</script>
+<div class="pitfall">
+<p>⚠️ <strong><code>${…}</code> vs <code>#{…}</code>.</strong> <code>${key}</code> is a property placeholder. <code>#{expr}</code> is a SpEL expression. Without a default, a missing <code>${key}</code> fails startup with <em>Could not resolve placeholder</em> — which is usually what you want for required settings.</p>
+</div>
+
+<h2 id="properties">Type-safe <code>@ConfigurationProperties</code></h2>
+<p>Bind a whole tree of properties under a prefix to a Java object. With a <strong>record</strong>, Boot uses constructor binding, so the object is immutable:</p>
+<script type="text/plain" class="code" data-path="src/main/resources/application.yml" data-file="application.yml">
+mail:
+  host: smtp.example.com
+  port: 587
+  from: no-reply@example.com
+  recipients:
+    - ops@example.com
+    - dev@example.com
+  timeouts:
+    connect: 2s
+    read: 1500ms
+  max-attachment-size: 10MB
+  templates:
+    welcome: Hello {name}
+    reset: Reset your password, {name}
+</script>
+<script type="text/plain" class="code" data-file="MailApplication.java" data-run>
+package com.example.ch04.mail;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.util.unit.DataSize;
+
+@ConfigurationProperties("mail")
+record MailProperties(
+    String host,
+    int port,
+    String from,
+    List<String> recipients,
+    Timeouts timeouts,
+    DataSize maxAttachmentSize,               // bound from max-attachment-size
+    Map<String, String> templates,
+    @DefaultValue("true") boolean tls) {       // not in the file: default applies
+
+  record Timeouts(Duration connect, @DefaultValue("5s") Duration read) {}
+}
+
+@SpringBootApplication
+@ConfigurationPropertiesScan                  // finds @ConfigurationProperties classes
+public class MailApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MailApplication.class)) {
+      MailProperties mail = ctx.getBean(MailProperties.class);
+      System.out.println(mail.host() + ":" + mail.port() + " tls=" + mail.tls());
+      System.out.println("to " + mail.recipients());
+      System.out.println("connect " + mail.timeouts().connect().toMillis() + " ms, read " + mail.timeouts().read().toMillis() + " ms");
+      System.out.println("max " + mail.maxAttachmentSize().toMegabytes() + " MB");
+      System.out.println(mail.templates().get("welcome").replace("{name}", "Ada"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+smtp.example.com:587 tls=true
+to [ops@example.com, dev@example.com]
+connect 2000 ms, read 1500 ms
+max 10 MB
+Hello Ada
+</script>
+<p>Then inject <code>MailProperties</code> wherever you need it. Compared to many <code>@Value</code> fields, this gives you one place that documents every setting, type conversion (<code>2s</code>, <code>1500ms</code>, <code>10MB</code>), IDE auto-completion (with the <code>spring-boot-configuration-processor</code> dependency) and validation.</p>
+<div class="tip">
+<p>💡 <strong>Registering properties classes.</strong> Use <code>@ConfigurationPropertiesScan</code> on the main class (scans like component scanning), or <code>@EnableConfigurationProperties(MailProperties.class)</code> on a configuration class. Auto-configurations use the second form.</p>
+</div>
+
+<h3>Validate configuration at startup</h3>
+<p>Add <code>@Validated</code> and Bean Validation constraints. A bad value then stops the application at startup — far better than a failure at 3 a.m. when the first email is sent:</p>
+<script type="text/plain" class="code" data-file="ValidatedApplication.java" data-run data-args="--payments.url=not-a-url --payments.retries=12">
+package com.example.ch04.validated;
+
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
+
+@Validated
+@ConfigurationProperties("payments")
+record PaymentProperties(
+    @NotBlank @Pattern(regexp = "https://.*") String url,
+    @Max(5) int retries) {}
+
+@SpringBootApplication
+@EnableConfigurationProperties(PaymentProperties.class)
+public class ValidatedApplication {
+  public static void main(String[] args) {
+    try {
+      SpringApplication.run(ValidatedApplication.class, args).close();
+    } catch (Exception e) {
+      System.out.println("startup failed: " + e.getClass().getSimpleName());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Binding to target com.example.ch04.validated.PaymentProperties failed:
+
+    Property: payments.retries
+    Value: "12"
+    Origin: "payments.retries" from property source "commandLineArgs"
+    Reason: must be less than or equal to 5
+
+    Property: payments.url
+    Value: "not-a-url"
+    Origin: "payments.url" from property source "commandLineArgs"
+    Reason: must match "https://.*"
+
+
+Action:
+
+Update your application's configuration
+
+startup failed: ConfigurationPropertiesBindException
+</script>
+<p>Boot's <em>failure analyzer</em> turns the exception into this readable report: which property, which value, <strong>where it came from</strong> (the <em>origin</em>), and why it's wrong. You'll see this report shape for many startup problems, such as a missing bean or a port already in use.</p>
+
+<h2 id="relaxed">Relaxed binding</h2>
+<p><code>@ConfigurationProperties</code> binding is forgiving about how names are written, so each source can use its natural style. The canonical form is lower-case kebab-case (<code>mail.max-attachment-size</code>):</p>
+<table>
+  <tr><th>Source</th><th>Write it as</th></tr>
+  <tr><td>properties / YAML</td><td><code>mail.max-attachment-size</code> (recommended), also <code>maxAttachmentSize</code>, <code>max_attachment_size</code></td></tr>
+  <tr><td>environment variable</td><td><code>MAIL_MAXATTACHMENTSIZE</code> — upper case, dots become <code>_</code>, dashes removed (<code>MAIL_MAX_ATTACHMENT_SIZE</code> is also accepted)</td></tr>
+  <tr><td>list index in env</td><td><code>MAIL_RECIPIENTS_0_</code> or <code>MAIL_RECIPIENTS_0</code></td></tr>
+</table>
+<script type="text/plain" class="code" data-file="RelaxedApplication.java" data-run>
+package com.example.ch04.relaxed;
+
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
+
+record Pool(String name, int maxSize, List<String> hosts) {}
+
+public class RelaxedApplication {
+  public static void main(String[] args) {
+    var env = new StandardEnvironment();
+    // pretend these came from the operating system (replace the real environment variables)
+    env.getPropertySources().replace("systemEnvironment", new SystemEnvironmentPropertySource("systemEnvironment", Map.of(
+        "DB_POOL_MAXSIZE", "40",
+        "DB_POOL_HOSTS_0_", "db1.internal",
+        "DB_POOL_HOSTS_1_", "db2.internal")));
+    env.getPropertySources().addLast(new MapPropertySource("file", Map.of(
+        "db.pool.name", "orders",
+        "db.pool.max-size", "10")));
+    ConfigurationPropertySources.attach(env);
+
+    Pool pool = Binder.get(env).bind("db.pool", Pool.class).get();
+    System.out.println(pool);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Pool[name=orders, maxSize=40, hosts=[db1.internal, db2.internal]]
+</script>
+<p>The source must be named <code>systemEnvironment</code>: that name is what tells Boot to apply the environment-variable naming rules. <code>DB_POOL_MAXSIZE</code> from the environment beats <code>db.pool.max-size=10</code> from the file — the same key in a different spelling. The <code>Binder</code> used here is the engine behind <code>@ConfigurationProperties</code>; you can use it directly in code that runs before the context exists.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Use kebab-case in <code>@Value</code> placeholders.</strong> Relaxed binding is a <code>@ConfigurationProperties</code> feature; <code>@Value</code> only gets part of it. With <code>APP_MAX_USERS=50</code> in the environment, <code>@Value("${app.max-users}")</code> resolves to 50 but <code>@Value("${app.maxUsers}")</code> finds nothing. The canonical kebab-case form is the only one that matches every spelling — another reason to prefer <code>@ConfigurationProperties</code>.</p>
+</div>
+
+<h2 id="secrets">Secrets</h2>
+<p>Never commit passwords or API keys in <code>application.properties</code>. Common approaches, from simplest to most robust:</p>
+<ul>
+  <li><strong>Environment variables</strong> set by the platform (<code>SPRING_DATASOURCE_PASSWORD</code>); reference them from files with placeholders: <code>spring.datasource.password=${DB_PASSWORD}</code>.</li>
+  <li><strong>Mounted secret files</strong> read with <code>spring.config.import=configtree:/run/secrets/</code>.</li>
+  <li>A <strong>secret store</strong> (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) via Spring Cloud integrations.</li>
+  <li>For local development, an untracked <code>dev.properties</code> imported with <code>optional:file:</code> and listed in <code>.gitignore</code>.</li>
+</ul>
+<p>Actuator's <code>/env</code> and <code>/configprops</code> endpoints mask values by default (Chapter 18) — keep it that way.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Random values</h3>
+<script type="text/plain" class="code" data-file="RandomApplication.java" data-run>
+package com.example.ch04.random;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class RandomApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RandomApplication.class)) {
+      var env = ctx.getEnvironment();
+      String id = env.getProperty("random.uuid");
+      int port = env.getProperty("random.int[8000,9000]", Integer.class);
+      System.out.println("uuid length " + id.length() + ", port in range: " + (port >= 8000 && port < 9000));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+uuid length 36, port in range: true
+</script>
+
+<h3>Mutable JavaBean-style properties</h3>
+<p>Records are the modern style, but classes with getters and setters still work (Boot uses setters). Defaults are field initialisers:</p>
+<script type="text/plain" class="code" data-file="JavaBeanProps.java" data-run data-args="--cache.ttl=10m --cache.names=books,authors">
+package com.example.ch04.javabean;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+
+@ConfigurationProperties("cache")
+class CacheProperties {
+  private Duration ttl = Duration.ofMinutes(1);
+  private int maxEntries = 1000;
+  private List<String> names = new ArrayList<>();
+  public Duration getTtl() { return ttl; }
+  public void setTtl(Duration ttl) { this.ttl = ttl; }
+  public int getMaxEntries() { return maxEntries; }
+  public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
+  public List<String> getNames() { return names; }
+  public void setNames(List<String> names) { this.names = names; }
+}
+
+@SpringBootApplication
+@EnableConfigurationProperties(CacheProperties.class)
+public class JavaBeanProps {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JavaBeanProps.class, args)) {
+      var p = ctx.getBean(CacheProperties.class);
+      System.out.println(p.getTtl() + " " + p.getMaxEntries() + " " + p.getNames());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+PT10M 1000 [books, authors]
+</script>
+
+<h3>Configuration for third-party beans</h3>
+<p>Put <code>@ConfigurationProperties</code> on a <code>@Bean</code> method to bind properties onto an object you don't own:</p>
+<script type="text/plain" class="code" data-file="ThirdPartyProps.java" data-run data-args="--http.client.base-url=https://api.example.com --http.client.agent=shop/1.0">
+package com.example.ch04.thirdparty;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+
+class LegacyClientSettings {                     // imagine this is in a library jar
+  private String baseUrl; private String agent;
+  public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+  public void setAgent(String agent) { this.agent = agent; }
+  public String toString() { return agent + " → " + baseUrl; }
+}
+
+@SpringBootApplication
+public class ThirdPartyProps {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ThirdPartyProps.class, args)) {
+      System.out.println(ctx.getBean(LegacyClientSettings.class));
+    }
+  }
+
+  @Bean
+  @ConfigurationProperties("http.client")
+  LegacyClientSettings legacyClientSettings() { return new LegacyClientSettings(); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+shop/1.0 → https://api.example.com
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>All configuration flows into the <code>Environment</code>: an ordered list of property sources. Command line &gt; system properties &gt; env vars &gt; profile files &gt; <code>application.properties</code> &gt; defaults.</li>
+  <li>Files: properties or YAML in <code>classpath:/</code>, <code>classpath:/config/</code>, <code>./</code>, <code>./config/</code>; <code>application-{profile}</code> files; <code>#---</code> documents with <code>spring.config.activate.on-profile</code>; <code>spring.config.import</code> (with <code>optional:</code> and <code>configtree:</code>).</li>
+  <li><code>@Value("${key:default}")</code> for single values; <code>@ConfigurationProperties</code> records for groups (immutable, typed, <code>@DefaultValue</code>, <code>Duration</code>, <code>DataSize</code>).</li>
+  <li><code>@Validated</code> + constraints fail startup with a clear report showing each property's origin.</li>
+  <li>Relaxed binding maps <code>MAIL_MAXATTACHMENTSIZE</code> to <code>mail.max-attachment-size</code>. Keep secrets in the environment or a secret store, never in the repository.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p><code>application.properties</code> has <code>server.port=8080</code>, the environment has <code>SERVER_PORT=9090</code>, and the app starts with <code>java -jar app.jar --server.port=7070</code>. Which port is used? And without the argument?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>7070: command-line arguments beat environment variables. Without the argument, 9090: environment variables beat <code>application.properties</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Translate these keys into environment variable names: <code>spring.datasource.url</code>, <code>app.max-retries</code>, <code>app.servers[2]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>SPRING_DATASOURCE_URL</code>, <code>APP_MAXRETRIES</code> (dashes are removed; <code>APP_MAX_RETRIES</code> is also accepted for compatibility), <code>APP_SERVERS_2_</code> (or <code>APP_SERVERS_2</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Inject <code>app.title</code> with <code>@Value</code>, defaulting to <code>Untitled</code>, and print it with and without <code>--app.title=Library</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TitleApplication.java" data-run>
+package com.example.ch04.ex3;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+@SpringBootApplication
+public class TitleApplication {
+  public static void main(String[] args) {
+    SpringApplication.run(TitleApplication.class).close();
+    SpringApplication.run(TitleApplication.class, "--app.title=Library").close();
+  }
+  @Bean CommandLineRunner title(@Value("${app.title:Untitled}") String title) {
+    return args -> System.out.println(title);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Untitled
+Library
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Your jar contains <code>application.properties</code> with <code>app.mode=test</code>. In production you can't rebuild the jar. Name two ways to set <code>app.mode=live</code> without code changes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Any higher-priority source works: an environment variable <code>APP_MODE=live</code>; a command-line argument <code>--app.mode=live</code>; a system property <code>-Dapp.mode=live</code>; or a <code>config/application.properties</code> file next to the jar (files outside the jar override those inside).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Create a record <code>@ConfigurationProperties("upload")</code> with <code>DataSize maxFileSize</code> (default <code>5MB</code>), <code>List&lt;String&gt; allowedTypes</code>, and <code>Duration retention</code> (default <code>7d</code>). Bind it from <code>--upload.allowed-types=png,pdf --upload.max-file-size=20MB</code> and print it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="UploadApplication.java" data-run data-args="--upload.allowed-types=png,pdf --upload.max-file-size=20MB">
+package com.example.ch04.ex5;
+
+import java.time.Duration;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.util.unit.DataSize;
+
+@ConfigurationProperties("upload")
+record UploadProperties(@DefaultValue("5MB") DataSize maxFileSize,
+                        List<String> allowedTypes,
+                        @DefaultValue("7d") Duration retention) {}
+
+@SpringBootApplication
+@EnableConfigurationProperties(UploadProperties.class)
+public class UploadApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(UploadApplication.class, args)) {
+      var p = ctx.getBean(UploadProperties.class);
+      System.out.println(p.maxFileSize().toMegabytes() + "MB " + p.allowedTypes() + " " + p.retention().toDays() + " days");
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+20MB [png, pdf] 7 days
+</script>
+<p>Duration accepts simple units (<code>ns us ms s m h d</code>) and ISO-8601 (<code>PT7H</code>); DataSize accepts <code>B KB MB GB TB</code> (powers of 1024).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Bind a <code>Map&lt;String, Integer&gt;</code> of per-plan rate limits from YAML-style keys <code>limits.plans.free=10</code>, <code>limits.plans.pro=100</code>, <code>limits.plans.enterprise=1000</code> (pass them on the command line). Print the limit for <code>pro</code> and the plan names in sorted order.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LimitsApplication.java" data-run data-args="--limits.plans.free=10 --limits.plans.pro=100 --limits.plans.enterprise=1000">
+package com.example.ch04.ex6;
+
+import java.util.Map;
+import java.util.TreeSet;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+
+@ConfigurationProperties("limits")
+record Limits(Map<String, Integer> plans) {}
+
+@SpringBootApplication
+@EnableConfigurationProperties(Limits.class)
+public class LimitsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LimitsApplication.class, args)) {
+      var limits = ctx.getBean(Limits.class);
+      System.out.println("pro: " + limits.plans().get("pro"));
+      System.out.println(new TreeSet<>(limits.plans().keySet()));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+pro: 100
+[enterprise, free, pro]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>The environment has <code>APP_MAX_USERS=50</code>. A <code>@ConfigurationProperties("app")</code> record with <code>int maxUsers</code> gets 50, but a teammate's <code>@Value("${app.maxUsers:0}") int maxUsers</code> in another bean gets 0. Why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@ConfigurationProperties</code> uses relaxed binding: it maps <code>APP_MAX_USERS</code> (and <code>APP_MAXUSERS</code>) to <code>app.max-users</code>, which matches <code>maxUsers</code>. <code>@Value</code> does a plain lookup of the exact key in the placeholder; the camelCase key <code>app.maxUsers</code> doesn't match the environment variable, so the default 0 is used. Fix: write the placeholder in canonical form, <code>@Value("${app.max-users:0}")</code> — or better, inject the properties record.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>With a properties file containing a default document and a <code>prod</code> document (via <code>#---</code> and <code>spring.config.activate.on-profile</code>), create a profile group <code>production</code> = <code>prod,audit</code>. Show that activating <code>production</code> activates both profiles and picks up the prod document. (Use <code>setDefaultProperties</code> to define the group in code for this exercise.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="GroupApplication.java" data-run>
+package com.example.ch04.ex8;
+
+import java.util.Arrays;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class GroupApplication {
+  public static void main(String[] args) {
+    var app = new SpringApplication(GroupApplication.class);
+    app.setDefaultProperties(Map.of("spring.profiles.group.production", "prod,audit"));
+    try (var ctx = app.run("--spring.profiles.active=production")) {
+      System.out.println(Arrays.toString(ctx.getEnvironment().getActiveProfiles()));
+      System.out.println("pool.size=" + ctx.getEnvironment().getProperty("pool.size"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[production, prod, audit]
+pool.size=50
+</script>
+<p>The <code>pool.size=50</code> comes from the <code>prod</code> document of the <code>application.properties</code> shown earlier in this chapter. In a real project you'd write <code>spring.profiles.group.production=prod,audit</code> in <code>application.properties</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a validated properties record <code>@ConfigurationProperties("retry")</code> with <code>@Min(1) @Max(10) int attempts</code>, <code>@NotNull Duration backoff</code> and a cross-field rule: the total wait (<code>attempts × backoff</code>) must be at most 1 minute. Express the rule with an <code>@AssertTrue</code> method. Show that <code>--retry.attempts=5 --retry.backoff=20s</code> fails with the rule's message.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RetryPropsApplication.java" data-run data-args="--retry.attempts=5 --retry.backoff=20s --logging.level.root=OFF">
+package com.example.ch04.ex9;
+
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import java.time.Duration;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.validation.annotation.Validated;
+
+@Validated
+@ConfigurationProperties("retry")
+record RetryProperties(@Min(1) @Max(10) int attempts, @NotNull Duration backoff) {
+  @AssertTrue(message = "attempts × backoff must be at most 1 minute")
+  boolean isTotalWaitAcceptable() {
+    return backoff == null || backoff.multipliedBy(attempts).compareTo(Duration.ofMinutes(1)) <= 0;
+  }
+}
+
+@SpringBootApplication
+@EnableConfigurationProperties(RetryProperties.class)
+public class RetryPropsApplication {
+  public static void main(String[] args) {
+    try {
+      SpringApplication.run(RetryPropsApplication.class, args).close();
+    } catch (Exception e) {
+      var root = NestedExceptionUtils.getMostSpecificCause(e);
+      System.out.println(root.getMessage().lines().filter(l -> l.contains("must be")).findFirst().orElse(root.getMessage()));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+...attempts × backoff must be at most 1 minute...
+</script>
+<p><code>@AssertTrue</code> on a getter-style method (<code>isXxx</code>) validates the whole object. <code>--logging.level.root=OFF</code> silences the failure report so only our line is printed. With <code>--retry.backoff=10s</code> the app starts.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a <strong>feature-flag service</strong>: <code>@ConfigurationProperties("flags")</code> with <code>Map&lt;String, Flag&gt; features</code>, where <code>Flag</code> is a record with <code>boolean enabled</code> and <code>@DefaultValue("100") int rolloutPercent</code>. A <code>FeatureFlags</code> bean has <code>boolean isOn(String feature, String userId)</code>: on if enabled and <code>Math.floorMod(userId.hashCode(), 100) &lt; rolloutPercent</code>. Configure <code>search</code> (enabled, 100%), <code>beta</code> (enabled, 0%) and <code>dark-mode</code> (disabled), and print the flags for user <code>u1</code> plus an unknown feature.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="FlagsApplication.java" data-run data-args="--flags.features.search.enabled=true --flags.features.beta.enabled=true --flags.features.beta.rollout-percent=0 --flags.features.dark-mode.enabled=false">
+package com.example.ch04.ex10;
+
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.stereotype.Service;
+
+@ConfigurationProperties("flags")
+record FlagProperties(Map<String, Flag> features) {
+  record Flag(boolean enabled, @DefaultValue("100") int rolloutPercent) {}
+}
+
+@Service
+class FeatureFlags {
+  private final FlagProperties props;
+  FeatureFlags(FlagProperties props) { this.props = props; }
+  boolean isOn(String feature, String userId) {
+    var flag = props.features().get(feature);
+    return flag != null && flag.enabled() && Math.floorMod(userId.hashCode(), 100) < flag.rolloutPercent();
+  }
+}
+
+@SpringBootApplication
+@EnableConfigurationProperties(FlagProperties.class)
+public class FlagsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FlagsApplication.class, args)) {
+      var flags = ctx.getBean(FeatureFlags.class);
+      for (String f : new String[] { "search", "beta", "dark-mode", "unknown" }) {
+        System.out.println(f + ": " + flags.isOn(f, "u1"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+search: true
+beta: false
+dark-mode: false
+unknown: false
+</script>
+<p>Map keys with dashes (<code>dark-mode</code>) are kept as-is. Hashing the user id makes rollout <em>sticky</em>: the same user always gets the same answer for a given percentage. Real projects often move flags to a dedicated service, but configuration-backed flags are a great start.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/external-config.html">Spring Boot: Externalized Configuration</a> (order, files, imports, type-safe properties, relaxed binding, validation)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/features/profiles.html">Profiles</a> (profile-specific files, groups)</li>
+  <li><a href="https://docs.spring.io/spring-boot/appendix/application-properties/index.html">Common application properties</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/specification/configuration-metadata/annotation-processor.html">Generating metadata with the annotation processor</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/beans/environment.html">Spring Framework: Environment abstraction</a> · <a href="https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/value-annotations.html">Using @Value</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

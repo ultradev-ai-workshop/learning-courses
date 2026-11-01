@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="validation">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Validation, Conversion &amp; SpEL · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Core Framework</div>
+<h1>Validation, Conversion &amp; SpEL</h1>
+<p class="lead">Data enters your application as strings and maps — from HTTP requests, configuration, message queues — and must become valid, typed Java objects. Spring's core gives you three tools for that: <strong>Bean Validation</strong> to check objects, the <strong>conversion service</strong> to turn strings into types and back, and the <strong>Spring Expression Language (SpEL)</strong> for small dynamic expressions in annotations and configuration.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Bean Validation with Hibernate Validator: built-in constraints, messages, nested <code>@Valid</code>, groups.</li>
+  <li><strong>Custom constraints</strong> with <code>ConstraintValidator</code>, and class-level (cross-field) rules.</li>
+  <li><strong>Method validation</strong> with <code>@Validated</code>: checking parameters and return values of any bean.</li>
+  <li>Type conversion: <code>Converter</code>, <code>Formatter</code>, <code>@DateTimeFormat</code> and the <code>ConversionService</code>.</li>
+  <li>SpEL: property access, operators, collection selection/projection, safe navigation, and why untrusted input needs <code>SimpleEvaluationContext</code>.</li>
+</ul>
+</div>
+
+<h2 id="bean-validation">Bean Validation</h2>
+<p><strong>Jakarta Bean Validation</strong> is a standard: you put constraint annotations on fields (or record components), and a validator checks an object against them. Spring Boot's <code>spring-boot-starter-validation</code> brings <strong>Hibernate Validator</strong>, the reference implementation, and auto-configures a <code>Validator</code> bean that you can inject.</p>
+<script type="text/plain" class="code" data-file="ValidationBasics.java" data-run>
+package com.example.ch06.basics;
+
+import jakarta.validation.Validator;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+record SignUp(
+    @NotBlank @Size(min = 2, max = 30) String name,
+    @NotBlank @Email String email,
+    @Min(18) int age) {}
+
+@SpringBootApplication
+public class ValidationBasics {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ValidationBasics.class)) {
+      Validator validator = ctx.getBean(Validator.class);
+      var violations = validator.validate(new SignUp("A", "not-an-email", 16));
+      violations.stream()
+          .map(v -> v.getPropertyPath() + ": " + v.getMessage())
+          .sorted()                                  // a Set has no order: sort for stable output
+          .forEach(System.out::println);
+      System.out.println("valid one: " + validator.validate(new SignUp("Ada", "ada@example.com", 36)).isEmpty());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+age: must be greater than or equal to 18
+email: must be a well-formed email address
+name: size must be between 2 and 30
+valid one: true
+</script>
+<p>Validation doesn't stop at the first problem: you get <strong>every</strong> violation at once, which is what a form or API client needs. The most-used constraints:</p>
+<table>
+  <tr><th>Constraint</th><th>Checks</th></tr>
+  <tr><td><code>@NotNull</code>, <code>@NotEmpty</code>, <code>@NotBlank</code></td><td>not null / not null and not empty (strings, collections) / not null and has a non-whitespace character</td></tr>
+  <tr><td><code>@Size(min, max)</code></td><td>length of a string, size of a collection/map/array</td></tr>
+  <tr><td><code>@Min</code>, <code>@Max</code>, <code>@Positive</code>, <code>@PositiveOrZero</code>, <code>@DecimalMin</code>, <code>@Digits</code></td><td>numeric ranges and precision</td></tr>
+  <tr><td><code>@Email</code>, <code>@Pattern(regexp)</code></td><td>e-mail shape, regular expression</td></tr>
+  <tr><td><code>@Past</code>, <code>@Future</code>, <code>@PastOrPresent</code></td><td>dates and times relative to now</td></tr>
+  <tr><td><code>@AssertTrue</code>, <code>@AssertFalse</code></td><td>a boolean (or an <code>isXxx()</code> method — useful for cross-field rules)</td></tr>
+  <tr><td><code>@Valid</code></td><td>not a constraint: <em>cascade</em> validation into a nested object or collection elements</td></tr>
+</table>
+<div class="pitfall">
+<p>⚠️ <strong>Most constraints accept <code>null</code>.</strong> <code>@Size</code>, <code>@Email</code>, <code>@Min</code> and <code>@Pattern</code> all treat <code>null</code> as valid — the idea is that "required" is a separate decision. If a field is required, add <code>@NotNull</code> (or <code>@NotBlank</code> for strings) as well.</p>
+</div>
+
+<h3>Nested objects, collections and messages</h3>
+<script type="text/plain" class="code" data-file="NestedValidation.java" data-run>
+package com.example.ch06.nested;
+
+import jakarta.validation.Valid;
+import jakarta.validation.Validator;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+record Address(@NotBlank String city, @Pattern(regexp = "\\d{5}", message = "must be 5 digits") String zip) {}
+record Line(@NotBlank String sku, @Positive int quantity) {}
+record Order(
+    @Valid Address shipTo,                                  // cascade into the address
+    @NotEmpty List<@Valid Line> lines) {}                   // and into each line (container element)
+
+@SpringBootApplication
+public class NestedValidation {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NestedValidation.class)) {
+      var order = new Order(new Address("", "1234"), List.of(new Line("BOOK", 2), new Line(" ", 0)));
+      ctx.getBean(Validator.class).validate(order).stream()
+          .map(v -> v.getPropertyPath() + " = '" + v.getInvalidValue() + "': " + v.getMessage())
+          .sorted().forEach(System.out::println);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+lines[1].quantity = '0': must be greater than 0
+lines[1].sku = ' ': must not be blank
+shipTo.city = '': must not be blank
+shipTo.zip = '1234': must be 5 digits
+</script>
+<p>The property path (<code>lines[1].quantity</code>) tells the client exactly which field is wrong. Messages can be customised per constraint (<code>message = "…"</code>), or centrally in <code>ValidationMessages.properties</code> with keys like <code>{order.zip.invalid}</code>, which also enables translations.</p>
+
+<h3>Custom constraints</h3>
+<p>When the built-ins aren't enough, write an annotation plus a <code>ConstraintValidator</code>. Validators created by Spring's validator factory are beans, so they can even have dependencies injected:</p>
+<script type="text/plain" class="code" data-file="CustomConstraint.java" data-run>
+package com.example.ch06.custom;
+
+import jakarta.validation.Constraint;
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorContext;
+import jakarta.validation.Payload;
+import jakarta.validation.Validator;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@Target({ ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT })
+@Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy = IsbnValidator.class)
+@interface Isbn {
+  String message() default "is not a valid ISBN-13";
+  Class<?>[] groups() default {};
+  Class<? extends Payload>[] payload() default {};
+}
+
+class IsbnValidator implements ConstraintValidator<Isbn, String> {
+  @Override
+  public boolean isValid(String value, ConstraintValidatorContext context) {
+    if (value == null) return true;                        // leave "required" to @NotNull
+    String digits = value.replace("-", "");
+    if (!digits.matches("\\d{13}")) return false;
+    int sum = 0;
+    for (int i = 0; i < 13; i++) sum += (digits.charAt(i) - '0') * (i % 2 == 0 ? 1 : 3);
+    return sum % 10 == 0;
+  }
+}
+
+record Book(String title, @Isbn String isbn) {}
+
+@SpringBootApplication
+public class CustomConstraint {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CustomConstraint.class)) {
+      Validator v = ctx.getBean(Validator.class);
+      for (String isbn : new String[] { "978-0-13-468599-1", "978-0-13-468599-2", "12345" }) {
+        var errors = v.validate(new Book("Effective Java", isbn));
+        System.out.println(isbn + " -> " + (errors.isEmpty() ? "ok" : errors.iterator().next().getMessage()));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+978-0-13-468599-1 -> ok
+978-0-13-468599-2 -> is not a valid ISBN-13
+12345 -> is not a valid ISBN-13
+</script>
+
+<h3>Validation groups</h3>
+<p>Sometimes rules depend on the operation: an <code>id</code> must be null when creating, but present when updating. <strong>Groups</strong> are marker interfaces that select which constraints apply:</p>
+<script type="text/plain" class="code" data-file="GroupsDemo.java" data-run>
+package com.example.ch06.groups;
+
+import jakarta.validation.Validator;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Null;
+import jakarta.validation.groups.Default;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+interface OnCreate {}
+interface OnUpdate {}
+
+record Product(
+    @Null(groups = OnCreate.class) @NotNull(groups = OnUpdate.class) Long id,
+    @NotBlank String name) {}                                // no groups = the Default group
+
+@SpringBootApplication
+public class GroupsDemo {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(GroupsDemo.class)) {
+      Validator v = ctx.getBean(Validator.class);
+      var p = new Product(42L, "Lamp");
+      System.out.println("create: " + v.validate(p, OnCreate.class, Default.class).stream().map(x -> x.getPropertyPath() + " " + x.getMessage()).toList());
+      System.out.println("update: " + v.validate(p, OnUpdate.class, Default.class).stream().map(x -> x.getPropertyPath() + " " + x.getMessage()).toList());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+create: [id must be null]
+update: []
+</script>
+<p>Groups add complexity; often separate request records (<code>CreateProduct</code>, <code>UpdateProduct</code>) are clearer. In Spring MVC you pick groups with <code>@Validated(OnCreate.class)</code> on the parameter.</p>
+
+<h2 id="method-validation">Method validation</h2>
+<p>Put <code>@Validated</code> on a class and Spring wraps the bean in a proxy that validates <strong>method parameters and return values</strong> annotated with constraints. A violation throws <code>ConstraintViolationException</code> before the method body runs:</p>
+<script type="text/plain" class="code" data-file="MethodValidation.java" data-run>
+package com.example.ch06.method;
+
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.validation.annotation.Validated;
+
+record Customer(@NotBlank String name, @Email String email) {}
+
+@Service
+@Validated
+class CustomerService {
+  @NotNull
+  String register(@Valid Customer customer, @Min(1) @Max(5) int priority) {
+    return "registered " + customer.name() + " (priority " + priority + ")";
+  }
+}
+
+@SpringBootApplication
+public class MethodValidation {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MethodValidation.class)) {
+      var service = ctx.getBean(CustomerService.class);
+      System.out.println(service.register(new Customer("Ada", "ada@example.com"), 2));
+      try {
+        service.register(new Customer("", "nope"), 9);
+      } catch (ConstraintViolationException e) {
+        e.getConstraintViolations().stream()
+            .map(v -> v.getPropertyPath() + ": " + v.getMessage()).sorted().forEach(System.out::println);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+registered Ada (priority 2)
+register.customer.email: must be a well-formed email address
+register.customer.name: must not be blank
+register.priority: must be less than or equal to 5
+</script>
+<p>The paths use the real parameter names (<code>customer</code>, <code>priority</code>): Spring's validator reads them from the class files, which Boot's build compiles with <code>-parameters</code>. Method validation is a proxy (Chapter 7), so — like <code>@Transactional</code> — it only applies to calls coming <em>from outside</em> the bean.</p>
+<div class="tip">
+<p>💡 <strong>Where to validate.</strong> Validate at the boundaries: incoming HTTP requests (Chapter 10), configuration properties (Chapter 4), messages from queues. Method validation on services is a safety net for invariants that must hold no matter who calls.</p>
+</div>
+
+<h3>Spring's own <code>Validator</code> interface</h3>
+<p>Spring also has <code>org.springframework.validation.Validator</code> — programmatic validation that reports to an <code>Errors</code> object. It's handy for rules that are awkward as annotations, and it's what Spring MVC's <code>BindingResult</code> is built on:</p>
+<script type="text/plain" class="code" data-file="SpringValidator.java" data-run>
+package com.example.ch06.springvalidator;
+
+import java.time.LocalDate;
+import org.springframework.validation.Errors;
+import org.springframework.validation.SimpleErrors;
+import org.springframework.validation.Validator;
+
+record Booking(LocalDate from, LocalDate to, int guests) {}
+
+class BookingValidator implements Validator {
+  public boolean supports(Class<?> clazz) { return Booking.class.equals(clazz); }
+  public void validate(Object target, Errors errors) {
+    Booking b = (Booking) target;
+    if (!b.to().isAfter(b.from())) errors.rejectValue("to", "booking.dates", "must be after the start date");
+    if (b.guests() < 1 || b.guests() > 8) errors.rejectValue("guests", "booking.guests", "must be between 1 and 8");
+  }
+}
+
+public class SpringValidator {
+  public static void main(String[] args) {
+    var booking = new Booking(LocalDate.of(2026, 7, 10), LocalDate.of(2026, 7, 8), 12);
+    Errors errors = new SimpleErrors(booking);
+    new BookingValidator().validate(booking, errors);
+    errors.getFieldErrors().forEach(e -> System.out.println(e.getField() + " [" + e.getCode() + "] " + e.getDefaultMessage()));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+to [booking.dates] must be after the start date
+guests [booking.guests] must be between 1 and 8
+</script>
+
+<h2 id="conversion">Type conversion and formatting</h2>
+<p>Spring constantly converts strings to types: <code>@Value("${timeout}") Duration</code>, <code>@RequestParam LocalDate date</code>, <code>@PathVariable UUID id</code>. All of that goes through a <code>ConversionService</code>, which you can extend with your own <code>Converter&lt;S, T&gt;</code> (one direction) or <code>Formatter&lt;T&gt;</code> (print and parse, locale-aware).</p>
+<script type="text/plain" class="code" data-file="ConversionDemo.java" data-run>
+package com.example.ch06.conversion;
+
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.core.convert.converter.Converter;
+
+record Money(long cents, String currency) {
+  @Override public String toString() { return String.format("%d.%02d %s", cents / 100, cents % 100, currency); }
+}
+
+class StringToMoney implements Converter<String, Money> {   // "12.50 EUR" -> Money
+  @Override
+  public Money convert(String source) {
+    String[] parts = source.trim().split("\\s+");
+    long cents = Math.round(Double.parseDouble(parts[0]) * 100);
+    return new Money(cents, parts.length > 1 ? parts[1] : "EUR");
+  }
+}
+
+public class ConversionDemo {
+  public static void main(String[] args) {
+    var conversion = new ApplicationConversionService();     // what Boot uses: Spring defaults + Boot extras
+    conversion.addConverter(new StringToMoney());
+
+    System.out.println(conversion.convert("42", Integer.class) + 1);
+    System.out.println(conversion.convert("2026-03-01", LocalDate.class).getDayOfWeek());
+    System.out.println(conversion.convert("90m", Duration.class).toHours() + " h (rounded down)");   // Boot's style
+    System.out.println(conversion.convert("a, b ,c", List.class));
+    System.out.println(conversion.convert("4b1f4e1c-62a6-4c2a-9f1e-6f3d5b8a2c11", UUID.class).version());
+    System.out.println(conversion.convert("12.5 USD", Money.class));
+    System.out.println(conversion.canConvert(String.class, Money.class));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+43
+SUNDAY
+1 h (rounded down)
+[a, b, c]
+4
+12.50 USD
+true
+</script>
+<p>To use a converter in the application, declare it as a bean. Where it applies:</p>
+<ul>
+  <li><strong>Spring MVC and WebFlux</strong> add every <code>Converter</code>, <code>GenericConverter</code> and <code>Formatter</code> bean to their conversion service (request parameters, path variables, headers).</li>
+  <li><strong><code>@ConfigurationProperties</code> binding</strong> uses converter beans that are also annotated with <code>@ConfigurationPropertiesBinding</code>.</li>
+  <li><strong><code>@Value</code></strong> uses the shared <code>ApplicationConversionService</code> and does <em>not</em> see your converter beans — another reason to bind custom types with <code>@ConfigurationProperties</code>.</li>
+</ul>
+
+<h3>Formatting annotations</h3>
+<p><code>@DateTimeFormat</code> and <code>@NumberFormat</code> control how a specific field is parsed and printed — most often on web request parameters:</p>
+<script type="text/plain" class="code" data-file="FormatAnnotations.java" data-run>
+package com.example.ch06.formats;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import org.springframework.core.convert.TypeDescriptor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.format.annotation.NumberFormat;
+import org.springframework.format.support.DefaultFormattingConversionService;
+
+public class FormatAnnotations {
+  @DateTimeFormat(pattern = "dd/MM/yyyy") LocalDate travelDate;
+  @NumberFormat(style = NumberFormat.Style.PERCENT) BigDecimal discount;
+
+  public static void main(String[] args) throws Exception {
+    var conversion = new DefaultFormattingConversionService();
+    var dateField = new TypeDescriptor(FormatAnnotations.class.getDeclaredField("travelDate"));
+    var pctField = new TypeDescriptor(FormatAnnotations.class.getDeclaredField("discount"));
+
+    Object date = conversion.convert("24/12/2026", TypeDescriptor.valueOf(String.class), dateField);
+    Object pct = conversion.convert("15%", TypeDescriptor.valueOf(String.class), pctField);
+    System.out.println(date + " " + pct);
+    System.out.println(conversion.convert(LocalDate.of(2027, 1, 2), dateField, TypeDescriptor.valueOf(String.class)));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2026-12-24 0.15
+02/01/2027
+</script>
+
+<h2 id="spel">The Spring Expression Language (SpEL)</h2>
+<p>SpEL is a small expression language for querying and manipulating objects at runtime. You've already used it in <code>@Value("#{…}")</code>; it also powers <code>@Cacheable(key = "#id")</code>, <code>@PreAuthorize("hasRole('ADMIN')")</code>, <code>@ConditionalOnExpression</code> and <code>@EventListener(condition = …)</code>. You can also evaluate it directly:</p>
+<script type="text/plain" class="code" data-file="SpelBasics.java" data-run>
+package com.example.ch06.spel;
+
+import java.util.List;
+import java.util.Map;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
+
+record Item(String name, double price, int stock) {}
+record Shop(String name, List<Item> items, Map<String, String> owner) {}
+
+public class SpelBasics {
+  public static void main(String[] args) {
+    ExpressionParser parser = new SpelExpressionParser();
+    var shop = new Shop("Corner", List.of(new Item("pen", 1.5, 40), new Item("book", 12.0, 0), new Item("lamp", 30.0, 3)),
+        Map.of("first", "Ada"));
+    var ctx = new StandardEvaluationContext(shop);   // shop is the "root object"
+    ctx.setVariable("vat", 0.2);
+
+    String[] expressions = {
+        "'Hello ' + name.toUpperCase()",                 // property access, method call
+        "items.size() > 2 and name matches 'C.*'",       // operators, regex
+        "items[1].price * (1 + #vat)",                   // index, variable
+        "items.?[stock > 0].![name]",                    // selection, then projection
+        "items.^[price > 10]?.name",                     // first match, safe navigation
+        "owner['first']",                                // map access
+        "owner['last'] ?: 'unknown'",                    // Elvis operator
+        "T(java.lang.Math).max(3, 7)",                   // static method via T()
+        "{1, 2, 3}.![#this * 10]",                       // inline list, #this
+    };
+    for (String e : expressions) {
+      System.out.printf("%-46s => %s%n", e, parser.parseExpression(e).getValue(ctx));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+'Hello ' + name.toUpperCase()                  => Hello CORNER
+items.size() > 2 and name matches 'C.*'        => true
+items[1].price * (1 + #vat)                    => 14.399999999999999
+items.?[stock > 0].![name]                     => [pen, lamp]
+items.^[price > 10]?.name                      => book
+owner['first']                                 => Ada
+owner['last'] ?: 'unknown'                     => unknown
+T(java.lang.Math).max(3, 7)                    => 7
+{1, 2, 3}.![#this * 10]                        => [10, 20, 30]
+</script>
+<p>Record components are read through their accessor methods (<code>name()</code>), so <code>name</code> works on records as well as on JavaBeans. Note the floating-point result: SpEL uses Java arithmetic, so money calculations should use <code>BigDecimal</code> here too.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Never evaluate user input with <code>StandardEvaluationContext</code>.</strong> It allows <code>T(java.lang.Runtime).getRuntime().exec(…)</code> — remote code execution. If an expression comes from outside (a filter in a URL, a rule in a database), use <code>SimpleEvaluationContext.forReadOnlyDataBinding()</code>, which only allows property access and simple operators, no types, constructors or bean references.</p>
+</div>
+<script type="text/plain" class="code" data-file="SafeSpel.java" data-run>
+package com.example.ch06.safe;
+
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.SimpleEvaluationContext;
+
+record User(String name, int age) {}
+
+public class SafeSpel {
+  public static void main(String[] args) {
+    var parser = new SpelExpressionParser();
+    var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
+    var user = new User("Ada", 36);
+    System.out.println(parser.parseExpression("age >= 18 and name != 'Bob'").getValue(ctx, user, Boolean.class));
+    try {
+      parser.parseExpression("T(java.lang.Runtime).getRuntime()").getValue(ctx, user);
+    } catch (Exception e) {
+      System.out.println("blocked: " + e.getClass().getSimpleName());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true
+blocked: SpelEvaluationException
+</script>
+
+<h3>SpEL in annotations: beans and properties</h3>
+<p>Inside <code>@Value("#{…}")</code> the evaluation context knows your beans (<code>@beanName</code>, or just the bean name) and the environment:</p>
+<script type="text/plain" class="code" data-file="SpelInAnnotations.java" data-run data-args="--app.max-items=5">
+package com.example.ch06.annotations;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+
+@Component("limits")
+class Limits {
+  public int perPage() { return 20; }
+}
+
+@Component
+class Settings {
+  Settings(@Value("#{@limits.perPage() * 2}") int bigPage,
+           @Value("#{${app.max-items} > 3 ? 'many' : 'few'}") String size,
+           @Value("#{systemProperties['java.version'] != null}") boolean hasJava) {
+    System.out.println(bigPage + " " + size + " " + hasJava);
+  }
+}
+
+@SpringBootApplication
+public class SpelInAnnotations {
+  public static void main(String[] args) { SpringApplication.run(SpelInAnnotations.class, args).close(); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+40 many true
+</script>
+<p>The order of evaluation: <code>${app.max-items}</code> is replaced by its value <em>first</em>, then the resulting <code>#{5 &gt; 3 ? 'many' : 'few'}</code> is evaluated as SpEL.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A class-level (cross-field) constraint</h3>
+<script type="text/plain" class="code" data-file="CrossField.java" data-run>
+package com.example.ch06.crossfield;
+
+import jakarta.validation.Constraint;
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorContext;
+import jakarta.validation.Payload;
+import jakarta.validation.Validator;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@Target(ElementType.TYPE) @Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy = PasswordsMatchValidator.class)
+@interface PasswordsMatch {
+  String message() default "passwords do not match";
+  Class<?>[] groups() default {};
+  Class<? extends Payload>[] payload() default {};
+}
+
+class PasswordsMatchValidator implements ConstraintValidator<PasswordsMatch, ChangePassword> {
+  public boolean isValid(ChangePassword value, ConstraintValidatorContext ctx) {
+    if (value.password() == null || value.password().equals(value.confirm())) return true;
+    ctx.disableDefaultConstraintViolation();                 // report it on the "confirm" field
+    ctx.buildConstraintViolationWithTemplate(ctx.getDefaultConstraintMessageTemplate())
+        .addPropertyNode("confirm").addConstraintViolation();
+    return false;
+  }
+}
+
+@PasswordsMatch
+record ChangePassword(String password, String confirm) {}
+
+@SpringBootApplication
+public class CrossField {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CrossField.class)) {
+      ctx.getBean(Validator.class).validate(new ChangePassword("s3cret!", "s3cret?"))
+          .forEach(v -> System.out.println(v.getPropertyPath() + ": " + v.getMessage()));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+confirm: passwords do not match
+</script>
+
+<h3>A Formatter registered as a bean</h3>
+<script type="text/plain" class="code" data-file="FormatterBean.java" data-run data-args="--shop.shipping=4,99 €">
+package com.example.ch06.formatterbean;
+
+import java.util.Locale;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.ConfigurationPropertiesBinding;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.format.Formatter;
+import org.springframework.stereotype.Component;
+
+record Price(long cents) {}
+
+@Component
+@ConfigurationPropertiesBinding
+class EuroFormatter implements Formatter<Price> {
+  public Price parse(String text, Locale locale) {
+    String n = text.replace("€", "").trim().replace(",", ".");
+    return new Price(Math.round(Double.parseDouble(n) * 100));
+  }
+  public String print(Price p, Locale locale) { return String.format("%d,%02d €", p.cents() / 100, p.cents() % 100); }
+}
+
+@ConfigurationProperties("shop")
+record ShopProperties(Price shipping) {}
+
+@SpringBootApplication
+@ConfigurationPropertiesScan
+public class FormatterBean {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FormatterBean.class, args)) {
+      System.out.println("shipping cents = " + ctx.getBean(ShopProperties.class).shipping().cents());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+shipping cents = 499
+</script>
+<p>The <code>@ConfigurationPropertiesBinding</code> qualifier is what makes the binder use this formatter. In a web app, the same bean would also parse <code>@RequestParam Price</code> values.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Bean Validation: annotate, then <code>validator.validate(obj)</code> returns <em>all</em> violations with property paths. Most constraints accept <code>null</code>; add <code>@NotNull</code>/<code>@NotBlank</code> for required fields.</li>
+  <li><code>@Valid</code> cascades into nested objects and container elements (<code>List&lt;@Valid Line&gt;</code>). Custom rules: annotation + <code>ConstraintValidator</code>; class-level constraints for cross-field rules.</li>
+  <li><code>@Validated</code> on a bean validates method parameters and return values through a proxy (<code>ConstraintViolationException</code>).</li>
+  <li><code>ConversionService</code> turns strings into types. <code>Converter</code>/<code>Formatter</code> beans apply to Spring MVC, and to <code>@ConfigurationProperties</code> with <code>@ConfigurationPropertiesBinding</code> — not to <code>@Value</code>. <code>@DateTimeFormat</code>/<code>@NumberFormat</code> per field.</li>
+  <li>SpEL: <code>.?[]</code> selection, <code>.![]</code> projection, <code>?.</code>, <code>?:</code>, <code>T()</code>, <code>@bean</code>. Never evaluate untrusted input with <code>StandardEvaluationContext</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Which of these values pass <code>@Size(min = 3) String code</code>? <code>null</code>, <code>""</code>, <code>"ab"</code>, <code>"abc"</code>, <code>"   "</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>null</code> passes (most constraints treat null as valid), <code>"abc"</code> passes, and <code>"   "</code> passes (three characters, even if they're spaces). <code>""</code> and <code>"ab"</code> fail. For "required and meaningful" use <code>@NotBlank @Size(min = 3)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Validate a record <code>Temperature(@DecimalMin("-90.0") @DecimalMax("60.0") double celsius)</code> for 25 and 75, and print the number of violations for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TemperatureCheck.java" data-run>
+package com.example.ch06.ex2;
+
+import jakarta.validation.Validation;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+
+record Temperature(@DecimalMin("-90.0") @DecimalMax("60.0") double celsius) {}
+
+public class TemperatureCheck {
+  public static void main(String[] args) {
+    try (var factory = Validation.buildDefaultValidatorFactory()) {
+      var validator = factory.getValidator();
+      System.out.println("25: " + validator.validate(new Temperature(25)).size());
+      System.out.println("75: " + validator.validate(new Temperature(75)).size());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+25: 0
+75: 1
+</script>
+<p>You don't need Spring to validate: <code>Validation.buildDefaultValidatorFactory()</code> is plain Jakarta Validation. In a Spring app, inject the <code>Validator</code> bean instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Use a SpEL projection to turn the inline list <code>{3, 4, 5}</code> into its squares, then sum the result in Java. Print both.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SquaresSpel.java" data-run>
+package com.example.ch06.ex3;
+
+import java.util.List;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+
+public class SquaresSpel {
+  public static void main(String[] args) {
+    var parser = new SpelExpressionParser();
+    List<?> squares = parser.parseExpression("{3, 4, 5}.![#this * #this]").getValue(List.class);
+    int sum = squares.stream().mapToInt(n -> (Integer) n).sum();
+    System.out.println(squares + " -> " + sum);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[9, 16, 25] -> 50
+</script>
+<p>SpEL is meant for small expressions; when you need loops and aggregation, do it in Java.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A <code>@Validated</code> service method <code>save(@Valid Order order)</code> is called from another method of the <em>same</em> class with an invalid order. Is it validated? Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No. Method validation is applied by a proxy around the bean. A call from inside the class (<code>this.save(…)</code>) doesn't go through the proxy, so no validation happens. The same "self-invocation" rule applies to <code>@Transactional</code>, <code>@Cacheable</code> and <code>@Async</code> (Chapter 7).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>@NoProfanity</code> constraint for strings that rejects text containing any word from a fixed list (<code>darn</code>, <code>heck</code>), case-insensitively. Test it on <code>"What the HECK"</code> and <code>"Hello"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ProfanityCheck.java" data-run>
+package com.example.ch06.ex5;
+
+import jakarta.validation.Constraint;
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorContext;
+import jakarta.validation.Payload;
+import jakarta.validation.Validation;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.Arrays;
+import java.util.Set;
+
+@Target({ ElementType.FIELD, ElementType.RECORD_COMPONENT, ElementType.PARAMETER })
+@Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy = ProfanityCheck.NoProfanityValidator.class)
+@interface NoProfanity {
+  String message() default "contains a forbidden word";
+  Class<?>[] groups() default {};
+  Class<? extends Payload>[] payload() default {};
+}
+
+record Comment(@NoProfanity String text) {}
+
+public class ProfanityCheck {
+
+  // plain Hibernate Validator instantiates validators reflectively: public class, public constructor
+  public static class NoProfanityValidator implements ConstraintValidator<NoProfanity, String> {
+    private static final Set<String> WORDS = Set.of("darn", "heck");
+    public boolean isValid(String value, ConstraintValidatorContext ctx) {
+      return value == null || Arrays.stream(value.toLowerCase().split("\\W+")).noneMatch(WORDS::contains);
+    }
+  }
+
+  public static void main(String[] args) {
+    try (var f = Validation.buildDefaultValidatorFactory()) {
+      var v = f.getValidator();
+      for (String t : new String[] { "What the HECK", "Hello" }) {
+        System.out.println(t + " -> " + v.validate(new Comment(t)).stream().map(x -> x.getMessage()).findFirst().orElse("ok"));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+What the HECK -> contains a forbidden word
+Hello -> ok
+</script>
+<p>Outside Spring, Hibernate Validator creates validators reflectively, so the validator must be a <em>public</em> class with a public no-argument constructor (here a public nested class). Inside a Spring application, validators are created by Spring and may be package-private and even have constructor-injected dependencies.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>Converter&lt;String, Range&gt;</code> for strings like <code>"10..20"</code> (record <code>Range(int from, int to)</code>), register it as a bean, and bind it in <code>@ConfigurationProperties("app") record AppProperties(@DefaultValue("1..5") Range allowed)</code>. Print it with and without <code>--app.allowed=10..20</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RangeConverterApp.java" data-run data-args="--app.allowed=10..20">
+package com.example.ch06.ex6;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.ConfigurationPropertiesBinding;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.stereotype.Component;
+
+record Range(int from, int to) {}
+
+@ConfigurationProperties("app")
+record AppProperties(@DefaultValue("1..5") Range allowed) {}
+
+@Component
+@ConfigurationPropertiesBinding
+class StringToRange implements Converter<String, Range> {
+  public Range convert(String s) {
+    String[] p = s.split("\\.\\.");
+    return new Range(Integer.parseInt(p[0].trim()), Integer.parseInt(p[1].trim()));
+  }
+}
+
+@SpringBootApplication
+@EnableConfigurationProperties(AppProperties.class)
+public class RangeConverterApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(RangeConverterApp.class)) {
+      System.out.println(ctx.getBean(AppProperties.class).allowed());
+    }
+    try (var ctx = SpringApplication.run(RangeConverterApp.class, args)) {
+      System.out.println(ctx.getBean(AppProperties.class).allowed());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Range[from=1, to=5]
+Range[from=10, to=20]
+</script>
+<p>The <code>@DefaultValue</code> string goes through the same converter as a real property value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Using SpEL and a list of <code>Employee(String name, String dept, int salary)</code>, select the names of employees in <code>eng</code> earning over 100000, and find the first employee in <code>ops</code> (or <code>none</code> with Elvis).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="EmployeesSpel.java" data-run>
+package com.example.ch06.ex7;
+
+import java.util.List;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.SimpleEvaluationContext;
+
+record Employee(String name, String dept, int salary) {}
+
+public class EmployeesSpel {
+  public static void main(String[] args) {
+    var staff = List.of(new Employee("Ada", "eng", 130000), new Employee("Bob", "eng", 90000),
+        new Employee("Cy", "sales", 80000), new Employee("Di", "eng", 150000));
+    var parser = new SpelExpressionParser();
+    var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
+    System.out.println(parser.parseExpression("?[dept == 'eng' and salary > 100000].![name]").getValue(ctx, staff));
+    System.out.println(parser.parseExpression("^[dept == 'ops']?.name ?: 'none'").getValue(ctx, staff));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Ada, Di]
+none
+</script>
+<p>When the root object is itself a collection, selection works directly on it: <code>?[…]</code> without a property in front.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Make a <code>@Validated</code> service <code>Transfers</code> with <code>String transfer(@NotBlank String from, @NotBlank String to, @Positive BigDecimal amount)</code>. Call it with <code>("A", " ", -5)</code> and print the number of violations and their messages, sorted.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="TransfersApp.java" data-run>
+package com.example.ch06.ex8;
+
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import java.math.BigDecimal;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.validation.annotation.Validated;
+
+@Service
+@Validated
+class Transfers {
+  String transfer(@NotBlank String from, @NotBlank String to, @Positive BigDecimal amount) {
+    return from + " -> " + to + ": " + amount;
+  }
+}
+
+@SpringBootApplication
+public class TransfersApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(TransfersApp.class)) {
+      try {
+        ctx.getBean(Transfers.class).transfer("A", " ", new BigDecimal("-5"));
+      } catch (ConstraintViolationException e) {
+        System.out.println(e.getConstraintViolations().size() + " violations");
+        e.getConstraintViolations().stream().map(v -> v.getMessage()).sorted().forEach(System.out::println);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 violations
+must be greater than 0
+must not be blank
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write a safe <strong>rule engine</strong>: rules are SpEL strings stored as data, each mapped to a tag — <code>total &gt; 100</code> → <code>FREE_SHIPPING</code>, <code>itemCount &gt;= 3</code> → <code>BULK</code>, <code>country == 'DE'</code> → <code>EU_VAT</code>. Rules may only read properties (no method calls). Evaluate all rules against a <code>Cart(double total, int itemCount, String country)</code> with <code>SimpleEvaluationContext</code>, print the matching tags, and show that a malicious rule <code>T(java.lang.System).exit(1)</code> is rejected.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RuleEngine.java" data-run>
+package com.example.ch06.ex9;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.SimpleEvaluationContext;
+
+record Cart(double total, int itemCount, String country) {}
+
+public class RuleEngine {
+  public static void main(String[] args) {
+    Map<String, String> rules = new LinkedHashMap<>();
+    rules.put("total > 100", "FREE_SHIPPING");
+    rules.put("itemCount >= 3", "BULK");
+    rules.put("country == 'DE'", "EU_VAT");
+    rules.put("T(java.lang.System).exit(1)", "EVIL");
+
+    var parser = new SpelExpressionParser();
+    var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
+    var cart = new Cart(120.0, 2, "DE");
+
+    rules.forEach((expr, tag) -> {
+      try {
+        if (Boolean.TRUE.equals(parser.parseExpression(expr).getValue(ctx, cart, Boolean.class))) System.out.println("✓ " + tag);
+      } catch (Exception e) {
+        System.out.println("rejected rule '" + expr + "'");
+      }
+    });
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+✓ FREE_SHIPPING
+✓ EU_VAT
+rejected rule 'T(java.lang.System).exit(1)'
+</script>
+<p>Property access on records works in read-only data binding (it calls the accessor). For more power without danger, <code>SimpleEvaluationContext.forReadOnlyDataBinding().withInstanceMethods()</code> also allows method calls on the root object's data — but still no types or constructors.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a <strong>CSV importer</strong> that turns lines like <code>Dune;412;1965-08-01</code> into validated <code>Book(@NotBlank String title, @Positive int pages, @PastOrPresent LocalDate published)</code> records. Convert fields with the <code>ConversionService</code>, validate each record, and print <code>line N: ok</code> or <code>line N: field message</code> for the input lines <code>Dune;412;1965-08-01</code>, <code>;100;2000-01-01</code>, <code>Future;10;2999-01-01</code>, <code>Bad;x;2000-01-01</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="CsvImporter.java" data-run>
+package com.example.ch06.ex10;
+
+import jakarta.validation.Validator;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Positive;
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.convert.ConversionFailedException;
+import org.springframework.core.convert.ConversionService;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.stereotype.Service;
+
+record Book(@NotBlank String title, @Positive int pages, @PastOrPresent LocalDate published) {}
+
+@Service
+class Importer {
+  private final Validator validator;
+  private final ConversionService conversion = ApplicationConversionService.getSharedInstance();
+  Importer(Validator validator) { this.validator = validator; }
+
+  String importLine(String line) {
+    String[] f = line.split(";", -1);
+    Book book;
+    try {
+      book = new Book(f[0], conversion.convert(f[1], Integer.class), conversion.convert(f[2], LocalDate.class));
+    } catch (ConversionFailedException e) {
+      return "cannot convert '" + e.getValue() + "' to " + e.getTargetType().getType().getSimpleName();
+    }
+    return validator.validate(book).stream()
+        .map(v -> v.getPropertyPath() + " " + v.getMessage()).sorted().findFirst().orElse("ok");
+  }
+}
+
+@SpringBootApplication
+public class CsvImporter {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CsvImporter.class)) {
+      var importer = ctx.getBean(Importer.class);
+      var lines = List.of("Dune;412;1965-08-01", ";100;2000-01-01", "Future;10;2999-01-01", "Bad;x;2000-01-01");
+      for (int i = 0; i < lines.size(); i++) System.out.println("line " + (i + 1) + ": " + importer.importLine(lines.get(i)));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+line 1: ok
+line 2: title must not be blank
+line 3: published must be a date in the past or in the present
+line 4: cannot convert 'x' to Integer
+</script>
+<p>Two stages, two kinds of error: <em>conversion</em> errors (the text isn't a number at all) and <em>validation</em> errors (it's a number, but not an acceptable one). Spring MVC reports both the same way through <code>BindingResult</code> — Chapter 10.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/validation/beanvalidation.html">Java Bean Validation</a> (including method validation)</li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/validation/validator.html">Validation by using Spring's Validator interface</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/validation/convert.html">Spring Type Conversion</a> · <a href="https://docs.spring.io/spring-framework/reference/core/validation/format.html">Field Formatting</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/core/expressions.html">Spring Expression Language (SpEL)</a> · <a href="https://docs.spring.io/spring-framework/reference/core/expressions/evaluation.html">Evaluation contexts</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/io/validation.html">Spring Boot: Validation</a></li>
+  <li><a href="https://docs.jboss.org/hibernate/validator/9.0/reference/en-US/html_single/">Hibernate Validator reference</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

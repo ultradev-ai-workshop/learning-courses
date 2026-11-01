@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc security security-oauth2-resource-server webmvc-test security-test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>17. Securing Applications with Spring Security · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 17 · Production</div>
+<h1>Securing Applications with Spring Security</h1>
+<p class="lead">Add <code>spring-boot-starter-security</code> and your application is locked down: every endpoint needs a login. Spring Security 7 then lets you describe exactly who may do what — with a filter chain for URLs, annotations for methods, password hashing, and JWT-based authentication for APIs. This chapter builds that up step by step, and tests it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><strong>Authentication vs authorization</strong>, and how Spring Security's <strong>filter chain</strong> sits in front of your controllers.</li>
+  <li>Configuring a <strong><code>SecurityFilterChain</code></strong>: URL rules, HTTP Basic, stateless sessions, CSRF.</li>
+  <li><strong>Users and passwords</strong>: <code>UserDetailsService</code>, <code>PasswordEncoder</code> and BCrypt.</li>
+  <li><strong>Method security</strong> with <code>@PreAuthorize</code>, and reading the current user.</li>
+  <li><strong>JWT resource servers</strong> (OAuth2) with scopes, and <strong>testing</strong> security with <code>@WithMockUser</code> and <code>jwt()</code>.</li>
+</ul>
+</div>
+
+<h2 id="concepts">Concepts</h2>
+<ul>
+  <li><strong>Authentication</strong> answers <em>who are you?</em> — a password, a token, a certificate. The result is an <code>Authentication</code> object (the principal plus its <em>authorities</em>) stored in the <code>SecurityContext</code> for the current request.</li>
+  <li><strong>Authorization</strong> answers <em>are you allowed to do this?</em> — based on authorities such as <code>ROLE_ADMIN</code> or <code>SCOPE_books:write</code>.</li>
+  <li>Failing authentication gives <strong>401 Unauthorized</strong>; being authenticated but not allowed gives <strong>403 Forbidden</strong>.</li>
+</ul>
+<p>Spring Security is implemented as a chain of servlet <strong>filters</strong> (Chapter 10) that runs before the <code>DispatcherServlet</code>: one filter reads credentials, another checks authorization rules, another turns security exceptions into 401/403 responses. Your controllers only see requests that passed.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: an office building.</strong> At reception (authentication) you show your ID and get a badge listing your access levels (authorities). Each door has a reader (authorization) that checks your badge: the lobby is open to everyone, floor 3 needs "staff", the server room needs "admin". No badge → back to reception (401). Badge without the right level → the door stays shut (403).</p>
+</div>
+
+<h2 id="defaults">The defaults</h2>
+<p>With the starter on the classpath and no configuration, Boot secures <em>everything</em>, enables form login and HTTP Basic, and creates one user named <code>user</code> with a random password printed at startup ("Using generated security password: …"). You can set it with <code>spring.security.user.name/password/roles</code>. That's fine for a first run — every real application defines its own rules.</p>
+
+<h2 id="filter-chain">Configuring the filter chain</h2>
+<p>Declare a <code>SecurityFilterChain</code> bean and describe the rules with the lambda DSL. A typical stateless JSON API:</p>
+<script type="text/plain" class="code" data-file="BasicSecurityApp.java" data-run>
+package com.example.ch17.basic;
+
+import java.security.Principal;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class BookApi {
+  @GetMapping("/public/hours") String hours() { return "open 9-17"; }
+  @GetMapping("/books") String books(Principal user) { return "books for " + user.getName(); }
+  @DeleteMapping("/books/{id}") String delete(@PathVariable long id) { return "deleted " + id; }
+}
+
+@SpringBootApplication
+public class BasicSecurityApp {
+
+  @Bean
+  SecurityFilterChain api(HttpSecurity http) throws Exception {
+    return http
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/public/**").permitAll()
+            .requestMatchers(HttpMethod.DELETE, "/books/**").hasRole("ADMIN")
+            .anyRequest().authenticated())                     // everything else: any logged-in user
+        .httpBasic(Customizer.withDefaults())
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .csrf(csrf -> csrf.disable())                          // stateless API with no cookies: see below
+        .build();
+  }
+
+  @Bean
+  PasswordEncoder passwordEncoder() { return PasswordEncoderFactories.createDelegatingPasswordEncoder(); }
+
+  @Bean
+  UserDetailsService users(PasswordEncoder encoder) {
+    return new InMemoryUserDetailsManager(
+        User.withUsername("ada").password(encoder.encode("s3cret")).roles("USER").build(),
+        User.withUsername("root").password(encoder.encode("t0ps3cret")).roles("USER", "ADMIN").build());
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(BasicSecurityApp.class)) {
+      String base = "http://localhost:" + ctx.getEnvironment().getProperty("local.server.port");
+      var anonymous = RestClient.builder().baseUrl(base).defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      var ada = anonymous.mutate().defaultHeaders(h -> h.setBasicAuth("ada", "s3cret")).build();
+      var root = anonymous.mutate().defaultHeaders(h -> h.setBasicAuth("root", "t0ps3cret")).build();
+      var wrong = anonymous.mutate().defaultHeaders(h -> h.setBasicAuth("ada", "nope")).build();
+
+      System.out.println("public, anonymous: " + anonymous.get().uri("/public/hours").retrieve().toEntity(String.class).getBody());
+      System.out.println("books, anonymous:  " + anonymous.get().uri("/books").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("books, bad pass:   " + wrong.get().uri("/books").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("books, ada:        " + ada.get().uri("/books").retrieve().body(String.class));
+      System.out.println("delete, ada:       " + ada.delete().uri("/books/7").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("delete, root:      " + root.delete().uri("/books/7").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+public, anonymous: open 9-17
+books, anonymous:  401 UNAUTHORIZED
+books, bad pass:   401 UNAUTHORIZED
+books, ada:        books for ada
+delete, ada:       403 FORBIDDEN
+delete, root:      deleted 7
+</script>
+<p>Rules are checked <strong>top to bottom; the first match wins</strong> — put specific matchers first and <code>anyRequest()</code> last. <code>hasRole("ADMIN")</code> checks for the authority <code>ROLE_ADMIN</code>; <code>hasAuthority("…")</code> checks an authority by its exact name. Ending with <code>.anyRequest().authenticated()</code> (or <code>denyAll()</code>) makes the configuration <em>secure by default</em>: a new endpoint someone forgets to mention is still protected.</p>
+
+<h3>CSRF, sessions and CORS</h3>
+<ul>
+  <li><strong>CSRF</strong> (cross-site request forgery) tricks a logged-in browser into sending a request with its cookies. Protection is <em>on</em> by default and must stay on for browser apps with session cookies. For a stateless API authenticated by an <code>Authorization</code> header (Basic or Bearer), browsers don't attach credentials automatically, so disabling CSRF is the standard choice.</li>
+  <li><strong>Sessions</strong>: <code>STATELESS</code> means Spring Security never creates an HTTP session; every request carries its credentials. That's what you want for APIs behind a load balancer.</li>
+  <li><strong>CORS</strong>: enable it in the chain with <code>http.cors(Customizer.withDefaults())</code> and a <code>CorsConfigurationSource</code> bean, so that pre-flight <code>OPTIONS</code> requests are answered before authentication.</li>
+</ul>
+
+<h2 id="passwords">Passwords</h2>
+<p>Never store passwords in plain text — or with a fast hash like SHA-256. Use a slow, salted <em>password hash</em> such as <strong>BCrypt</strong>, Argon2 or scrypt. The <strong>delegating password encoder</strong> stores the algorithm as a prefix (<code>{bcrypt}…</code>), so you can upgrade algorithms later while old hashes keep working:</p>
+<script type="text/plain" class="code" data-file="PasswordDemo.java" data-run>
+package com.example.ch17.passwords;
+
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+
+public class PasswordDemo {
+  public static void main(String[] args) {
+    var encoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    String hash1 = encoder.encode("correct horse battery staple");
+    String hash2 = encoder.encode("correct horse battery staple");
+
+    System.out.println("prefix: " + hash1.substring(0, 15) + "…");
+    System.out.println("same input, same hash? " + hash1.equals(hash2) + " (random salt)");
+    System.out.println("matches right password: " + encoder.matches("correct horse battery staple", hash1));
+    System.out.println("matches wrong password: " + encoder.matches("Correct horse battery staple", hash1));
+    System.out.println("legacy {noop} still verifies: " + encoder.matches("old", "{noop}old"));
+    System.out.println("needs upgrade: " + encoder.upgradeEncoding("{noop}old"));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+prefix: {bcrypt}$2a$10$…
+same input, same hash? false (random salt)
+matches right password: true
+matches wrong password: false
+legacy {noop} still verifies: true
+needs upgrade: true
+</script>
+<p>In a real application, <code>UserDetailsService</code> loads users from your database (implement <code>loadUserByUsername</code> with a repository), or — more often today — you don't store passwords at all and delegate login to an identity provider (Keycloak, Auth0, Entra ID, Okta) with OAuth2/OpenID Connect.</p>
+
+<h2 id="method-security">Method security</h2>
+<p>URL rules are coarse. For rules that depend on the data ("users can only read their <em>own</em> loans"), enable method security and annotate service methods. <code>@PreAuthorize</code> takes a SpEL expression with access to the method arguments and the <code>authentication</code>:</p>
+<script type="text/plain" class="code" data-file="MethodSecurityApp.java" data-run>
+package com.example.ch17.method;
+
+import java.util.List;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.security.access.prepost.PostFilter;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+
+record Loan(long id, String member, String title) {}
+
+@Service
+class LoanService {
+  private final List<Loan> loans = List.of(new Loan(1, "ada", "Dune"), new Loan(2, "bob", "Emma"), new Loan(3, "ada", "Ulysses"));
+
+  @PreAuthorize("#member == authentication.name or hasRole('LIBRARIAN')")
+  public List<Loan> loansOf(String member) { return loans.stream().filter(l -> l.member().equals(member)).toList(); }
+
+  @PreAuthorize("hasRole('LIBRARIAN')")
+  public String cancel(long id) { return "cancelled loan " + id; }
+
+  @PostFilter("filterObject.member == authentication.name or hasRole('LIBRARIAN')")
+  public List<Loan> all() { return new java.util.ArrayList<>(loans); }      // filtered after the call
+}
+
+@SpringBootApplication
+@EnableMethodSecurity
+public class MethodSecurityApp {
+  static void loginAs(String user, String... roles) {
+    var auth = new UsernamePasswordAuthenticationToken(user, null, AuthorityUtils.createAuthorityList(
+        java.util.Arrays.stream(roles).map(r -> "ROLE_" + r).toArray(String[]::new)));
+    SecurityContextHolder.getContext().setAuthentication(auth);   // normally done by the filter chain
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MethodSecurityApp.class, "--spring.main.web-application-type=none")) {
+      var loans = ctx.getBean(LoanService.class);
+
+      loginAs("ada", "USER");
+      System.out.println("ada, own loans:   " + loans.loansOf("ada").size());
+      try { loans.loansOf("bob"); } catch (AuthorizationDeniedException e) { System.out.println("ada, bob's loans: denied"); }
+      System.out.println("ada, all():       " + loans.all().stream().map(Loan::title).toList());
+      try { loans.cancel(1); } catch (AuthorizationDeniedException e) { System.out.println("ada, cancel:      denied"); }
+
+      loginAs("lin", "USER", "LIBRARIAN");
+      System.out.println("librarian:        " + loans.loansOf("bob").size() + " loan(s) of bob, " + loans.cancel(2));
+      System.out.println("librarian all():  " + loans.all().size());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ada, own loans:   2
+ada, bob's loans: denied
+ada, all():       [Dune, Ulysses]
+ada, cancel:      denied
+librarian:        1 loan(s) of bob, cancelled loan 2
+librarian all():  3
+</script>
+<p>Like every annotation in Chapter 7, method security is a proxy: it protects calls into the bean, not self-invocation. Other options: <code>@PostAuthorize</code> (check the return value, <code>returnObject</code>), <code>@PreFilter</code>/<code>@PostFilter</code> for collections, and your own meta-annotations (<code>@IsLibrarian</code>) so expressions aren't copy-pasted. In a web app, denied method calls become 403 responses.</p>
+<h3>The current user</h3>
+<p>In a controller, inject <code>Principal</code>, <code>Authentication</code> or <code>@AuthenticationPrincipal UserDetails user</code> (or <code>@AuthenticationPrincipal Jwt jwt</code> for tokens). Elsewhere, <code>SecurityContextHolder.getContext().getAuthentication()</code> — the context is thread-bound, so it isn't automatically available on <code>@Async</code> threads.</p>
+
+<h2 id="jwt">JWT resource servers</h2>
+<p>Modern APIs don't check passwords themselves. An <strong>authorization server</strong> (Keycloak, Auth0, Spring Authorization Server…) logs the user in and issues a signed <strong>JWT access token</strong>; the API — a <em>resource server</em> — verifies the signature and expiry on each request and reads the claims. With <code>spring-boot-starter-security-oauth2-resource-server</code>, pointing at the issuer is usually all the configuration you need:</p>
+<script type="text/plain" class="code" data-file="application.properties" data-norun>
+spring.security.oauth2.resourceserver.jwt.issuer-uri=https://login.example.com/realms/library
+# Boot downloads the public keys (JWKS) from the issuer's metadata and validates "iss", "exp" and the signature
+</script>
+<p>By default, the token's <code>scope</code> claim becomes authorities named <code>SCOPE_…</code>. To keep this example self-contained, it signs its own tokens with a shared secret (HMAC) instead of using an external issuer:</p>
+<script type="text/plain" class="code" data-file="JwtApp.java" data-run>
+package com.example.ch17.jwt;
+
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class CatalogApi {
+  @GetMapping("/books") String list(@AuthenticationPrincipal Jwt jwt) { return "books for " + jwt.getSubject() + " (" + jwt.getClaimAsString("scope") + ")"; }
+  @PostMapping("/books") String add() { return "book added"; }
+}
+
+@SpringBootApplication
+public class JwtApp {
+  static final SecretKey KEY = new SecretKeySpec("demo-secret-key-that-is-at-least-32-bytes!".getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+
+  @Bean
+  SecurityFilterChain api(HttpSecurity http) throws Exception {
+    return http
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers(HttpMethod.GET, "/books").hasAuthority("SCOPE_books:read")
+            .requestMatchers(HttpMethod.POST, "/books").hasAuthority("SCOPE_books:write")
+            .anyRequest().denyAll())
+        .oauth2ResourceServer(o -> o.jwt(jwt -> { }))         // Bearer tokens, validated by the JwtDecoder
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .csrf(c -> c.disable())
+        .build();
+  }
+
+  @Bean JwtDecoder jwtDecoder() { return NimbusJwtDecoder.withSecretKey(KEY).build(); }    // normally from issuer-uri
+  @Bean JwtEncoder jwtEncoder() { return new NimbusJwtEncoder(new ImmutableSecret<>(KEY)); } // plays the authorization server
+
+  static String token(JwtEncoder encoder, String user, String scopes, Instant expires) {
+    var claims = JwtClaimsSet.builder().subject(user).claim("scope", scopes).issuedAt(expires.minusSeconds(3600)).expiresAt(expires).build();
+    return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(JwtApp.class)) {
+      var encoder = ctx.getBean(JwtEncoder.class);
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      Instant inAnHour = Instant.now().plusSeconds(3600);
+      String reader = token(encoder, "ada", "books:read", inAnHour);
+      String writer = token(encoder, "lin", "books:read books:write", inAnHour);
+      String expired = token(encoder, "ada", "books:read", Instant.now().minusSeconds(600));
+
+      System.out.println("no token:      " + http.get().uri("/books").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("reader GET:    " + http.get().uri("/books").headers(h -> h.setBearerAuth(reader)).retrieve().body(String.class));
+      System.out.println("reader POST:   " + http.post().uri("/books").headers(h -> h.setBearerAuth(reader)).retrieve().toBodilessEntity().getStatusCode());
+      System.out.println("writer POST:   " + http.post().uri("/books").headers(h -> h.setBearerAuth(writer)).retrieve().body(String.class));
+      var r = http.get().uri("/books").headers(h -> h.setBearerAuth(expired)).retrieve().toBodilessEntity();
+      System.out.println("expired token: " + r.getStatusCode() + " " + r.getHeaders().getFirst("WWW-Authenticate").contains("expired"));
+      System.out.println("tampered:      " + http.get().uri("/books").headers(h -> h.setBearerAuth(reader + "x")).retrieve().toBodilessEntity().getStatusCode());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no token:      401 UNAUTHORIZED
+reader GET:    books for ada (books:read)
+reader POST:   403 FORBIDDEN
+writer POST:   book added
+expired token: 401 UNAUTHORIZED true
+tampered:      401 UNAUTHORIZED
+</script>
+<p>The resource server never stored any user: everything it needs is in the signed token. That's why JWTs scale well across many services — and why their lifetime should be short (minutes), since a stolen token is valid until it expires. Use a <code>JwtAuthenticationConverter</code> to map other claims (for example Keycloak's <code>realm_access.roles</code>) to authorities.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Don't invent your own security.</strong> Shared HMAC secrets (as in this demo) mean every service that can verify tokens can also forge them. In production, use asymmetric keys (RS256/ES256) from a real authorization server, validate the <code>iss</code> and <code>aud</code> claims, keep tokens short-lived, and never put secrets in a JWT — its payload is only Base64, not encrypted.</p>
+</div>
+
+<h2 id="testing">Testing security</h2>
+<p><code>spring-boot-starter-security-test</code> adds test helpers. In MockMvc-based tests, <code>@WithMockUser</code> runs a test as a given user, and request post-processors like <code>jwt()</code> and <code>httpBasic()</code> add credentials to a single request:</p>
+<script type="text/plain" class="code" data-file="SecurityRulesTest.java" data-test>
+package com.example.ch17.jwt;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class SecurityRulesTest {
+  @Autowired MockMvcTester mvc;
+
+  @Test
+  void anonymousIsRejected() {
+    assertThat(mvc.get().uri("/books")).hasStatus(HttpStatus.UNAUTHORIZED);
+  }
+
+  @Test
+  void readScopeCanList() {
+    assertThat(mvc.get().uri("/books").with(jwt().jwt(j -> j.subject("ada").claim("scope", "books:read"))))
+        .hasStatusOk().bodyText().contains("books for ada");
+  }
+
+  @Test
+  void readScopeCannotWrite() {
+    assertThat(mvc.post().uri("/books").with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_books:read"))))
+        .hasStatus(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  @WithMockUser(authorities = "SCOPE_books:write")
+  void mockUserWithWriteAuthority() {
+    assertThat(mvc.post().uri("/books")).hasStatusOk();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Write a test for every rule in your security configuration — especially the <em>denials</em>. A refactoring that accidentally opens an endpoint should fail the build, not a penetration test.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Several filter chains</h3>
+<p>Different parts of an application often need different security: the API uses tokens, the Actuator endpoints use Basic auth for the operations team. Declare several chains, each with a <code>securityMatcher</code>, ordered with <code>@Order</code>:</p>
+<script type="text/plain" class="code" data-file="MultiChainApp.java" data-run>
+package com.example.ch17.multi;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class Endpoints {
+  @GetMapping("/ops/status") String status() { return "ops ok"; }
+  @GetMapping("/site/home") String home() { return "welcome"; }
+}
+
+@SpringBootApplication
+public class MultiChainApp {
+  @Bean @Order(1)
+  SecurityFilterChain ops(HttpSecurity http) throws Exception {
+    return http.securityMatcher("/ops/**")                     // this chain only handles /ops/**
+        .authorizeHttpRequests(a -> a.anyRequest().hasRole("OPS"))
+        .httpBasic(Customizer.withDefaults())
+        .build();
+  }
+
+  @Bean @Order(2)
+  SecurityFilterChain site(HttpSecurity http) throws Exception {
+    return http.authorizeHttpRequests(a -> a.anyRequest().permitAll()).build();   // everything else
+  }
+
+  @Bean
+  InMemoryUserDetailsManager users() {
+    return new InMemoryUserDetailsManager(User.withUsername("ops").password("{noop}ops-pass").roles("OPS").build());
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MultiChainApp.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (q, r) -> { }).build();
+      System.out.println(http.get().uri("/site/home").retrieve().body(String.class));
+      System.out.println(http.get().uri("/ops/status").retrieve().toBodilessEntity().getStatusCode());
+      System.out.println(http.get().uri("/ops/status").headers(h -> h.setBasicAuth("ops", "ops-pass")).retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+welcome
+401 UNAUTHORIZED
+ops ok
+</script>
+<p>(<code>{noop}</code> marks a plain-text password — acceptable only in demos and tests.)</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Authentication = who (401 when missing/invalid); authorization = what (403 when not allowed). Spring Security is a filter chain in front of MVC.</li>
+  <li>Define a <code>SecurityFilterChain</code> bean: ordered <code>requestMatchers</code> rules ending with <code>anyRequest()</code>, HTTP Basic or a resource server, <code>STATELESS</code> sessions and CSRF off for token APIs.</li>
+  <li>Hash passwords with the delegating encoder (BCrypt by default); load users with a <code>UserDetailsService</code> — or delegate login to an identity provider.</li>
+  <li><code>@EnableMethodSecurity</code> + <code>@PreAuthorize("#member == authentication.name or hasRole('X')")</code>; <code>@PostFilter</code>; proxy rules apply.</li>
+  <li>JWT resource server: <code>issuer-uri</code>, <code>SCOPE_</code> authorities, short-lived tokens. Test with <code>@WithMockUser</code>, <code>jwt()</code> and <code>httpBasic()</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>The rules are <code>requestMatchers("/admin/**").authenticated()</code>, then <code>requestMatchers("/admin/users/**").hasRole("ADMIN")</code>, then <code>anyRequest().permitAll()</code>. Can a plain logged-in user call <code>DELETE /admin/users/7</code>? Fix the configuration.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes — the first matching rule wins, and <code>/admin/**</code> (any authenticated user) matches before the admin rule is reached. Put the more specific matcher first: <code>/admin/users/**</code> → <code>hasRole("ADMIN")</code>, then <code>/admin/**</code> → <code>authenticated()</code>. And consider ending with <code>anyRequest().authenticated()</code> rather than <code>permitAll()</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>What's the difference between <code>hasRole("ADMIN")</code> and <code>hasAuthority("ADMIN")</code>? Which authorities does a JWT with <code>"scope": "orders:read orders:write"</code> produce by default?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>hasRole("ADMIN")</code> checks for the authority <code>ROLE_ADMIN</code> (the prefix is added for you); <code>hasAuthority("ADMIN")</code> checks for exactly <code>ADMIN</code>. The JWT produces <code>SCOPE_orders:read</code> and <code>SCOPE_orders:write</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Use a <code>BCryptPasswordEncoder</code> with strength 12 to hash <code>"hunter2"</code>, then print whether the hash starts with <code>$2a$12$</code> and whether it matches.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BcryptStrength.java" data-run>
+package com.example.ch17.ex3;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+
+public class BcryptStrength {
+  public static void main(String[] args) {
+    var encoder = new BCryptPasswordEncoder(12);
+    String hash = encoder.encode("hunter2");
+    System.out.println(hash.startsWith("$2a$12$") + " " + encoder.matches("hunter2", hash) + " length=" + hash.length());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true true length=60
+</script>
+<p>Each strength step doubles the work: 12 is about 4× slower than the default 10. Choose the highest value that keeps login acceptably fast on your servers (~100–300 ms).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A colleague disables CSRF in a server-rendered web shop that uses session cookies, "because the forms stopped working". Why is that dangerous, and what's the real fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With cookie-based sessions, any website the user visits can submit a form to the shop and the browser will attach the session cookie — e.g. changing the delivery address or placing an order. The fix is to include the CSRF token in the forms (Thymeleaf does it automatically with <code>th:action</code>; JavaScript clients read the <code>XSRF-TOKEN</code> cookie and send the header). CSRF may only be disabled for APIs that don't use cookies for authentication.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>@WebMvcTest</code>-free security unit check with the <code>BasicSecurityApp</code>: a <code>@SpringBootTest</code> + <code>@AutoConfigureMockMvc</code> test using <code>httpBasic("ada", "s3cret")</code> showing ada gets 200 on <code>/books</code> and 403 on <code>DELETE /books/1</code>, and anonymous gets 200 on <code>/public/hours</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BasicRulesTest.java" data-test>
+package com.example.ch17.basic;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class BasicRulesTest {
+  @Autowired MockMvcTester mvc;
+
+  @Test void publicIsOpen() { assertThat(mvc.get().uri("/public/hours")).hasStatusOk(); }
+  @Test void adaCanRead() { assertThat(mvc.get().uri("/books").with(httpBasic("ada", "s3cret"))).hasStatusOk(); }
+  @Test void adaCannotDelete() { assertThat(mvc.delete().uri("/books/1").with(httpBasic("ada", "s3cret"))).hasStatus(HttpStatus.FORBIDDEN); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Create a meta-annotation <code>@IsLibrarian</code> equivalent to <code>@PreAuthorize("hasRole('LIBRARIAN')")</code> and use it on a service method. Show it denies a plain user and allows a librarian.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="MetaAnnotationApp.java" data-run>
+package com.example.ch17.ex6;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+
+@Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME)
+@PreAuthorize("hasRole('LIBRARIAN')")
+@interface IsLibrarian {}
+
+@Service
+class Catalog { @IsLibrarian public String removeTitle(String t) { return "removed " + t; } }
+
+@SpringBootApplication
+@EnableMethodSecurity
+public class MetaAnnotationApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MetaAnnotationApp.class, "--spring.main.web-application-type=none")) {
+      var catalog = ctx.getBean(Catalog.class);
+      SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("ada", null, "ROLE_USER"));
+      try { catalog.removeTitle("Dune"); } catch (AuthorizationDeniedException e) { System.out.println("ada: denied"); }
+      SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("lin", null, "ROLE_LIBRARIAN"));
+      System.out.println("lin: " + catalog.removeTitle("Dune"));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ada: denied
+lin: removed Dune
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a test with the <code>jwt()</code> post-processor showing that the JWT app's <code>/books</code> response contains the token's subject, and that a token with only <code>SCOPE_profile</code> gets 403.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="JwtSubjectTest.java" data-test>
+package com.example.ch17.jwt;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class JwtSubjectTest {
+  @Autowired MockMvcTester mvc;
+
+  @Test
+  void subjectIsShown() {
+    assertThat(mvc.get().uri("/books").with(jwt().jwt(j -> j.subject("grace").claim("scope", "books:read"))))
+        .bodyText().startsWith("books for grace");
+  }
+
+  @Test
+  void wrongScope() {
+    assertThat(mvc.get().uri("/books").with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_profile"))))
+        .hasStatus(HttpStatus.FORBIDDEN);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>Note that <code>jwt().jwt(…)</code> derives authorities from the claims you set, while <code>jwt().authorities(…)</code> sets them directly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>After adding Spring Security, a browser single-page app on another origin gets CORS errors on every API call, even though <code>WebMvcConfigurer.addCorsMappings</code> is configured. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The browser's preflight <code>OPTIONS</code> request carries no credentials, so the security filter chain rejects it with 401 before Spring MVC's CORS handling runs. Enable CORS in the security chain — <code>http.cors(Customizer.withDefaults())</code> — which uses the MVC configuration or a <code>CorsConfigurationSource</code> bean and answers preflights before authentication.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Map custom JWT claims to roles: tokens carry <code>"roles": ["librarian", "user"]</code>. Configure a <code>JwtAuthenticationConverter</code> (with a <code>JwtGrantedAuthoritiesConverter</code> using <code>setAuthoritiesClaimName("roles")</code> and prefix <code>ROLE_</code>, upper-casing is up to you) and decode a token with <code>NimbusJwtDecoder</code> to print the resulting authorities — no web server needed.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RolesClaimDemo.java" data-run>
+package com.example.ch17.ex9;
+
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+
+public class RolesClaimDemo {
+  public static void main(String[] args) {
+    var key = new SecretKeySpec("another-demo-secret-key-with-32+-bytes".getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+    var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
+    var claims = JwtClaimsSet.builder().subject("lin").claim("roles", List.of("librarian", "user"))
+        .expiresAt(Instant.now().plusSeconds(60)).build();
+    String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+
+    var roles = new JwtGrantedAuthoritiesConverter();
+    roles.setAuthoritiesClaimName("roles");
+    roles.setAuthorityPrefix("ROLE_");
+    var converter = new JwtAuthenticationConverter();
+    converter.setJwtGrantedAuthoritiesConverter(jwt -> roles.convert(jwt).stream()
+        .map(a -> (GrantedAuthority) () -> a.getAuthority().toUpperCase()).toList());
+
+    Jwt jwt = NimbusJwtDecoder.withSecretKey(key).build().decode(token);
+    var auth = converter.convert(jwt);
+    System.out.println(auth.getName() + " " + auth.getAuthorities().stream().map(GrantedAuthority::getAuthority).sorted().toList());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+lin [FACTOR_BEARER, ROLE_LIBRARIAN, ROLE_USER]
+</script>
+<p><code>FACTOR_BEARER</code> is new in Spring Security 7: alongside your own authorities, an authentication records <em>how</em> the user proved their identity (<code>FACTOR_PASSWORD</code>, <code>FACTOR_BEARER</code>, <code>FACTOR_OTT</code>…). That's the basis of its multi-factor authentication support — rules can require, say, both a password and a one-time token. Register the converter in the chain with <code>.oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtAuthenticationConverter(converter)))</code>; then <code>hasRole('LIBRARIAN')</code> works with your identity provider's role claim.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Secure the Library Loans API design: write a <code>SecurityFilterChain</code> (resource server, stateless) and controller where <code>GET /members/{member}/loans</code> is allowed for the member themself (JWT subject) or a librarian (<code>SCOPE_library:admin</code>), using <code>@PreAuthorize</code>; <code>POST /books</code> requires <code>SCOPE_library:admin</code> in the URL rules. Test four cases with <code>jwt()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SecuredLoansApp.java">
+package com.example.ch17.ex10;
+
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.bind.annotation.*;
+
+@SpringBootApplication
+@EnableMethodSecurity
+public class SecuredLoansApp {
+  @Bean
+  SecurityFilterChain api(HttpSecurity http) throws Exception {
+    return http.authorizeHttpRequests(a -> a
+            .requestMatchers(HttpMethod.POST, "/books").hasAuthority("SCOPE_library:admin")
+            .anyRequest().authenticated())
+        .oauth2ResourceServer(o -> o.jwt(j -> { }))
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .csrf(c -> c.disable())
+        .build();
+  }
+
+  @Bean JwtDecoder jwtDecoder() {   // tests use jwt(), so the key only needs to exist
+    return NimbusJwtDecoder.withSecretKey(new SecretKeySpec("unused-in-tests-but-32-bytes-long!!".getBytes(StandardCharsets.UTF_8), "HmacSHA256")).build();
+  }
+
+  @RestController
+  static class LoansApi {
+    @GetMapping("/members/{member}/loans")
+    @PreAuthorize("#member == authentication.name or hasAuthority('SCOPE_library:admin')")
+    List<String> loans(@PathVariable String member) { return List.of(member + ": Dune"); }
+
+    @PostMapping("/books") String add() { return "added"; }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="SecuredLoansTest.java" data-test>
+package com.example.ch17.ex10;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+@SpringBootTest(classes = SecuredLoansApp.class)
+@AutoConfigureMockMvc
+class SecuredLoansTest {
+  @Autowired MockMvcTester mvc;
+
+  @Test void memberSeesOwnLoans() {
+    assertThat(mvc.get().uri("/members/ada/loans").with(jwt().jwt(j -> j.subject("ada")))).hasStatusOk();
+  }
+  @Test void memberCannotSeeOthers() {
+    assertThat(mvc.get().uri("/members/bob/loans").with(jwt().jwt(j -> j.subject("ada")))).hasStatus(HttpStatus.FORBIDDEN);
+  }
+  @Test void librarianSeesAll() {
+    assertThat(mvc.get().uri("/members/bob/loans").with(jwt().jwt(j -> j.subject("lin").claim("scope", "library:admin")))).hasStatusOk();
+  }
+  @Test void onlyLibrarianAddsBooks() {
+    assertThat(mvc.post().uri("/books").with(jwt().jwt(j -> j.subject("ada")))).hasStatus(HttpStatus.FORBIDDEN);
+    assertThat(mvc.post().uri("/books").with(jwt().jwt(j -> j.subject("lin").claim("scope", "library:admin")))).hasStatusOk();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>URL rules handle coarse "who may call this endpoint" decisions; <code>@PreAuthorize</code> handles rules that depend on the request's data. <code>classes = SecuredLoansApp.class</code> points the test at this exercise's application, since several <code>@SpringBootApplication</code> classes live on this page.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-boot/reference/web/spring-security.html">Spring Boot: Spring Security</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/servlet/architecture.html">Spring Security: Servlet architecture</a> · <a href="https://docs.spring.io/spring-security/reference/servlet/authorization/authorize-http-requests.html">Authorize HTTP requests</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html">Method security</a> · <a href="https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html">Password storage</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html">OAuth 2.0 Resource Server: JWT</a> · <a href="https://docs.spring.io/spring-security/reference/servlet/test/index.html">Testing</a></li>
+  <li><a href="https://docs.spring.io/spring-security/reference/features/exploits/csrf.html">CSRF</a> · <a href="https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html">CORS</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

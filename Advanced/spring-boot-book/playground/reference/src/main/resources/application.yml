@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: library-loans
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate            # Flyway owns the schema; Hibernate only checks it
+  mvc:
+    problemdetails:
+      enabled: true                 # RFC 9457 errors for Spring MVC's own exceptions too
+
+library:
+  loan-days: 14
+  max-open-loans: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: Library Loans API

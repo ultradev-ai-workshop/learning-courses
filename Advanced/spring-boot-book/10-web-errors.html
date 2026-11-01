@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webmvc validation">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Errors, Validation &amp; Web Infrastructure · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Web</div>
+<h1>Errors, Validation &amp; Web Infrastructure</h1>
+<p class="lead">A good API is judged by how it fails. This chapter shows how Spring MVC turns exceptions into HTTP responses, how to return consistent <strong>RFC 9457 Problem Details</strong>, how to validate request bodies and parameters, and the infrastructure around your controllers: servlet filters, CORS, and multipart uploads.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What happens to an exception thrown from a controller, and Boot's default <code>/error</code> response.</li>
+  <li><strong><code>ProblemDetail</code></strong>, <code>ErrorResponseException</code> and <code>ResponseStatusException</code>.</li>
+  <li>Local <code>@ExceptionHandler</code>s and a global <strong><code>@RestControllerAdvice</code></strong>.</li>
+  <li><strong>Validating requests</strong>: <code>@Valid @RequestBody</code>, parameter constraints, and returning field errors.</li>
+  <li><strong>Filters</strong> (<code>OncePerRequestFilter</code>), <strong>CORS</strong> and <strong>file uploads</strong>.</li>
+</ul>
+</div>
+
+<h2 id="defaults">What happens when a controller throws</h2>
+<p>When a handler method throws, the <code>DispatcherServlet</code> asks a chain of <code>HandlerExceptionResolver</code>s to handle it:</p>
+<ol>
+  <li><code>ExceptionHandlerExceptionResolver</code>: your <code>@ExceptionHandler</code> methods (in the controller, then in <code>@ControllerAdvice</code> classes).</li>
+  <li><code>ResponseStatusExceptionResolver</code>: exceptions annotated <code>@ResponseStatus</code> and <code>ResponseStatusException</code>.</li>
+  <li><code>DefaultHandlerExceptionResolver</code>: Spring's own exceptions (missing parameter → 400, wrong method → 405…).</li>
+</ol>
+<p>If none handles it, the exception reaches the servlet container, which forwards to <strong><code>/error</code></strong>. Boot's <code>BasicErrorController</code> answers there with a JSON body (or an HTML "Whitelabel" page for browsers):</p>
+<script type="text/plain" class="code" data-file="DefaultErrorsApplication.java" data-run>
+package com.example.ch10.defaults;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@ResponseStatus(HttpStatus.NOT_FOUND)
+class OrderNotFound extends RuntimeException {
+  OrderNotFound(long id) { super("order " + id + " not found"); }
+}
+
+@RestController
+class OrderController {
+  @GetMapping("/orders/{id}")
+  String get(@PathVariable long id) {
+    if (id == 0) throw new IllegalStateException("database exploded");   // unexpected → 500
+    throw new OrderNotFound(id);                                         // expected → 404
+  }
+}
+
+@SpringBootApplication
+public class DefaultErrorsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(DefaultErrorsApplication.class, "--logging.level.org.apache.catalina=OFF", "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      for (String path : new String[] { "/orders/7", "/orders/0", "/orders/abc", "/nothing-here" }) {
+        var r = http.get().uri(path).retrieve().toEntity(String.class);
+        System.out.println(r.getStatusCode().value() + " " + r.getBody().replaceAll("\"timestamp\":\"[^\"]+\",", ""));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+404 {"status":404,"error":"Not Found","path":"/orders/7"}
+500 {"status":500,"error":"Internal Server Error","path":"/orders/0"}
+400 {"status":400,"error":"Bad Request","path":"/orders/abc"}
+404 {"status":404,"error":"Not Found","path":"/nothing-here"}
+</script>
+<p>(The example removes the <code>timestamp</code> field and silences Spring's WARN log lines so the output is stable; the container also logs the stack trace of the 500.) Notice what's <em>not</em> there: the exception message. Boot hides messages, exception class names and stack traces by default, because they can leak internals to attackers. You can opt in with <code>server.error.include-message=always</code> — but a better approach is to design your error responses explicitly.</p>
+
+<h2 id="problem-details">Problem Details (RFC 9457)</h2>
+<p><strong>RFC 9457 "Problem Details for HTTP APIs"</strong> is a standard JSON shape for errors, with the media type <code>application/problem+json</code>:</p>
+<script type="text/plain" class="code" data-lang="json" data-norun>
+{
+  "type": "https://api.example.com/problems/insufficient-funds",
+  "title": "Insufficient funds",
+  "status": 422,
+  "detail": "Balance is 30.00 but the transfer needs 50.00",
+  "instance": "/transfers/abc123",
+  "balance": 30.00
+}
+</script>
+<p>Spring represents it as <code>ProblemDetail</code>. Turn on <code>spring.mvc.problemdetails.enabled=true</code> and all of Spring MVC's own exceptions (400, 404, 405, 415…) are rendered this way. For your own errors, throw an <code>ErrorResponseException</code> (or a subclass) or <code>ResponseStatusException</code>, or return a <code>ProblemDetail</code> from an exception handler:</p>
+<script type="text/plain" class="code" data-file="ProblemDetailsApplication.java" data-run>
+package com.example.ch10.problems;
+
+import java.math.BigDecimal;
+import java.net.URI;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+class InsufficientFunds extends ErrorResponseException {
+  InsufficientFunds(BigDecimal balance, BigDecimal needed) {
+    super(HttpStatus.UNPROCESSABLE_CONTENT, problem(balance, needed), null);
+  }
+  private static ProblemDetail problem(BigDecimal balance, BigDecimal needed) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT,
+        "Balance is " + balance + " but the transfer needs " + needed);
+    pd.setType(URI.create("https://api.example.com/problems/insufficient-funds"));
+    pd.setTitle("Insufficient funds");
+    pd.setProperty("balance", balance);                    // extra, machine-readable field
+    return pd;
+  }
+}
+
+@RestController
+class TransferController {
+  @PostMapping("/transfers")
+  String transfer(@RequestParam BigDecimal amount) {
+    var balance = new BigDecimal("30.00");
+    if (amount.compareTo(balance) > 0) throw new InsufficientFunds(balance, amount);
+    return "ok";
+  }
+
+  @GetMapping("/accounts/{id}")
+  String account() {
+    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no such account");   // quick one-off errors
+  }
+}
+
+@SpringBootApplication
+public class ProblemDetailsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ProblemDetailsApplication.class,
+        "--spring.mvc.problemdetails.enabled=true", "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      var r = http.post().uri("/transfers?amount=50.00").retrieve().toEntity(String.class);
+      System.out.println(r.getStatusCode().value() + " " + r.getHeaders().getContentType());
+      System.out.println(r.getBody());
+      System.out.println(http.get().uri("/accounts/9").retrieve().body(String.class));
+      System.out.println(http.post().uri("/transfers").retrieve().body(String.class));   // missing parameter
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+422 application/problem+json
+{"detail":"Balance is 30.00 but the transfer needs 50.00","instance":"/transfers","status":422,"title":"Insufficient funds","type":"https://api.example.com/problems/insufficient-funds","balance":30.00}
+{"detail":"no such account","instance":"/accounts/9","status":404,"title":"Not Found"}
+{"detail":"Required parameter 'amount' is not present.","instance":"/transfers","status":400,"title":"Bad Request"}
+</script>
+<p>Three details of the JSON Spring writes: <code>type</code> is left out when it is the default <code>about:blank</code> (RFC 9457 says a missing <code>type</code> means exactly that); extra properties such as <code>balance</code> appear at the <strong>top level</strong>, as the RFC requires; and <code>instance</code> is filled in with the request path automatically. The last line shows Spring's own <code>MissingServletRequestParameterException</code> rendered as a problem — with a helpful, safe <code>detail</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a standard accident report form.</strong> Without a standard, every driver describes an accident differently — one writes a novel, another just says "bad". Insurance companies use one form with fixed boxes: what happened, where, how serious, plus a free-text box for details. Problem Details is that form for APIs: clients always know where to look for the status, the title and the details, and can still read your extra fields.</p>
+</div>
+
+<h2 id="handlers">Exception handlers and <code>@RestControllerAdvice</code></h2>
+<p>Domain code shouldn't know about HTTP. Throw plain domain exceptions in services, and translate them to responses in <strong>one place</strong>: a <code>@RestControllerAdvice</code> class with <code>@ExceptionHandler</code> methods. Extending <code>ResponseEntityExceptionHandler</code> also gives you Problem Details for all of Spring MVC's exceptions, with hooks to customise them:</p>
+<script type="text/plain" class="code" data-file="AdviceApplication.java" data-run>
+package com.example.ch10.advice;
+
+import java.net.URI;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+// --- domain: knows nothing about HTTP
+class NotFoundException extends RuntimeException {
+  NotFoundException(String what, Object id) { super(what + " " + id + " was not found"); }
+}
+class BusinessRuleException extends RuntimeException {
+  final String code;
+  BusinessRuleException(String code, String message) { super(message); this.code = code; }
+}
+
+@Service
+class LoanService {
+  String renew(long loanId) {
+    if (loanId > 100) throw new NotFoundException("Loan", loanId);
+    if (loanId == 13) throw new BusinessRuleException("MAX_RENEWALS", "This loan was already renewed twice");
+    if (loanId == 66) throw new IllegalStateException("connection reset by peer at 10.0.3.7");   // a bug or outage
+    return "loan " + loanId + " renewed";
+  }
+}
+
+@RestController
+class LoanController {
+  private final LoanService loans;
+  LoanController(LoanService loans) { this.loans = loans; }
+  @GetMapping("/loans/{id}/renew") String renew(@PathVariable long id) { return loans.renew(id); }
+}
+
+// --- web layer: one place that maps exceptions to HTTP
+@RestControllerAdvice
+class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+
+  @ExceptionHandler
+  ProblemDetail notFound(NotFoundException e) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+  }
+
+  @ExceptionHandler
+  ProblemDetail rule(BusinessRuleException e) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    pd.setType(URI.create("https://api.example.com/problems/" + e.code.toLowerCase().replace('_', '-')));
+    pd.setProperty("code", e.code);
+    return pd;
+  }
+
+  @ExceptionHandler
+  ProblemDetail unexpected(Exception e) {                 // the safety net: never leak the message
+    System.out.println("  [logged for operators] " + e.getMessage());
+    return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong. Please try again later.");
+  }
+}
+
+@SpringBootApplication
+public class AdviceApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AdviceApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      for (long id : new long[] { 7, 101, 13, 66 }) {
+        var r = http.get().uri("/loans/{id}/renew", id).retrieve().toEntity(String.class);
+        System.out.println(r.getStatusCode().value() + " " + r.getBody());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 loan 7 renewed
+404 {"detail":"Loan 101 was not found","instance":"/loans/101/renew","status":404,"title":"Not Found"}
+409 {"detail":"This loan was already renewed twice","instance":"/loans/13/renew","status":409,"title":"Conflict","type":"https://api.example.com/problems/max-renewals","code":"MAX_RENEWALS"}
+  [logged for operators] connection reset by peer at 10.0.3.7
+500 {"detail":"Something went wrong. Please try again later.","instance":"/loans/66/renew","status":500,"title":"Internal Server Error"}
+</script>
+<p>The <code>@ExceptionHandler</code> methods declare the exception type as their parameter; Spring picks the <strong>closest match</strong> in the class hierarchy, so the <code>Exception</code> handler only gets what nothing else handles. An <code>@ExceptionHandler</code> inside a controller class applies only to that controller and takes precedence over the advice.</p>
+<div class="tip">
+<p>💡 <strong>Choosing status codes.</strong> 400 malformed request; 401 not authenticated; 403 authenticated but not allowed; 404 not found; 409 conflicts with current state (duplicate, version mismatch); 422 well-formed but violates a business rule; 429 rate-limited; 500 your bug; 503 a dependency is down. Pick one convention per API and document it.</p>
+</div>
+
+<h2 id="validation">Validating requests</h2>
+<p>Add <code>@Valid</code> (or <code>@Validated</code> for groups) to a <code>@RequestBody</code>. Invalid input throws <code>MethodArgumentNotValidException</code>, which <code>ResponseEntityExceptionHandler</code> turns into a 400 problem. Constraints directly on <code>@PathVariable</code>/<code>@RequestParam</code> parameters are validated too — Spring MVC has built-in method validation for controllers — and raise <code>HandlerMethodValidationException</code>. Override the hooks to include the field errors clients need:</p>
+<script type="text/plain" class="code" data-file="ValidationApplication.java" data-run>
+package com.example.ch10.validation;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.util.Map;
+import java.util.TreeMap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.method.ParameterValidationResult;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+record Registration(@NotBlank @Size(max = 40) String name, @NotBlank @Email String email, @Min(13) int age) {}
+
+@RestController
+class RegistrationController {
+  @PostMapping("/registrations")
+  ResponseEntity<String> register(@Valid @RequestBody Registration r) {
+    return ResponseEntity.status(HttpStatus.CREATED).body("welcome " + r.name());
+  }
+
+  @GetMapping("/members")
+  String members(@RequestParam @Min(1) @Max(100) int limit) { return "first " + limit + " members"; }
+}
+
+@RestControllerAdvice
+class ValidationErrors extends ResponseEntityExceptionHandler {
+
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+      HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+    Map<String, String> errors = new TreeMap<>();
+    ex.getBindingResult().getFieldErrors().forEach(fe -> errors.put(fe.getField(), fe.getDefaultMessage()));
+    ProblemDetail pd = ex.getBody();                                   // Spring's 400 problem…
+    pd.setDetail("The request has " + errors.size() + " invalid field(s)");
+    pd.setProperty("errors", errors);                                  // …plus the field errors
+    return ResponseEntity.status(status).headers(headers).body(pd);
+  }
+
+  @Override
+  protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException ex,
+      HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+    Map<String, String> errors = new TreeMap<>();
+    for (ParameterValidationResult r : ex.getParameterValidationResults()) {
+      r.getResolvableErrors().forEach(e -> errors.put(r.getMethodParameter().getParameterName(), e.getDefaultMessage()));
+    }
+    ProblemDetail pd = ex.getBody();
+    pd.setProperty("errors", errors);
+    return ResponseEntity.status(status).headers(headers).body(pd);
+  }
+}
+
+@SpringBootApplication
+public class ValidationApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ValidationApplication.class, "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.post().uri("/registrations").body(new Registration("Ada", "ada@example.com", 36)).retrieve().body(String.class));
+      var bad = http.post().uri("/registrations").body(new Registration("", "nope", 9)).retrieve().toEntity(String.class);
+      System.out.println(bad.getStatusCode().value() + " " + bad.getBody());
+      System.out.println(http.get().uri("/members?limit=500").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+welcome Ada
+400 {"detail":"The request has 3 invalid field(s)","instance":"/registrations","status":400,"title":"Bad Request","errors":{"age":"must be greater than or equal to 13","email":"must be a well-formed email address","name":"must not be blank"}}
+{"detail":"Validation failure","instance":"/members","status":400,"title":"Bad Request","errors":{"limit":"must be less than or equal to 100"}}
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Malformed JSON is not a validation error.</strong> A body like <code>{"age": "old"}</code> or a truncated document fails <em>before</em> validation with <code>HttpMessageNotReadableException</code> (400, "Failed to read request"). Handle it separately if you want a friendlier message, and never echo the raw parser message to clients — it can contain internal class names.</p>
+</div>
+
+<h2 id="filters">Servlet filters</h2>
+<p>A <strong>filter</strong> wraps the whole request processing — even requests that never reach a controller (404s, static files) and code that runs before Spring MVC (Spring Security is a filter chain). Extend <code>OncePerRequestFilter</code>, which guarantees one execution per request even with internal forwards like <code>/error</code>. Any <code>Filter</code> bean is registered automatically; <code>@Order</code> sets its position:</p>
+<script type="text/plain" class="code" data-file="FilterApplication.java" data-run>
+package com.example.ch10.filter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.UUID;
+import org.slf4j.MDC;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+class RequestIdFilter extends OncePerRequestFilter {
+  @Override
+  protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+      throws ServletException, IOException {
+    String id = req.getHeader("X-Request-Id");
+    if (id == null || id.isBlank()) id = UUID.randomUUID().toString();
+    res.setHeader("X-Request-Id", id);                     // echo it so clients can quote it
+    MDC.put("requestId", id);                              // every log line of this request can include it
+    long start = System.nanoTime();
+    try {
+      chain.doFilter(req, res);                            // continue to the next filter / the servlet
+    } finally {
+      MDC.remove("requestId");                             // threads are reused: always clean up
+      System.out.printf("%s %s -> %d%n", req.getMethod(), req.getRequestURI(), res.getStatus());
+    }
+  }
+}
+
+@RestController
+class PingController {
+  @GetMapping("/ping") String ping() { return "pong (request " + MDC.get("requestId") + ")"; }
+}
+
+@SpringBootApplication
+public class FilterApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FilterApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/ping").header("X-Request-Id", "abc-123").retrieve().body(String.class));
+      var r = http.get().uri("/missing").retrieve().toBodilessEntity();
+      System.out.println("generated id: " + (r.getHeaders().getFirst("X-Request-Id").length() == 36));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+GET /ping -> 200
+pong (request abc-123)
+GET /missing -> 404
+generated id: true
+</script>
+<p>The filter sees the 404 for <code>/missing</code> even though no controller handled it. Use filters for cross-cutting <em>HTTP</em> concerns (request ids, logging, compression, CORS, security); use interceptors (Chapter 9) when you need to know which handler method was chosen.</p>
+
+<h2 id="cors">CORS</h2>
+<p>Browsers block JavaScript on <code>https://app.example.com</code> from reading responses from <code>https://api.example.com</code> unless the API allows it with <strong>CORS</strong> headers. Server-to-server calls (and <code>curl</code>) are not affected — CORS is a browser rule. Configure it globally:</p>
+<script type="text/plain" class="code" data-file="CorsApplication.java" data-run>
+package com.example.ch10.cors;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+class CorsConfig implements WebMvcConfigurer {
+  @Override
+  public void addCorsMappings(CorsRegistry registry) {
+    registry.addMapping("/api/**")
+        .allowedOrigins("https://app.example.com")
+        .allowedMethods("GET", "POST", "PUT", "DELETE")
+        .maxAge(3600);                                   // browsers may cache the preflight for an hour
+  }
+}
+
+@RestController
+class ApiController { @GetMapping("/api/data") String data() { return "{}"; } }
+
+@SpringBootApplication
+public class CorsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(CorsApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      for (String origin : new String[] { "https://app.example.com", "https://evil.example" }) {
+        var r = http.options().uri("/api/data")                       // the browser's "preflight" request
+            .header("Origin", origin).header("Access-Control-Request-Method", "DELETE")
+            .retrieve().toBodilessEntity();
+        System.out.println(origin + " -> " + r.getStatusCode().value() + " allow-origin=" + r.getHeaders().getAccessControlAllowOrigin()
+            + " allow-methods=" + r.getHeaders().getAccessControlAllowMethods());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+https://app.example.com -> 200 allow-origin=https://app.example.com allow-methods=[GET, POST, PUT, DELETE]
+https://evil.example -> 403 allow-origin=null allow-methods=[]
+</script>
+<p>For a single controller, <code>@CrossOrigin(origins = "…")</code> does the same. With Spring Security, configure CORS through <code>http.cors(…)</code> so preflight requests are allowed before authentication (Chapter 17). Never combine <code>allowedOrigins("*")</code> with credentials.</p>
+
+<h2 id="uploads">File uploads</h2>
+<p>Spring MVC handles <code>multipart/form-data</code> out of the box. Accept a <code>MultipartFile</code> with <code>@RequestParam</code> (or <code>@RequestPart</code> for a JSON part next to the file). Limits are properties:</p>
+<script type="text/plain" class="code" data-file="UploadApplication.java" data-run>
+package com.example.ch10.upload;
+
+import java.io.IOException;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.multipart.MultipartFile;
+
+@RestController
+class UploadController {
+  @PostMapping(path = "/avatars", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  String upload(@RequestParam("file") MultipartFile file, @RequestParam String user) throws IOException {
+    if (!"image/png".equals(file.getContentType())) return "rejected: only PNG";
+    byte[] bytes = file.getBytes();                       // or file.transferTo(path) for big files
+    return user + " uploaded " + file.getOriginalFilename() + " (" + bytes.length + " bytes)";
+  }
+}
+
+@SpringBootApplication
+public class UploadApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(UploadApplication.class,
+        "--spring.servlet.multipart.max-file-size=1MB", "--spring.servlet.multipart.max-request-size=2MB")) {
+      var http = RestClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var form = new LinkedMultiValueMap<String, Object>();
+      form.add("user", "ada");
+      form.add("file", new ByteArrayResource(new byte[2048]) { public String getFilename() { return "me.png"; } });
+      var headers = new org.springframework.http.HttpHeaders();
+      System.out.println(http.post().uri("/avatars").contentType(MediaType.MULTIPART_FORM_DATA).body(form).retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ada uploaded me.png (2048 bytes)
+</script>
+<p>The client sent the file part as <code>image/png</code> because <code>RestClient</code> guesses the part's content type from the <code>.png</code> file name. Never trust it on the server for security decisions: check the bytes (magic numbers) and the size, and generate your own storage name instead of using <code>getOriginalFilename()</code>, which can contain <code>../</code>. A too-large file is rejected with <code>MaxUploadSizeExceededException</code> (413). The How-To guide <a href="howto-web.html">H2</a> shows downloads and streaming uploads.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A local exception handler in a controller</h3>
+<script type="text/plain" class="code" data-file="LocalHandlerApplication.java" data-run>
+package com.example.ch10.local;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+
+@RestController
+class DivideController {
+  @GetMapping("/divide")
+  int divide(@RequestParam int a, @RequestParam int b) { return a / b; }
+
+  @ExceptionHandler(ArithmeticException.class)              // only for this controller
+  ResponseEntity<String> math(ArithmeticException e) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("cannot divide: " + e.getMessage());
+  }
+}
+
+@SpringBootApplication
+public class LocalHandlerApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LocalHandlerApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/divide?a=10&b=4").retrieve().body(String.class));
+      var r = http.get().uri("/divide?a=1&b=0").retrieve().toEntity(String.class);
+      System.out.println(r.getStatusCode().value() + " " + r.getBody());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2
+400 cannot divide: / by zero
+</script>
+
+<h3>Problem details for unmapped URLs</h3>
+<p>By default a URL with no handler is answered by <code>/error</code>. Enable <code>spring.mvc.problemdetails.enabled</code> and Spring MVC answers it with a <code>NoResourceFoundException</code> problem instead, so all your 404s look the same:</p>
+<script type="text/plain" class="code" data-file="NotFoundProblem.java" data-run>
+package com.example.ch10.notfound;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.client.RestClient;
+
+@SpringBootApplication
+public class NotFoundProblem {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NotFoundProblem.class, "--spring.mvc.problemdetails.enabled=true",
+        "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/no/such/thing").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"detail":"No static resource no/such/thing.","instance":"/no/such/thing","status":404,"title":"Not Found"}
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Exceptions go through <code>HandlerExceptionResolver</code>s (<code>@ExceptionHandler</code> → <code>@ResponseStatus</code>/<code>ResponseStatusException</code> → Spring's defaults), then to Boot's <code>/error</code>, which hides messages by default.</li>
+  <li>Use <strong>Problem Details</strong> (<code>application/problem+json</code>): <code>spring.mvc.problemdetails.enabled=true</code>, <code>ProblemDetail</code>, <code>ErrorResponseException</code>, custom <code>type</code> and extra properties.</li>
+  <li>Keep domain exceptions HTTP-free; map them in one <code>@RestControllerAdvice</code> extending <code>ResponseEntityExceptionHandler</code>, with a safe catch-all for 500s.</li>
+  <li><code>@Valid @RequestBody</code> → <code>MethodArgumentNotValidException</code>; parameter constraints → <code>HandlerMethodValidationException</code>. Override the handler hooks to return field errors.</li>
+  <li>Filters (<code>OncePerRequestFilter</code> beans with <code>@Order</code>) wrap everything; CORS via <code>addCorsMappings</code>/<code>@CrossOrigin</code>; uploads with <code>MultipartFile</code> and <code>spring.servlet.multipart.*</code> limits.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Name the five standard fields of an RFC 9457 problem and say which ones Spring fills in automatically for <code>ProblemDetail.forStatusAndDetail(NOT_FOUND, "…")</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type</code> (a URI identifying the problem kind), <code>title</code> (short summary), <code>status</code>, <code>detail</code> (this occurrence), <code>instance</code> (URI of this occurrence). Spring sets <code>status</code> and <code>detail</code> from the arguments, defaults <code>type</code> to <code>about:blank</code>, sets <code>title</code> from the status reason ("Not Found"), and fills <code>instance</code> with the request path when rendering.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>Why does Boot not include the exception message in the default error response? When is it acceptable to include it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Messages often contain internal details: SQL fragments, host names, file paths, class names — useful to attackers and confusing to users. Include messages only when you <em>wrote them for clients</em> (your own domain exceptions mapped explicitly, as in this chapter). <code>server.error.include-message=always</code> exposes <em>all</em> messages and is best limited to development.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Write <code>GET /users/{id}</code> that throws <code>new ResponseStatusException(HttpStatus.GONE, "user deleted")</code> for id 0 and returns <code>"user {id}"</code> otherwise. With problem details enabled, print the 410 body.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="GoneApplication.java" data-run>
+package com.example.ch10.ex3;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController
+class UserController {
+  @GetMapping("/users/{id}")
+  String get(@PathVariable long id) {
+    if (id == 0) throw new ResponseStatusException(HttpStatus.GONE, "user deleted");
+    return "user " + id;
+  }
+}
+
+@SpringBootApplication
+public class GoneApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(GoneApplication.class, "--spring.mvc.problemdetails.enabled=true",
+        "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.get().uri("/users/5").retrieve().body(String.class));
+      System.out.println(http.get().uri("/users/0").retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+user 5
+{"detail":"user deleted","instance":"/users/0","status":410,"title":"Gone"}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A React app on <code>http://localhost:5173</code> calls your API on <code>http://localhost:8080</code>. It works with <code>curl</code> but fails in the browser. What's wrong, and what's the minimal fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A different port is a different <em>origin</em>, so the browser enforces CORS and blocks the response (or the preflight). <code>curl</code> doesn't implement CORS. Fix: allow that origin, e.g. <code>registry.addMapping("/api/**").allowedOrigins("http://localhost:5173")</code>, ideally only in the dev profile — or use the dev server's proxy so the browser sees one origin.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Create a domain exception <code>DuplicateEmailException(String email)</code> and a <code>@RestControllerAdvice</code> mapping it to <code>409</code> with <code>type</code> <code>https://api.example.com/problems/duplicate-email</code> and a property <code>email</code>. Trigger it from <code>POST /accounts?email=…</code> when the email is <code>taken@example.com</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="DuplicateApplication.java" data-run>
+package com.example.ch10.ex5;
+
+import java.net.URI;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+
+class DuplicateEmailException extends RuntimeException {
+  final String email;
+  DuplicateEmailException(String email) { super("An account with this email already exists"); this.email = email; }
+}
+
+@RestController
+class AccountController {
+  @PostMapping("/accounts")
+  String create(@RequestParam String email) {
+    if (email.equals("taken@example.com")) throw new DuplicateEmailException(email);
+    return "created " + email;
+  }
+}
+
+@RestControllerAdvice
+class Errors {
+  @ExceptionHandler
+  ProblemDetail duplicate(DuplicateEmailException e) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    pd.setType(URI.create("https://api.example.com/problems/duplicate-email"));
+    pd.setTitle("Duplicate email");
+    pd.setProperty("email", e.email);
+    return pd;
+  }
+}
+
+@SpringBootApplication
+public class DuplicateApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(DuplicateApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      System.out.println(http.post().uri("/accounts?email=new@example.com").retrieve().body(String.class));
+      var r = http.post().uri("/accounts?email=taken@example.com").retrieve().toEntity(String.class);
+      System.out.println(r.getStatusCode().value() + " " + r.getBody());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+created new@example.com
+409 {"detail":"An account with this email already exists","instance":"/accounts","status":409,"title":"Duplicate email","type":"https://api.example.com/problems/duplicate-email","email":"taken@example.com"}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Validate a nested request body <code>Order(@NotEmpty List&lt;@Valid Line&gt; lines)</code> with <code>Line(@NotBlank String sku, @Positive int qty)</code>. Return the field errors as a map in the problem, and show that the keys contain the paths (e.g. <code>lines[1].qty</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="NestedBodyApplication.java" data-run>
+package com.example.ch10.ex6;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Positive;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+record Line(@NotBlank String sku, @Positive int qty) {}
+record Order(@NotEmpty List<@Valid Line> lines) {}
+
+@RestController
+class OrderController {
+  @PostMapping("/orders") String place(@Valid @RequestBody Order o) { return o.lines().size() + " lines"; }
+}
+
+@RestControllerAdvice
+class Handler extends ResponseEntityExceptionHandler {
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex, HttpHeaders h,
+      HttpStatusCode status, WebRequest req) {
+    Map<String, String> errors = new TreeMap<>();
+    ex.getFieldErrors().forEach(fe -> errors.put(fe.getField(), fe.getDefaultMessage()));
+    var pd = ex.getBody();
+    pd.setProperty("errors", errors);
+    return ResponseEntity.status(status).body(pd);
+  }
+}
+
+@SpringBootApplication
+public class NestedBodyApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(NestedBodyApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      var order = new Order(List.of(new Line("PEN", 2), new Line("", 0)));
+      String body = http.post().uri("/orders").body(order).retrieve().body(String.class);
+      System.out.println(body.substring(body.indexOf("\"errors\"")));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+"errors":{"lines[1].qty":"must be greater than 0","lines[1].sku":"must not be blank"}}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a filter that rejects requests whose <code>Content-Length</code> exceeds 1 KB with <code>413</code> before they reach any controller, but only for paths under <code>/api/</code>. (Override <code>shouldNotFilter</code>.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SizeLimitApplication.java" data-run>
+package com.example.ch10.ex7;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+class SizeLimitFilter extends OncePerRequestFilter {
+  @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) { return !request.getRequestURI().startsWith("/api/"); }
+
+  @Override
+  protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+      throws ServletException, IOException {
+    if (req.getContentLengthLong() > 1024) { res.sendError(413, "too large"); return; }
+    chain.doFilter(req, res);
+  }
+}
+
+@RestController
+class EchoController {
+  @PostMapping({ "/api/echo", "/open/echo" }) String echo(@RequestBody String body) { return body.length() + " chars"; }
+}
+
+@SpringBootApplication
+public class SizeLimitApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SizeLimitApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      String big = "x".repeat(2000);
+      System.out.println(http.post().uri("/api/echo").body("small").retrieve().body(String.class));
+      System.out.println(http.post().uri("/api/echo").body(big).retrieve().toBodilessEntity().getStatusCode().value());
+      System.out.println(http.post().uri("/open/echo").body(big).retrieve().body(String.class));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 chars
+413
+2000 chars
+</script>
+<p>Chunked requests have no <code>Content-Length</code> (it's -1), so a production limit also needs a cap on bytes actually read — Tomcat's <code>server.tomcat.max-swallow-size</code> and multipart limits help.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>A controller has <code>@ExceptionHandler(IllegalArgumentException.class)</code> returning 400, and a global advice has <code>@ExceptionHandler(RuntimeException.class)</code> returning 500. Which handler runs when the controller throws <code>IllegalArgumentException</code>? When it throws <code>NumberFormatException</code>? When <em>another</em> controller throws <code>IllegalArgumentException</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The local handler (400) — local handlers are tried first. <code>NumberFormatException</code> extends <code>IllegalArgumentException</code>, so the local handler again (400). In another controller, only the advice applies: 500 from the <code>RuntimeException</code> handler.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Make malformed JSON friendly: override <code>handleHttpMessageNotReadable</code> to return a 400 problem with <code>detail</code> <code>"Malformed JSON request"</code> and, if the cause is a Jackson <code>MismatchedInputException</code>, a property <code>field</code> holding the name of the offending property (the last element of the exception's path). Send <code>{"name":"Ada","age":"old"}</code> to an endpoint expecting <code>int age</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="MalformedJsonApplication.java" data-run>
+package com.example.ch10.ex9;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.databind.exc.MismatchedInputException;
+
+record Person(String name, int age) {}
+
+@RestController
+class PersonController { @PostMapping("/people") String add(@RequestBody Person p) { return "added " + p.name(); } }
+
+@RestControllerAdvice
+class JsonErrors extends ResponseEntityExceptionHandler {
+  @Override
+  protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpHeaders headers,
+      HttpStatusCode status, WebRequest request) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Malformed JSON request");
+    if (ex.getCause() instanceof MismatchedInputException mie && !mie.getPath().isEmpty()) {
+      pd.setProperty("field", mie.getPath().getLast().getPropertyName());
+    }
+    return ResponseEntity.badRequest().body(pd);
+  }
+}
+
+@SpringBootApplication
+public class MalformedJsonApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(MalformedJsonApplication.class)) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      for (String json : new String[] { "{\"name\":\"Ada\",\"age\":36}", "{\"name\":\"Ada\",\"age\":\"old\"}", "{\"name\":" }) {
+        System.out.println(http.post().uri("/people").header("Content-Type", "application/json").body(json).retrieve().body(String.class));
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+added Ada
+{"detail":"Malformed JSON request","instance":"/people","status":400,"title":"Bad Request","field":"age"}
+{"detail":"Malformed JSON request","instance":"/people","status":400,"title":"Bad Request"}
+</script>
+<p>Jackson 3's exceptions live in <code>tools.jackson.databind.exc</code>. A type mismatch tells you <em>where</em> it happened; a truncated document doesn't have a field to blame.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Upgrade the Chapter 9 Library Loans API: a <code>LoanService</code> throws <code>MemberNotFoundException</code> and <code>LoanLimitReachedException(memberId, limit)</code>; a <code>@RestControllerAdvice</code> maps them to 404 and 409 problems (409 with <code>type</code> <code>…/problems/loan-limit</code> and property <code>limit</code>); <code>POST /members/{id}/loans</code> takes a validated <code>NewLoan(@NotBlank @Pattern(regexp = "\\d{13}") String isbn)</code>. Print the status and <code>detail</code>/<code>title</code> of: a valid loan, an invalid ISBN, an unknown member, and a 4th loan.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="LoansErrorsApplication.java" data-run>
+package com.example.ch10.ex10;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.databind.JsonNode;
+
+record NewLoan(@NotBlank @Pattern(regexp = "\\d{13}", message = "must be 13 digits") String isbn) {}
+record Loan(long memberId, String isbn) {}
+
+class MemberNotFoundException extends RuntimeException {
+  MemberNotFoundException(long id) { super("Member " + id + " does not exist"); }
+}
+class LoanLimitReachedException extends RuntimeException {
+  final int limit;
+  LoanLimitReachedException(long id, int limit) { super("Member " + id + " already has " + limit + " loans"); this.limit = limit; }
+}
+
+@Service
+class LoanService {
+  static final int LIMIT = 3;
+  private final Map<Long, List<Loan>> loans = new ConcurrentHashMap<>(Map.of(1L, new CopyOnWriteArrayList<>()));
+  synchronized Loan borrow(long memberId, String isbn) {
+    var current = loans.get(memberId);
+    if (current == null) throw new MemberNotFoundException(memberId);
+    if (current.size() >= LIMIT) throw new LoanLimitReachedException(memberId, LIMIT);
+    var loan = new Loan(memberId, isbn);
+    current.add(loan);
+    return loan;
+  }
+}
+
+@RestController
+class LoanController {
+  private final LoanService service;
+  LoanController(LoanService service) { this.service = service; }
+
+  @PostMapping("/members/{id}/loans")
+  @ResponseStatus(HttpStatus.CREATED)
+  Loan borrow(@PathVariable long id, @Valid @RequestBody NewLoan req) { return service.borrow(id, req.isbn()); }
+}
+
+@RestControllerAdvice
+class LibraryErrors extends ResponseEntityExceptionHandler {
+  @ExceptionHandler
+  ProblemDetail notFound(MemberNotFoundException e) { return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage()); }
+
+  @ExceptionHandler
+  ProblemDetail limit(LoanLimitReachedException e) {
+    var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    pd.setType(URI.create("https://library.example.com/problems/loan-limit"));
+    pd.setTitle("Loan limit reached");
+    pd.setProperty("limit", e.limit);
+    return pd;
+  }
+}
+
+@SpringBootApplication
+public class LoansErrorsApplication {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(LoansErrorsApplication.class, "--logging.level.org.springframework.web=ERROR")) {
+      var http = RestClient.builder().baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"))
+          .defaultStatusHandler(s -> true, (req, res) -> { }).build();
+      String[][] calls = { { "1", "9780141439518" }, { "1", "123" }, { "99", "9780141439518" },
+                           { "1", "9780000000002" }, { "1", "9780000000003" }, { "1", "9780000000004" } };
+      for (String[] c : calls) {
+        var r = http.post().uri("/members/{id}/loans", c[0]).body(new NewLoan(c[1])).retrieve().toEntity(JsonNode.class);
+        JsonNode b = r.getBody();
+        String info = r.getStatusCode().is2xxSuccessful() ? "isbn " + b.get("isbn").asString()
+            : b.get("title").asString() + ": " + b.get("detail").asString();
+        System.out.println(r.getStatusCode().value() + " " + info);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+201 isbn 9780141439518
+400 Bad Request: Invalid request content.
+404 Not Found: Member 99 does not exist
+201 isbn 9780000000002
+201 isbn 9780000000003
+409 Loan limit reached: Member 1 already has 3 loans
+</script>
+<p>Reading the response as a Jackson 3 <code>JsonNode</code> (note <code>asString()</code>, Jackson 3's name for the old <code>asText()</code>) is handy for clients that only need a few fields. For the 400 you'd add the field-error map from Exercise 6 so the client knows the ISBN was the problem.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html">Error responses (RFC 9457)</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-exceptionhandler.html">Exceptions (@ExceptionHandler)</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-advice.html">Controller advice</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-config/validation.html">Validation in MVC</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html">Validation of handler methods</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webmvc/filters.html">Filters</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html">CORS</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-servlet/multipart.html">Multipart resolver</a></li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling">Spring Boot: Error handling</a></li>
+  <li><a href="https://www.rfc-editor.org/rfc/rfc9457">RFC 9457: Problem Details for HTTP APIs</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

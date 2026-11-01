@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="spring-starters" content="webflux webclient webflux-test">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🍃&lt;/text&gt;&lt;/svg&gt;">
+<title>12. Reactive Web with WebFlux · Spring Boot Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 12 · Web</div>
+<h1>Reactive Web with WebFlux</h1>
+<p class="lead">Spring WebFlux is Spring's second web stack: fully non-blocking, built on <strong>Project Reactor</strong> and usually running on Netty. It shines when an application spends most of its time <em>waiting</em> — on other services, streams or slow clients — and needs to do that with very few threads. This chapter teaches the reactive model, <code>Mono</code> and <code>Flux</code>, annotated and functional endpoints, <code>WebClient</code>, streaming, and how to decide between WebFlux, Spring MVC and virtual threads.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <strong>reactive model</strong>: publishers, subscribers, laziness and backpressure.</li>
+  <li><strong><code>Mono</code> and <code>Flux</code></strong> and the operators you'll use daily: <code>map</code>, <code>flatMap</code>, <code>filter</code>, <code>zip</code>, <code>onErrorResume</code>, <code>timeout</code>, <code>retryWhen</code>.</li>
+  <li>WebFlux <strong>annotated controllers</strong> and <strong>functional endpoints</strong> (<code>RouterFunction</code>).</li>
+  <li><strong><code>WebClient</code></strong>, server-sent events, and testing with <code>StepVerifier</code> and <code>WebTestClient</code>.</li>
+  <li>The <strong>golden rule</strong> (never block) and <strong>when to choose WebFlux</strong> vs MVC with virtual threads.</li>
+</ul>
+</div>
+
+<h2 id="model">The reactive model</h2>
+<p>In Spring MVC, each request gets a thread, and that thread <em>waits</em> whenever your code waits (for the database, for another service). In WebFlux, a small number of <strong>event-loop threads</strong> (typically one per CPU core) handle all requests. Your code doesn't wait; it describes <em>what to do when data arrives</em>, and the thread moves on to other work in the meantime.</p>
+<p>That description is a <strong>reactive pipeline</strong> built from <em>publishers</em> (Reactive Streams): a <code>Mono&lt;T&gt;</code> emits 0 or 1 item, a <code>Flux&lt;T&gt;</code> emits 0 to N items, and either can end with completion or an error. Three properties matter most:</p>
+<ul>
+  <li><strong>Lazy</strong>: nothing happens until something <em>subscribes</em>. In WebFlux, the framework subscribes to what your controller returns.</li>
+  <li><strong>Asynchronous</strong>: items may arrive later, on another thread.</li>
+  <li><strong>Backpressure</strong>: the subscriber says how many items it can take (<code>request(n)</code>), so a fast producer can't overwhelm a slow consumer.</li>
+</ul>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a restaurant with pagers.</strong> In a thread-per-request restaurant, each waiter takes an order and stands at the kitchen window until the dish is ready — with 200 waiters, the 201st guest waits. In a reactive restaurant, a few waiters take orders, hand customers a pager and keep serving others. When the kitchen buzzes, whichever waiter is free brings the dish. It's very efficient — but only if nobody stands at the window. One waiter who blocks freezes a whole section.</p>
+</div>
+
+<h2 id="reactor">Mono and Flux</h2>
+<script type="text/plain" class="code" data-file="ReactorBasics.java" data-run>
+package com.example.ch12.basics;
+
+import java.time.Duration;
+import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+public class ReactorBasics {
+  public static void main(String[] args) {
+    Flux<Integer> numbers = Flux.range(1, 10);
+
+    // a pipeline is just a description; nothing runs yet
+    Flux<String> pipeline = numbers
+        .filter(n -> n % 2 == 0)
+        .map(n -> n * n)
+        .map(n -> "sq=" + n);
+
+    List<String> result = pipeline.collectList().block();      // block() subscribes and waits (only OK in main/tests!)
+    System.out.println(result);
+
+    Mono<String> greeting = Mono.just("ada").map(String::toUpperCase);
+    System.out.println(greeting.block());
+
+    // laziness: the supplier runs only when someone subscribes
+    Mono<String> lazy = Mono.fromSupplier(() -> { System.out.println("  (computing…)"); return "value"; });
+    System.out.println("pipeline built");
+    System.out.println(lazy.block());
+    System.out.println(lazy.block());                           // each subscription runs it again
+
+    // errors are signals, too
+    String recovered = Mono.<String>error(new IllegalStateException("boom"))
+        .onErrorResume(e -> Mono.just("fallback after " + e.getMessage()))
+        .block();
+    System.out.println(recovered);
+
+    // time-based operators
+    System.out.println(Flux.interval(Duration.ofMillis(10)).take(3).collectList().block());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[sq=4, sq=16, sq=36, sq=64, sq=100]
+ADA
+pipeline built
+  (computing…)
+value
+  (computing…)
+value
+fallback after boom
+[0, 1, 2]
+</script>
+<h3><code>map</code> vs <code>flatMap</code></h3>
+<p><code>map</code> transforms each item <strong>synchronously</strong> (<code>T → R</code>). <code>flatMap</code> transforms each item into <strong>another publisher</strong> (<code>T → Mono&lt;R&gt;</code>) — for example a call to another service — and merges the results as they arrive, <em>concurrently</em>. <code>concatMap</code> does the same but one at a time, preserving order. <code>Mono.zip</code> waits for several publishers in parallel:</p>
+<script type="text/plain" class="code" data-file="FlatMapDemo.java" data-run>
+package com.example.ch12.flatmap;
+
+import java.time.Duration;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+public class FlatMapDemo {
+  // pretend these are remote calls with different latencies
+  static Mono<String> price(String sku) {
+    long ms = sku.equals("A") ? 120 : sku.equals("B") ? 20 : 60;
+    return Mono.just(sku + "=€" + ms / 10).delayElement(Duration.ofMillis(ms));
+  }
+
+  public static void main(String[] args) {
+    Flux.just("A", "B", "C").flatMap(FlatMapDemo::price).blockLast();      // warm up the JIT and Reactor first
+    long t0 = System.nanoTime();
+    System.out.println("flatMap:   " + Flux.just("A", "B", "C").flatMap(FlatMapDemo::price).collectList().block()
+        + " fast=" + ((System.nanoTime() - t0) / 1_000_000 < 180));
+    t0 = System.nanoTime();
+    System.out.println("concatMap: " + Flux.just("A", "B", "C").concatMap(FlatMapDemo::price).collectList().block()
+        + " fast=" + ((System.nanoTime() - t0) / 1_000_000 < 180));
+
+    var summary = Mono.zip(price("A"), price("B"), price("C"))
+        .map(t -> t.getT1() + ", " + t.getT2() + ", " + t.getT3())
+        .block();
+    System.out.println("zip:       " + summary);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+flatMap:   [B=€2, C=€6, A=€12] fast=true
+concatMap: [A=€12, B=€2, C=€6] fast=false
+zip:       A=€12, B=€2, C=€6
+</script>
+<p><code>flatMap</code> ran the three "calls" at once and returned them in <em>completion</em> order (≈120 ms total); <code>concatMap</code> ran them one after another (≈200 ms) in input order. <code>zip</code> was concurrent <em>and</em> kept positions. Use <code>flatMap(fn, concurrency)</code> to cap how many inner calls run at once.</p>
+
+<h2 id="controllers">Annotated controllers</h2>
+<p>WebFlux supports the same <code>@RestController</code> programming model as MVC. Methods return <code>Mono</code>/<code>Flux</code> (or plain values), and request bodies can be reactive too:</p>
+<script type="text/plain" class="code" data-file="ReactiveControllerApp.java" data-run>
+package com.example.ch12.controller;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+record Book(String isbn, String title) {}
+
+@RestController
+class BookController {
+  private final Map<String, Book> books = new ConcurrentHashMap<>(Map.of("1", new Book("1", "Dune"), "2", new Book("2", "Emma")));
+
+  @GetMapping("/books/{isbn}")
+  Mono<Book> get(@PathVariable String isbn) {
+    return Mono.justOrEmpty(books.get(isbn))
+        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+  }
+
+  @GetMapping("/books")
+  Flux<Book> all() { return Flux.fromIterable(books.values()).sort((a, b) -> a.isbn().compareTo(b.isbn())); }
+
+  @PostMapping("/books")
+  @ResponseStatus(HttpStatus.CREATED)
+  Mono<Book> add(@RequestBody Mono<Book> body) {                // the body arrives asynchronously too
+    return body.doOnNext(b -> books.put(b.isbn(), b));
+  }
+
+  @GetMapping(path = "/ticks", produces = MediaType.TEXT_EVENT_STREAM_VALUE)   // server-sent events
+  Flux<String> ticks() { return Flux.interval(Duration.ofMillis(20)).map(i -> "tick " + i).take(3); }
+}
+
+@SpringBootApplication
+public class ReactiveControllerApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(ReactiveControllerApp.class, "--logging.level.org.springframework.web=ERROR")) {
+      WebClient web = ctx.getBean(WebClient.Builder.class)
+          .baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port")).build();
+
+      System.out.println(web.get().uri("/books/1").retrieve().bodyToMono(Book.class).block());
+      System.out.println(web.post().uri("/books").bodyValue(new Book("3", "Ulysses")).retrieve().toBodilessEntity().block().getStatusCode());
+      System.out.println(web.get().uri("/books").retrieve().bodyToFlux(Book.class).map(Book::title).collectList().block());
+      System.out.println(web.get().uri("/books/9").exchangeToMono(r -> Mono.just(r.statusCode())).block());
+      System.out.println(web.get().uri("/ticks").retrieve().bodyToFlux(String.class).collectList().block());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book[isbn=1, title=Dune]
+201 CREATED
+[Dune, Emma, Ulysses]
+404 NOT_FOUND
+[tick 0, tick 1, tick 2]
+</script>
+<div class="tip">
+<p>💡 <strong>On macOS</strong> Netty logs <em>"ERROR … Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider"</em> at startup. It's harmless for local work; to remove it, add the runtime dependency <code>io.netty:netty-resolver-dns-native-macos</code> with the classifier <code>osx-aarch_64</code> (Apple silicon) or <code>osx-x86_64</code>. The book's examples hide this line.</p>
+</div>
+<p>The server here is <strong>Reactor Netty</strong>, which <code>spring-boot-starter-webflux</code> brings. Server-sent events (<code>text/event-stream</code>) stream items to the client as they're produced — the client received the three ticks one by one. The same idea powers live dashboards and LLM token streaming.</p>
+<div class="java">
+<p>☕ <strong>Most of what you learned for MVC still applies</strong>: <code>@PathVariable</code>, <code>@RequestParam</code>, <code>@Valid</code>, <code>@ExceptionHandler</code>, <code>@RestControllerAdvice</code>, <code>ProblemDetail</code> (with <code>spring.webflux.problemdetails.enabled</code>), API versioning (<code>spring.webflux.apiversion.*</code>). Servlet-specific APIs (<code>HttpServletRequest</code>, servlet filters) are replaced by <code>ServerWebExchange</code> and <code>WebFilter</code>.</p>
+</div>
+
+<h2 id="functional">Functional endpoints</h2>
+<p>As an alternative to annotations, WebFlux (and MVC) let you declare routes as code: a <code>RouterFunction</code> maps requests to <code>HandlerFunction</code>s that take a <code>ServerRequest</code> and return a <code>Mono&lt;ServerResponse&gt;</code>. Routing is explicit and easy to compose:</p>
+<script type="text/plain" class="code" data-file="FunctionalApp.java" data-run>
+package com.example.ch12.functional;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.accept;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerRequest;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import reactor.core.publisher.Mono;
+
+record Greeting(String message) {}
+
+class GreetingHandler {
+  Mono<ServerResponse> hello(ServerRequest req) {
+    String name = req.queryParam("name").orElse("world");
+    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON).bodyValue(new Greeting("Hello, " + name));
+  }
+  Mono<ServerResponse> shout(ServerRequest req) {
+    return req.bodyToMono(String.class).flatMap(s -> ServerResponse.ok().bodyValue(s.toUpperCase() + "!"));
+  }
+}
+
+@SpringBootApplication
+public class FunctionalApp {
+  @Bean
+  RouterFunction<ServerResponse> routes() {
+    var handler = new GreetingHandler();
+    return route()
+        .path("/api", api -> api
+            .GET("/hello", accept(MediaType.APPLICATION_JSON), handler::hello)
+            .POST("/shout", handler::shout))
+        .build();
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(FunctionalApp.class)) {
+      var web = WebClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      System.out.println(web.get().uri("/api/hello?name=Ada").accept(MediaType.APPLICATION_JSON).retrieve().bodyToMono(String.class).block());
+      System.out.println(web.post().uri("/api/shout").bodyValue("reactive").retrieve().bodyToMono(String.class).block());
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"message":"Hello, Ada"}
+REACTIVE!
+</script>
+
+<h2 id="webclient">WebClient</h2>
+<p><code>WebClient</code> is the reactive HTTP client. It works in WebFlux apps (where you return its <code>Mono</code>s) and is also useful in MVC apps when you need to fan out many concurrent calls. Boot auto-configures a <code>WebClient.Builder</code> bean when <code>spring-boot-starter-webclient</code> is on the classpath — in Boot 4 the WebFlux starter alone doesn't include it (<code>WebClient.create(…)</code> always works, without Boot's settings). It has the same <code>retrieve</code>/<code>exchange</code> styles as <code>RestClient</code>, plus reactive timeouts and retries:</p>
+<script type="text/plain" class="code" data-file="WebClientResilience.java" data-run>
+package com.example.ch12.resilience;
+
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+
+@RestController
+class FlakyController {
+  final AtomicInteger calls = new AtomicInteger();
+  @GetMapping("/flaky") Mono<String> flaky() {
+    return calls.incrementAndGet() < 3 ? Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE)) : Mono.just("ok");
+  }
+  @GetMapping("/slow") Mono<String> slow() { return Mono.just("late").delayElement(Duration.ofSeconds(2)); }
+}
+
+@SpringBootApplication
+public class WebClientResilience {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(WebClientResilience.class, "--logging.level.org.springframework.web=ERROR")) {
+      var web = ctx.getBean(WebClient.Builder.class).baseUrl("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port")).build();
+
+      String retried = web.get().uri("/flaky").retrieve().bodyToMono(String.class)
+          .retryWhen(Retry.backoff(3, Duration.ofMillis(20))
+              .filter(e -> e instanceof WebClientResponseException w && w.getStatusCode().is5xxServerError()))
+          .block();
+      System.out.println(retried + " after " + ctx.getBean(FlakyController.class).calls.get() + " calls");
+
+      String timedOut = web.get().uri("/slow").retrieve().bodyToMono(String.class)
+          .timeout(Duration.ofMillis(200))
+          .onErrorReturn(java.util.concurrent.TimeoutException.class, "fallback (timed out)")
+          .block();
+      System.out.println(timedOut);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok after 3 calls
+fallback (timed out)
+</script>
+<p>Note <code>ctx.getBean(FlakyController.class).calls</code> reads a field directly — fine here because the controller is not proxied. <code>retryWhen</code> re-subscribes to the whole pipeline, which re-sends the request: the reactive equivalent of <code>@Retryable</code>.</p>
+
+<h2 id="blocking">The golden rule: never block</h2>
+<p>An event-loop thread that blocks — <code>Thread.sleep</code>, JDBC, a blocking HTTP call, <code>.block()</code> — can't serve any other request on that loop. A handful of blocking calls can freeze the whole server. Reactor Netty even refuses <code>block()</code> on its threads. If you must call blocking code, move it to a thread pool meant for it:</p>
+<script type="text/plain" class="code" data-file="OffloadBlocking.java" data-run>
+package com.example.ch12.blocking;
+
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+public class OffloadBlocking {
+  static String legacyLookup(String id) {                   // e.g. JDBC or an old SOAP client
+    try { Thread.sleep(50); } catch (InterruptedException e) { throw new RuntimeException(e); }
+    return "record " + id + " (on " + Thread.currentThread().getName().replaceAll("-\\d+$", "-N") + ")";
+  }
+
+  public static void main(String[] args) {
+    Mono<String> safe = Mono.fromCallable(() -> legacyLookup("42"))
+        .subscribeOn(Schedulers.boundedElastic());          // run the blocking call on a worker pool
+    System.out.println(safe.block());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+record 42 (on boundedElastic-N)
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>"Reactive all the way down."</strong> WebFlux pays off only if every I/O call is non-blocking: R2DBC or reactive MongoDB/Redis drivers instead of JDBC/JPA, <code>WebClient</code> instead of blocking clients. Mixing in JPA via <code>boundedElastic</code> works, but then you have the complexity of reactive code <em>and</em> a thread per request. Tools like BlockHound detect blocking calls on event-loop threads in tests.</p>
+</div>
+
+<h2 id="choosing">WebFlux, MVC or virtual threads?</h2>
+<table>
+  <tr><th></th><th>Spring MVC (platform threads)</th><th>Spring MVC + virtual threads</th><th>WebFlux</th></tr>
+  <tr><td>Programming model</td><td>imperative, easy to debug</td><td>imperative, easy to debug</td><td>reactive pipelines, steeper learning curve</td></tr>
+  <tr><td>Concurrency</td><td>~ thread pool size (200)</td><td>very high: blocking is cheap</td><td>very high: no blocking</td></tr>
+  <tr><td>Database access</td><td>JDBC/JPA</td><td>JDBC/JPA</td><td>R2DBC, reactive NoSQL</td></tr>
+  <tr><td>Streaming, backpressure</td><td>limited (SSE emitters)</td><td>limited</td><td>first-class</td></tr>
+  <tr><td>Best for</td><td>typical CRUD services</td><td>I/O-heavy services that call many dependencies</td><td>streaming, gateways, very high fan-out, reactive data stores</td></tr>
+</table>
+<p>Since Java 21, <code>spring.threads.virtual.enabled=true</code> gives MVC applications most of the scalability benefit of WebFlux while keeping simple blocking code. The Spring team's advice: if you have a working MVC application, don't rewrite it; use WebFlux when you need streaming and backpressure, or when your whole stack is already reactive.</p>
+
+<h2 id="testing">Testing reactive code</h2>
+<p><code>StepVerifier</code> (from <code>reactor-test</code>) subscribes to a publisher and checks each signal in order — without <code>block()</code>, and with virtual time for delays:</p>
+<script type="text/plain" class="code" data-file="ReactorStepVerifierTest.java" data-test>
+package com.example.ch12.testing;
+
+import java.time.Duration;
+import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+class ReactorStepVerifierTest {
+
+  @Test
+  void emitsInOrderThenCompletes() {
+    StepVerifier.create(Flux.just("a", "b", "c").map(String::toUpperCase))
+        .expectNext("A", "B")
+        .expectNext("C")
+        .verifyComplete();
+  }
+
+  @Test
+  void errorsAreSignals() {
+    StepVerifier.create(Mono.error(new IllegalArgumentException("bad")))
+        .expectErrorMessage("bad")
+        .verify();
+  }
+
+  @Test
+  void virtualTimeSkipsRealWaiting() {
+    StepVerifier.withVirtualTime(() -> Flux.interval(Duration.ofHours(1)).take(3))
+        .expectSubscription()
+        .thenAwait(Duration.ofHours(3))             // runs instantly
+        .expectNext(0L, 1L, 2L)
+        .verifyComplete();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+</script>
+<p>For endpoints, <code>@WebFluxTest</code> with <code>WebTestClient</code> tests controllers without a real server (Chapter 16).</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A WebFilter</h3>
+<script type="text/plain" class="code" data-file="WebFilterApp.java" data-run>
+package com.example.ch12.webfilter;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
+
+@Component
+class TimingFilter implements WebFilter {
+  @Override
+  public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+    long start = System.nanoTime();
+    exchange.getResponse().getHeaders().add("X-Handled-By", "webflux");
+    return chain.filter(exchange)
+        .doFinally(signal -> System.out.println(exchange.getRequest().getPath() + " -> "
+            + exchange.getResponse().getStatusCode() + " (" + signal + ")"));
+  }
+}
+
+@RestController
+class HiController { @GetMapping("/hi") Mono<String> hi() { return Mono.just("hi"); } }
+
+@SpringBootApplication
+public class WebFilterApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(WebFilterApp.class)) {
+      var web = WebClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      var r = web.get().uri("/hi").retrieve().toEntity(String.class).block();
+      Thread.sleep(50);
+      System.out.println(r.getBody() + " header=" + r.getHeaders().getFirst("X-Handled-By"));
+    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/hi -> 200 OK (onComplete)
+hi header=webflux
+</script>
+
+<h3>Backpressure with <code>limitRate</code></h3>
+<script type="text/plain" class="code" data-file="BackpressureDemo.java" data-run>
+package com.example.ch12.backpressure;
+
+import java.util.ArrayList;
+import java.util.List;
+import reactor.core.publisher.Flux;
+
+public class BackpressureDemo {
+  public static void main(String[] args) {
+    List<Long> requests = new ArrayList<>();
+    Flux.range(1, 100)
+        .doOnRequest(requests::add)              // what the downstream asks for
+        .limitRate(25)                           // ask in batches of 25 (refill at 75%)
+        .blockLast();
+    System.out.println("first request: " + requests.getFirst() + ", requests: " + requests.size());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+first request: 25, requests: ...
+</script>
+<p>Without <code>limitRate</code>, <code>blockLast()</code> requests an unbounded amount (<code>Long.MAX_VALUE</code>) at once. With it, the consumer pulls 25 items, then tops up as it processes them — the producer never runs far ahead.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>WebFlux: non-blocking, few event-loop threads, Reactor Netty. Pipelines are lazy, asynchronous and backpressure-aware.</li>
+  <li><code>Mono</code> = 0..1, <code>Flux</code> = 0..N. <code>map</code> (sync), <code>flatMap</code> (async, concurrent), <code>concatMap</code> (async, ordered), <code>zip</code>, <code>onErrorResume</code>, <code>timeout</code>, <code>retryWhen</code>.</li>
+  <li>Annotated controllers look like MVC; functional endpoints use <code>RouterFunction</code>. SSE with <code>text/event-stream</code>. <code>WebClient</code> for reactive HTTP.</li>
+  <li>Never block on event-loop threads; offload with <code>Schedulers.boundedElastic()</code> if you must. Reactive pays off only end to end.</li>
+  <li>Choose MVC (+ virtual threads) by default; WebFlux for streaming, backpressure and reactive stacks. Test with <code>StepVerifier</code> and <code>WebTestClient</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does this print? <code>Mono.fromSupplier(() -&gt; { System.out.println("A"); return 1; }).map(x -&gt; x + 1); System.out.println("B");</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only <code>B</code>. The <code>Mono</code> is never subscribed to, so the supplier never runs. A reactive pipeline without a subscriber does nothing — a common bug when people call a method returning <code>Mono&lt;Void&gt;</code> and ignore the result.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">code</span></h3>
+<p>Using <code>Flux</code>, take the words of <code>"the quick brown fox jumps"</code>, keep words longer than 3 letters, upper-case them and collect into a list.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="WordsFlux.java" data-run>
+package com.example.ch12.ex2;
+
+import reactor.core.publisher.Flux;
+
+public class WordsFlux {
+  public static void main(String[] args) {
+    System.out.println(Flux.fromArray("the quick brown fox jumps".split(" "))
+        .filter(w -> w.length() > 3)
+        .map(String::toUpperCase)
+        .collectList()
+        .block());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[QUICK, BROWN, JUMPS]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>When should you use <code>flatMap</code> instead of <code>map</code>? And <code>concatMap</code> instead of <code>flatMap</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>flatMap</code> when the transformation itself is asynchronous (returns a <code>Mono</code>/<code>Flux</code>, e.g. a database or HTTP call); with <code>map</code> you'd get a <code>Flux&lt;Mono&lt;T&gt;&gt;</code> that nobody subscribes to. <code>concatMap</code> when order matters or calls must not run concurrently (e.g. applying events to an account in sequence).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>A WebFlux controller calls a JPA repository directly. Under load, latency explodes even though CPU is low. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>JPA/JDBC calls block. They run on the few Netty event-loop threads, so while one request waits for the database, every other request assigned to that loop waits too. Either use a reactive driver (R2DBC), offload the calls with <code>subscribeOn(Schedulers.boundedElastic())</code>, or — usually simplest — use Spring MVC (with virtual threads).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Simulate three services returning a user name (30 ms), an order count (60 ms) and a loyalty level (10 ms) as delayed <code>Mono</code>s. Combine them with <code>Mono.zip</code> into a <code>Dashboard</code> record and show the total time is under 100 ms.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="DashboardZip.java" data-run>
+package com.example.ch12.ex5;
+
+import java.time.Duration;
+import reactor.core.publisher.Mono;
+
+record Dashboard(String user, int orders, String level) {}
+
+public class DashboardZip {
+  public static void main(String[] args) {
+    Mono<String> user = Mono.just("Ada").delayElement(Duration.ofMillis(30));
+    Mono<Integer> orders = Mono.just(12).delayElement(Duration.ofMillis(60));
+    Mono<String> level = Mono.just("gold").delayElement(Duration.ofMillis(10));
+    long t0 = System.nanoTime();
+    Dashboard d = Mono.zip(user, orders, level).map(t -> new Dashboard(t.getT1(), t.getT2(), t.getT3())).block();
+    System.out.println(d + " in under 100 ms: " + ((System.nanoTime() - t0) / 1_000_000 < 100));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dashboard[user=Ada, orders=12, level=gold] in under 100 ms: true
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a <code>StepVerifier</code> test for a <code>Flux</code> that emits <code>1, 2, 3</code> and then fails with <code>IllegalStateException("end")</code>, recovered with <code>onErrorResume</code> into a single <code>-1</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="RecoveryTest.java" data-test>
+package com.example.ch12.ex6;
+
+import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
+
+class RecoveryTest {
+  @Test
+  void recovers() {
+    Flux<Integer> flux = Flux.just(1, 2, 3)
+        .concatWith(Flux.error(new IllegalStateException("end")))
+        .onErrorResume(e -> Flux.just(-1));
+    StepVerifier.create(flux).expectNext(1, 2, 3, -1).verifyComplete();
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Write a functional endpoint <code>GET /square/{n}</code> that returns <code>n*n</code> as plain text, and <code>400</code> for non-numbers. Call it with <code>7</code> and <code>x</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SquareRouter.java" data-run>
+package com.example.ch12.ex7;
+
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import reactor.core.publisher.Mono;
+
+@SpringBootApplication
+public class SquareRouter {
+  @Bean
+  RouterFunction<ServerResponse> squares() {
+    return route().GET("/square/{n}", req -> {
+      try {
+        long n = Long.parseLong(req.pathVariable("n"));
+        return ServerResponse.ok().bodyValue(String.valueOf(n * n));
+      } catch (NumberFormatException e) {
+        return ServerResponse.badRequest().bodyValue("not a number");
+      }
+    }).build();
+  }
+
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SquareRouter.class)) {
+      var web = WebClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      for (String n : new String[] { "7", "x" }) {
+        System.out.println(web.get().uri("/square/" + n).exchangeToMono(r -> r.bodyToMono(String.class).map(b -> r.statusCode().value() + " " + b)).block());
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+200 49
+400 not a number
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">code</span></h3>
+<p>Process ids <code>1..20</code> with a fake async lookup (<code>Mono.delay(20ms)</code>), using <code>flatMap(fn, 5)</code> to allow at most 5 concurrent lookups. Track the maximum number in flight and print it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="BoundedFlatMap.java" data-run>
+package com.example.ch12.ex8;
+
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+public class BoundedFlatMap {
+  public static void main(String[] args) {
+    AtomicInteger inFlight = new AtomicInteger(), max = new AtomicInteger();
+    long count = Flux.range(1, 20)
+        .flatMap(id -> Mono.delay(Duration.ofMillis(20))
+            .doOnSubscribe(s -> max.accumulateAndGet(inFlight.incrementAndGet(), Math::max))
+            .doOnNext(x -> inFlight.decrementAndGet())          // before the inner Mono completes
+            .thenReturn(id), 5)
+        .count().block();
+    System.out.println(count + " lookups, max in flight: " + max.get());
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+20 lookups, max in flight: 5
+</script>
+<p>Decrementing in <code>doFinally</code> instead would report 6: it runs <em>after</em> the completion has reached <code>flatMap</code>, which has already subscribed to the next lookup — counting concurrency correctly in async code needs care. The second argument of <code>flatMap</code> is the concurrency. Always bound it when calling other services, or a big <code>Flux</code> fires thousands of requests at once.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">code</span></h3>
+<p>Write an SSE endpoint <code>/prices</code> that emits <code>ServerSentEvent&lt;Double&gt;</code> objects with an <code>id</code> and <code>event("price")</code> every 20 ms, five times. Consume it with <code>WebClient</code> as <code>ServerSentEvent</code>s and print <code>id:event:data</code> for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="SseApp.java" data-run>
+package com.example.ch12.ex9;
+
+import java.time.Duration;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
+
+@RestController
+class PriceStream {
+  @GetMapping("/prices")
+  Flux<ServerSentEvent<Double>> prices() {
+    return Flux.interval(Duration.ofMillis(20)).take(5)
+        .map(i -> ServerSentEvent.<Double>builder().id(String.valueOf(i)).event("price").data(100 + i * 0.5).build());
+  }
+}
+
+@SpringBootApplication
+public class SseApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(SseApp.class)) {
+      var web = WebClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      web.get().uri("/prices").retrieve()
+          .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<Double>>() {})
+          .doOnNext(e -> System.out.println(e.id() + ":" + e.event() + ":" + e.data()))
+          .blockLast();
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0:price:100.0
+1:price:100.5
+2:price:101.0
+3:price:101.5
+4:price:102.0
+</script>
+<p>Event ids let a browser's <code>EventSource</code> reconnect with <code>Last-Event-ID</code> so the server can resume where it left off.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mini-project · playground</span></h3>
+<p>Build a <strong>reactive availability aggregator</strong> for the library: <code>GET /availability/{isbn}</code> queries three "branch" services (simulate them as <code>Mono</code>s with delays 30, 50 and 500 ms; the last one is slow). Give each branch a 200 ms <code>timeout</code> and treat a timeout as "unknown". Return JSON like <code>{"isbn":"…","branches":{"north":2,"south":0,"east":"unknown"}}</code> within ~200 ms.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="AvailabilityApp.java" data-run>
+package com.example.ch12.ex10;
+
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+record Availability(String isbn, Map<String, Object> branches) {}
+
+@RestController
+class AvailabilityController {
+  private static Mono<Integer> branch(int copies, long latencyMs) { return Mono.just(copies).delayElement(Duration.ofMillis(latencyMs)); }
+
+  private final Map<String, Mono<Integer>> branches = new LinkedHashMap<>();
+  AvailabilityController() {
+    branches.put("north", branch(2, 30));
+    branches.put("south", branch(0, 50));
+    branches.put("east", branch(5, 500));
+  }
+
+  @GetMapping("/availability/{isbn}")
+  Mono<Availability> availability(@PathVariable String isbn) {
+    return Flux.fromIterable(branches.entrySet())
+        .flatMap(e -> e.getValue()
+            .<Object>map(n -> n)
+            .timeout(Duration.ofMillis(200))
+            .onErrorReturn("unknown")
+            .map(v -> Map.entry(e.getKey(), v)))
+        .collectMap(Map.Entry::getKey, Map.Entry::getValue, LinkedHashMap::new)
+        .map(m -> {
+          var ordered = new LinkedHashMap<String, Object>();
+          branches.keySet().forEach(k -> ordered.put(k, m.get(k)));     // stable order for clients
+          return new Availability(isbn, ordered);
+        });
+  }
+}
+
+@SpringBootApplication
+public class AvailabilityApp {
+  public static void main(String[] args) {
+    try (var ctx = SpringApplication.run(AvailabilityApp.class)) {
+      var web = WebClient.create("http://localhost:" + ctx.getEnvironment().getProperty("local.server.port"));
+      long t0 = System.nanoTime();
+      System.out.println(web.get().uri("/availability/9780441013593").retrieve().bodyToMono(String.class).block());
+      System.out.println("answered in under 450 ms: " + ((System.nanoTime() - t0) / 1_000_000 < 450));
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"isbn":"9780441013593","branches":{"north":2,"south":0,"east":"unknown"}}
+answered in under 450 ms: true
+</script>
+<p>A slow branch costs at most its timeout, not its full latency, and never fails the whole response. That's the core of every "scatter-gather" API: concurrent calls, per-call timeouts, partial results.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webflux.html">Spring WebFlux</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webflux/new-framework.html">Overview (why reactive, concurrency model)</a></li>
+  <li><a href="https://docs.spring.io/spring-framework/reference/web/webflux-functional.html">Functional endpoints</a> · <a href="https://docs.spring.io/spring-framework/reference/web/webflux-webclient.html">WebClient</a></li>
+  <li><a href="https://projectreactor.io/docs/core/release/reference/">Reactor reference guide</a> (operators, schedulers, testing)</li>
+  <li><a href="https://docs.spring.io/spring-boot/reference/web/reactive.html">Spring Boot: Reactive web applications</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
