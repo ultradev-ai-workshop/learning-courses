@@ -42,6 +42,7 @@
       ['appendix-landscape.html', 'The Framework Landscape', 'F']
     ]},
     { part: 'Reference & Assessment', chapters: [
+      ['faq.html', 'FAQ', '?'],
       ['glossary.html', 'Glossary', 'G'],
       ['assessment.html', 'Final Assessment', '✓']
     ]}
@@ -373,7 +374,7 @@
       var grid = el('div', { 'class': 'cards' });
       p.chapters.forEach(function (c) {
         var a = el('a', { href: c[0], 'class': 'card' });
-        var label = !c[2] ? 'Chapter ' + parseInt(c[0], 10) : c[2] === '✓' ? 'Assessment' : c[2] === '▶' ? 'Start here' : c[2] === 'G' ? 'Reference' : 'Appendix ' + c[2];
+        var label = !c[2] ? 'Chapter ' + parseInt(c[0], 10) : c[2] === '✓' ? 'Assessment' : c[2] === '▶' ? 'Start here' : c[2] === 'G' || c[2] === '?' ? 'Reference' : 'Appendix ' + c[2];
         a.appendChild(el('div', { 'class': 'num' }, label));
         a.appendChild(el('h3', null, c[1]));
         if (blurbs[c[0]]) a.appendChild(el('p', null, blurbs[c[0]]));

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;❓&lt;/text&gt;&lt;/svg&gt;">
+<title>FAQ · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Frequently Asked Questions</h1>
+<p class="lead">Short answers to the questions people ask before and during the course, with links to the chapters that go deeper.</p>
+
+<div class="learn">
+<h2>Questions</h2>
+<ol>
+  <li><a href="#api-key">Do I need an Anthropic API key to run or understand this course?</a></li>
+  <li><a href="#agent">Will this course help me build an agent if I'm clear about the requirements? Which chapters cover that?</a></li>
+  <li><a href="#prereq">Is there a prerequisite for this course?</a></li>
+  <li><a href="#books">Can you suggest a few books for developers to read?</a></li>
+</ol>
+</div>
+
+<h2 id="api-key">1. Do I need an Anthropic API key to run or understand this course?</h2>
+<p><strong>No.</strong> You can read the whole book, run every example and do every exercise without a key and without spending any money.</p>
+<ul>
+  <li>The <a href="https://github.com/coderhop-learning/ai-book-playground">playground repository</a> includes <code>llmkit</code>, which has a local <strong>mock of the Messages API</strong>. The real <code>anthropic</code> SDK (and <code>openai</code>, LangChain, Pydantic AI and DSPy) talk to it unchanged, so the code you write is the same code you'd ship.</li>
+  <li>The mock checks requests like the real API does for the rules the book teaches. Unknown models, sampling parameters on current models, prefill, forced tool choice and mismatched tool results all fail the way they would for real. It also supports streaming, token counting, prompt caching, batches and injected failures.</li>
+  <li><code>FakeAnthropic</code> scripts the model's replies, which is how you'll test your own LLM code anyway.</li>
+</ul>
+<p>What the mock <em>can't</em> give you is real model behaviour: its answers are honest placeholders ("(mock reply) You said: …"), so you won't see how well Claude actually answers, follows a prompt or picks tools. When you want that, create a key in the <a href="https://platform.claude.com/">Claude Console</a>, unset <code>ANTHROPIC_BASE_URL</code> and export <code>ANTHROPIC_API_KEY</code>. The same examples then call Claude (<a href="playground-howto.html#real">Using the Playground, step 5</a>).</p>
+<div class="tip">
+<p><strong>If you do use a key:</strong> start with small inputs, read <code>usage</code> on every response (<a href="01-llms.html#cost">Chapter 1</a> shows how to estimate cost), set a spend limit on the key, and use <code>claude-haiku-5-5</code> for experiments. The eval and batch examples make many calls, so run them on a few cases first.</p>
+</div>
+
+<h2 id="agent">2. Will this course help me build an agent if I'm clear about the requirements?</h2>
+<p><strong>Yes.</strong> Clear requirements are exactly where the book starts, and the first decision it teaches is whether you need an agent at all. Many "agents" are better built as a workflow: a fixed sequence of steps, some of which call a model, which is cheaper, faster and easier to test. When the next step really depends on what the model finds, the book takes you from the first tool call to a budgeted, tested, secured agent.</p>
+<div class="table-wrap"><table>
+<tr><th>What you need for an agent</th><th>Where it's covered</th></tr>
+<tr><td>How the model sees a request: messages, statelessness, tokens, cost</td><td><a href="01-llms.html">Ch. 1</a>, <a href="03-api.html">Ch. 3</a></td></tr>
+<tr><td>The agent's instructions as a spec (system prompt, refusal path)</td><td><a href="02-prompts.html">Ch. 2</a></td></tr>
+<tr><td>Typed, validated outputs</td><td><a href="04-structured.html">Ch. 4</a></td></tr>
+<tr><td><strong>Tools</strong>: definitions, the tool loop, errors, the SDK's Tool Runner</td><td><a href="05-tools.html">Ch. 5</a></td></tr>
+<tr><td>Knowledge for the agent: search over your documents (RAG)</td><td><a href="06-embeddings.html">Ch. 6</a>, <a href="07-rag.html">Ch. 7</a></td></tr>
+<tr><td><strong>The agent itself</strong>: workflow vs agent, the five patterns, budgets, stopping rules, planning, memory, when <em>not</em> to build one</td><td><a href="08-agents.html">Ch. 8</a></td></tr>
+<tr><td>Exposing tools to any AI app, or using other teams' tools</td><td><a href="09-mcp.html">Ch. 9 (MCP)</a></td></tr>
+<tr><td>Proving it works: evals, LLM judges, tracing, cost</td><td><a href="10-evals.html">Ch. 10</a></td></tr>
+<tr><td>Running it in production: retries, fallbacks, caching, rate limits</td><td><a href="11-production.html">Ch. 11</a></td></tr>
+<tr><td>Keeping it safe: prompt injection, permissions, human approvals</td><td><a href="12-security.html">Ch. 12</a></td></tr>
+<tr><td>Real agent designs (incident triage) and how to scope a first version</td><td><a href="13-work.html">Ch. 13</a></td></tr>
+<tr><td><strong>A complete agentic service, end to end</strong></td><td><a href="15-project.html">Ch. 15: DocsPilot</a></td></tr>
+<tr><td>Agent frameworks: graphs with pause/resume and approvals, typed agents, the landscape</td><td><a href="appendix-langgraph.html">App. B</a>, <a href="appendix-pydanticai.html">App. D</a>, <a href="appendix-landscape.html">App. F</a></td></tr>
+</table></div>
+<p><strong>A suggested path if your goal is an agent:</strong> Chapters 1–5 → 8 → 10 → 12 → 15, then the framework appendix that fits your requirements. Before you write code, write down five things for your agent; each one maps to a part of the book:</p>
+<ol>
+  <li><strong>The goal</strong> and how you'll know it's reached (Ch. 8, Ch. 10).</li>
+  <li><strong>The tools</strong>: which systems it reads, which it may change, and with whose permissions (Ch. 5, Ch. 12).</li>
+  <li><strong>The budgets</strong>: steps, tokens, money, time (Ch. 8, Ch. 11).</li>
+  <li><strong>The approvals</strong>: which actions need a human (Ch. 12).</li>
+  <li><strong>The eval set</strong>: 20–50 realistic tasks with the expected behaviour (Ch. 10).</li>
+</ol>
+<div class="note">
+<p><strong>Beyond the book.</strong> If you'd rather not write the loop or host the sandbox yourself, <a href="appendix-landscape.html#provider">Appendix F</a> introduces Anthropic's Claude Agent SDK and hosted Managed Agents. The design skills from Chapters 8–12 apply to them unchanged.</p>
+</div>
+
+<h2 id="prereq">3. Is there a prerequisite for this course?</h2>
+<p>The course is <strong>Intermediate</strong>. You need:</p>
+<ul>
+  <li><strong>Comfortable Python</strong>: functions, classes, dictionaries and lists, modules and imports, exceptions, virtual environments and <code>pip</code>. Type hints and <code>async</code>/<code>await</code> appear often; you'll pick them up if they're new. The <a href="../../Beginner/python-book/index.html">Python Study Book</a> covers everything required.</li>
+  <li><strong>Basic HTTP and JSON</strong>: requests, status codes, headers, a JSON body.</li>
+  <li><strong>A terminal</strong>, to run scripts and <code>git clone</code> the playground.</li>
+</ul>
+<p>Helpful but not required:</p>
+<ul>
+  <li><strong>Java</strong>, for the ☕ boxes, which connect each idea to Java and backend practice. You can skip them.</li>
+  <li><strong>SQL</strong>, for the pgvector and access-control parts of Chapters 6, 7 and 12.</li>
+  <li><strong>Backend experience</strong> (APIs, retries, caching, tracing). The book leans on it heavily, because LLM features are backend features.</li>
+</ul>
+<p><strong>Not needed:</strong> machine learning, statistics or linear algebra. The few ideas you need (vectors, cosine similarity, precision and recall, attention) are explained with small code examples where they're used.</p>
+
+<h2 id="books">4. Can you suggest a few books for developers to read?</h2>
+<p>These complement the course: some go deeper into how models work, some into engineering practice. Check for the latest edition; the field moves fast.</p>
+<div class="table-wrap"><table>
+<tr><th>Book</th><th>Why read it</th><th>Pairs with</th></tr>
+<tr><td><em>AI Engineering: Building Applications with Foundation Models</em> by Chip Huyen (O'Reilly, 2025)</td><td>the broadest guide to building products on foundation models: evaluation, prompting, RAG, agents, fine-tuning and serving</td><td>the whole course</td></tr>
+<tr><td><em>Hands-On Large Language Models</em> by Jay Alammar and Maarten Grootendorst (O'Reilly, 2024)</td><td>visual, code-first explanations of tokens, embeddings, attention, semantic search and RAG</td><td>Ch. 1, 6, 7, 14</td></tr>
+<tr><td><em>Build a Large Language Model (From Scratch)</em> by Sebastian Raschka (Manning, 2024)</td><td>implement a GPT-style model in PyTorch step by step, to really understand what's inside</td><td>Ch. 1, 14</td></tr>
+<tr><td><em>Prompt Engineering for LLMs</em> by John Berryman and Albert Ziegler (O'Reilly, 2024)</td><td>how to think about prompts as documents the model completes, from the builders of GitHub Copilot</td><td>Ch. 2, 4</td></tr>
+<tr><td><em>LLM Engineer's Handbook</em> by Paul Iusztin and Maxime Labonne (Packt, 2024)</td><td>an end-to-end, MLOps-flavoured project: data pipelines, fine-tuning, RAG and deployment</td><td>Ch. 7, 11, 14</td></tr>
+<tr><td><em>Designing Machine Learning Systems</em> by Chip Huyen (O'Reilly, 2022)</td><td>the production side of ML: data, monitoring, deployment and iteration</td><td>Ch. 10, 11</td></tr>
+<tr><td><em>Designing Data-Intensive Applications</em> by Martin Kleppmann (O'Reilly)</td><td>the backend foundation under every AI feature: storage, indexes, replication, consistency</td><td>Ch. 6, 11, 15</td></tr>
+<tr><td><em>Release It!</em> by Michael T. Nygard (Pragmatic Bookshelf)</td><td>timeouts, circuit breakers, bulkheads and other stability patterns, exactly what model calls need</td><td>Ch. 3, 11</td></tr>
+</table></div>
+<p>Free reading that pairs well with the book:</p>
+<ul>
+  <li><a href="https://www.anthropic.com/engineering/building-effective-agents">Building effective agents</a> and <a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Effective context engineering for AI agents</a> (Anthropic Engineering).</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview">Prompt engineering overview</a> in the Claude docs.</li>
+  <li><a href="https://genai.owasp.org/llm-top-10/">OWASP Top 10 for LLM Applications</a>, for security reviews.</li>
+  <li><a href="https://modelcontextprotocol.io/">The Model Context Protocol</a> documentation and specification.</li>
+</ul>
+
+<div class="recap">
+<h2>Still have a question?</h2>
+<p>Check the <a href="glossary.html">Glossary</a> for terms, <a href="playground-howto.html#problems">Using the Playground</a> for setup problems, and each chapter's <em>Official docs</em> section for the primary sources.</p>
+</div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
