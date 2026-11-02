@@ -14,7 +14,7 @@
 
 <div class="eyebrow">Start here</div>
 <h1>Using the Playground</h1>
-<p class="lead">The <code>playground/</code> folder next to this book is your workspace. Exercises marked <strong>playground</strong> ask you to create files there, and together they grow into the Chapter 16 project. This page shows how to set it up, run files, use watch mode and the REPL, run tests, and fix the most common problems.</p>
+<p class="lead">The <code>playground/</code> folder is your workspace, published on GitHub as <a href="https://github.com/coder-hop/nodejs-book-playground">coder-hop/nodejs-book-playground</a>. Exercises marked <strong>playground</strong> ask you to create files there, and together they grow into the Chapter 16 project. This page shows how to set it up, run files, use watch mode and the REPL, run tests, and fix the most common problems.</p>
 
 <div class="learn">
 <h2>On this page</h2>
@@ -38,6 +38,12 @@ $ npm --version
 <p>Any editor works; VS Code has excellent Node support (debugging, a JavaScript Debug Terminal, test integration).</p>
 
 <h2 id="layout">2. The playground folder</h2>
+<p>Clone the repository (or use <em>Code → Download ZIP</em> on the <a href="https://github.com/coder-hop/nodejs-book-playground">repository page</a>):</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ git clone https://github.com/coder-hop/nodejs-book-playground.git playground
+$ cd playground
+</script>
+<p>The final <code>playground</code> argument names the folder <code>playground/</code>, so every path in this book (<code>playground/hello.js</code>, <code>playground/reference/</code>) matches your copy exactly. Inside it:</p>
 <script type="text/plain" class="code" data-lang="text" data-norun>
 playground/
 ├── package.json     "type": "module", "test": "node --test"
@@ -112,6 +118,7 @@ $ node src/cli.js add "try the API" -t demo    # in a second terminal
 <h2 id="trouble">7. Troubleshooting</h2>
 <div class="table-wrap"><table>
   <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td>No <code>playground/</code> folder on your machine</td><td>you are reading the book online</td><td><code>git clone https://github.com/coder-hop/nodejs-book-playground.git playground</code></td></tr>
   <tr><td><code>SyntaxError: Cannot use import statement outside a module</code></td><td>the file is treated as CommonJS</td><td>run it inside <code>playground/</code> (which has <code>"type": "module"</code>) or rename to <code>.mjs</code></td></tr>
   <tr><td><code>ERR_MODULE_NOT_FOUND</code></td><td>missing file extension in a relative import, or wrong path</td><td>write <code>"./lib/util.js"</code>, not <code>"./lib/util"</code> (Chapter 3)</td></tr>
   <tr><td><code>ReferenceError: __dirname is not defined</code></td><td>CommonJS variable in an ES module</td><td>use <code>import.meta.dirname</code></td></tr>

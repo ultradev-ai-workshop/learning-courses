@@ -15,7 +15,7 @@
 
 <div class="eyebrow">Start here</div>
 <h1>Using the Playground</h1>
-<p class="lead">The book comes with a ready-made Spring Boot project, <code>playground/</code>, where you can paste examples, do the exercises and grow the Library Loans project. This page shows how to set it up, how to run single examples and tests, and how the book's own examples are checked — so you know why your console may print a little more than the book does.</p>
+<p class="lead">The book comes with a ready-made Spring Boot project, <code>playground/</code>, published on GitHub as <a href="https://github.com/coder-hop/springboot-book-playground">coder-hop/springboot-book-playground</a>, where you can paste examples, do the exercises and grow the Library Loans project. This page shows how to set it up, how to run single examples and tests, and how the book's own examples are checked — so you know why your console may print a little more than the book does.</p>
 
 <div class="learn">
 <h2>You will learn</h2>
@@ -38,6 +38,13 @@ openjdk version "25" …
 <p>You don't need to install Maven: the playground has the <strong>Maven wrapper</strong> (<code>mvnw</code>), which downloads the right Maven version on first use. IntelliJ IDEA, VS Code (with the Extension Pack for Java and Spring Boot Extension Pack) and Eclipse all open Maven projects directly.</p>
 
 <h2 id="layout">2. The playground</h2>
+<p>Clone the repository (or use <em>Code → Download ZIP</em> on the <a href="https://github.com/coder-hop/springboot-book-playground">repository page</a>):</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ git clone https://github.com/coder-hop/springboot-book-playground.git playground
+$ cd playground
+$ ./mvnw -v                                   # first run downloads Maven
+</script>
+<p>The final <code>playground</code> argument names the folder <code>playground/</code>, so every path in this book (<code>playground/reference/</code>, <code>cd playground</code>) matches your copy exactly. Inside it:</p>
 <script type="text/plain" class="code" data-lang="text" data-nocompare>
 playground/
 ├── mvnw, mvnw.cmd, .mvn/           Maven wrapper
@@ -101,6 +108,7 @@ spring.jpa.open-in-view=false
 <h2 id="problems">5. Common problems</h2>
 <table>
   <tr><th>Symptom</th><th>Fix</th></tr>
+  <tr><td>No <code>playground/</code> folder on your machine</td><td>Clone it: <code>git clone https://github.com/coder-hop/springboot-book-playground.git playground</code></td></tr>
   <tr><td><code>release version 25 not supported</code></td><td>Maven runs with an older JDK. Set <code>JAVA_HOME</code> to the JDK 25 folder (<code>./mvnw -v</code> shows which one it uses).</td></tr>
   <tr><td><code>Web server failed to start. Port 8080 was already in use.</code></td><td>Another app (often an earlier run) holds the port. Stop it, or run with <code>--server.port=8081</code> (or <code>0</code>).</td></tr>
   <tr><td>A bean or controller isn't found (404, <code>NoSuchBeanDefinitionException</code>)</td><td>The class is outside the main class's package tree (Chapter 1) — move it under <code>com.example.playground</code>.</td></tr>

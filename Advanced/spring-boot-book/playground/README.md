@@ -2,6 +2,17 @@
 
 A ready-made Spring Boot 4.1 project (Java 25) for the book's examples and exercises.
 
+## Get it
+
+```bash
+git clone https://github.com/coder-hop/springboot-book-playground.git playground
+cd playground
+```
+
+Repository: https://github.com/coder-hop/springboot-book-playground (or use *Code → Download ZIP*).
+Cloning into a folder named `playground` keeps every path in the book (`playground/...`) exactly as written.
+This repository holds only the practice project; the lessons are in the Spring Boot Study Book.
+
 ```bash
 ./mvnw spring-boot:run          # start the app on http://localhost:8080 (try /hello and /actuator/health)
 ./mvnw test                     # run the tests

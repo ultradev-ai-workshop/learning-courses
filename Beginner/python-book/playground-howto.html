@@ -28,7 +28,7 @@
 </div>
 
 <h2 id="what">What is the playground?</h2>
-<p>It's a plain folder next to this book. Nothing in it is magic: it's just where your practice files live. Exercises marked <strong>playground</strong> in each chapter tell you which file to create there.</p>
+<p>It's a plain folder, published as its own repository on GitHub: <a href="https://github.com/coder-hop/python-book-playground">coder-hop/python-book-playground</a>. Nothing in it is magic: it's just where your practice files live. Exercises marked <strong>playground</strong> in each chapter tell you which file to create there.</p>
 <script type="text/plain" class="code" data-lang="text">
 python-book/
 ├── index.html, 01-setup.html, …     ← the book you are reading
@@ -45,17 +45,25 @@ python-book/
 </div>
 
 <h2 id="setup">One-time setup (10 minutes)</h2>
-<h3>1. Check Python 3.15</h3>
+<h3>1. Get the playground</h3>
+<p>Clone the repository (or use <em>Code → Download ZIP</em> on the <a href="https://github.com/coder-hop/python-book-playground">repository page</a>):</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ git clone https://github.com/coder-hop/python-book-playground.git playground
+$ cd playground
+</script>
+<p>The final <code>playground</code> argument names the folder <code>playground/</code>, so every path in this book (<code>playground/hello.py</code>, <code>playground/reference/</code>) matches your copy exactly. Put it next to the book or anywhere you like.</p>
+
+<h3>2. Check Python 3.15</h3>
 <script type="text/plain" class="code" data-lang="shell">
 $ python3 --version
 Python 3.15.2
 </script>
 <p>If you see an older version, or "command not found", follow <a href="01-setup.html#install">Chapter 1: Installing Python 3.15</a>. With <code>uv</code> you can also run <code>uv python install 3.15</code> and then use <code>python3.15</code> wherever this book writes <code>python3</code>.</p>
 
-<h3>2. Open the folder in an editor and a terminal</h3>
+<h3>3. Open the folder in an editor and a terminal</h3>
 <p>Any editor works. With VS Code:</p>
 <script type="text/plain" class="code" data-lang="shell">
-$ cd path/to/python-book/playground
+$ cd path/to/playground
 $ code .                      # opens VS Code on this folder
 </script>
 <ul>
@@ -64,7 +72,7 @@ $ code .                      # opens VS Code on this folder
   <li>Set the editor to <strong>4 spaces</strong> for indentation (VS Code does this for <code>.py</code> files by default).</li>
 </ul>
 
-<h3>3. Create a virtual environment (recommended)</h3>
+<h3>4. Create a virtual environment (recommended)</h3>
 <p>You won't need third-party packages until Chapter 15, but making the venv now means every command uses the same Python. (Chapter 15 explains venvs fully.)</p>
 <script type="text/plain" class="code" data-lang="shell">
 $ python3 -m venv .venv
@@ -214,6 +222,7 @@ $ git add . && git commit -m "Chapter 1 exercises"
 <h2 id="trouble">Troubleshooting</h2>
 <div class="table-wrap"><table>
 <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+<tr><td>No <code>playground/</code> folder on your machine</td><td>You are reading the book online, or downloaded only the book</td><td><code>git clone https://github.com/coder-hop/python-book-playground.git playground</code></td></tr>
 <tr><td><code>python3: command not found</code></td><td>Python isn't installed or isn't on <code>PATH</code></td><td>Install it (<a href="01-setup.html#install">Ch. 1</a>); see <a href="appendix-shell.html#path-var">Appendix B</a> on <code>PATH</code></td></tr>
 <tr><td><code>SyntaxError</code> on <code>match</code>, <code>lazy import</code> or <code>[*x for x in …]</code></td><td>Python older than 3.15</td><td>Check with <code>python3 --version</code>; activate the venv</td></tr>
 <tr><td><code>ModuleNotFoundError: No module named 'money'</code></td><td>The command ran from another folder</td><td><code>cd</code> into <code>playground/</code> first</td></tr>

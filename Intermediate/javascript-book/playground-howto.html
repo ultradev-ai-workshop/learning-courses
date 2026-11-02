@@ -28,6 +28,7 @@
 </div>
 
 <h2 id="what">What is the playground?</h2>
+<p>A small Node project, published as its own repository on GitHub: <a href="https://github.com/coder-hop/js-book-playground">coder-hop/js-book-playground</a>. Your copy is the <code>playground/</code> folder:</p>
 <script type="text/plain" class="code" data-lang="text">
 javascript-book/
 ├── index.html, 01-intro.html, …      ← the book
@@ -42,22 +43,30 @@ javascript-book/
 <p>Because <code>package.json</code> says <code>"type": "module"</code>, every <code>.js</code> file you create is an <strong>ES module</strong>: <code>import</code>/<code>export</code> and top-level <code>await</code> work, and strict mode is on (Chapters 1 and 14). Nothing needs <code>npm install</code>; every exercise uses only built-in features.</p>
 
 <h2 id="setup">One-time setup</h2>
-<h3>1. Install Node 26 (LTS)</h3>
+<h3>1. Get the playground</h3>
+<p>Clone the repository (or use <em>Code → Download ZIP</em> on the <a href="https://github.com/coder-hop/js-book-playground">repository page</a>):</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ git clone https://github.com/coder-hop/js-book-playground.git playground
+$ cd playground
+</script>
+<p>The final <code>playground</code> argument names the folder <code>playground/</code>, so every path in this book (<code>playground/hello.js</code>, <code>playground/reference/</code>) matches your copy exactly.</p>
+
+<h3>2. Install Node 26 (LTS)</h3>
 <script type="text/plain" class="code" data-lang="shell">
 $ node --version
 v26.13.0
 </script>
 <p>Get it from <a href="https://nodejs.org/">nodejs.org</a> or a version manager (<code>fnm install 26</code>; see Appendix B). Node 24 works for almost everything, but Temporal and a few ES2025/2026 features need 26.</p>
-<h3>2. Open the folder</h3>
+<h3>3. Open the folder</h3>
 <script type="text/plain" class="code" data-lang="shell">
-$ cd path/to/javascript-book/playground
+$ cd path/to/playground
 $ code .                         # VS Code; its terminal opens in this folder
 </script>
 <ul>
   <li>VS Code understands JavaScript out of the box. Optionally install <strong>ESLint</strong> and <strong>Prettier</strong>.</li>
   <li>Add <code>// @ts-check</code> at the top of a file to get type checking from JSDoc comments (Appendix B).</li>
 </ul>
-<h3>3. Check that it works</h3>
+<h3>4. Check that it works</h3>
 <script type="text/plain" class="code" data-file="hello.js" data-save>
 console.log(`Node ${process.versions.node.split(".")[0]} is ready`);
 </script>
@@ -138,6 +147,7 @@ $ node src/cli.js -v -c 3  # verbose progress on stderr, 3 orders at a time
 <h2 id="trouble">Troubleshooting</h2>
 <div class="table-wrap"><table>
 <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+<tr><td>No <code>playground/</code> folder on your machine</td><td>you are reading the book online</td><td><code>git clone https://github.com/coder-hop/js-book-playground.git playground</code></td></tr>
 <tr><td><code>SyntaxError: Cannot use import statement outside a module</code></td><td>the file isn't treated as ESM</td><td>run it from <code>playground/</code> (where <code>package.json</code> is), or rename it <code>.mjs</code></td></tr>
 <tr><td><code>ERR_MODULE_NOT_FOUND</code> for <code>./money</code></td><td>a missing file extension</td><td>import <code>./money.js</code></td></tr>
 <tr><td><code>ReferenceError: require is not defined</code></td><td>CommonJS syntax in an ES module</td><td>use <code>import</code> (Chapter 14)</td></tr>

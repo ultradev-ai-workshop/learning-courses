@@ -3,8 +3,20 @@
 Your workspace for the exercises marked **playground**. Each one adds a file here, and together
 they grow into the Chapter 16 project (a notes REST API).
 
-```sh
+## Get it
+
+```bash
+git clone https://github.com/coder-hop/nodejs-book-playground.git playground
 cd playground
+```
+
+Repository: https://github.com/coder-hop/nodejs-book-playground (or use *Code → Download ZIP*).
+Cloning into a folder named `playground` keeps every path in the book (`playground/...`) exactly as written.
+This repository holds only the practice project; the lessons are in the Node.js Study Book.
+
+## Everyday commands
+
+```sh
 node --version            # 24 or newer (the book uses 26)
 node hello.js             # run a file
 node --watch hello.js     # re-run on every save
