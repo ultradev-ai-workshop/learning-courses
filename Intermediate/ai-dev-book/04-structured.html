@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧾&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Structured Output · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Building Blocks</div>
+<h1>Structured Output</h1>
+<p class="lead">Turn free-form text into typed, validated data your services can trust: a JSON Schema in, schema-conformant JSON out, then business validation, exactly like any other API boundary.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Why "please answer in JSON" is not a contract.</li>
+  <li>The reliability ladder: prompting, strict tool inputs, and native structured outputs.</li>
+  <li>How to send a JSON Schema with <code>output_config.format</code> and get guaranteed-valid JSON.</li>
+  <li>How to define the schema as a Pydantic model and get typed objects back with <code>messages.parse</code>.</li>
+  <li>What a schema can't express, and the business validation you must still write.</li>
+  <li>How to handle truncation, refusals and wrong values: repair, retry once, or fall back.</li>
+</ul>
+</div>
+
+<h2 id="why">Why structure matters</h2>
+<p>Most LLM features in a backend are not chat. They are functions: classify this ticket, extract the fields of this invoice, decide which runbook applies. Their callers are other services, and services need a contract. Free text breaks contracts in predictable ways: a friendly preamble ("Sure! Here's the JSON:"), a missing field, <code>"Billing"</code> instead of <code>"billing"</code>, a trailing comment.</p>
+<script type="text/plain" class="code" data-file="why.py">
+import json
+
+replies = [
+    '{"category": "billing", "severity": "sev2"}',
+    'Sure! Here is the JSON:\n{"category": "billing", "severity": "sev2"}',
+    '{"category": "Billing issue", "severity": "sev2"}',
+    '{"category": "billing"}',
+]
+for r in replies:
+    try:
+        data = json.loads(r)
+        ok = data.get("category") in {"billing", "auth", "other"} and "severity" in data
+        print("parsed,", "valid" if ok else "WRONG VALUES OR FIELDS")
+    except json.JSONDecodeError as e:
+        print("not JSON:", e.msg)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+parsed, valid
+not JSON: Expecting value
+parsed, WRONG VALUES OR FIELDS
+parsed, WRONG VALUES OR FIELDS
+</script>
+<p>Only one reply of four is usable. Asking more nicely helps, but it never makes the failure rate zero.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a letter versus a paper form.</strong> Asking for "JSON, please" is like asking a customer to write you a letter that contains their name, address and order number. Most letters will contain them, in creative places. Structured outputs hand the customer a form with labelled boxes and tick-boxes for the fixed choices: they can still write the wrong street name in the address box, but they can't skip the box or invent a new tick-box.</p>
+</div>
+
+<div class="java">
+<p>☕ <strong>Java:</strong> think of an OpenAPI response schema that the <em>server</em> enforces. Native structured outputs move that promise into the model's decoder: it may only produce tokens that keep the output valid against your schema (<strong>constrained decoding</strong>). You then deserialize into a record with Jackson, as you would any other payload.</p>
+</div>
+
+<h2 id="ladder">The reliability ladder</h2>
+<div class="table-wrap"><table>
+<tr><th>Technique</th><th>Valid JSON?</th><th>Matches the schema?</th><th>Use when</th></tr>
+<tr><td>Instructions and examples in the prompt</td><td>usually</td><td>usually</td><td>prototyping only</td></tr>
+<tr><td>A tool with <code>"strict": true</code> whose <code>input_schema</code> is your schema</td><td>yes</td><td>yes</td><td>you are already using tools (<a href="05-tools.html">Chapter 5</a>)</td></tr>
+<tr><td><strong>Structured outputs</strong>: <code>output_config.format</code> with <code>json_schema</code></td><td>yes</td><td>yes, for the supported schema features</td><td>the default for any machine-consumed output</td></tr>
+</table></div>
+<p>Structured outputs work through constrained decoding: the API compiles your schema into a grammar and only lets the model emit tokens that keep the output valid. The parameter used to be a beta called <code>output_format</code>; today it is <code>output_config.format</code>, with no beta header.</p>
+<div class="note">
+<p><strong>Forcing a tool call is gone on the newest models.</strong> Older guides forced a "fake tool" with <code>tool_choice={"type": "tool", ...}</code> to get JSON. <code>claude-opus-5-5</code> and <code>claude-sonnet-5-5</code> reject a forced <code>tool_choice</code> with a 400. Use structured outputs for JSON, and <code>strict: true</code> on real tools.</p>
+</div>
+
+<h2 id="example">Worked example: typed ticket triage</h2>
+<p>Goal: turn a raw support ticket into a <code>Triage</code> object that the ticketing service can store directly.</p>
+<h3>Step 1: define the type</h3>
+<p>With Pydantic, the model class <em>is</em> the schema. <code>Literal</code> gives you enums, and <code>Field(description=...)</code> becomes part of the schema the model reads:</p>
+<script type="text/plain" class="code" data-file="triage.py" data-save>
+from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field
+
+Category = Literal["billing", "auth", "orders_api", "data_export", "other"]
+Severity = Literal["sev1", "sev2", "sev3", "needs_info"]
+Service = Literal["orders-api", "billing-svc", "auth-gateway", "export-worker"]
+
+
+class Triage(BaseModel):
+    model_config = ConfigDict(extra="forbid")          # -> "additionalProperties": false
+    category: Category
+    severity: Severity
+    summary: str = Field(description="One sentence, under 200 characters")
+    services: list[Service] = Field(description="Affected services; empty if unknown")
+    needs_human: bool
+</script>
+<script type="text/plain" class="code" data-file="show_schema.py">
+import json
+from triage import Triage
+
+schema = Triage.model_json_schema()
+print(json.dumps(schema["properties"]["severity"]))
+print(schema["required"])
+print(schema["additionalProperties"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"enum": ["sev1", "sev2", "sev3", "needs_info"], "title": "Severity", "type": "string"}
+['category', 'severity', 'summary', 'services', 'needs_human']
+False
+</script>
+<p>The list of services is an enum too. That moves your allow-list into constrained decoding, so the model <em>cannot</em> produce a service that doesn't exist. Use enums for every small, closed set.</p>
+
+<h3>Step 2: request with <code>output_config.format</code></h3>
+<p>The raw form sends the schema and parses the text block yourself:</p>
+<script type="text/plain" class="code" data-file="triage_raw.py">
+import anthropic
+from triage import Triage
+
+client = anthropic.Anthropic()
+
+def triage(ticket: str) -> Triage:
+    res = client.messages.create(
+        model="claude-haiku-5-5",
+        max_tokens=1024,
+        system="You triage support tickets for Acme's platform team.",
+        messages=[{"role": "user", "content": f"<ticket>{ticket.replace('<', '&lt;')}</ticket>"}],
+        output_config={"format": {"type": "json_schema", "schema": Triage.model_json_schema()}},
+    )
+    if res.stop_reason != "end_turn":
+        raise RuntimeError(f"incomplete structured output: {res.stop_reason}")
+    text = "".join(b.text for b in res.content if b.type == "text")
+    return Triage.model_validate_json(text)
+
+print(triage("Since 09:10 UTC every call to /v2/orders returns 503."))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: a minimal valid object)">
+category='billing' severity='sev1' summary='example summary' services=['orders-api'] needs_human=True
+</script>
+<p>The mock server returns the smallest object that matches the schema, which is exactly what constrained decoding guarantees: the <em>shape</em>. A real model would also get the values right (most of the time).</p>
+<p>The SDK can do the schema and the parsing for you. <code>messages.parse</code> takes the Pydantic class, builds a compatible schema, and gives you a validated instance in <code>parsed_output</code>:</p>
+<script type="text/plain" class="code" data-file="triage_parse.py">
+import anthropic
+from triage import Triage
+
+client = anthropic.Anthropic()
+res = client.messages.parse(
+    model="claude-haiku-5-5",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "<ticket>Login fails for every user since 08:00.</ticket>"}],
+    output_format=Triage,
+)
+t = res.parsed_output
+print(type(t).__name__, t.severity, t.needs_human)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+Triage sev1 True
+</script>
+
+<h3>Step 3: validate business rules</h3>
+<p>The schema guarantees shape. It can't know that a <code>sev1</code> must set <code>needs_human</code>, or that a summary over 200 characters breaks the ticket UI. That is ordinary validation code, and it should <em>repair</em> what it can fix safely and <em>reject</em> what it can't:</p>
+<script type="text/plain" class="code" data-file="rules.py" data-save>
+from triage import Triage
+
+
+class InvalidLLMOutput(ValueError):
+    pass
+
+
+def check(t: Triage) -> Triage:
+    if t.severity == "sev1" and not t.needs_human:
+        t = t.model_copy(update={"needs_human": True})          # repair, don't fail
+    if len(t.summary) > 200:
+        raise InvalidLLMOutput(f"summary too long ({len(t.summary)} chars)")
+    if t.severity in ("sev1", "sev2") and not t.services:
+        raise InvalidLLMOutput("a sev1/sev2 ticket must name at least one service")
+    return t
+</script>
+<script type="text/plain" class="code" data-file="rules_demo.py">
+from triage import Triage
+from rules import check, InvalidLLMOutput
+
+samples = [
+    '{"category": "orders_api", "severity": "sev1", "summary": "Orders API down.", "services": ["orders-api"], "needs_human": false}',
+    '{"category": "auth", "severity": "sev2", "summary": "Slow logins.", "services": [], "needs_human": true}',
+]
+for raw in samples:
+    try:
+        t = check(Triage.model_validate_json(raw))
+        print("ok:", t.severity, "needs_human =", t.needs_human)
+    except InvalidLLMOutput as e:
+        print("rejected:", e)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok: sev1 needs_human = True
+rejected: a sev1/sev2 ticket must name at least one service
+</script>
+<div class="tip">
+<p><strong>Put rules in the schema when the schema can express them</strong> (enums, required fields, no extra properties) and in code when it can't (rules that span fields, lookups in a database, lengths and ranges). Check the <a href="https://platform.claude.com/docs/en/build-with-claude/structured-outputs">structured outputs</a> page for which JSON Schema keywords are enforced during decoding; validate the rest in code.</p>
+</div>
+
+<h2 id="failure">Handling failure</h2>
+<p>Even with constrained decoding, three things go wrong:</p>
+<ol>
+  <li><strong>Truncation.</strong> If <code>max_tokens</code> is too small, the JSON stops mid-object. Check <code>stop_reason == "end_turn"</code> before parsing.</li>
+  <li><strong>Refusal.</strong> A <code>refusal</code> stop reason means there is no valid object. Route to a fallback.</li>
+  <li><strong>Valid but wrong.</strong> The right shape with the wrong values. Business rules catch some of these; evals (<a href="10-evals.html">Chapter 10</a>) measure the rest.</li>
+</ol>
+<p>When validation fails, choose deliberately between <strong>repair</strong> (a deterministic fix in code), <strong>retry</strong> (one more call, sending the validation error back to the model) and <strong>fallback</strong> (a default value or a human queue). Never retry in an unbounded loop. Here is "retry once with feedback", tested with a scripted fake whose first answer breaks a rule:</p>
+<script type="text/plain" class="code" data-file="retry_feedback.py">
+from llmkit import FakeAnthropic
+from triage import Triage
+from rules import check, InvalidLLMOutput
+
+FALLBACK = Triage(category="other", severity="needs_info", summary="Needs manual triage.",
+                  services=[], needs_human=True)
+
+def triage(client, ticket):
+    messages = [{"role": "user", "content": f"<ticket>{ticket}</ticket>"}]
+    for attempt in range(2):                                  # first try + one retry
+        res = client.messages.create(model="claude-haiku-5-5", max_tokens=1024, messages=messages,
+                                     output_config={"format": {"type": "json_schema",
+                                                               "schema": Triage.model_json_schema()}})
+        raw = res.content[0].text
+        try:
+            return check(Triage.model_validate_json(raw)), attempt
+        except InvalidLLMOutput as e:
+            messages += [{"role": "assistant", "content": raw},
+                         {"role": "user", "content": f"Your output failed validation: {e}. Return a corrected object."}]
+    return FALLBACK, attempt
+
+bad = '{"category": "orders_api", "severity": "sev2", "summary": "Orders slow.", "services": [], "needs_human": false}'
+good = '{"category": "orders_api", "severity": "sev2", "summary": "Orders slow.", "services": ["orders-api"], "needs_human": false}'
+
+t, attempt = triage(FakeAnthropic(replies=[bad, good]), "Orders API p99 is 4s.")
+print("retry fixed it:", t.services, "after attempt", attempt)
+t, attempt = triage(FakeAnthropic(replies=[bad, bad]), "Orders API p99 is 4s.")
+print("fell back:", t.severity, t.needs_human)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+retry fixed it: ['orders-api'] after attempt 1
+fell back: needs_info True
+</script>
+<p>Count how often the retry path runs. If it's more than a few percent, fix the prompt or the schema instead of paying for two calls.</p>
+
+<h2 id="java">The same in Java</h2>
+<div class="java">
+<p>☕ A record plus a schema, Jackson for the parsing. Hand-written schemas drift from the record, so in real code generate them with a library such as <a href="https://github.com/victools/jsonschema-generator">victools jsonschema-generator</a> and snapshot-test the result.</p>
+<script type="text/plain" class="code" data-file="Triage.java" data-norun>
+public record Triage(Category category, Severity severity, String summary,
+                     List<String> services, boolean needsHuman) {
+    public enum Category { billing, auth, orders_api, data_export, other }
+    public enum Severity { sev1, sev2, sev3, needs_info }
+}
+
+// The request body: same JSON as the Python version.
+body.putObject("output_config").putObject("format")
+    .put("type", "json_schema")
+    .set("schema", JSON.readTree(TRIAGE_SCHEMA));
+JsonNode res = claude.create(body);
+if (!"end_turn".equals(res.path("stop_reason").asText()))
+    throw new IllegalStateException("incomplete structured output");
+Triage t = JSON.readValue(ClaudeHttp.text(res), Triage.class);
+</script>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Optional facts: "not stated" beats invention</h3>
+<p>If a field may be missing from the source, make it nullable. Otherwise the model must put <em>something</em> in a required string field, and that something may be invented:</p>
+<script type="text/plain" class="code" data-file="nullable.py">
+from pydantic import BaseModel
+
+class Incident(BaseModel):
+    service: str
+    started_at: str | None          # None when the report doesn't say
+    customer_impact_pct: float | None
+
+schema = Incident.model_json_schema()
+print(schema["properties"]["started_at"])
+print(Incident.model_validate_json('{"service": "orders-api", "started_at": null, "customer_impact_pct": 12.5}'))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'anyOf': [{'type': 'string'}, {'type': 'null'}], 'title': 'Started At'}
+service='orders-api' started_at=None customer_impact_pct=12.5
+</script>
+<p>Tell the model in the field description or system prompt: "use null when the report doesn't state it".</p>
+
+<h3>An invoice extractor with a cross-field check</h3>
+<p>A schema can't say "the lines must add up to the total". Code can, and money belongs in <code>Decimal</code>, not <code>float</code>:</p>
+<script type="text/plain" class="code" data-file="invoice.py">
+from decimal import Decimal
+from pydantic import BaseModel, ValidationError, model_validator
+
+class Line(BaseModel):
+    description: str
+    amount: Decimal
+
+class Invoice(BaseModel):
+    vendor: str
+    currency: str
+    lines: list[Line]
+    total: Decimal
+
+    @model_validator(mode="after")
+    def lines_add_up(self):
+        s = sum((l.amount for l in self.lines), Decimal("0"))
+        if abs(s - self.total) > Decimal("0.01"):
+            raise ValueError(f"lines sum to {s}, total says {self.total}")
+        return self
+
+ok = '{"vendor": "CloudCo", "currency": "EUR", "lines": [{"description": "VMs", "amount": "120.10"}, {"description": "Egress", "amount": "9.90"}], "total": "130.00"}'
+bad = ok.replace('"130.00"', '"139.00"')
+print(Invoice.model_validate_json(ok).total)
+try:
+    Invoice.model_validate_json(bad)
+except ValidationError as e:
+    print(e.errors()[0]["msg"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+130.00
+Value error, lines sum to 130.00, total says 139.00
+</script>
+
+<h3>Classification at scale</h3>
+<p>A schema with a single enum field turns the model into a classifier with a fixed label set. Small, cheap and easy to evaluate:</p>
+<script type="text/plain" class="code" data-file="classify.py">
+from typing import Literal
+from pydantic import BaseModel
+from llmkit import FakeAnthropic
+
+class Label(BaseModel):
+    label: Literal["bug", "feature_request", "question", "spam"]
+
+client = FakeAnthropic(replies=['{"label": "bug"}', '{"label": "question"}', '{"label": "spam"}'])
+for text in ["The app crashes on save", "How do I export?", "WIN A FREE CRUISE"]:
+    res = client.messages.create(model="claude-haiku-5-5", max_tokens=50,
+                                 messages=[{"role": "user", "content": text}],
+                                 output_config={"format": {"type": "json_schema", "schema": Label.model_json_schema()}})
+    print(f"{Label.model_validate_json(res.content[0].text).label:16} {text}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+bug              The app crashes on save
+question         How do I export?
+spam             WIN A FREE CRUISE
+</script>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Regex-extracting JSON from prose.</strong> Asking for JSON in the prompt and fishing it out with <code>\{.*\}</code>.</p></div>
+<div class="good"><p><strong>Native structured outputs.</strong> Send the schema with <code>output_config.format</code> (or use <code>messages.parse</code>) and parse the text block directly.</p></div>
+<div class="bad"><p><strong>Trusting valid JSON.</strong> Writing a well-formed object straight to the database.</p></div>
+<div class="good"><p><strong>Schema, then business rules.</strong> Deserialize into a type, then validate values against your systems of record.</p></div>
+<div class="bad"><p><strong>Free-text fields for closed sets.</strong> <code>"category": {"type": "string"}</code> and hoping for consistent labels.</p></div>
+<div class="good"><p><strong>Enums</strong> (<code>Literal[...]</code>), so "Billing" or "billing issue" can't be produced.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Machine-consumed output needs a contract; a prompt alone is not one.</li>
+  <li><code>output_config.format</code> with a JSON Schema gives schema-valid JSON through constrained decoding; <code>messages.parse(output_format=Model)</code> does the schema and the parsing for you.</li>
+  <li>Define schemas as Pydantic models (records in Java) and generate the JSON Schema from them.</li>
+  <li>Use enums for closed sets and nullable fields for facts that may be missing.</li>
+  <li>Check <code>stop_reason</code>, then validate business rules; repair, retry once with feedback, or fall back.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>With structured outputs, can the model return <code>"severity": "critical"</code> for the <code>Triage</code> schema? Can it return a wrong but allowed severity?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No: <code>critical</code> isn't in the enum, so constrained decoding can't produce it. Yes: it can choose <code>sev3</code> for a real outage. The schema guarantees shape, not truth; evals measure the truth.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">order the steps</span></h3>
+<p>Put these in the right order: validate business rules, check <code>stop_reason</code>, parse JSON into the model, send the request.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Send the request → check <code>stop_reason</code> → parse into the model → validate business rules. Parsing a truncated answer gives a confusing error far from the cause.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a Pydantic model <code>Sentiment</code> with a <code>label</code> (positive, neutral, negative) and a <code>confidence</code> between 0 and 1 (use <code>Field(ge=0, le=1)</code>). Validate <code>{"label": "positive", "confidence": 1.3}</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from typing import Literal
+from pydantic import BaseModel, Field, ValidationError
+
+class Sentiment(BaseModel):
+    label: Literal["positive", "neutral", "negative"]
+    confidence: float = Field(ge=0, le=1)
+
+try:
+    Sentiment.model_validate_json('{"label": "positive", "confidence": 1.3}')
+except ValidationError as e:
+    print(e.errors()[0]["type"], e.errors()[0]["loc"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+less_than_equal ('confidence',)
+</script>
+<p>Range checks like this may not be enforced while decoding, so Pydantic's validation is your safety net.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>This code crashes now and then with <code>ValidationError: EOF while parsing</code>. What is missing?</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+res = client.messages.create(model="claude-haiku-5-5", max_tokens=60, ..., output_config=...)
+return Triage.model_validate_json(res.content[0].text)
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>A <code>stop_reason</code> check. With <code>max_tokens=60</code> the JSON is sometimes cut off (<code>stop_reason == "max_tokens"</code>). Check it first and raise a clear error, and give structured output enough room (1,000+ tokens is cheap: you only pay for what is generated).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Define DocsPilot's <code>Answer</code>: <code>answerable</code> (bool), <code>answer</code> (str), <code>sources</code> (a list of objects with <code>doc_title</code> and <code>quote</code>) and <code>follow_ups</code> (a list of strings). Add a check that every <code>doc_title</code> is one of the titles you actually sent.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic import BaseModel
+
+class Source(BaseModel):
+    doc_title: str
+    quote: str
+
+class Answer(BaseModel):
+    answerable: bool
+    answer: str
+    sources: list[Source]
+    follow_ups: list[str]
+
+def check_sources(a: Answer, sent_titles: set[str]) -> list[str]:
+    return [s.doc_title for s in a.sources if s.doc_title not in sent_titles]
+
+a = Answer.model_validate_json('{"answerable": true, "answer": "Run deployctl rollback.", '
+    '"sources": [{"doc_title": "Guide: deploying a service", "quote": "deployctl rollback"}, '
+    '{"doc_title": "Runbook: Kubernetes", "quote": "kubectl"}], "follow_ups": []}')
+print("unknown sources:", check_sources(a, {"Guide: deploying a service"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+unknown sources: ['Runbook: Kubernetes']
+</script>
+<p>An invented source title is a cheap, reliable hallucination signal. Keep this check for the project.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Use <code>mock_api()</code> and the real SDK to show that <code>max_tokens=5</code> on a structured request returns <code>stop_reason == "max_tokens"</code>, and that your <code>triage()</code> from Step 2 raises before parsing.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import anthropic
+from triage import Triage
+
+client = anthropic.Anthropic()
+res = client.messages.create(
+    model="claude-haiku-5-5", max_tokens=5,
+    messages=[{"role": "user", "content": "<ticket>Login broken</ticket>"}],
+    output_config={"format": {"type": "json_schema", "schema": Triage.model_json_schema()}})
+print(res.stop_reason, repr(res.content[0].text))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+max_tokens '{"category"'
+</script>
+<p>The text is the start of a JSON object, not a valid one. Parsing it would fail with a confusing error; the <code>stop_reason</code> check fails with a clear one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>For each failure, choose repair, retry or fallback: (a) <code>sev1</code> with <code>needs_human=false</code>; (b) a summary of 260 characters; (c) <code>stop_reason == "refusal"</code>; (d) an invoice whose lines don't add up.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Repair: the fix is deterministic. (b) Repair (truncate at a sentence boundary) or retry once with the error. (c) Fallback: retrying the same request won't change the answer. (d) Retry once with the error ("lines sum to X, total says Y"); if it still fails, send it to a human. Extracted money should never be "repaired" by guessing.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a schema for extracting action items from meeting notes: a list of items, each with <code>task</code>, <code>owner</code> (nullable) and <code>due</code> (nullable ISO date string). Validate an example with one item that has no owner.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from datetime import date
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    task: str
+    owner: str | None
+    due: date | None
+
+class Actions(BaseModel):
+    items: list[Item]
+
+a = Actions.model_validate_json('{"items": [{"task": "Rotate the Stripe key", "owner": null, "due": "2026-11-15"}]}')
+print(a.items[0].owner, a.items[0].due.isoformat(), type(a.items[0].due).__name__)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+None 2026-11-15 date
+</script>
+<p>Pydantic turns the ISO string into a real <code>date</code>, so an invented "next Tuesday" fails validation instead of reaching your calendar.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write a generic <code>extract(client, model_cls, text, rules=())</code>: structured request, <code>stop_reason</code> check, parse, run each rule function (each may raise <code>ValueError</code>), and one retry with feedback. Return <code>(obj, attempts)</code> or raise after the retry.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic import BaseModel, ValidationError
+from llmkit import FakeAnthropic
+
+def extract(client, model_cls, text, rules=(), model="claude-haiku-5-5"):
+    messages = [{"role": "user", "content": text}]
+    error = None
+    for attempt in (1, 2):
+        res = client.messages.create(model=model, max_tokens=2000, messages=messages,
+                                     output_config={"format": {"type": "json_schema",
+                                                               "schema": model_cls.model_json_schema()}})
+        if res.stop_reason != "end_turn":
+            raise RuntimeError(f"stop_reason={res.stop_reason}")
+        raw = res.content[0].text
+        try:
+            obj = model_cls.model_validate_json(raw)
+            for rule in rules:
+                rule(obj)
+            return obj, attempt
+        except (ValidationError, ValueError) as e:
+            error = e
+            messages += [{"role": "assistant", "content": raw},
+                         {"role": "user", "content": f"That failed validation: {e}. Return a corrected object."}]
+    raise ValueError(f"still invalid after retry: {error}")
+
+class Temp(BaseModel):
+    celsius: float
+
+def plausible(t):
+    if not -90 <= t.celsius <= 60:
+        raise ValueError("implausible temperature")
+
+client = FakeAnthropic(replies=['{"celsius": 300}', '{"celsius": 30}'])
+print(extract(client, Temp, "It was 30 degrees today.", rules=[plausible]))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+(Temp(celsius=30.0), 2)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your triage feature runs on 50,000 tickets a day. The retry path fires on 6% of them. List what you would look at, in order, to bring that down, and how you would know you succeeded.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Group the failures by rule: is it one rule (say, "sev2 must name a service")?</li>
+  <li>If a rule fires often, move it into the schema if possible (an enum, a required field) or explain it in the field description and system prompt, with an example.</li>
+  <li>Check whether the rule is right: maybe tickets genuinely don't name a service, and <code>needs_info</code> is the correct answer.</li>
+  <li>Check truncation (<code>stop_reason</code>) and raise <code>max_tokens</code> if needed.</li>
+  <li>Try a stronger model only after the prompt and schema are right.</li>
+</ol>
+<p>Success: the retry rate falls on a fixed eval set (<a href="10-evals.html">Chapter 10</a>) <em>and</em> accuracy doesn't drop; then confirm in production metrics.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/structured-outputs">Structured outputs</a>: JSON outputs, supported schema features, SDK helpers.</li>
+  <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use">Strict tool use</a>: the same guarantee for tool inputs.</li>
+  <li><a href="https://docs.pydantic.dev/latest/concepts/json_schema/">Pydantic: JSON Schema</a> and <a href="https://docs.pydantic.dev/latest/concepts/validators/">validators</a>.</li>
+  <li><a href="https://json-schema.org/understanding-json-schema">Understanding JSON Schema</a> (json-schema.org).</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

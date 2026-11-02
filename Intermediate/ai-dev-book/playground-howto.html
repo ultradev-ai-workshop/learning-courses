@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;▶️&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here</div>
+<h1>Using the Playground</h1>
+<p class="lead">The book comes with a playground repository, <a href="https://github.com/coderhop-learning/ai-book-playground">coderhop-learning/ai-book-playground</a>: the <code>llmkit</code> toolkit, the DocsPilot sample company, and every module the chapters build. This page shows how to set up Python, how to run the examples with or without an API key, and how the book's own examples are checked.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What to install, and how to create a virtual environment.</li>
+  <li>What's in the playground and what <code>llmkit</code> gives you.</li>
+  <li>How to run examples offline against the mock Messages API, or against Claude with a key.</li>
+  <li>How every example in the book was verified.</li>
+  <li>Fixes for common setup problems.</li>
+</ul>
+</div>
+
+<h2 id="install">1. Clone the playground and install the packages</h2>
+<p>Clone the playground from GitHub (or use <em>Code → Download ZIP</em> on the <a href="https://github.com/coderhop-learning/ai-book-playground">repository page</a>):</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ git clone https://github.com/coderhop-learning/ai-book-playground.git
+$ cd ai-book-playground
+</script>
+<p>Use Python 3.12 or newer (the book was checked with 3.13). Create a virtual environment inside the playground and install the packages:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ python3 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+$ pip install anthropic openai pydantic numpy rank-bm25 "mcp>=2" opentelemetry-sdk
+$ pip install langchain langchain-anthropic langgraph llama-index-core "pydantic-ai-slim[anthropic]" dspy   # appendices
+</script>
+
+<h2 id="layout">2. What's in the playground</h2>
+<script type="text/plain" class="code" data-lang="text" data-nocompare>
+ai-book-playground/
+├── llmkit.py              the book's offline toolkit (below)
+├── docs/                  DocsPilot's sample company docs: runbooks, ADRs, guides, policies, an API reference
+├── prompts/, evals/       the prompt file (Chapter 2) and the eval set (Chapter 10)
+├── claude_http.py         raw HTTP client with retries                         (Chapter 3)
+├── triage.py, rules.py    structured output and business rules                 (Chapter 4)
+├── registry.py, ...       tool registry, DocsPilot tools, the tool loop         (Chapter 5)
+├── vector_store.py, ...   vector search, chunker, BM25 + RRF retrievers, RAG    (Chapters 6–7)
+├── agent.py, ...          the budgeted agent                                    (Chapter 8)
+├── tickets_server.py      the MCP server                                        (Chapter 9)
+├── judge.py, run_evals.py graders and the eval harness                          (Chapter 10)
+├── resilient.py, ...      circuit breaker, fallbacks, guardrails                (Chapters 11–12)
+├── docspilot_app.py       the assembled service                                 (Chapter 15)
+└── reference/             Java versions of key classes, for reading
+</script>
+<p>Each module is exactly the code shown in its chapter, so you can import it from later chapters and exercises, or read the finished version when you're stuck. Run the examples from the repository's root folder, so that <code>import llmkit</code> and the other modules resolve. Pull the repository now and then (<code>git pull</code>) to get fixes.</p>
+
+<h2 id="llmkit">3. A tour of llmkit</h2>
+<p>Everything in <code>llmkit</code> is deterministic and offline:</p>
+<script type="text/plain" class="code" data-file="tour.py">
+import llmkit
+
+print(llmkit.tokenize("Summarize the runbook."))                     # a toy tokenizer
+print(round(llmkit.cosine(llmkit.embed("reset my password"),
+                          llmkit.embed("recover login credentials")), 2))   # a toy embedding model
+print(len(llmkit.load_docs()), "sample docs;", sorted(llmkit.ONCALL))
+print(f"${llmkit.cost('claude-sonnet-5-5', 10_000, 1_000):.3f}")        # the price table
+
+fake = llmkit.FakeAnthropic(replies=["scripted answer"])               # a test double for anthropic.Anthropic()
+msg = fake.messages.create(model="claude-haiku-5-5", max_tokens=50,
+                           messages=[{"role": "user", "content": "hi"}])
+print(type(msg).__name__, msg.content[0].text, len(fake.calls))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['Summ', 'ariz', 'e', ' the', ' runb', 'ook', '.']
+0.95
+11 sample docs; ['data', 'payments', 'platform', 'web']
+$0.030
+Message scripted answer 1
+</script>
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>What it is</th><th>First used</th></tr>
+<tr><td><code>tokenize</code>, <code>count_tokens</code></td><td>a toy tokenizer (real tokenizers differ in detail)</td><td><a href="01-llms.html">Ch. 1</a></td></tr>
+<tr><td><code>TinyLM</code>, <code>softmax</code></td><td>a bigram language model and the temperature formula</td><td><a href="01-llms.html">Ch. 1</a></td></tr>
+<tr><td><code>embed</code>, <code>cosine</code></td><td>a 256-number embedding with a small synonym list</td><td><a href="06-embeddings.html">Ch. 6</a></td></tr>
+<tr><td><code>load_docs</code>, <code>ONCALL</code>, <code>TICKETS</code></td><td>the DocsPilot sample company</td><td><a href="05-tools.html">Ch. 5</a></td></tr>
+<tr><td><code>FakeAnthropic</code></td><td>returns real SDK <code>Message</code> objects from scripted replies; records every request</td><td><a href="01-llms.html">Ch. 1</a></td></tr>
+<tr><td><code>mock_api()</code></td><td>a local HTTP server that speaks the Messages API (and enough OpenAI API for Chapter 3)</td><td><a href="03-api.html">Ch. 3</a></td></tr>
+</table></div>
+
+<h2 id="mock">4. Running examples offline: the mock server</h2>
+<p>Examples written for the real SDK (<code>anthropic.Anthropic()</code>) need a server. Start the mock in one terminal; it prints the environment variables to set in another:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ python llmkit.py serve
+Mock Messages API on http://127.0.0.1:8765  (Ctrl+C to stop). In another terminal:
+  export ANTHROPIC_BASE_URL=http://127.0.0.1:8765 ANTHROPIC_API_KEY=test
+  export OPENAI_BASE_URL=http://127.0.0.1:8765/v1 OPENAI_API_KEY=test
+</script>
+<p>Every SDK and framework in the book reads <code>ANTHROPIC_BASE_URL</code>, so the code is unchanged. You can also start a server inside a script, as several chapters do:</p>
+<script type="text/plain" class="code" data-file="mock_demo.py">
+import anthropic
+from llmkit import mock_api
+
+with mock_api() as url:
+    client = anthropic.Anthropic(base_url=url, api_key="test")
+    msg = client.messages.create(model="claude-sonnet-5-5", max_tokens=100,
+                                 messages=[{"role": "user", "content": "Hello!"}])
+    print(msg.content[0].text, "|", msg.stop_reason, "|", len(url.requests), "request")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+(mock reply) You said: Hello! | end_turn | 1 request
+</script>
+<p>What the mock does, so its answers don't surprise you:</p>
+<ul>
+  <li><strong>It checks requests like the real API</strong> for the rules this book teaches: unknown models (404), missing <code>max_tokens</code>, sampling parameters, assistant prefill, forced <code>tool_choice</code> on the newest models, tool results without a matching tool call (400), API keys starting with <code>bad</code> (401).</li>
+  <li><strong>Its answers are honest placeholders</strong>: "(mock reply) You said: …", a minimal object that matches your JSON Schema, a tool call when a tool's name or description matches the question, a citation quoting the best-matching document.</li>
+  <li><strong>It supports</strong> streaming (SSE), token counting, prompt caching (prefixes of 1,024+ toy tokens), the Batches API, rate-limit headers, and injected failures: <code>mock_api(fail_first=2, fail_status=529)</code>.</li>
+</ul>
+
+<h2 id="real">5. Running against Claude</h2>
+<p>Create a key in the <a href="https://platform.claude.com/">Claude Console</a>, unset <code>ANTHROPIC_BASE_URL</code> and export the key. The same examples now call Claude; only the wording of the answers (and the token counts) changes:</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ unset ANTHROPIC_BASE_URL
+$ export ANTHROPIC_API_KEY="sk-ant-..."        # never commit it, never paste it into a prompt
+$ python hello_sdk.py
+</script>
+<div class="pitfall">
+<p><strong>Real calls cost money.</strong> The eval and batch examples make many calls. Start with small sets, read <code>usage</code>, and set a spend limit on your key.</p>
+</div>
+
+<h2 id="checked">6. How the book's examples were checked</h2>
+<p>A script extracts every code block from every page and runs it in a fresh folder that contains a copy of the playground, with the mock server running and <code>ANTHROPIC_BASE_URL</code> pointing at it. Python blocks run as scripts; the output block after each one must match what the script really printed. Blocks marked "output (mock server)" show the mock's answers; with a real key you'll see Claude's.</p>
+<script type="text/plain" class="code" data-lang="shell">
+$ python tools/check-snippets.py              # every page
+$ python tools/check-snippets.py 07-rag.html  # one page
+07-rag.html                  ok= 28 fail= 0 skipped= 7
+</script>
+<p>Java snippets (in ☕ boxes) are for reading: they show the same idea with <code>java.net.http</code>, the Anthropic Java SDK, Spring AI or LangChain4j, and are not run.</p>
+
+<h2 id="problems">7. Common problems</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Fix</th></tr>
+<tr><td><code>ModuleNotFoundError: llmkit</code></td><td>run from inside the cloned <code>ai-book-playground/</code> folder, or add it to <code>PYTHONPATH</code></td></tr>
+<tr><td>no playground on your machine yet</td><td><code>git clone https://github.com/coderhop-learning/ai-book-playground.git</code></td></tr>
+<tr><td><code>APIConnectionError</code></td><td>the mock isn't running, or <code>ANTHROPIC_BASE_URL</code> points at the wrong port</td></tr>
+<tr><td><code>AuthenticationError</code> with a real key</td><td>check the key, and that <code>ANTHROPIC_BASE_URL</code> is unset</td></tr>
+<tr><td><code>BadRequestError: temperature…</code></td><td>current Claude models don't take sampling parameters; remove them (<a href="01-llms.html#sampling">Chapter 1</a>)</td></tr>
+<tr><td>a framework sends a forced tool call</td><td>use its native structured-output mode (<a href="appendix-langchain.html#structured">Appendix A</a>)</td></tr>
+</table></div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

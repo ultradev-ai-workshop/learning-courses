@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧭&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Embeddings &amp; Vector Search · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Building Blocks</div>
+<h1>Embeddings &amp; Vector Search</h1>
+<p class="lead">Represent the meaning of text as vectors, store them next to your data, and find related content by meaning instead of by keywords.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What an embedding is and what "similar" means for vectors.</li>
+  <li>How to compute cosine similarity and top-k search with NumPy.</li>
+  <li>How to call an embeddings API, and why queries and documents may be embedded differently.</li>
+  <li>How to store and query vectors in PostgreSQL with pgvector.</li>
+  <li>How approximate nearest-neighbour indexes trade accuracy for speed.</li>
+  <li>How to measure retrieval quality with recall@k before you build on it.</li>
+</ul>
+</div>
+
+<h2 id="what">What an embedding is</h2>
+<p>An <strong>embedding model</strong> maps a piece of text to a fixed-length list of floats, for example 1,024 numbers. It is trained so that texts with similar meaning land close together. "How do I reset my password?" and "Steps to recover lost login credentials" share almost no words, yet their vectors point in nearly the same direction.</p>
+<p>Closeness is usually measured with <strong>cosine similarity</strong>: the cosine of the angle between two vectors, from −1 (opposite) through 0 (unrelated) to 1 (same direction). Many embedding models return vectors normalized to length 1, so cosine similarity is just the dot product.</p>
+<p><code>llmkit.embed</code> is a tiny deterministic embedding model (256 numbers, built from words, synonyms and letter patterns). It's crude, but it behaves like the real thing on our sample docs:</p>
+<script type="text/plain" class="code" data-file="similarity.py">
+from llmkit import embed, cosine
+
+query = "I forgot my password"
+for text in ["Steps to recover lost login credentials",
+             "How to reset your password",
+             "Rolling back a deployment",
+             "My cat sleeps all day"]:
+    print(f"{cosine(embed(query), embed(text)):.2f}  {text}")
+print(len(embed(query)), "numbers per vector")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0.94  Steps to recover lost login credentials
+1.00  How to reset your password
+0.00  Rolling back a deployment
+0.00  My cat sleeps all day
+256 numbers per vector
+</script>
+<p>The first line is the interesting one: no shared words, high similarity. A keyword search would miss it.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a library arranged by topic.</strong> A keyword index is the alphabetical card catalogue: great when you know the exact title. Embeddings are a library where every book has been shelved by what it's <em>about</em>, so books on "credentials" and "passwords" sit on the same shelf even if their titles share no word. Search means walking to the shelf where your question would sit and taking the nearest books.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> a B-tree index answers "rows where <code>title = ?</code>". A full-text index answers "rows containing these words". A vector index answers "rows whose <em>meaning</em> is nearest to this". It's still an index: you build it at write time, pay for it in storage and memory, and tune it for the queries you run.</p>
+</div>
+
+<h2 id="numpy">Search with NumPy</h2>
+<p>With vectors in a matrix (one row per text), similarity to a query is one matrix-vector product, and top-k is a sort. This is exact search, and it's fast enough for tens of thousands of texts:</p>
+<script type="text/plain" class="code" data-file="vector_store.py" data-save>
+import numpy as np
+from llmkit import embed
+
+
+class VectorStore:
+    """Exact cosine search over an in-memory matrix."""
+
+    def __init__(self, embed_fn=embed):
+        self.embed_fn, self.items, self.matrix = embed_fn, [], None
+
+    def add(self, items, text_of=lambda x: x):
+        vecs = np.array([self.embed_fn(text_of(it)) for it in items], dtype=np.float32)
+        vecs /= np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-12   # normalize: dot = cosine
+        self.items += list(items)
+        self.matrix = vecs if self.matrix is None else np.vstack([self.matrix, vecs])
+
+    def search(self, query, k=3):
+        q = np.array(self.embed_fn(query), dtype=np.float32)
+        q /= np.linalg.norm(q) + 1e-12
+        scores = self.matrix @ q                       # one dot product per row
+        top = np.argsort(-scores, kind="stable")[:k]
+        return [(self.items[i], float(scores[i])) for i in top]
+</script>
+<script type="text/plain" class="code" data-file="search_docs.py">
+from llmkit import load_docs
+from vector_store import VectorStore
+
+docs = load_docs()
+store = VectorStore()
+store.add(docs, text_of=lambda d: d.text)
+print(len(docs), "docs indexed, matrix shape", store.matrix.shape)
+for q in ["the primary database is down, what do I do?", "how do I get into staging from home?"]:
+    print(q)
+    for doc, score in store.search(q, k=2):
+        print(f"   {score:.2f}  {doc.title}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+11 docs indexed, matrix shape (11, 256)
+the primary database is down, what do I do?
+   0.38  Runbook: database failover
+   0.31  Policy: incident severity
+how do I get into staging from home?
+   0.26  Guide: deploying a service
+   0.22  Guide: setting up your laptop
+</script>
+<p>Real embedding models learn far richer associations than our toy (which only knows a hand-written list of synonyms); the mechanics are identical.</p>
+
+<h2 id="api">Getting embeddings from an API</h2>
+<p>Claude doesn't generate embeddings: <strong>Anthropic doesn't offer an embedding model</strong>, and its docs point to Voyage AI while recommending that you evaluate several providers. Most providers have the same shape of API: a list of texts in, a list of vectors out. Here is the OpenAI-style endpoint, which many providers and local servers implement (this one runs against the book's mock server):</p>
+<script type="text/plain" class="code" data-file="embed_api.py">
+from openai import OpenAI
+from llmkit import cosine
+
+client = OpenAI()
+texts = ["Steps for changing Postgres credentials in production",
+         "How to request a new Kafka topic"]
+res = client.embeddings.create(model="text-embedding-3-small", input=texts)
+vectors = [d.embedding for d in sorted(res.data, key=lambda d: d.index)]   # results carry their index
+query = client.embeddings.create(model="text-embedding-3-small",
+                                 input="How do I rotate the database password?").data[0].embedding
+print([round(cosine(query, v), 2) for v in vectors], len(vectors[0]), "dimensions")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: the toy model's vectors)">
+[0.5, 0.0] 256 dimensions
+</script>
+<p>Voyage's Python client looks like this (not run here). Its models are <strong>asymmetric</strong>: tell them whether a text is a <code>document</code> (something to be found) or a <code>query</code> (something searching), and use the right side each time:</p>
+<script type="text/plain" class="code" data-file="voyage_example.py" data-norun>
+import voyageai
+
+vo = voyageai.Client()                                   # reads VOYAGE_API_KEY
+doc_vecs = vo.embed(docs, model="voyage-4", input_type="document").embeddings
+query_vec = vo.embed(["How do I rotate the database password?"],
+                     model="voyage-4", input_type="query").embeddings[0]
+</script>
+<div class="note">
+<p><strong>Model names and dimensions change.</strong> Check the <a href="https://platform.claude.com/docs/en/build-with-claude/embeddings">Embeddings page in the Claude docs</a> and your provider's docs for current models, dimensions and token limits. Whatever you choose, store which model made each vector.</p>
+</div>
+
+<h2 id="pgvector">Storing vectors in Postgres with pgvector</h2>
+<p>You don't need a new database to start. The pgvector extension adds a <code>vector</code> type, distance operators and approximate indexes to PostgreSQL:</p>
+<script type="text/plain" class="code" data-file="schema.sql" data-norun>
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE doc_chunk (
+    id          bigserial PRIMARY KEY,
+    doc_path    text         NOT NULL,          -- docs/runbook-db-failover.md
+    doc_title   text         NOT NULL,
+    heading     text,                           -- section heading, for citations
+    content     text         NOT NULL,
+    acl_group   text         NOT NULL,          -- who may see this chunk (Chapter 12)
+    embedding   vector(1024) NOT NULL,          -- must match the model's dimension
+    embed_model text         NOT NULL,          -- you will re-embed one day
+    updated_at  timestamptz  NOT NULL DEFAULT now()
+);
+
+-- Approximate nearest-neighbour index for cosine distance
+CREATE INDEX doc_chunk_embedding_hnsw ON doc_chunk USING hnsw (embedding vector_cosine_ops);
+</script>
+<div class="table-wrap"><table>
+<tr><th>Operator</th><th>Distance</th><th>Index operator class</th></tr>
+<tr><td><code>&lt;=&gt;</code></td><td>cosine distance (1 − cosine similarity)</td><td><code>vector_cosine_ops</code></td></tr>
+<tr><td><code>&lt;-&gt;</code></td><td>Euclidean (L2) distance</td><td><code>vector_l2_ops</code></td></tr>
+<tr><td><code>&lt;#&gt;</code></td><td>negative inner product</td><td><code>vector_ip_ops</code></td></tr>
+</table></div>
+<p>Querying from Python with psycopg (not run here: it needs a database). Note that access control is in the <code>WHERE</code> clause, so text the user may not see never even reaches your code:</p>
+<script type="text/plain" class="code" data-file="pg_search.py" data-norun>
+import psycopg
+
+def literal(v):                                # pgvector's text format: [0.1,0.2,...]
+    return "[" + ",".join(f"{x:.7f}" for x in v) + "]"
+
+def nearest(conn: psycopg.Connection, query_vec, groups: list[str], k: int = 8):
+    q = literal(query_vec)
+    return conn.execute(
+        """SELECT doc_title, heading, content, embedding <=> %s::vector AS distance
+           FROM doc_chunk
+           WHERE acl_group = ANY(%s)                     -- filter BEFORE ranking: never leak
+           ORDER BY embedding <=> %s::vector
+           LIMIT %s""",
+        (q, groups, q, k),
+    ).fetchall()
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> the same query with JDBC; <a href="https://github.com/pgvector/pgvector-java">pgvector-java</a> adds a <code>PGvector</code> type for JDBC, Hibernate and R2DBC so you don't need the text literal. Spring AI ships a <code>PgVectorStore</code> that creates the table and index for you.</p>
+<script type="text/plain" class="code" data-file="ChunkRepository.java" data-norun>
+try (var ps = db.prepareStatement("""
+        SELECT doc_title, heading, content, embedding <=> ?::vector AS distance
+        FROM doc_chunk
+        WHERE acl_group = ANY (?)
+        ORDER BY embedding <=> ?::vector
+        LIMIT ?""")) {
+    ps.setString(1, literal(query));
+    ps.setArray(2, db.createArrayOf("text", userGroups.toArray()));
+    ps.setString(3, literal(query));
+    ps.setInt(4, k);
+    ...
+}
+</script>
+</div>
+<p>Other common choices: dedicated vector databases (Qdrant, Weaviate, Pinecone, Milvus), search engines with vector support (Elasticsearch, OpenSearch), and embedded libraries (FAISS, Chroma, LanceDB). Start with what you already operate.</p>
+
+<h2 id="ann">Exact versus approximate search</h2>
+<p>Exact search compares the query with every row: perfect results, cost proportional to the number of rows. <strong>Approximate nearest-neighbour</strong> (ANN) indexes look at only part of the data. pgvector's <strong>HNSW</strong> builds a navigable graph; another classic, <strong>IVF</strong>, groups vectors into clusters and searches only the clusters closest to the query. IVF is easy to build in a few lines, which makes the trade-off visible:</p>
+<script type="text/plain" class="code" data-file="ivf.py">
+import numpy as np
+
+rng = np.random.default_rng(7)
+centers = rng.normal(size=(20, 32))
+data = centers[rng.integers(0, 20, 5000)] + 0.6 * rng.normal(size=(5000, 32))   # 5,000 clustered vectors
+data /= np.linalg.norm(data, axis=1, keepdims=True)
+queries = data[rng.integers(0, 5000, 200)] + 0.1 * rng.normal(size=(200, 32))
+queries /= np.linalg.norm(queries, axis=1, keepdims=True)
+
+def exact_top(q, k=10):
+    return set(np.argsort(-(data @ q))[:k])
+
+# IVF: 50 clusters (a few k-means steps), each vector assigned to its nearest centroid
+centroids = data[rng.choice(5000, 50, replace=False)]
+for _ in range(5):
+    assign = np.argmax(data @ centroids.T, axis=1)
+    centroids = np.array([data[assign == c].mean(0) if (assign == c).any() else centroids[c] for c in range(50)])
+    centroids /= np.linalg.norm(centroids, axis=1, keepdims=True)
+assign = np.argmax(data @ centroids.T, axis=1)
+
+def ivf_top(q, nprobe, k=10):
+    probe = np.argsort(-(centroids @ q))[:nprobe]          # the nprobe closest clusters
+    ids = np.flatnonzero(np.isin(assign, probe))
+    return set(ids[np.argsort(-(data[ids] @ q))[:k]]), len(ids)
+
+for nprobe in (1, 3, 10):
+    recall = scanned = 0
+    for q in queries:
+        found, n = ivf_top(q, nprobe)
+        recall += len(found & exact_top(q)) / 10
+        scanned += n
+    print(f"nprobe={nprobe:2}: recall@10 = {recall / len(queries):.2f}, scanned {scanned / len(queries) / 5000:.0%} of rows")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+nprobe= 1: recall@10 = 0.70, scanned 3% of rows
+nprobe= 3: recall@10 = 0.97, scanned 6% of rows
+nprobe=10: recall@10 = 1.00, scanned 21% of rows
+</script>
+<p>Searching more clusters finds more of the true neighbours, at the cost of scanning more rows. HNSW has the same kind of dials:</p>
+<ul>
+  <li>Build time: <code>m</code> and <code>ef_construction</code> (graph quality versus build time and memory).</li>
+  <li>Query time: <code>SET hnsw.ef_search = 100;</code> (higher means better recall and slower queries).</li>
+</ul>
+<div class="pitfall">
+<p><strong>Filters plus approximate indexes.</strong> With a selective <code>WHERE</code> (a rare <code>acl_group</code>), an approximate index can return fewer than <code>k</code> rows, because it finds neighbours first and filters afterwards. pgvector 0.8 added iterative index scans (<code>SET hnsw.iterative_scan = relaxed_order;</code>) to keep searching; check its README for your version.</p>
+</div>
+
+<h2 id="recall">Measuring retrieval quality</h2>
+<p>Before you build RAG on top, measure retrieval on its own. Write a small labelled set: realistic questions, each with the document (or chunk) that answers it. Then compute <strong>recall@k</strong>: the share of questions whose right document appears in the top k.</p>
+<script type="text/plain" class="code" data-file="retrieval_eval.py" data-save>
+CASES = [
+    ("How do I promote the standby Postgres?", "runbook-db-failover"),
+    ("checkout is throwing 502s", "runbook-payments-outage"),
+    ("Why did we choose PostgreSQL for orders?", "adr-007-postgres"),
+    ("Are Kafka consumers allowed to see duplicates?", "adr-012-kafka"),
+    ("what should I install on my new laptop", "guide-dev-setup"),
+    ("internal sites don't load over the tunnel", "guide-vpn"),
+    ("how fast must I acknowledge a page", "policy-oncall"),
+    ("what counts as SEV2", "policy-incident-severity"),
+    ("someone pasted an API key in Slack", "policy-secrets"),
+    ("can I deploy on Friday afternoon?", "guide-deploy"),
+    ("what does a 409 from the orders API mean", "api-orders"),
+    ("how long does a rollback take", "guide-deploy"),
+]
+
+
+def recall_at_k(search, k, cases=CASES):
+    """search(question, k) -> list of doc ids."""
+    hits = [expected in search(q, k) for q, expected in cases]
+    return sum(hits) / len(cases), [q for (q, _), h in zip(cases, hits) if not h]
+</script>
+<script type="text/plain" class="code" data-file="measure.py">
+from llmkit import load_docs
+from vector_store import VectorStore
+from retrieval_eval import recall_at_k
+
+store = VectorStore()
+store.add(load_docs(), text_of=lambda d: d.text)
+search = lambda q, k: [d.id for d, _ in store.search(q, k)]
+
+for k in (1, 3, 5):
+    r, missed = recall_at_k(search, k)
+    print(f"recall@{k} = {r:.2f}")
+print("missed at k=1:", missed)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+recall@1 = 0.83
+recall@3 = 1.00
+recall@5 = 1.00
+missed at k=1: []
+</script>
+<p>This number is your baseline. <a href="07-rag.html">Chapter 7</a> tries to beat it with chunking, hybrid search and reranking, and you'll know whether each change helped because you measured first.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> recall@k is the hit rate of your knowledge layer, like a cache hit rate. You would never tune a cache without measuring its hit rate. If the right chunk isn't in the top k, no prompt and no model can produce the right answer.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Near-duplicate detection</h3>
+<p>Embeddings also find duplicates: two tickets describing the same problem in different words.</p>
+<script type="text/plain" class="code" data-file="dupes.py">
+from itertools import combinations
+from llmkit import embed, cosine
+
+tickets = {
+    "T1": "Checkout payment fails with card error",
+    "T2": "Card payments failing at checkout",
+    "T3": "VPN tunnel drops every hour",
+    "T4": "Remote VPN disconnects regularly",
+    "T5": "Typo on the login page",
+}
+for (a, ta), (b, tb) in combinations(tickets.items(), 2):
+    s = cosine(embed(ta), embed(tb))
+    if s > 0.5:
+        print(f"{a} ~ {b}  {s:.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+T1 ~ T2  0.96
+T3 ~ T4  0.59
+</script>
+
+<h3>Why you must not mix models</h3>
+<p>Vectors from two different models live in different spaces; comparing them is meaningless, even when they have the same size. <code>embed</code> takes a <code>model</code> name to simulate a second model:</p>
+<script type="text/plain" class="code" data-file="mixing.py">
+from llmkit import embed, cosine
+
+a = embed("reset my password", model="toy-1")
+b = embed("reset my password", model="toy-2")          # same text, same size, another model
+print(len(a), len(b), round(cosine(a, b), 2))
+print(round(cosine(embed("forgot my login", model="toy-1"), a), 2))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+256 256 0.0
+1.0
+</script>
+<p>Same text, near-zero similarity across models, while a related text <em>within</em> one model scores high. Nothing raises an error: the search just returns nonsense. Store <code>embed_model</code> with every vector and re-embed everything when you switch.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Mixing embedding models</strong>: querying vectors made by model A with a query embedded by model B.</p></div>
+<div class="good"><p><strong>One model per index, recorded</strong> per row; re-embed everything when you switch.</p></div>
+<div class="bad"><p><strong>Filtering after retrieval</strong>: fetching the top 8 for everyone, then removing chunks the user may not see.</p></div>
+<div class="good"><p><strong>Filter in the query</strong>, so forbidden text never reaches the prompt.</p></div>
+<div class="bad"><p><strong>Building RAG without a retrieval baseline</strong>, then blaming the prompt.</p></div>
+<div class="good"><p><strong>Measure recall@k first</strong> on labelled questions.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>An embedding is a vector of meaning; similar texts have high cosine similarity.</li>
+  <li>Exact search is a matrix-vector product and a sort; fine up to tens of thousands of rows.</li>
+  <li>Anthropic doesn't ship an embedding model; use a provider such as Voyage AI and evaluate several. Use <code>document</code>/<code>query</code> input types when the model supports them.</li>
+  <li>pgvector gives you vectors, distance operators and HNSW indexes in the Postgres you already run.</li>
+  <li>Approximate indexes trade recall for speed; filters need care.</li>
+  <li>Measure recall@k on labelled questions before building RAG on top.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Two texts share no words but mean the same thing. What do you expect from (a) a keyword search, (b) cosine similarity of good embeddings?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) No match. (b) A high similarity: the vectors point in nearly the same direction. That's the reason to use embeddings.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">calculate</span></h3>
+<p>Compute by hand the cosine similarity of <code>[1, 0]</code> and <code>[1, 1]</code>, then check it with NumPy.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import numpy as np
+
+a, b = np.array([1, 0]), np.array([1, 1])
+print(round(float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b))), 4))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0.7071
+</script>
+<p>Dot product 1, lengths 1 and √2, so 1/√2 ≈ 0.707: a 45° angle.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why does the pgvector query filter by <code>acl_group</code> in the <code>WHERE</code> clause instead of removing forbidden rows from the results in Python?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Filtering afterwards means forbidden text has already left the database; one bug and it reaches the prompt (and the user). It also leaves you with fewer than k results. Filtering in the query is both safer and more correct.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Print the 4×4 similarity matrix for: "rotate the db password", "change postgres credentials", "create a kafka topic", "lunch menu".</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import numpy as np
+from llmkit import embed
+
+texts = ["rotate the db password", "change postgres credentials", "create a kafka topic", "lunch menu"]
+m = np.array([embed(t) for t in texts])
+print(np.round(m @ m.T, 2))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[[1.   0.65 0.01 0.  ]
+ [0.65 1.   0.   0.  ]
+ [0.01 0.   1.   0.  ]
+ [0.   0.   0.   1.  ]]
+</script>
+<p>The vectors are normalized, so <code>m @ m.T</code> is the cosine matrix. Compare rankings, not raw scores: every model has its own scale.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a <code>min_score</code> parameter to <code>VectorStore.search</code> so weak matches are dropped. What should DocsPilot do when nothing passes?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import load_docs
+from vector_store import VectorStore
+
+class ThresholdStore(VectorStore):
+    def search(self, query, k=3, min_score=0.0):
+        return [(it, s) for it, s in super().search(query, k) if s >= min_score]
+
+store = ThresholdStore()
+store.add(load_docs(), text_of=lambda d: d.text)
+print(len(store.search("how do I fail over the database", min_score=0.3)))
+print(store.search("best pizza in town", min_score=0.3))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1
+[]
+</script>
+<p>When nothing passes, don't call the model with irrelevant context: answer "I couldn't find this in the docs" directly. That's cheaper and stops ungrounded answers. Tune the threshold on your labelled set.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add three more cases to <code>CASES</code>, including one vague and one misspelled question. Does recall@3 change?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import load_docs
+from vector_store import VectorStore
+from retrieval_eval import recall_at_k, CASES
+
+more = CASES + [("db is borked", "runbook-db-failover"),
+                ("how do i rollbak paymnts", "guide-deploy"),
+                ("who gets paged at night", "policy-oncall")]
+store = VectorStore()
+store.add(load_docs(), text_of=lambda d: d.text)
+r, missed = recall_at_k(lambda q, k: [d.id for d, _ in store.search(q, k)], 3, more)
+print(f"{r:.2f}", missed)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0.87 ['db is borked', 'how do i rollbak paymnts']
+</script>
+<p>Realistic questions are messy. Misspellings hurt word-based models; real embedding models handle them better, and hybrid search (<a href="07-rag.html">Chapter 7</a>) helps too.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>In the IVF example, what is the cost of <code>nprobe=10</code> compared with exact search, and what did you get for it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It scanned about a fifth of the rows (plus the 50 centroids) instead of all of them, and still found all 10 true neighbours for these queries. With <code>nprobe=1</code> it scanned 3% but missed almost a third of the neighbours. Approximate search is a dial between speed and recall; measure where your use case needs it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>ingest_batches(texts, embed_batch, size=64)</code> that calls an embedding API in batches and keeps the results in input order, even if the API returns them shuffled (each result carries an <code>index</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import random
+
+def ingest_batches(texts, embed_batch, size=64):
+    out = []
+    for start in range(0, len(texts), size):
+        batch = texts[start:start + size]
+        results = embed_batch(batch)                       # [{"index": i, "embedding": [...]}, ...]
+        out += [r["embedding"] for r in sorted(results, key=lambda r: r["index"])]
+    return out
+
+def shuffled_api(batch):
+    res = [{"index": i, "embedding": [len(t)]} for i, t in enumerate(batch)]
+    random.shuffle(res)
+    return res
+
+vecs = ingest_batches(["a", "bb", "ccc", "dddd", "eeeee"], shuffled_api, size=2)
+print(vecs)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[[1], [2], [3], [4], [5]]
+</script>
+<p>Batching cuts HTTP overhead; sorting by <code>index</code> protects you from a silent, disastrous mix-up of texts and vectors.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write a "related docs" function: for a given doc id, average the vectors of its sections (split on <code>## </code>) and return the two nearest other documents.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import numpy as np
+from llmkit import load_docs, embed
+
+docs = load_docs()
+def doc_vector(d):
+    sections = [s for s in d.text.split("\n## ") if s.strip()]
+    v = np.mean([embed(s) for s in sections], axis=0)
+    return v / np.linalg.norm(v)
+
+vecs = {d.id: doc_vector(d) for d in docs}
+def related(doc_id, k=2):
+    scores = {o: float(vecs[doc_id] @ v) for o, v in vecs.items() if o != doc_id}
+    return sorted(scores, key=scores.get, reverse=True)[:k]
+
+print(related("runbook-db-failover"))
+print(related("guide-vpn"))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['adr-012-kafka', 'adr-007-postgres']
+['guide-dev-setup', 'guide-deploy']
+</script>
+<p>Show the results to a teammate and collect "this is wrong" examples: they become labelled cases for your eval set.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>You must switch from embedding model A (1,024 dimensions) to model B (1,536) on a table with 2 million chunks, without downtime. Plan the migration.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Add a new column <code>embedding_b vector(1536)</code> (or a second table) and its index; keep <code>embed_model</code> per row.</li>
+  <li>Backfill in batches with model B, idempotently; new writes embed with both models during the migration.</li>
+  <li>Run your recall@k eval against both columns; switch only if B is better (or equal and cheaper).</li>
+  <li>Flip the query path behind a flag, watch metrics, keep A for rollback.</li>
+  <li>Drop column A and its index after a safe period.</li>
+</ol>
+<p>The same playbook as any column migration, plus an eval gate. Queries must always use the model that made the vectors they search.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/embeddings">Embeddings</a> (Claude docs: providers and guidance).</li>
+  <li><a href="https://docs.voyageai.com/">Voyage AI documentation</a>.</li>
+  <li><a href="https://github.com/pgvector/pgvector">pgvector README</a>: types, operators, HNSW and IVFFlat, iterative scans.</li>
+  <li><a href="https://numpy.org/doc/stable/reference/generated/numpy.argsort.html">NumPy argsort</a> and <a href="https://numpy.org/doc/stable/reference/routines.linalg.html">linear algebra</a>.</li>
+  <li><a href="https://platform.openai.com/docs/api-reference/embeddings">OpenAI embeddings API reference</a>, for the common request shape.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

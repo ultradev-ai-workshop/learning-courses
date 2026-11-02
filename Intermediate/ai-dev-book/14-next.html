@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧭&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Where to Go Next · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · At Work &amp; Beyond</div>
+<h1>Where to Go Next</h1>
+<p class="lead">Know when fine-tuning or a local model is the right tool, learn enough machine learning to read the literature, and build a habit for keeping up without chasing every release.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>When fine-tuning helps, when it doesn't, and what to try first.</li>
+  <li>When local and open-weight models make sense, and how to keep a provider-neutral seam.</li>
+  <li>The machine-learning basics worth knowing: attention, training versus inference, quantization, metrics, overfitting.</li>
+  <li>How to treat model upgrades and deprecations like dependency upgrades.</li>
+  <li>A sustainable system for staying current, and a 90-day plan.</li>
+</ul>
+</div>
+
+<h2 id="finetune">Fine-tuning</h2>
+<p><strong>Fine-tuning</strong> continues training a model on your own examples so it adopts a format, style or narrow skill more reliably. It's the most over-proposed technique in enterprise AI. Try these first, in order, measuring each with your evals:</p>
+<ol>
+  <li>Better prompts with diverse examples (<a href="02-prompts.html">Chapter 2</a>).</li>
+  <li>Structured outputs for format problems (<a href="04-structured.html">Chapter 4</a>).</li>
+  <li>Retrieval for knowledge problems (<a href="07-rag.html">Chapter 7</a>). Fine-tuning is a poor way to add facts: they go stale, can't be cited and can't be access-controlled.</li>
+  <li>A larger model, or routing hard cases to one (<a href="08-agents.html">Chapter 8</a>).</li>
+</ol>
+<p>Consider fine-tuning only with thousands of high-quality examples, a narrow and stable task, and a measured need (latency or cost at very high volume, or a style that prompting can't hold). Availability for Claude models depends on the model and platform; check the current docs and your cloud provider.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a handbook versus retraining the employee.</strong> RAG hands a capable employee the current handbook for every question: when a policy changes, you edit one page. Fine-tuning sends them on a long course: they come back with habits, not a library, and when the policy changes next month the course is out of date.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> prompting and RAG are configuration: cheap to change, easy to roll back, and you get upstream improvements for free. Fine-tuning is a fork of a dependency: you own it, it drifts from upstream, and every base-model update means redoing the work.</p>
+</div>
+
+<h2 id="local">Local and open-weight models</h2>
+<p>Open-weight models can run on your own hardware with servers such as vLLM, llama.cpp or Ollama, many of which expose an OpenAI-compatible HTTP API.</p>
+<div class="table-wrap"><table>
+<tr><th>Reason to go local</th><th>What it costs you</th></tr>
+<tr><td>data can't leave your network</td><td>GPU capacity, ops on-call, model updates</td></tr>
+<tr><td>offline or edge deployment</td><td>usually lower quality than frontier models on complex tasks</td></tr>
+<tr><td>very high volume of simple tasks</td><td>engineering time to serve, scale and monitor</td></tr>
+<tr><td>experimentation and research</td><td>your evals must now cover a model you maintain</td></tr>
+</table></div>
+<p>A sensible architecture keeps a <strong>provider-neutral seam</strong> in your code, so you can route specific tasks (classification, PII detection, embeddings) to a local model while the hard ones go to a frontier model. In Python, a <code>Protocol</code> describes the seam, and small adapters implement it:</p>
+<script type="text/plain" class="code" data-file="seam.py">
+from typing import Protocol
+import anthropic
+from openai import OpenAI
+
+class TextModel(Protocol):
+    name: str
+    def complete(self, system: str, user: str, max_tokens: int) -> str: ...
+
+class ClaudeModel:
+    def __init__(self, model):
+        self.name, self.client = model, anthropic.Anthropic()
+    def complete(self, system, user, max_tokens):
+        msg = self.client.messages.create(model=self.name, max_tokens=max_tokens, system=system,
+                                          messages=[{"role": "user", "content": user}])
+        return "".join(b.text for b in msg.content if b.type == "text")
+
+class OpenAICompatibleModel:                      # vLLM, Ollama, llama.cpp server, other providers
+    def __init__(self, model, base_url=None):
+        self.name, self.client = model, OpenAI(base_url=base_url)
+    def complete(self, system, user, max_tokens):
+        r = self.client.chat.completions.create(model=self.name, max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+        return r.choices[0].message.content
+
+ROUTES: dict[str, TextModel] = {
+    "answer": ClaudeModel("claude-sonnet-5-5"),
+    "pii_check": OpenAICompatibleModel("llama-local-8b"),
+}
+for task, model in ROUTES.items():
+    print(f"{task:9} {model.name:18} {model.complete('Be brief.', 'ping', 50)}")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server answers for both)">
+answer    claude-sonnet-5-5  (mock reply) You said: ping
+pii_check llama-local-8b     (mock reply) You said: ping
+</script>
+<p>Each route keeps its own eval results. Moving a task to another model is then a config change plus an eval run, not a rewrite.</p>
+<div class="note">
+<p><strong>Quantization in one sentence.</strong> Quantization stores weights at lower precision (for example 8 or 4 bits instead of 16) so models fit on smaller GPUs, at some quality cost; always evaluate the quantized model you'll actually serve.</p>
+</div>
+<script type="text/plain" class="code" data-file="quantize.py">
+import numpy as np
+
+rng = np.random.default_rng(0)
+weights = rng.normal(0, 0.02, size=10_000).astype(np.float32)   # a slice of a weight matrix
+for bits in (8, 4):
+    levels = 2 ** (bits - 1) - 1
+    scale = np.abs(weights).max() / levels
+    q = np.round(weights / scale).astype(np.int8)                 # what is stored
+    restored = q.astype(np.float32) * scale                       # what is used at inference
+    err = np.abs(restored - weights).mean() / np.abs(weights).mean()
+    print(f"{bits}-bit: {32 // bits}x smaller than float32, mean relative error {err:.1%}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+8-bit: 4x smaller than float32, mean relative error 1.0%
+4-bit: 8x smaller than float32, mean relative error 17.5%
+</script>
+
+<h2 id="ml">Machine-learning basics worth knowing</h2>
+<p>You don't need to train models to build excellent LLM systems, but these ideas make documentation and papers readable:</p>
+<ul>
+  <li><strong>Training versus inference.</strong> Training fits the parameters to data (expensive, rare). Inference runs the fitted model (what you pay for per token).</li>
+  <li><strong>Transformers and attention.</strong> The architecture behind LLMs. Attention lets each token weigh every other token in the context, which is why long contexts cost more.</li>
+  <li><strong>Pretraining, instruction tuning, RLHF.</strong> Next-token prediction on a huge corpus, then training to follow instructions, then reinforcement learning from human (and AI) feedback towards helpful and harmless behaviour.</li>
+  <li><strong>Embeddings</strong> (<a href="06-embeddings.html">Chapter 6</a>) as learned representations: the same idea behind recommendation systems.</li>
+  <li><strong>Generalization and overfitting.</strong> A prompt tuned to your eval set may not hold on new data; keep a held-out set you never tune against.</li>
+  <li><strong>Metrics.</strong> Precision, recall, F1, calibration and confusion matrices: the language of classification evals.</li>
+</ul>
+<h3>Attention in ten lines</h3>
+<p>Each token makes a <em>query</em>; every token offers a <em>key</em> and a <em>value</em>. The query–key dot products, through a softmax, decide how much of each value flows into the token's new representation:</p>
+<script type="text/plain" class="code" data-file="attention.py">
+import numpy as np
+
+tokens = ["the", "payments", "service", "is", "down"]
+rng = np.random.default_rng(1)
+x = rng.normal(size=(5, 8))                         # one 8-number vector per token
+Wq, Wk, Wv = (rng.normal(size=(8, 8)) for _ in range(3))
+Q, K, V = x @ Wq, x @ Wk, x @ Wv
+scores = Q @ K.T / np.sqrt(8)                        # 5 x 5: every token against every token
+weights = np.exp(scores) / np.exp(scores).sum(axis=1, keepdims=True)
+out = weights @ V
+print("attention of 'down':", {t: round(float(w), 2) for t, w in zip(tokens, weights[4])})
+print("scores matrix:", scores.shape, "-> grows with the square of the context length")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attention of 'down': {'the': 0.06, 'payments': 0.51, 'service': 0.25, 'is': 0.18, 'down': 0.0}
+scores matrix: (5, 5) -> grows with the square of the context length
+</script>
+<p>Real models learn <code>Wq</code>, <code>Wk</code> and <code>Wv</code> during training and stack dozens of such layers with many "heads" each. The square-shaped score matrix is the intuition behind "long contexts cost more".</p>
+<h3>Overfitting your prompt to the eval set</h3>
+<p>If you keep tweaking a prompt until the eval set passes, you may be fitting those exact cases. A held-out split you never look at while tuning tells the truth:</p>
+<script type="text/plain" class="code" data-file="holdout.py">
+import random
+
+cases = [f"case-{i:03}" for i in range(120)]
+random.Random(42).shuffle(cases)
+tune, holdout = cases[:90], cases[90:]
+print(len(tune), "cases to iterate on,", len(holdout), "held out")
+results = {"v3 on tune": 0.94, "v3 on holdout": 0.81}           # what a typical over-tuned prompt looks like
+gap = results["v3 on tune"] - results["v3 on holdout"]
+print(f"gap {gap:.2f} ->", "overfitting: generalize the prompt, add varied examples" if gap > 0.05 else "ok")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+90 cases to iterate on, 30 held out
+gap 0.13 -> overfitting: generalize the prompt, add varied examples
+</script>
+
+<h2 id="upgrades">Model upgrades and deprecations</h2>
+<p>Model IDs retire. Keep them in configuration, one entry per <em>role</em>, and schedule upgrades like dependency upgrades: read the release notes and migration guide, run your evals on a branch, compare cost, roll out as a canary.</p>
+<script type="text/plain" class="code" data-file="models_config.py">
+import json
+
+CONFIG = json.loads("""{
+  "answer":  {"model": "claude-sonnet-5-5", "eval_pass_rate": 0.91},
+  "router":  {"model": "claude-haiku-5-5",  "eval_pass_rate": 0.97},
+  "judge":   {"model": "claude-opus-5-5",   "eval_pass_rate": null},
+  "legacy":  {"model": "claude-sonnet-4-6", "eval_pass_rate": 0.88}
+}""")
+CURRENT = {"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}
+
+for role, c in CONFIG.items():
+    note = "" if c["model"] in CURRENT else "  <- plan an upgrade: older generation"
+    print(f"{role:7} {c['model']:18}{note}".rstrip())
+</script>
+<script type="text/plain" class="code" data-lang="text">
+answer  claude-sonnet-5-5
+router  claude-haiku-5-5
+judge   claude-opus-5-5
+legacy  claude-sonnet-4-6   <- plan an upgrade: older generation
+</script>
+<div class="tip">
+<p><strong>Watch for breaking changes, not just new names.</strong> Moving between model generations can change request rules, as you've seen in this book: sampling parameters and forced tool choice are rejected on the newest models, prefill is gone, and thinking is configured with <code>effort</code>. Read the migration guide for each upgrade and let your evals decide.</p>
+</div>
+
+<h2 id="current">Staying current</h2>
+<p>The field changes monthly. A system beats a firehose:</p>
+<ol>
+  <li><strong>Primary sources, on a schedule</strong>: the Claude <a href="https://platform.claude.com/docs/en/release-notes/overview">release notes</a> and <a href="https://platform.claude.com/docs/en/about-claude/model-deprecations">model deprecations</a>, the MCP specification changelog, your SDKs' changelogs, the Anthropic Engineering blog. Thirty minutes a week.</li>
+  <li><strong>Your eval suite is your benchmark.</strong> When a new model ships, run your evals before reading anyone's opinion. Public benchmarks measure someone else's task.</li>
+  <li><strong>Track deprecations as tech debt</strong>, with owners and dates.</li>
+  <li><strong>Re-read the docs for the features you use</strong> when your SDK version changes.</li>
+</ol>
+<div class="java">
+<p>☕ <strong>Java:</strong> treat a model upgrade like a major-version dependency upgrade: release notes and migration guide first, a branch, the full test suite (your evals), a canary, and a rollback plan. Nobody upgrades Spring Boot by reading a tweet.</p>
+</div>
+
+<h3>A 90-day plan</h3>
+<div class="table-wrap"><table>
+<tr><th>Days</th><th>Goal</th><th>Deliverable</th></tr>
+<tr><td>1–30</td><td>ship the DocsPilot project locally, with evals</td><td>DocsPilot passing its acceptance criteria (<a href="15-project.html">Chapter 15</a>)</td></tr>
+<tr><td>31–60</td><td>one real use case at work, in shadow mode</td><td>a proposal (<a href="13-work.html">Chapter 13</a>), a shadow report, an eval set from real data</td></tr>
+<tr><td>61–90</td><td>production with observability</td><td>dashboards, budgets, a threat model, a runbook for the AI feature itself</td></tr>
+</table></div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Comparing two models on your own eval</h3>
+<p>The decision rule is yours: quality first, then cost and latency, all from your own measurements.</p>
+<script type="text/plain" class="code" data-file="compare_models.py">
+from llmkit import cost
+
+runs = {   # results of the same eval set, same prompts
+    "claude-haiku-5-5":  {"pass": 0.86, "p95_s": 1.9, "in": 3_100, "out": 250},
+    "claude-sonnet-5-5": {"pass": 0.93, "p95_s": 4.2, "in": 3_100, "out": 250},
+}
+need = 0.90
+for model, r in runs.items():
+    per_1k = cost(model, r["in"], r["out"]) * 1000
+    verdict = "meets the bar" if r["pass"] >= need else "below the bar"
+    print(f"{model:18} pass {r['pass']:.0%}  p95 {r['p95_s']}s  ${per_1k:.2f}/1k requests  {verdict}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+claude-haiku-5-5   pass 86%  p95 1.9s  $0.43/1k requests  below the bar
+claude-sonnet-5-5  pass 93%  p95 4.2s  $8.70/1k requests  meets the bar
+</script>
+<p>Haiku is 20× cheaper here but below the 90% bar, so Sonnet wins for this task; perhaps Haiku plus routing of hard cases (<a href="08-agents.html">Chapter 8</a>) gets both. Measure that next.</p>
+
+<h3>Calibration: does "90% confident" mean 90%?</h3>
+<script type="text/plain" class="code" data-file="calibration.py">
+preds = [(0.95, True)] * 19 + [(0.95, False)] * 1 + [(0.6, True)] * 6 + [(0.6, False)] * 4
+for level in (0.95, 0.6):
+    rows = [ok for c, ok in preds if c == level]
+    print(f"said {level:.0%}: right {sum(rows) / len(rows):.0%} of {len(rows)}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+said 95%: right 95% of 20
+said 60%: right 60% of 10
+</script>
+<p>Well calibrated: the stated confidence matches the observed accuracy. If "high confidence" incident notes are right only 60% of the time, people should stop trusting the label, and you should fix it.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Fine-tuning to add knowledge</strong>: training on the wiki so the model "knows" the docs.</p></div>
+<div class="good"><p><strong>Retrieval for knowledge</strong>, with citations and ACLs; fine-tune only for behaviour, if at all.</p></div>
+<div class="bad"><p><strong>Benchmark-driven model choice</strong>: switching because of a leaderboard.</p></div>
+<div class="good"><p><strong>Eval-driven model choice</strong>: switching when your own evals and cost data say so.</p></div>
+<div class="bad"><p><strong>Model IDs hard-coded</strong> in a dozen classes.</p></div>
+<div class="good"><p><strong>One config entry per role</strong>, with its eval result next to it.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Exhaust prompting, structured outputs, retrieval and routing before fine-tuning; never fine-tune to add facts.</li>
+  <li>Local models trade quality and ops effort for control; keep a provider-neutral seam and per-route evals.</li>
+  <li>Learn the ML vocabulary (attention, quantization, overfitting, precision/recall, calibration) to read primary sources.</li>
+  <li>Keep model IDs in config by role; treat upgrades like major dependency upgrades.</li>
+  <li>Stay current with a schedule, primary sources and your own evals.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>DocsPilot gives outdated answers about the deploy process. Fine-tune or fix retrieval?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Fix retrieval: re-ingest the changed docs (and automate it). Knowledge problems are retrieval problems; fine-tuned facts go stale and can't be cited.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>When does a local open-weight model most clearly make sense?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>When data truly can't leave your network, or for very high-volume simple tasks where an evaluated small model is good enough and you're ready to operate it. Decide per task with evals.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>A new model is released. What do you do first?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Read its release notes and migration guide for breaking changes, then run your own eval suite against it on a branch. Your evals measure your task; public benchmarks measure someone else's.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why do long contexts cost more compute, according to the attention example?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Every token is compared with every other token: the score matrix has n × n entries, so doubling the context roughly quadruples that part of the work. (Real systems use many optimizations, but the intuition holds.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a third adapter for the seam, <code>FakeModel</code>, for unit tests: it returns canned answers per task and records the prompts.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class FakeModel:
+    def __init__(self, name, answers):
+        self.name, self.answers, self.prompts = name, list(answers), []
+    def complete(self, system, user, max_tokens):
+        self.prompts.append((system, user))
+        return self.answers.pop(0)
+
+m = FakeModel("fake", ["no PII found"])
+print(m.complete("Find PII.", "Ticket text", 50), len(m.prompts))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no PII found 1
+</script>
+<p>Because the seam is a <code>Protocol</code>, the fake needs no inheritance: anything with <code>name</code> and <code>complete</code> fits.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">experiment</span></h3>
+<p>Run the quantization example with 2 bits. What happens to the error, and what would that mean for a model?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import numpy as np
+
+w = np.random.default_rng(0).normal(0, 0.02, size=10_000).astype(np.float32)
+scale = np.abs(w).max() / 1                      # 2 bits: levels -1, 0, 1
+restored = np.round(w / scale) * scale
+print(f"{np.abs(restored - w).mean() / np.abs(w).mean():.0%} mean relative error")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+95% mean relative error
+</script>
+<p>Most small weights round to zero, so the error explodes. Real low-bit methods use smarter scaling per group of weights, but the lesson holds: lower precision costs quality, and only an eval tells you how much.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">write</span></h3>
+<p>Write the checklist for your team's "model upgrade" runbook.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Read the release notes and migration guide; list breaking request changes.</li>
+  <li>Update the model ID in config on a branch; fix code for breaking changes.</li>
+  <li>Run the full eval suite (with repeats); compare pass rate, cost and latency per role.</li>
+  <li>Re-tune effort and <code>max_tokens</code> if needed; re-check prompt caching hit rates.</li>
+  <li>Canary to 5% of traffic with dashboards; watch fallback, abstention and error rates.</li>
+  <li>Roll out, keep the old config for rollback, record the new baseline.</li>
+</ol>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">calculate</span></h3>
+<p>From the shadow data in <a href="13-work.html">Chapter 13</a>, the SEV1 classifier had precision 0.62 and recall 0.80. Which would you raise first, and how?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Recall: a missed SEV1 is far worse than a false alarm. Lower the bar for "SEV1" (or route "maybe SEV1" to a human), add missed cases as examples, and re-measure; accept somewhat lower precision as the price.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your legal team says customer tickets may not leave the company network. Redesign ticket classification.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Run an open-weight model on internal GPUs behind the same seam (OpenAI-compatible server), with the same structured-output contract (validate in code if the server can't constrain decoding). Build the eval from historical tickets, compare with the current numbers, and accept a lower bar only if the business agrees. Keep a redaction step so that, if policy later allows, only redacted text could ever go to an external provider.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">plan</span></h3>
+<p>Write your personal "radar" routine: sources, frequency, notes format, and what triggers an eval run.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Weekly, 30 minutes: Claude release notes and deprecations, SDK changelogs (Python and Java), MCP spec changes, one engineering blog post.</li>
+  <li>Notes: one Markdown file, a dated line per change, tagged "affects us" or "watch".</li>
+  <li>Eval trigger: any new model in a tier you use, any SDK major version, any deprecation of a model you use.</li>
+  <li>Monthly: a 15-minute team share of the "affects us" lines.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/release-notes/overview">Claude release notes</a> and <a href="https://platform.claude.com/docs/en/about-claude/model-deprecations">model deprecations</a>.</li>
+  <li><a href="https://platform.claude.com/docs/en/about-claude/models/overview">Models overview</a> and migration guides.</li>
+  <li><a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a> (the transformer paper).</li>
+  <li><a href="https://docs.vllm.ai/">vLLM</a> and <a href="https://github.com/ollama/ollama">Ollama</a> for serving open-weight models.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📚&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Retrieval-Augmented Generation · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Building Blocks</div>
+<h1>Retrieval-Augmented Generation</h1>
+<p class="lead">Answer questions from your own documents: chunk them well, retrieve with both keywords and meaning, assemble a tight context, and return answers with verifiable citations.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The RAG pipeline end to end, and where each kind of failure comes from.</li>
+  <li>Chunking that keeps meaning intact: heading paths and contextual retrieval.</li>
+  <li>Hybrid search: BM25 keywords plus vectors, merged with reciprocal rank fusion.</li>
+  <li>Reranking and context assembly within a token budget.</li>
+  <li>Native citations with the <code>document</code> content block.</li>
+  <li>How to evaluate retrieval and generation separately.</li>
+</ul>
+</div>
+
+<h2 id="pipeline">The pipeline</h2>
+<p>RAG has two phases:</p>
+<ul>
+  <li><strong>Indexing</strong> (offline, whenever a document changes): load → clean → chunk → optionally add context → embed → store with metadata.</li>
+  <li><strong>Answering</strong> (online, per question): optionally rewrite the query → retrieve candidates (keyword and vector) → fuse → rerank → assemble the context within a budget → generate with citations → validate.</li>
+</ul>
+<figure class="diagram">
+<svg viewBox="0 0 640 150" role="img" aria-label="RAG indexing and answering pipelines">
+  <text x="10" y="22">Indexing</text>
+  <rect class="bx" x="80" y="8" width="80" height="28" rx="6"/><text x="120" y="27" text-anchor="middle">load</text>
+  <rect class="bx" x="170" y="8" width="80" height="28" rx="6"/><text x="210" y="27" text-anchor="middle">chunk</text>
+  <rect class="bx" x="260" y="8" width="90" height="28" rx="6"/><text x="305" y="27" text-anchor="middle">+ context</text>
+  <rect class="bx" x="360" y="8" width="80" height="28" rx="6"/><text x="400" y="27" text-anchor="middle">embed</text>
+  <rect class="hi" x="450" y="8" width="90" height="28" rx="6"/><text x="495" y="27" text-anchor="middle">store</text>
+  <text x="10" y="92">Answering</text>
+  <rect class="bx" x="80" y="76" width="80" height="28" rx="6"/><text x="120" y="95" text-anchor="middle">question</text>
+  <rect class="hi" x="170" y="76" width="90" height="28" rx="6"/><text x="215" y="95" text-anchor="middle">hybrid search</text>
+  <rect class="bx" x="270" y="76" width="70" height="28" rx="6"/><text x="305" y="95" text-anchor="middle">rerank</text>
+  <rect class="bx" x="350" y="76" width="90" height="28" rx="6"/><text x="395" y="95" text-anchor="middle">assemble</text>
+  <rect class="hi" x="450" y="76" width="90" height="28" rx="6"/><text x="495" y="95" text-anchor="middle">generate</text>
+  <rect class="bx" x="550" y="76" width="80" height="28" rx="6"/><text x="590" y="95" text-anchor="middle">validate</text>
+  <text class="mut" x="320" y="135" text-anchor="middle">the answer can only be as good as what retrieval found</text>
+</svg>
+</figure>
+<div class="analogy">
+<p>🧠 <strong>Analogy: an open-book exam.</strong> Without RAG, the model takes a closed-book exam on your company: it guesses. With RAG, a librarian (retrieval) first fetches the few pages that matter, and the student (the model) answers with the book open, quoting page numbers. If the librarian brings the wrong pages, even a brilliant student fails, which is why most bad RAG answers are retrieval failures.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> you've built this before. A search service returns candidate records, a service layer selects and orders the relevant ones, and a template renders a response from them. In RAG the "template" is a model that writes prose. Answer quality is capped by what the search layer found.</p>
+</div>
+
+<h2 id="chunking">Chunking</h2>
+<p>A <strong>chunk</strong> is the unit you embed, retrieve and cite. Chunks that are too large dilute the embedding and waste context; chunks that are too small lose the meaning that makes them answerable.</p>
+<div class="table-wrap"><table>
+<tr><th>Strategy</th><th>How</th><th>Good for</th></tr>
+<tr><td>Fixed size with overlap</td><td>N tokens per chunk, M tokens of overlap</td><td>unstructured text, a quick start</td></tr>
+<tr><td>Structural</td><td>split on headings, paragraphs, code fences</td><td>Markdown, wikis, runbooks (DocsPilot)</td></tr>
+<tr><td>Semantic</td><td>split where the topic shifts (embedding distance between sentences)</td><td>long narrative documents</td></tr>
+</table></div>
+<p>Practical defaults for internal docs: split on <code>##</code> headings, cap chunks at a few hundred tokens, never split inside a code block or table, and keep the <strong>heading path</strong> ("Runbook: database failover › Steps") with every chunk.</p>
+<script type="text/plain" class="code" data-file="chunker.py" data-save>
+from dataclasses import dataclass
+from llmkit import count_tokens
+
+
+@dataclass
+class Chunk:
+    id: str             # "runbook-db-failover#2"
+    doc_id: str
+    title: str          # the document title
+    heading: str        # the section heading
+    text: str
+
+    @property
+    def path(self):
+        return f"{self.title} › {self.heading}"
+
+
+def chunk_markdown(doc, max_tokens=200):
+    """One chunk per '## ' section; long sections are split on blank lines."""
+    chunks = []
+    for section in doc.text.split("\n## ")[1:]:
+        heading, _, body = section.partition("\n")
+        parts, current = [], ""
+        for para in body.strip().split("\n\n"):
+            if current and count_tokens(current + para) > max_tokens:
+                parts.append(current.strip())
+                current = ""
+            current += para + "\n\n"
+        parts.append(current.strip())
+        for p in parts:
+            chunks.append(Chunk(f"{doc.id}#{len(chunks)}", doc.id, doc.title, heading.strip(), p))
+    return chunks
+</script>
+<script type="text/plain" class="code" data-file="chunk_demo.py">
+from llmkit import load_docs
+from chunker import chunk_markdown
+
+docs = load_docs()
+chunks = [c for d in docs for c in chunk_markdown(d)]
+print(len(docs), "docs ->", len(chunks), "chunks")
+c = next(c for c in chunks if c.doc_id == "runbook-db-failover" and c.heading == "Steps")
+print(c.id, "|", c.path)
+print(c.text.splitlines()[1])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+11 docs -> 32 chunks
+runbook-db-failover#1 | Runbook: database failover › Steps
+2. Promote the standby with `pgctl promote orders-replica-1`. Promotion takes about 40 seconds.
+</script>
+
+<h3>Contextual retrieval</h3>
+<p>A chunk like "Run step 3 again with <code>--force</code>" is useless on its own: which runbook, which step? Anthropic's <strong>contextual retrieval</strong> asks a cheap model to write one or two sentences placing each chunk within its document, and prepends them to the chunk before embedding and keyword indexing. The prompt, per chunk:</p>
+<script type="text/plain" class="code" data-lang="text" data-nocompare data-title="contextualize prompt">
+<document>
+{{WHOLE_DOCUMENT}}
+</document>
+Here is a chunk from that document:
+<chunk>
+{{CHUNK}}
+</chunk>
+Write one or two sentences that situate this chunk within the overall document,
+to improve search retrieval of the chunk. Answer with only the sentences.
+</script>
+<p>Because the whole document is repeated for each of its chunks, put it in a cached prefix (<a href="11-production.html">Chapter 11</a>) and the cost drops sharply. A free first step is to prepend the heading path, which already tells the index which document and section a chunk belongs to. You'll measure both below.</p>
+
+<h2 id="hybrid">Hybrid search</h2>
+<p>Vectors are great at meaning and bad at exact tokens: error codes, ticket keys, command names, version numbers. Keyword search is the opposite. Use both. <strong>BM25</strong> is the standard keyword ranking function (it's what Elasticsearch and OpenSearch use); the <code>rank_bm25</code> package implements it in a few lines:</p>
+<script type="text/plain" class="code" data-file="retrievers.py" data-save>
+import re
+import numpy as np
+from rank_bm25 import BM25Okapi
+from llmkit import embed, load_docs
+from chunker import chunk_markdown
+
+TOKEN = re.compile(r"[a-z0-9][a-z0-9_.-]*")
+
+def words(text):
+    return TOKEN.findall(text.lower())
+
+
+class Index:
+    def __init__(self, chunks, with_context=True):
+        self.chunks = chunks
+        texts = [(c.path + "\n" if with_context else "") + c.text for c in chunks]
+        self.bm25 = BM25Okapi([words(t) for t in texts])
+        m = np.array([embed(t) for t in texts])
+        self.vectors = m / np.linalg.norm(m, axis=1, keepdims=True)
+
+    def keyword(self, q, k=10):
+        scores = self.bm25.get_scores(words(q))
+        return [self.chunks[i].id for i in np.argsort(-scores, kind="stable")[:k] if scores[i] > 0]
+
+    def vector(self, q, k=10):
+        scores = self.vectors @ np.array(embed(q))
+        return [self.chunks[i].id for i in np.argsort(-scores, kind="stable")[:k]]
+
+    def hybrid(self, q, k=10):
+        return rrf([self.vector(q, 30), self.keyword(q, 30)])[:k]
+
+
+def rrf(rankings, k=60):
+    """Reciprocal rank fusion: each list adds 1 / (k + rank) to every id it contains."""
+    scores = {}
+    for ranking in rankings:
+        for rank, item in enumerate(ranking, start=1):
+            scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank)
+    return sorted(scores, key=lambda i: -scores[i])
+
+
+def default_index(with_context=True):
+    return Index([c for d in load_docs() for c in chunk_markdown(d)], with_context)
+</script>
+<p><strong>Reciprocal rank fusion</strong> (RRF) merges ranked lists without comparing their scores: an item scores <code>1/(60 + rank)</code> in each list it appears in, and the sums decide. It needs no score normalization, which is why it's the common default. Compare the three retrievers on questions that contain exact tokens and on paraphrases:</p>
+<script type="text/plain" class="code" data-file="compare.py">
+from retrievers import default_index
+
+index = default_index()
+for q in ["what does pgctl promote do", "can I ship code late on a Friday", "Idempotency-Key header"]:
+    print(q)
+    for name in ("keyword", "vector", "hybrid"):
+        top = getattr(index, name)(q, 1)
+        print(f"   {name:8} {top[0] if top else '-'}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+what does pgctl promote do
+   keyword  runbook-db-failover#1
+   vector   runbook-db-failover#1
+   hybrid   runbook-db-failover#1
+can I ship code late on a Friday
+   keyword  guide-deploy#2
+   vector   guide-deploy#2
+   hybrid   guide-deploy#2
+Idempotency-Key header
+   keyword  api-orders#1
+   vector   api-orders#1
+   hybrid   api-orders#1
+</script>
+
+<h3>Measuring the retrievers</h3>
+<p>The labelled set from <a href="06-embeddings.html">Chapter 6</a> now points at chunks. Some questions use exact tokens, some paraphrase:</p>
+<script type="text/plain" class="code" data-file="chunk_cases.py" data-save>
+CASES = [
+    ("How do I promote the standby Postgres?", "runbook-db-failover#1"),
+    ("pgctl status shows primary unreachable", "runbook-db-failover#1"),
+    ("when should we fail over the orders database", "runbook-db-failover#0"),
+    ("checkout is throwing 502s", "runbook-payments-outage#0"),
+    ("switch to the backup payment provider", "runbook-payments-outage#1"),
+    ("Are Kafka consumers allowed to see duplicates?", "adr-012-kafka#2"),
+    ("internal sites don't load over the tunnel", "guide-vpn#1"),
+    ("how fast must I acknowledge a page", "policy-oncall#0"),
+    ("what counts as SEV2", "policy-incident-severity#0"),
+    ("someone pasted an API key in Slack", "policy-secrets#1"),
+    ("can I deploy on Friday afternoon?", "guide-deploy#2"),
+    ("how long does a rollback take", "guide-deploy#1"),
+    ("Idempotency-Key header", "api-orders#1"),
+    ("what does a 409 from the orders API mean", "api-orders#2"),
+    ("make bootstrap", "guide-dev-setup#1"),
+]
+
+
+def recall(search, k):
+    return sum(expected in search(q, k) for q, expected in CASES) / len(CASES)
+</script>
+<script type="text/plain" class="code" data-file="measure_rag.py">
+from retrievers import default_index
+from chunk_cases import recall
+
+for ctx in (False, True):
+    index = default_index(with_context=ctx)
+    row = "  ".join(f"{name} {recall(getattr(index, name), 3):.2f}" for name in ("keyword", "vector", "hybrid"))
+    print(f"{'with' if ctx else 'no  '} heading path:  recall@3  {row}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no   heading path:  recall@3  keyword 0.80  vector 0.80  hybrid 0.87
+with heading path:  recall@3  keyword 0.80  vector 0.93  hybrid 0.87
+</script>
+<p>Read the table before you believe any claim about RAG, including the ones in this chapter. On your corpus, with a real embedding model, the numbers will differ; the method of measuring stays the same.</p>
+<div class="java">
+<p>☕ <strong>Postgres:</strong> full-text search with a generated <code>tsvector</code> column and a GIN index gives you the keyword side next to pgvector, and you fuse the two ID lists in SQL or in code. <code>ts_rank_cd</code> is a reasonable ranker but not BM25; if keyword quality matters a lot, use a dedicated engine.</p>
+<script type="text/plain" class="code" data-file="fts.sql" data-norun>
+ALTER TABLE doc_chunk ADD COLUMN tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', doc_title || ' ' || coalesce(heading, '') || ' ' || content)) STORED;
+CREATE INDEX doc_chunk_tsv_gin ON doc_chunk USING gin (tsv);
+
+SELECT id FROM doc_chunk
+WHERE acl_group = ANY(?) AND tsv @@ websearch_to_tsquery('english', ?)
+ORDER BY ts_rank_cd(tsv, websearch_to_tsquery('english', ?)) DESC LIMIT 30;
+</script>
+</div>
+
+<h2 id="rerank">Reranking</h2>
+<p>Retrieval is tuned for <em>recall</em> (don't miss the right chunk); generation needs <em>precision</em> (send only what helps). A <strong>reranker</strong> scores each (question, chunk) pair directly. It's more accurate than vector distance, but too slow to run on the whole corpus, so you run it on the top 20–50 candidates. Options: a reranker model behind an API (Voyage has a <code>rerank</code> endpoint), a local cross-encoder, or a cheap Claude model asked for a relevance score with structured output.</p>
+<p>A reranker is just a function from (question, candidates) to an ordering, so make it pluggable. This one asks a model to score candidates (scripted here, so you can see the effect):</p>
+<script type="text/plain" class="code" data-file="rerank.py">
+import json
+from llmkit import FakeAnthropic
+from retrievers import default_index
+
+def rerank(client, question, chunks, top_n=2):
+    listing = "\n".join(f'<c id="{c.id}">{c.path}: {c.text[:120]}</c>' for c in chunks)
+    res = client.messages.create(
+        model="claude-haiku-5-5", max_tokens=500,
+        system="Score how well each candidate answers the question, 0-10. Return JSON {id: score}.",
+        messages=[{"role": "user", "content": f"<question>{question}</question>\n{listing}"}])
+    scores = json.loads(res.content[0].text)
+    return sorted(chunks, key=lambda c: -scores.get(c.id, 0))[:top_n]
+
+index = default_index()
+by_id = {c.id: c for c in index.chunks}
+q = "how long does a rollback take"
+candidates = [by_id[i] for i in index.hybrid(q, 5)]
+print("hybrid :", [c.id for c in candidates])
+client = FakeAnthropic(replies=[json.dumps({"guide-deploy#1": 9, "guide-deploy#0": 4})])
+print("rerank :", [c.id for c in rerank(client, q, candidates)])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+hybrid : ['guide-deploy#1', 'api-orders#2', 'policy-incident-severity#0', 'runbook-payments-outage#1', 'policy-incident-severity#1']
+rerank : ['guide-deploy#1', 'api-orders#2']
+</script>
+
+<h2 id="assembly">Context assembly</h2>
+<p>Assembling the context is a small engineering problem with real impact:</p>
+<ul>
+  <li><strong>Budget</strong>: cap the documents section (say 8k tokens) and stop adding chunks before you exceed it.</li>
+  <li><strong>Deduplicate</strong>: never send the same chunk twice.</li>
+  <li><strong>Order</strong>: most relevant first; keep chunks from one document together.</li>
+  <li><strong>Metadata</strong>: give each chunk its title and heading path so the model, and the citations, can name it.</li>
+</ul>
+<script type="text/plain" class="code" data-file="assemble.py" data-save>
+from llmkit import count_tokens
+
+
+def assemble(chunks, budget_tokens=600):
+    """chunks: best first. Returns the chunks that fit, grouped by document, best document first."""
+    picked, used, seen = [], 0, set()
+    for c in chunks:
+        if c.id in seen:
+            continue
+        cost = count_tokens(c.path + c.text)
+        if used + cost > budget_tokens:
+            break
+        picked.append(c)
+        seen.add(c.id)
+        used += cost
+    order = {}
+    for c in picked:                          # first appearance decides the document's position
+        order.setdefault(c.doc_id, len(order))
+    return sorted(picked, key=lambda c: (order[c.doc_id], c.id)), used
+</script>
+
+<h2 id="citations">Generation with native citations</h2>
+<p>Instead of asking the model to write <code>[Doc title]</code> by convention (<a href="02-prompts.html">Chapter 2</a>), send each chunk as a <code>document</code> content block with citations enabled. The API then returns text blocks whose <code>citations</code> point at exact passages. Because <code>cited_text</code> is extracted from your documents by the API, not written freely by the model, you can show it as a quote and link to the source with confidence.</p>
+<script type="text/plain" class="code" data-file="rag.py" data-save>
+import anthropic
+from assemble import assemble
+from retrievers import default_index
+
+SYSTEM = ("You are DocsPilot. Answer only from the provided documents. "
+          "If they don't contain the answer, say you couldn't find it in the docs.")
+_index = None
+
+
+def answer(question, client=None, k=4, budget_tokens=600):
+    global _index
+    _index = _index or default_index()
+    client = client or anthropic.Anthropic()
+    by_id = {c.id: c for c in _index.chunks}
+    chunks, _ = assemble([by_id[i] for i in _index.hybrid(question, k)], budget_tokens)
+    content = [{"type": "document", "title": c.path,
+                "source": {"type": "text", "media_type": "text/plain", "data": c.text},
+                "citations": {"enabled": True}} for c in chunks]
+    content.append({"type": "text", "text": f"<question>{question}</question>"})
+    res = client.messages.create(model="claude-sonnet-5-5", max_tokens=1500, system=SYSTEM,
+                                 messages=[{"role": "user", "content": content}])
+    text, citations = "", []
+    for block in res.content:
+        if block.type == "text":
+            text += block.text
+            for cit in block.citations or []:
+                citations.append({"doc": cit.document_title, "quote": cit.cited_text})
+    return text, citations, [c.id for c in chunks]
+</script>
+<script type="text/plain" class="code" data-file="ask.py">
+from rag import answer
+
+text, citations, sent = answer("How do I promote the standby during a database failover?")
+print("sent chunks:", sent)
+print("answer:", text)
+for c in citations:
+    print(f'  [{c["doc"]}] "{c["quote"]}"')
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: it quotes the best-matching document)">
+sent chunks: ['runbook-db-failover#1', 'runbook-db-failover#2', 'adr-007-postgres#3', 'adr-012-kafka#1']
+answer: According to the docs: Promote the standby with `pgctl promote orders-replica-1`.
+  [Runbook: database failover › Steps] "Promote the standby with `pgctl promote orders-replica-1`."
+</script>
+<p>Validate the citations as you validated structured output: every cited title must be one you sent, and the quote must appear in that chunk. Check the <a href="https://platform.claude.com/docs/en/build-with-claude/citations">Citations</a> page for the citation types (<code>char_location</code> for text, <code>page_location</code> for PDFs, <code>content_block_location</code> for custom content) and for feature compatibility: citations can't be combined with structured outputs in the same request.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> the same request built with Jackson: one <code>document</code> node per chunk with <code>"citations": {"enabled": true}</code>, then a text node with the question. Read <code>block.path("citations")</code> on each text block of the response.</p>
+</div>
+
+<h2 id="evaluate">Evaluating RAG</h2>
+<p>Measure each stage separately, so you know what to fix:</p>
+<div class="table-wrap"><table>
+<tr><th>Stage</th><th>Metric</th><th>How</th></tr>
+<tr><td>Retrieval</td><td>recall@k, MRR</td><td>labelled question → expected chunk (above)</td></tr>
+<tr><td>Groundedness</td><td>are all claims supported by the retrieved text?</td><td>an LLM grader given the context and the answer (<a href="10-evals.html">Chapter 10</a>)</td></tr>
+<tr><td>Answer quality</td><td>correct and complete versus a reference answer</td><td>human review of a sample, then a grader calibrated against it</td></tr>
+<tr><td>Abstention</td><td>does it decline when the corpus doesn't contain the answer?</td><td>include unanswerable questions in the set</td></tr>
+</table></div>
+<p><strong>MRR</strong> (mean reciprocal rank) rewards putting the right chunk first: each question scores 1/rank of the expected chunk (0 if missing), averaged.</p>
+<script type="text/plain" class="code" data-file="mrr.py">
+from retrievers import default_index
+from chunk_cases import CASES
+
+index = default_index()
+def mrr(search, k=10):
+    total = 0.0
+    for q, expected in CASES:
+        ranking = search(q, k)
+        total += 1 / (ranking.index(expected) + 1) if expected in ranking else 0
+    return total / len(CASES)
+
+for name in ("keyword", "vector", "hybrid"):
+    print(f"{name:8} MRR {mrr(getattr(index, name)):.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+keyword  MRR 0.80
+vector   MRR 0.74
+hybrid   MRR 0.82
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Query rewriting for follow-up questions</h3>
+<p>In a chat, "and how long does that take?" retrieves nothing useful on its own. Rewrite it into a standalone question first, with a cheap model call:</p>
+<script type="text/plain" class="code" data-file="rewrite.py">
+from llmkit import FakeAnthropic
+from retrievers import default_index
+
+def standalone(client, history, question):
+    convo = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    res = client.messages.create(model="claude-haiku-5-5", max_tokens=100,
+        system="Rewrite the last question as a standalone search query. Reply with the query only.",
+        messages=[{"role": "user", "content": f"<conversation>{convo}</conversation>\n<question>{question}</question>"}])
+    return res.content[0].text
+
+index = default_index()
+history = [{"role": "user", "content": "How do I roll back a deploy?"},
+           {"role": "assistant", "content": "Run deployctl rollback <service>."}]
+client = FakeAnthropic(replies=["how long does a deployctl rollback take"])
+q = standalone(client, history, "and how long does that take?")
+print(q, "->", index.hybrid(q, 1))
+print("raw ->", index.hybrid("and how long does that take?", 1))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+how long does a deployctl rollback take -> ['guide-deploy#1']
+raw -> ['policy-oncall#0']
+</script>
+
+<h3>Abstaining when retrieval finds nothing</h3>
+<p>If even the best candidate is a weak match, don't call the model at all. Keyword hits alone are a poor signal (common words match everywhere), so use the best vector score with a threshold tuned on your labelled set, including unanswerable questions:</p>
+<script type="text/plain" class="code" data-file="abstain_rag.py">
+import numpy as np
+from llmkit import embed
+from retrievers import default_index
+
+index = default_index()
+def best_vector_score(q):
+    return float(np.max(index.vectors @ np.array(embed(q))))
+
+for q in ["how do I fail over the orders database", "what is the parental leave policy"]:
+    score = best_vector_score(q)
+    print(f"{q:40} {score:.2f} -> {'answer from docs' if score > 0.3 else 'not in the docs'}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+how do I fail over the orders database   0.66 -> answer from docs
+what is the parental leave policy        0.18 -> not in the docs
+</script>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Blaming the model first</strong>: rewriting the prompt for weeks when the right chunk was never retrieved.</p></div>
+<div class="good"><p><strong>Check retrieval first.</strong> Log the retrieved chunk IDs with every answer; when an answer is wrong, look there first.</p></div>
+<div class="bad"><p><strong>Vectors only</strong>, missing <code>ERR_TLS_HANDSHAKE</code>, ticket keys and command names.</p></div>
+<div class="good"><p><strong>Hybrid + RRF</strong>: keywords for exact tokens, vectors for meaning, fused.</p></div>
+<div class="bad"><p><strong>Context stuffing</strong>: sending the top 50 chunks "just in case".</p></div>
+<div class="good"><p><strong>Rerank and budget.</strong> A few strong chunks beat many weak ones for quality, cost and latency.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>RAG = an indexing pipeline + an answering pipeline; most failures are retrieval failures.</li>
+  <li>Chunk on structure, keep heading paths, consider contextual retrieval.</li>
+  <li>Hybrid search (BM25 + vectors) with RRF handles both exact tokens and paraphrases.</li>
+  <li>Rerank a wide candidate set down to a tight, budgeted, deduplicated context.</li>
+  <li>Use <code>document</code> blocks with citations for verifiable answers, and validate the citations.</li>
+  <li>Evaluate retrieval (recall@k, MRR), groundedness, answer quality and abstention separately.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>An answer is wrong. What do you check first, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The retrieved chunk IDs logged with the answer. If the right chunk wasn't retrieved, no prompt change can fix it; fix chunking, the index or the query. Only if the right chunk was there do you look at the prompt or the model.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">calculate</span></h3>
+<p>Compute RRF (k=60) by hand: list A = [x, y, z], list B = [z, x]. Which item wins?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from retrievers import rrf
+
+print(rrf([["x", "y", "z"], ["z", "x"]]))
+print(round(1/61 + 1/62, 5), round(1/63 + 1/61, 5), round(1/62, 5))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['x', 'z', 'y']
+0.03252 0.03227 0.01613
+</script>
+<p>x: 1/61 + 1/62; z: 1/63 + 1/61; y: 1/62. Appearing high in both lists wins; appearing in only one list ranks below anything found by both.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Which retriever do you expect to do better on each question: "ERR_CONN_POOL_EXHAUSTED", "why are logins slow lately", "OPS-101"?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Keyword for the error code and the ticket key (exact tokens that an embedding may blur); vector for the paraphrase. That's why hybrid search exists.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Call <code>assemble</code> on all chunks with a budget of 100 tokens. How many fit?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from assemble import assemble
+from retrievers import default_index
+
+index = default_index()
+picked, used = assemble(index.chunks, budget_tokens=100)
+print(len(picked), used <= 100)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 True
+</script>
+<p>The budget is a hard cap: <code>assemble</code> stops before exceeding it, even if a later, smaller chunk would fit. Whether to skip-and-continue instead is a design choice; skipping keeps more chunks but can drop a highly ranked one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Print a table for the labelled set: question, keyword rank, vector rank and hybrid rank of the expected chunk (or "-"). What patterns do you see?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from retrievers import default_index
+from chunk_cases import CASES
+
+index = default_index()
+def rank(search, q, expected):
+    r = search(q, 10)
+    return str(r.index(expected) + 1) if expected in r else "-"
+
+for q, e in CASES[:6]:
+    print(f"{q[:40]:40} kw {rank(index.keyword, q, e):>2}  vec {rank(index.vector, q, e):>2}  hyb {rank(index.hybrid, q, e):>2}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+How do I promote the standby Postgres?   kw  1  vec  3  hyb  1
+pgctl status shows primary unreachable   kw  1  vec  1  hyb  1
+when should we fail over the orders data kw  1  vec  1  hyb  1
+checkout is throwing 502s                kw  1  vec  1  hyb  1
+switch to the backup payment provider    kw  1  vec  1  hyb  1
+Are Kafka consumers allowed to see dupli kw  2  vec  2  hyb  2
+</script>
+<p>Typical pattern: identifiers and command names favour keyword, paraphrases favour vector, and hybrid is rarely the worst of the two.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>validate_citations(citations, sent_chunks)</code> that rejects a citation whose quote doesn't appear in any sent chunk with that title.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from chunker import Chunk
+
+def validate_citations(citations, sent_chunks):
+    by_title = {}
+    for c in sent_chunks:
+        by_title.setdefault(c.path, []).append(c.text)
+    return [cit for cit in citations if not any(cit["quote"] in t for t in by_title.get(cit["doc"], []))]
+
+sent = [Chunk("g#1", "g", "Guide: deploying a service", "Rolling back", "Run `deployctl rollback <service>`.")]
+cits = [{"doc": "Guide: deploying a service › Rolling back", "quote": "deployctl rollback"},
+        {"doc": "Guide: deploying a service › Rolling back", "quote": "kubectl rollout undo"}]
+print(validate_citations(cits, sent))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[{'doc': 'Guide: deploying a service › Rolling back', 'quote': 'kubectl rollout undo'}]
+</script>
+<p>With native citations this should almost never fire, which is exactly why it's a good alarm when it does.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">experiment</span></h3>
+<p>Re-chunk with <code>max_tokens=30</code> and measure hybrid recall@3 again. What happens, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import load_docs
+from chunker import chunk_markdown
+from retrievers import Index
+import chunk_cases
+
+small = Index([c for d in load_docs() for c in chunk_markdown(d, max_tokens=30)])
+print(len(small.chunks), "chunks")
+search = lambda q, k: [i.split("#")[0] for i in small.hybrid(q, k)]
+doc_cases = [(q, e.split("#")[0]) for q, e in chunk_cases.CASES]
+print(f"doc-level recall@3 {sum(e in search(q, 3) for q, e in doc_cases) / len(doc_cases):.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+32 chunks
+doc-level recall@3 0.93
+</script>
+<p>The chunk IDs change, so compare at document level. Smaller chunks give more precise hits but lose context ("Promotion takes about 40 seconds" no longer sits next to the command it refers to). There is no universal best size: measure.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>Write three unanswerable questions for DocsPilot and say what a good system does with each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>"What is the parental leave policy?" (not in the corpus), "What will the payments team ship next quarter?" (not knowable), "What's Priya's home address?" (must not answer). A good system abstains with a helpful pointer ("I couldn't find this in the engineering docs; HR policies live in the HR portal") and never invents. Put them in the eval set with the expected behaviour "abstain".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Implement contextual retrieval: for each chunk, ask a model for a one-sentence context (use <code>FakeAnthropic</code> with a function as the reply, which builds a sentence from the doc title and heading), prepend it, rebuild the index, and measure hybrid recall@3. Count the calls.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+from llmkit import FakeAnthropic, load_docs
+from chunker import chunk_markdown
+from retrievers import Index
+from chunk_cases import recall
+
+def fake_context(req):                         # stands in for a Haiku call
+    text = req["messages"][0]["content"]
+    title = re.search(r"<document>\n# (.*)", text).group(1)
+    return f"This chunk is from '{title}'."
+
+client = FakeAnthropic(replies=[fake_context] * 100)
+chunks = []
+for d in load_docs():
+    for c in chunk_markdown(d):
+        prompt = f"<document>\n{d.text}\n</document>\n<chunk>\n{c.text}\n</chunk>\nSituate this chunk in one sentence."
+        ctx = client.messages.create(model="claude-haiku-5-5", max_tokens=100,
+                                     messages=[{"role": "user", "content": prompt}]).content[0].text
+        c.text = ctx + "\n" + c.text
+        chunks.append(c)
+index = Index(chunks, with_context=False)
+print(len(client.calls), "calls, hybrid recall@3", f"{recall(index.hybrid, 3):.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+32 calls, hybrid recall@3 0.87
+</script>
+<p>One call per chunk, each repeating the whole document: put the document in a cached prefix so every chunk after the first reads it at a fraction of the price. Keep the change only if recall improves on your set.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Docs change daily. Design re-indexing so that answers never mix old and new versions of a document and deleted docs disappear.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Trigger on change (a Git webhook or a nightly diff of content hashes), per document.</li>
+  <li>Re-chunk and re-embed the whole document, then replace its chunks in one transaction (delete by <code>doc_path</code>, insert new), so a query sees either the old or the new version, never both.</li>
+  <li>Deletions: remove the rows; a nightly job compares paths in the index with the source to catch missed events.</li>
+  <li>Store <code>content_hash</code> to skip unchanged documents, and <code>embed_model</code> to detect stale vectors.</li>
+  <li>Re-run the retrieval eval after big doc changes; new docs may need new labelled cases.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.anthropic.com/news/contextual-retrieval">Introducing Contextual Retrieval</a> (Anthropic).</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/citations">Citations</a>: document blocks, citation types, compatibility.</li>
+  <li><a href="https://github.com/dorianbrown/rank_bm25">rank_bm25</a> and <a href="https://en.wikipedia.org/wiki/Okapi_BM25">Okapi BM25</a>.</li>
+  <li><a href="https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf">Reciprocal Rank Fusion</a> (the original paper).</li>
+  <li><a href="https://www.postgresql.org/docs/current/textsearch.html">PostgreSQL full text search</a> and <a href="https://docs.voyageai.com/docs/reranker">Voyage rerankers</a>.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

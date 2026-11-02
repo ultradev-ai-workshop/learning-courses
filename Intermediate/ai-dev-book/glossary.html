@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📖&lt;/text&gt;&lt;/svg&gt;">
+<title>Glossary · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+<style>
+  #filter { font: inherit; width: 100%; max-width: 420px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Glossary</h1>
+<p class="lead">Every AI term in the book, with a one-line definition, its closest backend cousin, and where it's explained.</p>
+
+<p><label for="filter" class="sr-only">Filter terms</label><input id="filter" type="search" placeholder="Filter terms… (e.g. cache, MCP, token)"></p>
+<p class="muted" id="count"></p>
+<div class="table-wrap"><table id="terms">
+<tr><th>Term</th><th>Definition</th><th>Backend cousin</th><th>Chapter</th></tr>
+<tr><td><strong>LLM</strong></td><td>A model that predicts the next token; generation repeats that prediction</td><td>A stateless, non-deterministic function behind an API</td><td><a href="01-llms.html">01</a></td></tr>
+<tr><td><strong>Token</strong></td><td>The unit models read and write; also the unit of price and limits</td><td>Bytes on the wire for billing and payload limits</td><td><a href="01-llms.html#tokens">01</a></td></tr>
+<tr><td><strong>Context window</strong></td><td>Maximum tokens per request: input plus output</td><td>Max request size, plus working-memory limits</td><td><a href="01-llms.html#context">01</a></td></tr>
+<tr><td><strong>Sampling / temperature</strong></td><td>How the next token is picked; temperature flattens or sharpens the distribution. Current Claude models don&#x27;t accept sampling parameters</td><td>A jitter knob, not a correctness knob</td><td><a href="01-llms.html#sampling">01</a></td></tr>
+<tr><td><strong>Hallucination</strong></td><td>Fluent output that is false or unsupported</td><td>A downstream returning plausible but corrupt data</td><td><a href="01-llms.html#hallucinations">01</a></td></tr>
+<tr><td><strong>Knowledge cutoff</strong></td><td>The date after which the model has no training data</td><td>A stale cache with no TTL</td><td><a href="01-llms.html">01</a></td></tr>
+<tr><td><strong>TTFT</strong></td><td>Time to first token</td><td>Time to first byte</td><td><a href="03-api.html#streaming">03</a></td></tr>
+<tr><td><strong>System prompt</strong></td><td>Stable instructions and contract for a request</td><td>Service configuration plus the API contract</td><td><a href="02-prompts.html#anatomy">02</a></td></tr>
+<tr><td><strong>Few-shot examples</strong></td><td>Sample inputs and outputs in the prompt</td><td>Fixtures that show the expected format</td><td><a href="02-prompts.html#examples">02</a></td></tr>
+<tr><td><strong>Prefill</strong></td><td>Starting the model&#x27;s reply with your own text; rejected by current Claude models</td><td>A response template (retired)</td><td><a href="02-prompts.html#anatomy">02</a></td></tr>
+<tr><td><strong>Adaptive thinking / effort</strong></td><td>The model reasons before answering; effort sets how hard it tries</td><td>Choosing a slower, more thorough query plan</td><td><a href="02-prompts.html#think">02</a></td></tr>
+<tr><td><strong>Messages API</strong></td><td>The request/response endpoint for Claude</td><td>A JSON REST endpoint</td><td><a href="03-api.html">03</a></td></tr>
+<tr><td><strong>Content block</strong></td><td>A typed element of a message: text, tool_use, tool_result, document, thinking…</td><td>A polymorphic JSON array element</td><td><a href="03-api.html#wire">03</a></td></tr>
+<tr><td><strong>stop_reason</strong></td><td>Why generation ended: end_turn, max_tokens, tool_use, refusal…</td><td>A status field you must branch on</td><td><a href="03-api.html#errors">03</a></td></tr>
+<tr><td><strong>Streaming (SSE)</strong></td><td>Incremental delivery of output as server-sent events</td><td>Chunked transfer / server-sent events</td><td><a href="03-api.html#streaming">03</a></td></tr>
+<tr><td><strong>529 overloaded</strong></td><td>Temporary capacity error; retry with backoff</td><td>503 Service Unavailable</td><td><a href="03-api.html#errors">03</a></td></tr>
+<tr><td><strong>Structured outputs</strong></td><td>Schema-constrained JSON responses (output_config.format)</td><td>An enforced OpenAPI response schema</td><td><a href="04-structured.html">04</a></td></tr>
+<tr><td><strong>Constrained decoding</strong></td><td>Only tokens that keep the output schema-valid can be generated</td><td>A parser that rejects invalid states at write time</td><td><a href="04-structured.html#ladder">04</a></td></tr>
+<tr><td><strong>Tool use</strong></td><td>The model proposes calls to your functions; your code executes them</td><td>An RPC request written by a client you don&#x27;t trust</td><td><a href="05-tools.html">05</a></td></tr>
+<tr><td><strong>tool_choice</strong></td><td>Allow (auto) or forbid (none) tool calls; forcing isn&#x27;t accepted by the newest models</td><td>Routing rules on an API gateway</td><td><a href="05-tools.html#control">05</a></td></tr>
+<tr><td><strong>Strict tool use</strong></td><td>strict: true guarantees tool input matches its schema</td><td>Request validation at the gateway</td><td><a href="05-tools.html#control">05</a></td></tr>
+<tr><td><strong>Tool Runner</strong></td><td>The SDK helper that runs the tool loop for you</td><td>A framework&#x27;s request dispatcher</td><td><a href="05-tools.html#runner">05</a></td></tr>
+<tr><td><strong>Server tools</strong></td><td>Tools executed by the provider (web search, code execution)</td><td>A managed SaaS integration</td><td><a href="05-tools.html#server">05</a></td></tr>
+<tr><td><strong>Embedding</strong></td><td>A vector that represents meaning</td><td>A similarity-preserving hash</td><td><a href="06-embeddings.html">06</a></td></tr>
+<tr><td><strong>Cosine similarity</strong></td><td>Angle-based closeness of two vectors</td><td>A relevance score</td><td><a href="06-embeddings.html#what">06</a></td></tr>
+<tr><td><strong>ANN index (HNSW, IVF)</strong></td><td>Approximate nearest-neighbour structure</td><td>A secondary index trading accuracy for speed</td><td><a href="06-embeddings.html#ann">06</a></td></tr>
+<tr><td><strong>recall@k</strong></td><td>Share of queries whose right item is in the top k</td><td>Cache hit rate for answers</td><td><a href="06-embeddings.html#recall">06</a></td></tr>
+<tr><td><strong>RAG</strong></td><td>Retrieve relevant text, then generate from it</td><td>Search + context assembly + templated render</td><td><a href="07-rag.html">07</a></td></tr>
+<tr><td><strong>Chunking</strong></td><td>Splitting documents into retrievable units</td><td>Choosing a partition key</td><td><a href="07-rag.html#chunking">07</a></td></tr>
+<tr><td><strong>Contextual retrieval</strong></td><td>Prepending situating context to each chunk before indexing</td><td>Denormalizing parent data into child rows</td><td><a href="07-rag.html#chunking">07</a></td></tr>
+<tr><td><strong>BM25</strong></td><td>The standard keyword ranking function</td><td>A full-text index ranking</td><td><a href="07-rag.html#hybrid">07</a></td></tr>
+<tr><td><strong>Hybrid search</strong></td><td>Keyword and vector search combined</td><td>An exact index plus a fuzzy one</td><td><a href="07-rag.html#hybrid">07</a></td></tr>
+<tr><td><strong>RRF</strong></td><td>Reciprocal rank fusion: merge ranked lists by 1/(60 + rank)</td><td>Merging sorted streams by rank</td><td><a href="07-rag.html#hybrid">07</a></td></tr>
+<tr><td><strong>Reranker</strong></td><td>A model that scores (question, chunk) pairs precisely</td><td>A second, expensive sort on a small candidate set</td><td><a href="07-rag.html#rerank">07</a></td></tr>
+<tr><td><strong>Citations</strong></td><td>Pointers from answer text to exact source passages</td><td>Foreign keys from output to evidence</td><td><a href="07-rag.html#citations">07</a></td></tr>
+<tr><td><strong>MRR</strong></td><td>Mean reciprocal rank: rewards putting the right item first</td><td>Position-weighted hit rate</td><td><a href="07-rag.html#evaluate">07</a></td></tr>
+<tr><td><strong>Workflow</strong></td><td>LLM steps on a code-defined path</td><td>A saga / BPMN process</td><td><a href="08-agents.html#vs">08</a></td></tr>
+<tr><td><strong>Agent</strong></td><td>An LLM that chooses its own steps and tools at run time, within budgets</td><td>A planner-driven job with a non-deterministic planner</td><td><a href="08-agents.html#loop">08</a></td></tr>
+<tr><td><strong>Routing</strong></td><td>Classify the input, send it to the right path or model</td><td>Content-based routing</td><td><a href="08-agents.html#patterns">08</a></td></tr>
+<tr><td><strong>Compaction</strong></td><td>Summarizing old context to save tokens</td><td>Log compaction</td><td><a href="08-agents.html#memory">08</a></td></tr>
+<tr><td><strong>Agent memory</strong></td><td>Facts persisted across sessions, scoped per user</td><td>A per-user table with retention rules</td><td><a href="08-agents.html#memory">08</a></td></tr>
+<tr><td><strong>MCP</strong></td><td>Open protocol for exposing tools, resources and prompts to AI hosts</td><td>LSP for AI tools; a standard RPC contract</td><td><a href="09-mcp.html">09</a></td></tr>
+<tr><td><strong>MCP host / client / server</strong></td><td>The app / its connector / the capability provider</td><td>Browser / HTTP client / API server</td><td><a href="09-mcp.html#roles">09</a></td></tr>
+<tr><td><strong>Stateless MCP (2026-07-28)</strong></td><td>No handshake or sessions; every request carries its metadata</td><td>Moving from sticky sessions to stateless requests</td><td><a href="09-mcp.html#stateless">09</a></td></tr>
+<tr><td><strong>Tool poisoning</strong></td><td>Instructions hidden in a tool description</td><td>A malicious dependency</td><td><a href="09-mcp.html#security">09</a></td></tr>
+<tr><td><strong>Eval</strong></td><td>A graded test over a fixed set of cases, reported as a pass rate</td><td>A test suite with pass rates</td><td><a href="10-evals.html">10</a></td></tr>
+<tr><td><strong>LLM-as-judge</strong></td><td>A model grading outputs with a rubric</td><td>An automated reviewer that needs calibration</td><td><a href="10-evals.html#graders">10</a></td></tr>
+<tr><td><strong>Cohen&#x27;s kappa</strong></td><td>Agreement corrected for chance; used to calibrate judges</td><td>Inter-rater reliability</td><td><a href="10-evals.html#graders">10</a></td></tr>
+<tr><td><strong>GenAI spans</strong></td><td>OpenTelemetry spans for model calls with token attributes</td><td>Distributed tracing spans</td><td><a href="10-evals.html#tracing">10</a></td></tr>
+<tr><td><strong>Circuit breaker</strong></td><td>Stops calling a failing dependency for a cool-down</td><td>Same as in any service mesh</td><td><a href="11-production.html#resilience">11</a></td></tr>
+<tr><td><strong>Prompt caching</strong></td><td>Reusing a processed prompt prefix across requests</td><td>A prefix cache keyed on exact bytes</td><td><a href="11-production.html#caching">11</a></td></tr>
+<tr><td><strong>Semantic cache</strong></td><td>Reusing answers for similar questions</td><td>A fuzzy cache key, with correctness risk</td><td><a href="11-production.html#response-cache">11</a></td></tr>
+<tr><td><strong>Batch API</strong></td><td>Asynchronous bulk processing at half price</td><td>An offline job queue on cheaper capacity</td><td><a href="11-production.html#batches">11</a></td></tr>
+<tr><td><strong>Guardrails</strong></td><td>Checks on inputs and outputs, in code</td><td>Input validation and output encoding</td><td><a href="11-production.html#guardrails">11</a></td></tr>
+<tr><td><strong>Prompt injection</strong></td><td>Instructions smuggled into model input</td><td>SQL injection without prepared statements</td><td><a href="12-security.html">12</a></td></tr>
+<tr><td><strong>Lethal combination</strong></td><td>Private data + untrusted content + a way out in one request</td><td>A confused-deputy setup</td><td><a href="12-security.html#trifecta">12</a></td></tr>
+<tr><td><strong>Excessive agency</strong></td><td>The model has more power than the task needs</td><td>An over-privileged service account</td><td><a href="12-security.html#owasp">12</a></td></tr>
+<tr><td><strong>Human-in-the-loop</strong></td><td>Human approval for risky actions, bound to exact parameters</td><td>A signed, single-use authorization</td><td><a href="12-security.html#hitl">12</a></td></tr>
+<tr><td><strong>Shadow mode</strong></td><td>The model decides on real traffic but nothing acts on it</td><td>A dark launch</td><td><a href="13-work.html#classify">13</a></td></tr>
+<tr><td><strong>Mutation testing</strong></td><td>Changing code slightly to check whether tests notice</td><td>Same idea as PIT in Java</td><td><a href="13-work.html#tests">13</a></td></tr>
+<tr><td><strong>Fine-tuning</strong></td><td>Further training on your examples</td><td>Forking a dependency</td><td><a href="14-next.html#finetune">14</a></td></tr>
+<tr><td><strong>Quantization</strong></td><td>Lower-precision weights for smaller hardware</td><td>Lossy compression</td><td><a href="14-next.html#local">14</a></td></tr>
+<tr><td><strong>Attention</strong></td><td>Each token weighs every other token in the context</td><td>An all-pairs join, which is why long inputs cost more</td><td><a href="14-next.html#ml">14</a></td></tr>
+<tr><td><strong>LCEL</strong></td><td>LangChain&#x27;s pipe syntax for composing runnables</td><td>Unix pipes for model steps</td><td><a href="appendix-langchain.html#lcel">App. langchain</a></td></tr>
+<tr><td><strong>Checkpointer</strong></td><td>LangGraph&#x27;s per-thread saved state after every step</td><td>A workflow engine&#x27;s persistence</td><td><a href="appendix-langgraph.html#checkpoints">App. langgraph</a></td></tr>
+<tr><td><strong>Signature (DSPy)</strong></td><td>A declaration of a step&#x27;s inputs and outputs</td><td>An interface method an optimizer implements</td><td><a href="appendix-dspy.html#signatures">App. dspy</a></td></tr>
+</table></div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+<script>
+(function () {
+  var input = document.getElementById('filter'), count = document.getElementById('count');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#terms tr')).slice(1);
+  function apply() {
+    var q = input.value.trim().toLowerCase(), shown = 0;
+    rows.forEach(function (r) { var ok = !q || r.textContent.toLowerCase().indexOf(q) >= 0; r.style.display = ok ? '' : 'none'; if (ok) shown++; });
+    count.textContent = shown + ' of ' + rows.length + ' terms';
+  }
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>
+</body>
+</html>

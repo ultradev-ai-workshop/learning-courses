@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧠&lt;/text&gt;&lt;/svg&gt;">
+<title>1. How LLMs Work · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Foundations</div>
+<h1>How LLMs Work</h1>
+<p class="lead">Build an accurate mental model of the component you are about to depend on: what it computes, what it costs, how long it takes, and how it fails.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a large language model computes, in terms you can reason about as an engineer.</li>
+  <li>What tokens are, why they are the unit of price, limits and latency, and how to count them.</li>
+  <li>What the context window is, and why "it fits" is not the same as "it works well".</li>
+  <li>How sampling creates non-determinism, and what current models let you control.</li>
+  <li>Why models hallucinate, and the three engineering levers that reduce it.</li>
+  <li>How to estimate the cost and latency of a feature before you build it.</li>
+</ul>
+</div>
+
+<div class="note">
+<p><strong>How the examples run.</strong> Every example in this book runs offline. The <code>llmkit</code> module in the <a href="https://github.com/coderhop-learning/ai-book-playground">playground repository</a> (clone it with <code>git clone https://github.com/coderhop-learning/ai-book-playground.git</code>; setup in <a href="playground-howto.html">Using the Playground</a>) gives you a toy tokenizer, a tiny language model, a small embedding model and <code>FakeAnthropic</code>, a stand-in for the real client. Examples that use the real <code>anthropic</code> SDK run against a local mock of the Messages API, so you can try them without a key. With a real key, the same code calls Claude; only the wording of the answers changes.</p>
+</div>
+
+<h2 id="model">The one-paragraph model</h2>
+<p>A large language model (LLM) is a function that takes a sequence of tokens and returns a probability distribution over the <em>next</em> token. Generation is a loop: pick a token from that distribution, append it, run the function again. Everything else (chat, tool calls, JSON, reasoning) is built on that loop. The function's billions of parameters were fitted on a huge amount of text to predict the next token, and then trained further, with human and AI feedback, to follow instructions and be helpful.</p>
+<p>You can see the loop with <code>TinyLM</code>, a model so small it only looks at the previous word. A real model looks at the whole context through a neural network, but the loop is the same:</p>
+<script type="text/plain" class="code" data-file="next_token.py">
+from llmkit import TinyLM
+
+corpus = """the service is down . the service is slow . the database is down .
+the service is up . the queue is slow ."""
+lm = TinyLM(corpus)
+
+print(lm.next_probs("is"))          # the distribution over the next word
+print(lm.generate("the", max_words=5, seed=1))
+print(lm.generate("the", max_words=5, seed=2))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'down': 0.4, 'slow': 0.4, 'up': 0.2}
+the service is slow . the
+the queue is down . the
+</script>
+<p>Two seeds, two different continuations of the same prompt. Neither one is "the answer": each is a plausible path through the distribution.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a very well-read improviser.</strong> Picture an actor who has read most of the internet and is brilliant at continuing any scene you start. Give them a script with a role ("you are a support engineer"), some facts and a question, and they will continue it convincingly. But they never stop to look anything up: if a fact isn't in the script or in their memory, they improvise something that <em>sounds</em> right. Your job as the engineer is to write good scripts and check the performance.</p>
+</div>
+
+<p>Two consequences matter most for you:</p>
+<ol>
+  <li><strong>The model has no state between requests.</strong> The API is stateless. If the model "remembers" an earlier turn, it is because your code sent that turn again.</li>
+  <li><strong>The model produces plausible text, not verified facts.</strong> Plausible and true overlap most of the time, which is exactly why the failures are hard to spot.</li>
+</ol>
+
+<h3>Stateless, in code</h3>
+<p><code>FakeAnthropic</code> records every request it receives, so you can see exactly what the model sees. The first conversation sends only the newest message; the second resends the history:</p>
+<script type="text/plain" class="code" data-file="stateless.py">
+from llmkit import FakeAnthropic
+
+client = FakeAnthropic(replies=["Nice to meet you, Asha.", "I don't know your name.",
+                                "Nice to meet you, Asha.", "Your name is Asha."])
+MODEL = "claude-sonnet-5-5"
+
+def ask(messages):
+    reply = client.messages.create(model=MODEL, max_tokens=200, messages=messages)
+    return reply.content[0].text
+
+# 1. Only the newest message: the second request knows nothing about the first.
+ask([{"role": "user", "content": "My name is Asha."}])
+ask([{"role": "user", "content": "What's my name?"}])
+
+# 2. Your code keeps the history and resends it every time.
+history = [{"role": "user", "content": "My name is Asha."}]
+history.append({"role": "assistant", "content": ask(history)})
+history.append({"role": "user", "content": "What's my name?"})
+ask(history)
+
+for call in client.calls:
+    print(len(call["messages"]), "message(s) sent:", [m["content"] for m in call["messages"]])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 message(s) sent: ['My name is Asha.']
+1 message(s) sent: ["What's my name?"]
+1 message(s) sent: ['My name is Asha.']
+3 message(s) sent: ['My name is Asha.', 'Nice to meet you, Asha.', "What's my name?"]
+</script>
+<p>The replies are scripted (that is what a fake is for), but the requests are real: the only way the model can know the name in request 4 is that request 4 contains it.</p>
+
+<div class="java">
+<p>☕ <strong>Java:</strong> treat each call like a stateless REST service: request in, response out, no session. The conversation history is your request body, like a client that resends the whole shopping cart on every call. You own the state, its storage and its size limit, exactly as you would behind a load balancer with no sticky sessions.</p>
+</div>
+
+<h2 id="tokens">Tokens</h2>
+<p>Models do not read characters or words. A <strong>tokenizer</strong> splits text into <strong>tokens</strong>: common words become one token, rare words split into several, and code, JSON and non-English text usually need more tokens per character than English prose. <code>llmkit.tokenize</code> is a toy tokenizer, but it behaves the same way:</p>
+<script type="text/plain" class="code" data-file="tokens.py">
+from llmkit import tokenize
+
+print(tokenize("Summarize our incident runbook for a new hire."))
+for text in ["the cat sat on the mat",
+             '{"user_id": 12345, "active": true}',
+             "def getUserById(id): return repo.findById(id)"]:
+    toks = tokenize(text)
+    print(f"{len(text):3} chars  {len(toks):2} tokens  {len(text) / len(toks):.1f} chars/token  {text}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['Summ', 'ariz', 'e', ' our', ' inci', 'dent', ' runb', 'ook', ' for', ' a', ' new', ' hire', '.']
+ 22 chars   6 tokens  3.7 chars/token  the cat sat on the mat
+ 34 chars  16 tokens  2.1 chars/token  {"user_id": 12345, "active": true}
+ 45 chars  16 tokens  2.8 chars/token  def getUserById(id): return repo.findById(id)
+</script>
+<p>Tokens are the unit of three things you care about:</p>
+<div class="table-wrap"><table>
+<tr><th>Measured in tokens</th><th>Why you care</th></tr>
+<tr><td>Price</td><td>You pay per million input tokens and per million output tokens, at different rates.</td></tr>
+<tr><td>Limits</td><td>The context window and <code>max_tokens</code> are token counts.</td></tr>
+<tr><td>Latency</td><td>Output is generated one token at a time, so output length drives response time.</td></tr>
+</table></div>
+<p>A rule of thumb for English prose is 3–4 characters per token. Don't budget with rules of thumb in production: count. The API has a free endpoint that counts tokens for exactly the body you would send, including the system prompt and tool definitions:</p>
+<script type="text/plain" class="code" data-file="count_tokens.py">
+import anthropic
+
+client = anthropic.Anthropic()          # reads ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL, if set)
+count = client.messages.count_tokens(
+    model="claude-sonnet-5-5",
+    system="You are DocsPilot, an assistant for our internal docs.",
+    messages=[{"role": "user", "content": "Summarize our incident runbook for a new hire."}],
+)
+print(count.input_tokens)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: the real tokenizer gives a different number)">
+48
+</script>
+
+<div class="tip">
+<p><strong>Count in the same shape you send.</strong> The count endpoint accepts the same body as a real request. System prompts and tool definitions cost tokens on every call, and often cost more than the user's question.</p>
+</div>
+
+<h2 id="context">The context window</h2>
+<p>The <strong>context window</strong> is the maximum number of tokens the model can consider in one request: the system prompt, all the messages, tool definitions, documents <em>and</em> the output it writes. Current Claude models have windows of up to 1M tokens.</p>
+<figure class="diagram">
+<svg viewBox="0 0 600 120" role="img" aria-label="The context window holds system prompt, tools, history, documents, the question and the output">
+  <rect class="bx" x="10" y="20" width="580" height="60" rx="8"/>
+  <rect class="hi" x="14" y="24" width="90" height="52" rx="6"/><text x="59" y="55" text-anchor="middle">system</text>
+  <rect class="hi" x="108" y="24" width="70" height="52" rx="6"/><text x="143" y="55" text-anchor="middle">tools</text>
+  <rect class="hi" x="182" y="24" width="130" height="52" rx="6"/><text x="247" y="55" text-anchor="middle">history</text>
+  <rect class="hi" x="316" y="24" width="120" height="52" rx="6"/><text x="376" y="55" text-anchor="middle">documents</text>
+  <rect class="hi" x="440" y="24" width="64" height="52" rx="6"/><text x="472" y="55" text-anchor="middle">question</text>
+  <rect class="bx" x="508" y="24" width="78" height="52" rx="6"/><text x="547" y="55" text-anchor="middle">output</text>
+  <text class="mut" x="300" y="105" text-anchor="middle">everything you send + everything the model writes ≤ the context window</text>
+</svg>
+<figcaption>Input and output share one budget.</figcaption>
+</figure>
+<p>A large window is a capability, not a strategy. Three reasons not to fill it:</p>
+<ul>
+  <li><strong>Cost scales linearly with input.</strong> Sending 500k tokens on every request is expensive even when it works.</li>
+  <li><strong>Latency grows with input.</strong> The model processes every input token before it writes the first output token.</li>
+  <li><strong>Attention is finite.</strong> A fact buried in a huge context is recalled less reliably than the same fact in a short, focused one. Keeping only high-signal tokens in the window is called <em>context engineering</em>.</li>
+</ul>
+<p>Because the API is stateless, a chat sends the whole history every turn, so input grows with every message. Your code needs a budget. A simple policy keeps the first message (often the task) and as many recent messages as fit:</p>
+<script type="text/plain" class="code" data-file="trim_history.py">
+from llmkit import count_tokens
+
+def trim(messages, budget):
+    """Keep messages[0] and the newest messages that fit in the token budget."""
+    first, rest = messages[0], messages[1:]
+    used = count_tokens(first["content"])
+    kept = []
+    for m in reversed(rest):
+        cost = count_tokens(m["content"])
+        if used + cost > budget:
+            break
+        kept.append(m)
+        used += cost
+    return [first] + kept[::-1], used
+
+history = [{"role": "user", "content": "You help me plan a database migration."}]
+for i in range(1, 7):
+    history.append({"role": "assistant" if i % 2 else "user", "content": f"Message number {i} about the migration plan."})
+
+kept, used = trim(history, budget=40)
+print(len(history), "->", len(kept), "messages,", used, "tokens")
+print([m["content"][:17] for m in kept])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7 -> 3 messages, 33 tokens
+['You help me plan ', 'Message number 5 ', 'Message number 6 ']
+</script>
+<p>Real systems also summarize old turns or let the API compact them; <a href="11-production.html">Chapter 11</a> covers those options. Note that a trimmed history must still start with a <code>user</code> message: in this example <code>messages[0]</code> is one.</p>
+
+<h2 id="sampling">Sampling and non-determinism</h2>
+<p>At each step the model has a probability distribution over the next token, and <strong>sampling</strong> picks one. In the classic recipe, a <em>temperature</em> reshapes the distribution first: low temperature sharpens it (the favourite wins more often), high temperature flattens it (more variety).</p>
+<script type="text/plain" class="code" data-file="temperature.py">
+from llmkit import softmax
+
+scores = {"down": 2.0, "slow": 1.0, "up": 0.5}     # the model's raw scores (logits)
+for t in (0.0, 0.5, 1.0, 2.0):
+    probs = softmax(scores, temperature=t)
+    print(f"T={t}:", {w: round(p, 2) for w, p in probs.items()})
+</script>
+<script type="text/plain" class="code" data-lang="text">
+T=0.0: {'down': 1.0, 'slow': 0.0, 'up': 0.0}
+T=0.5: {'down': 0.84, 'slow': 0.11, 'up': 0.04}
+T=1.0: {'down': 0.63, 'slow': 0.23, 'up': 0.14}
+T=2.0: {'down': 0.48, 'slow': 0.29, 'up': 0.23}
+</script>
+<p>Two facts every LLM developer must know:</p>
+<ul>
+  <li><strong>Low temperature reduces variation, not errors.</strong> A confidently wrong answer at temperature 0 is still wrong, just consistently wrong.</li>
+  <li><strong>Even "greedy" decoding isn't perfectly repeatable</strong> in a large serving system, because of batching and floating-point effects. Design for variation instead of assuming it away.</li>
+</ul>
+
+<div class="pitfall">
+<p><strong>Current Claude models don't take <code>temperature</code>.</strong> Older tutorials set <code>temperature</code>, <code>top_p</code> or <code>top_k</code>. Current Claude models think adaptively, and the API rejects those sampling parameters with a 400; the current Python SDK doesn't even have arguments for them. The control you get instead is <code>output_config={"effort": "low" | "medium" | "high" | ...}</code>, which trades depth of thinking for speed and cost. Other providers still accept <code>temperature</code>, so check each model's docs.</p>
+</div>
+<p>The mock server enforces the same rule, so you can see the error your code would get:</p>
+<script type="text/plain" class="code" data-file="no_temperature.py">
+import anthropic
+
+client = anthropic.Anthropic()
+try:
+    client.messages.create(
+        model="claude-opus-5-5", max_tokens=200,
+        messages=[{"role": "user", "content": "Name a docs bot."}],
+        extra_body={"temperature": 0},        # smuggled past the SDK on purpose
+    )
+except anthropic.BadRequestError as e:
+    print(e.status_code, e.body["error"]["type"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+400 invalid_request_error
+</script>
+
+<div class="java">
+<p>☕ <strong>Java:</strong> you already handle downstream services that sometimes return different data for the same request. LLM output is the same shape of problem, permanently. You won't test it with <code>assertEquals</code> on the text; you will test it with properties, schemas and graded test suites (<a href="10-evals.html">Chapter 10</a>).</p>
+</div>
+
+<h2 id="hallucinations">Hallucinations</h2>
+<p>A <strong>hallucination</strong> is fluent output that is false or unsupported: an invented API method, a fake citation, a wrong config default stated with confidence. It happens because the model is optimized for plausible continuations; when it lacks the fact, a plausible-sounding fact is still the most likely continuation.</p>
+<p>The engineering levers, from most to least effective:</p>
+<ol>
+  <li><strong>Ground it.</strong> Put the source material in the context and tell the model to answer only from it (RAG, <a href="07-rag.html">Chapter 7</a>).</li>
+  <li><strong>Let it say no.</strong> Explicitly allow "I don't know", or a structured <code>"answerable": false</code> field. Models invent less when abstaining is a legitimate answer.</li>
+  <li><strong>Verify downstream.</strong> Check claims mechanically wherever you can: compile the generated code, run the test, look up the ID in the database, resolve the citation.</li>
+</ol>
+<p>Lever 3 is ordinary code. Here the "model" mentions three tickets, and one of them doesn't exist:</p>
+<script type="text/plain" class="code" data-file="verify_ids.py">
+import re
+from llmkit import FakeAnthropic, TICKETS     # TICKETS is our system of record
+
+client = FakeAnthropic(replies=["Related tickets: OPS-101 (checkout 502s), OPS-117 (EU latency) and OPS-103."])
+answer = client.messages.create(
+    model="claude-haiku-5-5", max_tokens=300,
+    messages=[{"role": "user", "content": "Which tickets are about checkout?"}],
+).content[0].text
+
+mentioned = re.findall(r"\bOPS-\d+\b", answer)
+real = [t for t in mentioned if t in TICKETS]
+invented = [t for t in mentioned if t not in TICKETS]
+print("real:", real)
+print("invented:", invented)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+real: ['OPS-101', 'OPS-103']
+invented: ['OPS-117']
+</script>
+<div class="pitfall">
+<p><strong>Invented identifiers are the costliest kind.</strong> A made-up ticket ID, user ID, config key or library method looks exactly like a real one. Validate every identifier the model produces against a system of record before your code acts on it.</p>
+</div>
+
+<h2 id="cost">Cost and latency</h2>
+<p>You can estimate both before you write any feature code.</p>
+<p><strong>Cost per request</strong> = input tokens × input price + output tokens × output price. Output tokens cost several times more than input tokens, and thinking tokens are billed as output.</p>
+<div class="table-wrap"><table>
+<tr><th>Model (October 2026)</th><th>Typical role</th><th>USD per million tokens, in / out</th></tr>
+<tr><td><code>claude-haiku-5-5</code></td><td>classification, routing, extraction at volume</td><td>$0.10 / $0.50</td></tr>
+<tr><td><code>claude-sonnet-5-5</code></td><td>the default for most product features</td><td>$2 / $10</td></tr>
+<tr><td><code>claude-opus-5-5</code></td><td>hard reasoning, agentic coding, long tasks</td><td>$4 / $20</td></tr>
+</table></div>
+<p>Prices change, and batch processing (50% off) and prompt caching (<a href="11-production.html">Chapter 11</a>) change the math further, so always recompute from the live <a href="https://platform.claude.com/docs/en/about-claude/pricing">pricing page</a>.</p>
+<p><strong>Latency</strong> has two parts: <em>time to first token</em> (TTFT), driven mostly by input size and model size, and <em>generation time</em>, driven by output length. Streaming (<a href="03-api.html">Chapter 3</a>) does not make the total faster; it lets the user see progress sooner.</p>
+
+<h3>Worked example: a cost estimator</h3>
+<p>You are asked to add "summarize this ticket" to a support tool that handles 40,000 tickets a month. An average ticket thread is 2,500 tokens, the system prompt is 600 tokens and the summary is 250 tokens. Haiku or Sonnet?</p>
+<script type="text/plain" class="code" data-file="cost_estimate.py">
+def monthly(in_price, out_price, requests, in_tok, out_tok):
+    per_request = in_tok * in_price / 1e6 + out_tok * out_price / 1e6
+    return per_request * requests
+
+for model, ip, op in [("claude-haiku-5-5", 0.10, 0.50), ("claude-sonnet-5-5", 2.00, 10.00)]:
+    print(f"{model:20} ${monthly(ip, op, 40_000, 2_500 + 600, 250):,.2f} / month")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+claude-haiku-5-5     $17.40 / month
+claude-sonnet-5-5    $348.00 / month
+</script>
+<p>Both are cheap compared with engineer time, so the deciding question is quality, which you will measure with an eval in <a href="10-evals.html">Chapter 10</a>. The habit to build now: <strong>estimate before you build, measure after you ship.</strong></p>
+<div class="java">
+<p>☕ <strong>Java version.</strong> The same estimator with a record. The book's Java snippets are for reading; the Python ones are the ones that run.</p>
+<script type="text/plain" class="code" data-file="CostEstimate.java" data-norun>
+public class CostEstimate {
+    record Price(String model, double inPerMTok, double outPerMTok) {}
+
+    static double monthly(Price p, long requests, long inTok, long outTok) {
+        double perReq = inTok * p.inPerMTok() / 1_000_000 + outTok * p.outPerMTok() / 1_000_000;
+        return perReq * requests;
+    }
+
+    public static void main(String[] args) {
+        long requests = 40_000, in = 2_500 + 600, out = 250;
+        for (Price p : new Price[]{
+                new Price("claude-haiku-5-5", 0.10, 0.50),
+                new Price("claude-sonnet-5-5", 2.00, 10.00)}) {
+            System.out.printf("%-20s $%,.2f / month%n", p.model(), monthly(p, requests, in, out));
+        }
+    }
+}
+</script>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Why long chats get expensive</h3>
+<p>Every turn resends the history, so the total input of a conversation grows with the <em>square</em> of its length. With 200 tokens per message:</p>
+<script type="text/plain" class="code" data-file="chat_growth.py">
+from llmkit import cost
+
+per_message = 200
+for turns in (5, 20, 50):
+    total_in = sum(per_message * (2 * t - 1) for t in range(1, turns + 1))   # turn t sends 2t-1 messages
+    total_out = per_message * turns
+    print(f"{turns:2} turns: {total_in:>7,} input tokens  ${cost('claude-sonnet-5-5', total_in, total_out):.3f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ 5 turns:   5,000 input tokens  $0.020
+20 turns:  80,000 input tokens  $0.200
+50 turns: 500,000 input tokens  $1.100
+</script>
+<p>Ten times the turns cost fifty times as much. Trimming, summarizing and prompt caching exist for this reason.</p>
+
+<h3>A latency estimate</h3>
+<p>A simple model: TTFT grows with input, then output streams at a steady rate. The numbers below are made up for illustration; measure your own.</p>
+<script type="text/plain" class="code" data-file="latency.py">
+def latency(input_tokens, output_tokens, ttft_base=0.4, ttft_per_1k=0.03, tokens_per_s=80):
+    ttft = ttft_base + ttft_per_1k * input_tokens / 1000
+    return ttft, ttft + output_tokens / tokens_per_s
+
+for name, i, o in [("classify", 800, 5), ("summarize", 3_000, 250), ("write a report", 20_000, 2_000)]:
+    first, total = latency(i, o)
+    print(f"{name:15} first token {first:.2f}s  total {total:5.2f}s")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+classify        first token 0.42s  total  0.49s
+summarize       first token 0.49s  total  3.62s
+write a report  first token 1.00s  total 26.00s
+</script>
+<p>Long outputs dominate. If a feature feels slow, ask for less output before you look for a faster model.</p>
+
+<h3>Abstaining as a real answer</h3>
+<p>Lever 2 often becomes a field in the response. Code then branches on it instead of trusting prose:</p>
+<script type="text/plain" class="code" data-file="abstain.py">
+import json
+from llmkit import FakeAnthropic
+
+client = FakeAnthropic(replies=['{"answerable": false, "answer": null}'])
+reply = client.messages.create(
+    model="claude-sonnet-5-5", max_tokens=200,
+    system="Answer only from the provided docs. If they don't contain the answer, set answerable to false.",
+    messages=[{"role": "user", "content": "What does the --fast-rebalance flag of kafka-reassign-partitions do?"}],
+)
+data = json.loads(reply.content[0].text)
+print("show answer" if data["answerable"] else "say: I couldn't find this in the docs")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+say: I couldn't find this in the docs
+</script>
+<p>(There is no such flag.) <a href="04-structured.html">Chapter 4</a> makes this robust with schemas that the API guarantees.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Assuming the model remembers.</strong> Sending only the newest message and expecting the model to recall the previous turn.</p></div>
+<div class="good"><p><strong>Resend the history</strong>, trimmed to a budget. Your code owns conversation state.</p></div>
+<div class="bad"><p><strong>"Temperature 0 means correct."</strong> Turning randomness down to fix wrong answers.</p></div>
+<div class="good"><p><strong>Ground and verify.</strong> Add sources to the context, allow abstention, check outputs mechanically.</p></div>
+<div class="bad"><p><strong>Filling the window because it fits.</strong> Dumping the whole wiki into every request because the window is 1M tokens.</p></div>
+<div class="good"><p><strong>Send the smallest useful context.</strong> Retrieve the relevant chunks; pay for and wait on only what matters.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>An LLM predicts the next token; generation is a loop over that prediction.</li>
+  <li>The API is stateless. Your code owns the conversation and resends it.</li>
+  <li>Tokens are the unit of price, limits and latency. Count them with the API, not with guesses.</li>
+  <li>A big context window is a ceiling, not a target.</li>
+  <li>Sampling makes output vary; current Claude models take <code>effort</code>, not <code>temperature</code>. Neither setting controls truth.</li>
+  <li>Reduce hallucinations by grounding, permission to abstain, and mechanical verification.</li>
+  <li>Estimate cost and latency from token counts before you build.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A user has a 10-turn chat. On turn 11 your code sends only the new question. What does the model know about turns 1–10?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Nothing. Each request stands alone; the model sees only what that request contains. To continue the conversation, send the earlier turns (or a summary of them) again.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">measure</span></h3>
+<p>Use <code>llmkit.tokenize</code> to compare the same data as pretty-printed JSON (<code>json.dumps(d, indent=2)</code>) and compact JSON (<code>separators=(",", ":")</code>). Which is cheaper?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import json
+from llmkit import count_tokens
+
+d = {"id": 42, "status": "open", "tags": ["payments", "eu"]}
+pretty = json.dumps(d, indent=2)
+compact = json.dumps(d, separators=(",", ":"))
+print(count_tokens(pretty), count_tokens(compact))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+37 30
+</script>
+<p>Compact JSON is cheaper: whitespace and newlines cost tokens too. At volume, compact formats (fewer keys, no indentation) save real money.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">calculate</span></h3>
+<p>A request has 10,000 input tokens and 1,000 output tokens on <code>claude-opus-5-5</code> ($4 / $20 per million). What does it cost? Which part is bigger?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Input: 10,000 × 4 / 1e6 = $0.04. Output: 1,000 × 20 / 1e6 = $0.02. Total $0.06. Input is bigger here even though output tokens cost 5× more, because there are 10× as many input tokens.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>For each lever, say whether it reduces hallucinations: (a) lower temperature, (b) put the runbook in the prompt, (c) allow "I don't know", (d) look up every ticket ID the model mentions.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) No: it reduces variety, not falsehood. (b) Yes: grounding. (c) Yes: permission to abstain. (d) Yes: mechanical verification, and the only one you can fully rely on before acting.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Estimate DocsPilot's monthly cost: 300 engineers × 6 questions a day × 22 working days, 6,000 input tokens (retrieved chunks) and 400 output tokens per answer, on <code>claude-sonnet-5-5</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import cost
+
+requests = 300 * 6 * 22
+print(f"{requests:,} requests, ${cost('claude-sonnet-5-5', 6_000, 400) * requests:,.2f} / month")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+39,600 requests, $633.60 / month
+</script>
+<p>Per request: 6,000 × 2 / 1e6 + 400 × 10 / 1e6 = $0.016. Prompt caching (<a href="11-production.html">Chapter 11</a>) cuts the repeated part of the input substantially.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">experiment</span></h3>
+<p>Train <code>TinyLM</code> on the corpus from the first example and generate 5 continuations of <code>"the"</code> with seeds 0–4, first at <code>temperature=1.0</code>, then at <code>temperature=0.1</code>. What changes?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import TinyLM
+
+lm = TinyLM("the service is down . the service is slow . the database is down . "
+            "the service is up . the queue is slow .")
+for t in (1.0, 0.1):
+    outs = {lm.generate("the", max_words=3, temperature=t, seed=s) for s in range(5)}
+    print(t, sorted(outs))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1.0 ['the queue is down', 'the queue is slow', 'the service is down', 'the service is slow']
+0.1 ['the service is down', 'the service is slow']
+</script>
+<p>At low temperature the favourites win almost every time, so there are fewer distinct outputs. Notice that "the queue is down" appears at 1.0 although the corpus never says it: the bigram model only knows "queue is", then "is down". That is a miniature hallucination: locally plausible, globally unsupported.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>This chat helper "forgets" everything. Fix it so that it keeps the conversation.</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+def chat(client, question):
+    reply = client.messages.create(model="claude-sonnet-5-5", max_tokens=500,
+                                   messages=[{"role": "user", "content": question}])
+    return reply.content[0].text
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic
+
+class Chat:
+    def __init__(self, client, model="claude-sonnet-5-5"):
+        self.client, self.model, self.messages = client, model, []
+
+    def ask(self, question):
+        self.messages.append({"role": "user", "content": question})
+        reply = self.client.messages.create(model=self.model, max_tokens=500, messages=self.messages)
+        text = reply.content[0].text
+        self.messages.append({"role": "assistant", "content": text})
+        return text
+
+chat = Chat(FakeAnthropic(replies=["Hi Asha!", "You're Asha."]))
+chat.ask("I'm Asha.")
+print(chat.ask("Who am I?"), len(chat.client.calls[-1]["messages"]))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+You're Asha. 3
+</script>
+<p>The state lives in your object (in production: a database keyed by conversation ID), and every request carries it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write <code>fits(input_tokens, max_tokens, window)</code> that returns whether a request can fit in the context window, and test it with a 1,000,000-token window: 990,000 input tokens and <code>max_tokens=16,000</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def fits(input_tokens, max_tokens, window=1_000_000):
+    return input_tokens + max_tokens <= window
+
+print(fits(990_000, 16_000), fits(980_000, 16_000))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+False True
+</script>
+<p>Input and output share the window, so leave room for the answer. "It fits" still doesn't mean "it works well": see the context-engineering points above.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your team wants to add "explain this stack trace" to an IDE plugin with 2,000 users, each asking 15 times a day. Traces average 1,500 tokens, the prompt 400, answers 300. Estimate monthly cost (22 days) for Haiku and Sonnet, the latency for each answer (use the latency function above), and say which numbers you would measure before deciding.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import cost
+
+requests = 2_000 * 15 * 22
+for m in ("claude-haiku-5-5", "claude-sonnet-5-5"):
+    print(f"{m:18} ${cost(m, 1_900, 300) * requests:,.2f} / month")
+ttft = 0.4 + 0.03 * 1_900 / 1000
+print(f"first token {ttft:.2f}s, total {ttft + 300 / 80:.2f}s")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+claude-haiku-5-5   $224.40 / month
+claude-sonnet-5-5  $4,488.00 / month
+first token 0.46s, total 4.21s
+</script>
+<p>Measure: answer quality on 50 real traces for both models (an eval), real TTFT and tokens/second from your region, and the real output length (people may get 600-token answers, doubling the output cost). A 4-second wait suggests streaming the answer into the IDE.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write <code>summarize_old(messages, keep_last, summarize)</code>: if a history has more than <code>keep_last + 1</code> messages, replace the old ones (except <code>messages[0]</code>) with a single user message that contains a summary produced by <code>summarize(list_of_messages)</code>. Make sure roles still alternate correctly: user first, and no two assistant messages in a row.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def summarize_old(messages, keep_last, summarize):
+    if len(messages) <= keep_last + 1:
+        return messages
+    first, old, recent = messages[0], messages[1:-keep_last], messages[-keep_last:]
+    note = {"role": "user", "content": "Summary of the earlier conversation: " + summarize(old)}
+    if recent[0]["role"] == "user":        # merge, so two user messages don't touch
+        note = {"role": "user", "content": note["content"] + "\n\n" + recent[0]["content"]}
+        recent = recent[1:]
+    out = [first, {"role": "assistant", "content": "Understood."}, note] + recent
+    return out
+
+msgs = [{"role": "user", "content": "Plan a migration."}]
+for i in range(1, 8):
+    msgs.append({"role": "assistant" if i % 2 else "user", "content": f"m{i}"})
+out = summarize_old(msgs, keep_last=3, summarize=lambda ms: ", ".join(m["content"] for m in ms))
+print([m["role"][0] for m in out])
+print(out[2]["content"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['u', 'a', 'u', 'a', 'u', 'a']
+Summary of the earlier conversation: m1, m2, m3, m4
+</script>
+<p>The summarizer would itself be a cheap model call (Haiku). The API accepts consecutive same-role messages by merging them, but keeping the alternation explicit makes the history easy to read and debug.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/about-claude/models/overview">Models overview</a>: current model IDs, context windows, output limits.</li>
+  <li><a href="https://platform.claude.com/docs/en/about-claude/pricing">Pricing</a>: per-token prices, batch and caching discounts.</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/context-windows">Context windows</a> and <a href="https://platform.claude.com/docs/en/build-with-claude/token-counting">Token counting</a>.</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/effort">Effort</a>: the control that replaces sampling parameters on current models.</li>
+  <li><a href="https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-hallucinations">Reduce hallucinations</a> (Anthropic guardrails guide).</li>
+  <li><a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Effective context engineering for AI agents</a> (Anthropic Engineering).</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

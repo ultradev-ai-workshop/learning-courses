@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🕸️&lt;/text&gt;&lt;/svg&gt;">
+<title>B. LangGraph · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B · Popular Frameworks</div>
+<h1>LangGraph</h1>
+<p class="lead">A library for building agents and workflows as explicit graphs of steps over shared state, with checkpoints, human-in-the-loop interrupts and resumable runs. It's what you reach for when the loop from <a href="08-agents.html">Chapter 8</a> needs to survive restarts and approvals.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The three ideas: state, nodes and edges (including conditional edges).</li>
+  <li>Reducers: how parallel or repeated updates to the same key are merged.</li>
+  <li>The prebuilt tool agent: <code>MessagesState</code>, <code>ToolNode</code>, <code>tools_condition</code>.</li>
+  <li>Checkpointers and threads: memory across calls and resumable runs.</li>
+  <li>Human-in-the-loop with <code>interrupt</code> and <code>Command(resume=...)</code>.</li>
+  <li>When a graph is worth it, and when a plain loop is enough.</li>
+</ul>
+</div>
+
+<h2 id="ideas">State, nodes and edges</h2>
+<p>A LangGraph app is a <strong>state machine</strong>. The <strong>state</strong> is a typed dict shared by all steps. A <strong>node</strong> is a function that receives the state and returns an <em>update</em> (a partial dict). <strong>Edges</strong> say which node runs next; a <strong>conditional edge</strong> is a function that picks the next node from the state.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a board game.</strong> The state is the board, nodes are the moves, and edges are the rules about whose turn is next. A checkpoint is a photo of the board after every move: you can pause the game for days (waiting for an approval), pick it up exactly where it was, or rewind to an earlier photo to see how you got here.</p>
+</div>
+<script type="text/plain" class="code" data-file="lg_basics.py">
+import operator
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, START, END
+
+class State(TypedDict):
+    attempts: int
+    log: Annotated[list[str], operator.add]          # a reducer: updates are appended, not replaced
+
+def try_deploy(state):
+    n = state["attempts"] + 1
+    return {"attempts": n, "log": [f"attempt {n}: {'ok' if n == 3 else 'failed'}"]}
+
+def next_step(state):
+    return END if state["attempts"] >= 3 else "try_deploy"
+
+g = StateGraph(State)
+g.add_node("try_deploy", try_deploy)
+g.add_edge(START, "try_deploy")
+g.add_conditional_edges("try_deploy", next_step)
+app = g.compile()
+
+result = app.invoke({"attempts": 0, "log": []})
+print(result["attempts"], result["log"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 ['attempt 1: failed', 'attempt 2: failed', 'attempt 3: ok']
+</script>
+<p>Without the <code>operator.add</code> reducer, each update would <em>replace</em> <code>log</code>; with it, updates are appended. Reducers are how LangGraph merges results from several nodes safely.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> think of Spring State Machine or a workflow engine such as Temporal: explicit states and transitions, with the engine persisting progress. LangGraph is lighter, in-process, and designed for steps that call models. LangChain4j has a Java port called LangGraph4j.</p>
+</div>
+
+<h2 id="agent">The tool-calling agent as a graph</h2>
+<p>The agent loop of Chapter 5 is two nodes and a conditional edge: the model node calls the model; if the reply has tool calls, <code>tools_condition</code> routes to the <code>ToolNode</code>, which runs them and loops back.</p>
+<figure class="diagram">
+<svg viewBox="0 0 460 110" role="img" aria-label="Agent graph: start, model, tools, end">
+  <rect class="bx" x="10" y="40" width="70" height="34" rx="16"/><text x="45" y="62" text-anchor="middle">start</text>
+  <rect class="hi" x="120" y="40" width="90" height="34" rx="6"/><text x="165" y="62" text-anchor="middle">model</text>
+  <rect class="bx" x="260" y="6" width="90" height="34" rx="6"/><text x="305" y="28" text-anchor="middle">tools</text>
+  <rect class="bx" x="260" y="72" width="90" height="34" rx="16"/><text x="305" y="94" text-anchor="middle">end</text>
+  <text class="mut" x="235" y="46" text-anchor="middle">tool calls?</text>
+  <text class="mut" x="400" y="28" text-anchor="middle">← back to model</text>
+</svg>
+</figure>
+<script type="text/plain" class="code" data-file="lg_agent.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.tools import tool
+from langgraph.graph import StateGraph, START, MessagesState
+from langgraph.prebuilt import ToolNode, tools_condition
+from llmkit import ONCALL, TICKETS
+
+@tool
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team such as payments, platform, data or web."""
+    return ONCALL.get(team, "unknown team")
+
+@tool
+def get_ticket(key: str) -> str:
+    """Looks up a ticket by key, such as OPS-101."""
+    return str(TICKETS.get(key, f"ticket {key} not found"))
+
+tools = [get_oncall, get_ticket]
+llm = ChatAnthropic(model="claude-sonnet-5-5", max_tokens=2000).bind_tools(tools)
+
+g = StateGraph(MessagesState)
+g.add_node("model", lambda state: {"messages": [llm.invoke(state["messages"])]})
+g.add_node("tools", ToolNode(tools))
+g.add_edge(START, "model")
+g.add_conditional_edges("model", tools_condition)     # -> "tools" or END
+g.add_edge("tools", "model")
+agent = g.compile()
+
+out = agent.invoke({"messages": [("user", "Who is on call for payments?")]}, {"recursion_limit": 10})
+print([m.type for m in out["messages"]])
+print(out["messages"][-1].content)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+['human', 'ai', 'tool', 'ai']
+Based on the tool results: priya
+</script>
+<p><code>recursion_limit</code> is the step budget: LangGraph raises <code>GraphRecursionError</code> when a run exceeds it. Token, cost and time budgets are still yours to add (a node can check them and route to END).</p>
+<p>The compiled graph can draw itself, which is useful in design reviews:</p>
+<script type="text/plain" class="code" data-file="lg_draw.py">
+from langgraph.graph import StateGraph, START, END, MessagesState
+
+g = StateGraph(MessagesState)
+g.add_node("route", lambda s: {})
+g.add_node("rag", lambda s: {})
+g.add_node("agent", lambda s: {})
+g.add_edge(START, "route")
+g.add_conditional_edges("route", lambda s: "rag", ["rag", "agent"])
+g.add_edge("rag", END)
+g.add_edge("agent", END)
+mermaid = g.compile().get_graph().draw_mermaid()
+print([line.strip() for line in mermaid.splitlines() if "-->" in line or "-.->" in line])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['__start__ --> route;', 'route -.-> agent;', 'route -.-> rag;', 'agent --> __end__;', 'rag --> __end__;']
+</script>
+
+<h2 id="checkpoints">Checkpointers and threads</h2>
+<p>Compile with a <strong>checkpointer</strong> and LangGraph saves the state after every step, keyed by a <code>thread_id</code>. Invoking the same thread again continues the conversation; a crashed run can resume from its last checkpoint. <code>InMemorySaver</code> is for tests; production uses a database-backed saver (Postgres, SQLite, Redis packages exist).</p>
+<script type="text/plain" class="code" data-file="lg_memory.py">
+from langchain_anthropic import ChatAnthropic
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import StateGraph, START, END, MessagesState
+
+llm = ChatAnthropic(model="claude-haiku-5-5", max_tokens=500)
+g = StateGraph(MessagesState)
+g.add_node("chat", lambda s: {"messages": [llm.invoke(s["messages"])]})
+g.add_edge(START, "chat")
+g.add_edge("chat", END)
+app = g.compile(checkpointer=InMemorySaver())
+
+asha = {"configurable": {"thread_id": "asha-1"}}
+app.invoke({"messages": [("user", "My team is payments.")]}, asha)
+app.invoke({"messages": [("user", "Which team am I on?")]}, asha)
+other = app.invoke({"messages": [("user", "Which team am I on?")]}, {"configurable": {"thread_id": "sam-1"}})
+
+print(len(app.get_state(asha).values["messages"]), "messages in asha's thread")
+print(len(other["messages"]), "messages in sam's thread")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+4 messages in asha's thread
+2 messages in sam's thread
+</script>
+<p>The model sees the whole thread because the checkpointer resends it: the API is still stateless (<a href="01-llms.html">Chapter 1</a>), LangGraph just stores the history for you. Thread IDs must come from your authenticated session, never from user input, or one user could read another's thread.</p>
+
+<h2 id="hitl">Human-in-the-loop with interrupts</h2>
+<p><code>interrupt(payload)</code> inside a node pauses the run and saves it. The caller gets the payload (show it to a human), and later resumes with <code>Command(resume=value)</code>; the node continues with that value. This is the approval flow of <a href="12-security.html">Chapter 12</a>, with persistence built in.</p>
+<script type="text/plain" class="code" data-file="lg_approval.py">
+from typing import TypedDict
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import Command, interrupt
+
+class State(TypedDict):
+    service: str
+    status: str
+
+def propose(state):
+    return {"status": f"proposed: restart {state['service']}"}
+
+def approve(state):
+    decision = interrupt({"summary": f"Restart {state['service']} in production?"})   # pauses here
+    return {"status": "restarted" if decision == "approve" else "cancelled by human"}
+
+g = StateGraph(State)
+g.add_node("propose", propose)
+g.add_node("approve", approve)
+g.add_edge(START, "propose")
+g.add_edge("propose", "approve")
+g.add_edge("approve", END)
+app = g.compile(checkpointer=InMemorySaver())
+
+cfg = {"configurable": {"thread_id": "change-42"}}
+first = app.invoke({"service": "payments", "status": ""}, cfg)
+print("paused with:", first["__interrupt__"][0].value)
+print("waiting at:", app.get_state(cfg).next)
+print(app.invoke(Command(resume="approve"), cfg)["status"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+paused with: {'summary': 'Restart payments in production?'}
+waiting at: ('approve',)
+restarted
+</script>
+<div class="pitfall">
+<p><strong>A node re-runs from its start on resume.</strong> When you resume, the interrupted node executes again from the top, and <code>interrupt</code> returns the resume value this time. Keep side effects <em>after</em> the interrupt (or in a later node), never before it, or they run twice.</p>
+</div>
+
+<h2 id="more">Parallel branches</h2>
+<p>Edges from one node to several nodes run those nodes in the same step; a reducer merges their updates. That's the "parallelization" workflow pattern of Chapter 8:</p>
+<script type="text/plain" class="code" data-file="lg_parallel.py">
+import operator
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, START, END
+
+class Review(TypedDict):
+    diff: str
+    findings: Annotated[list[str], operator.add]
+
+def security(s): return {"findings": ["security: ok"] if "password" not in s["diff"] else ["security: secret in diff!"]}
+def style(s): return {"findings": ["style: ok"]}
+def tests(s): return {"findings": ["tests: missing" if "test" not in s["diff"] else "tests: ok"]}
+
+g = StateGraph(Review)
+for name, fn in [("security", security), ("style", style), ("tests", tests)]:
+    g.add_node(name, fn)
+    g.add_edge(START, name)
+    g.add_edge(name, END)
+print(sorted(g.compile().invoke({"diff": "password = 'hunter2'", "findings": []})["findings"]))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['security: secret in diff!', 'style: ok', 'tests: missing']
+</script>
+<p>In a real review each node would call a model with its own prompt; LangGraph runs them concurrently and the reducer collects every finding.</p>
+
+<h2 id="when">When a graph is worth it</h2>
+<div class="table-wrap"><table>
+<tr><th>Use LangGraph when</th><th>A plain loop is enough when</th></tr>
+<tr><td>runs must pause for approvals and resume later</td><td>a request finishes in one go</td></tr>
+<tr><td>you need durable state and crash recovery</td><td>losing an in-flight request is acceptable</td></tr>
+<tr><td>the workflow has many branches you want to see as a diagram</td><td>it's one model call plus a few tools</td></tr>
+<tr><td>several agents or subgraphs hand work to each other</td><td>one agent with a handful of tools</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A graph = typed state + nodes that return updates + edges (conditional edges choose the next node).</li>
+  <li>Reducers (<code>Annotated[list, operator.add]</code>) merge updates from repeated or parallel nodes.</li>
+  <li><code>MessagesState</code> + <code>ToolNode</code> + <code>tools_condition</code> is the tool agent; <code>recursion_limit</code> caps steps.</li>
+  <li>Checkpointers save state per <code>thread_id</code>: memory, resumability and time travel.</li>
+  <li><code>interrupt</code> + <code>Command(resume=...)</code> give durable human approvals; keep side effects after the interrupt.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What does a node return, and what happens to state keys it doesn't mention?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A partial update (a dict with some keys). Keys it doesn't mention keep their values. Mentioned keys are replaced, unless they have a reducer, which merges the old and new values.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>In <code>lg_basics.py</code>, what would <code>log</code> contain if you removed the <code>operator.add</code> reducer?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only the last update, <code>['attempt 3: ok']</code>: each node's update would replace the list instead of appending to it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Where should a <code>thread_id</code> come from, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>From your server-side session (for example "user id + conversation id" that you created). If a client could pass any thread ID, it could load someone else's checkpointed conversation.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Plain loop or LangGraph? (a) a one-shot classifier, (b) a change-request agent that waits hours for a manager's approval, (c) a chat with memory across days.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Plain call. (b) LangGraph: interrupts with a persistent checkpointer. (c) Either: a conversation table works; LangGraph's checkpointer is convenient if you already use it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Build a router graph: a <code>classify</code> node writes <code>route</code> ("docs" or "live") from a keyword rule, and a conditional edge sends the state to <code>docs</code> or <code>live</code>, each writing an answer.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+from typing import TypedDict
+from langgraph.graph import StateGraph, START, END
+
+class S(TypedDict, total=False):
+    question: str
+    route: str
+    answer: str
+
+g = StateGraph(S)
+g.add_node("classify", lambda s: {"route": "live" if re.search(r"on call|OPS-\d+", s["question"]) else "docs"})
+g.add_node("docs", lambda s: {"answer": "RAG answer"})
+g.add_node("live", lambda s: {"answer": "tool answer"})
+g.add_edge(START, "classify")
+g.add_conditional_edges("classify", lambda s: s["route"], ["docs", "live"])
+g.add_edge("docs", END)
+g.add_edge("live", END)
+app = g.compile()
+for q in ["How do I roll back?", "Who is on call for web?"]:
+    r = app.invoke({"question": q})
+    print(r["route"], r["answer"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+docs RAG answer
+live tool answer
+</script>
+<p>In DocsPilot the classify node would be the Haiku router with structured output from <a href="08-agents.html">Chapter 8</a>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Show that <code>recursion_limit</code> stops a graph that loops forever.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from typing import TypedDict
+from langgraph.errors import GraphRecursionError
+from langgraph.graph import StateGraph, START
+
+class S(TypedDict):
+    n: int
+
+g = StateGraph(S)
+g.add_node("again", lambda s: {"n": s["n"] + 1})
+g.add_edge(START, "again")
+g.add_edge("again", "again")
+try:
+    g.compile().invoke({"n": 0}, {"recursion_limit": 5})
+except GraphRecursionError:
+    print("stopped by recursion_limit")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+stopped by recursion_limit
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Resume the approval graph with a denial and print the final status and the stored history of states.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from typing import TypedDict
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import Command, interrupt
+
+class S(TypedDict):
+    status: str
+
+def approve(s):
+    return {"status": "restarted" if interrupt("restart?") == "approve" else "cancelled"}
+
+g = StateGraph(S)
+g.add_node("approve", approve)
+g.add_edge(START, "approve")
+g.add_edge("approve", END)
+app = g.compile(checkpointer=InMemorySaver())
+cfg = {"configurable": {"thread_id": "t"}}
+app.invoke({"status": "pending"}, cfg)
+print(app.invoke(Command(resume="deny"), cfg)["status"])
+print([snap.values.get("status") for snap in app.get_state_history(cfg)])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+cancelled
+['cancelled', 'pending', None]
+</script>
+<p>The history (newest first) is your audit trail of the run: every checkpoint is a state you can inspect or resume from.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>This node sends an email, then asks for approval. Users get the email twice. Why, and how do you fix it?</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+def notify(state):
+    send_email(state["draft"])
+    ok = interrupt("Send the follow-up too?")
+    ...
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>On resume the node runs again from the top, so <code>send_email</code> runs a second time. Move side effects after the interrupt, or into a separate node before it (completed nodes aren't re-run), and make them idempotent.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Add a token budget to the tool agent: keep a running total of <code>usage_metadata</code> tokens in the state, and route to END with a message when it exceeds a limit.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import operator
+from typing import Annotated
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.prebuilt import ToolNode
+from llmkit import ONCALL
+
+@tool
+def get_oncall(team: str) -> str:
+    """Returns who is on call for a team such as payments or web."""
+    return ONCALL.get(team, "?")
+
+class State(MessagesState):
+    tokens: Annotated[int, operator.add]
+
+llm = ChatAnthropic(model="claude-sonnet-5-5", max_tokens=500).bind_tools([get_oncall])
+LIMIT = 100
+
+def model(state):
+    msg = llm.invoke(state["messages"])
+    return {"messages": [msg], "tokens": msg.usage_metadata["total_tokens"]}
+
+def after_model(state):
+    if state["tokens"] > LIMIT:
+        return "over"
+    return "tools" if state["messages"][-1].tool_calls else END
+
+g = StateGraph(State)
+g.add_node("model", model)
+g.add_node("tools", ToolNode([get_oncall]))
+g.add_node("over", lambda s: {"messages": [AIMessage(f"Stopped: token budget of {LIMIT} exceeded.")]})
+g.add_edge(START, "model")
+g.add_conditional_edges("model", after_model, ["tools", "over", END])
+g.add_edge("tools", "model")
+g.add_edge("over", END)
+out = g.compile().invoke({"messages": [("user", "Who is on call for payments?")], "tokens": 0})
+print(out["tokens"] > LIMIT, out["messages"][-1].content)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+True Stopped: token budget of 100 exceeded.
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Sketch DocsPilot as a LangGraph: list the nodes, the state keys, the conditional edges, where interrupts go, and which checkpointer you'd use in production.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>State: <code>messages</code>, <code>user</code> (from the session), <code>route</code>, <code>chunks</code>, <code>citations</code>, <code>tokens</code>, <code>degraded</code>.</li>
+  <li>Nodes: <code>guard_in</code> (size, budget, redaction) → <code>route</code> → <code>retrieve</code> → <code>answer</code> (citations) or <code>model</code> ⇄ <code>tools</code> → <code>guard_out</code>; plus <code>degrade</code>.</li>
+  <li>Conditional edges: after <code>route</code> (docs / live / out of scope), after <code>retrieve</code> (abstain if weak), after <code>model</code> (tools / budget exceeded / done).</li>
+  <li>Interrupts: before any write tool, with a code-generated summary bound to the arguments.</li>
+  <li>Checkpointer: a Postgres-backed saver, thread ID = conversation ID from your database.</li>
+</ul>
+<p>Then run the same eval set as the hand-written version and keep whichever is simpler at equal quality.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.langchain.com/oss/python/langgraph/overview">LangGraph documentation</a>.</li>
+  <li><a href="https://docs.langchain.com/oss/python/langgraph/persistence">Persistence (checkpointers and threads)</a>.</li>
+  <li><a href="https://docs.langchain.com/oss/python/langgraph/interrupts">Interrupts (human-in-the-loop)</a>.</li>
+  <li><a href="https://github.com/langchain4j/langgraph4j">LangGraph4j</a> for Java.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

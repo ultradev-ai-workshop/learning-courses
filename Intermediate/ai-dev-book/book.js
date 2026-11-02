@@ -1,0 +1,394 @@
+/* AI for Developers Study Book — shared sidebar, pager and code-block renderer. */
+(function () {
+  'use strict';
+
+  // One list drives the sidebar, the pager and the index page.
+  // Each chapter: [file, title, label?]  (label overrides the number shown)
+  var PARTS = [
+    { part: 'Start here', chapters: [
+      ['playground-howto.html', 'Using the Playground', '▶']
+    ]},
+    { part: 'Part I · Foundations', chapters: [
+      ['01-llms.html', 'How LLMs Work'],
+      ['02-prompts.html', 'Prompts as Specifications'],
+      ['03-api.html', 'Calling LLM APIs']
+    ]},
+    { part: 'Part II · Building Blocks', chapters: [
+      ['04-structured.html', 'Structured Output'],
+      ['05-tools.html', 'Tool Use'],
+      ['06-embeddings.html', 'Embeddings & Vector Search'],
+      ['07-rag.html', 'Retrieval-Augmented Generation']
+    ]},
+    { part: 'Part III · Agents & Integration', chapters: [
+      ['08-agents.html', 'Agents & Orchestration'],
+      ['09-mcp.html', 'Model Context Protocol (MCP)']
+    ]},
+    { part: 'Part IV · Shipping AI Features', chapters: [
+      ['10-evals.html', 'Evals & Observability'],
+      ['11-production.html', 'Production Concerns'],
+      ['12-security.html', 'Security & Prompt Injection']
+    ]},
+    { part: 'Part V · At Work & Beyond', chapters: [
+      ['13-work.html', 'Applying AI at Work'],
+      ['14-next.html', 'Where to Go Next'],
+      ['15-project.html', 'Project: DocsPilot']
+    ]},
+    { part: 'Appendix · Popular Frameworks', chapters: [
+      ['appendix-langchain.html', 'LangChain', 'A'],
+      ['appendix-langgraph.html', 'LangGraph', 'B'],
+      ['appendix-llamaindex.html', 'LlamaIndex', 'C'],
+      ['appendix-pydanticai.html', 'Pydantic AI', 'D'],
+      ['appendix-dspy.html', 'DSPy', 'E'],
+      ['appendix-landscape.html', 'The Framework Landscape', 'F']
+    ]},
+    { part: 'Reference & Assessment', chapters: [
+      ['glossary.html', 'Glossary', 'G'],
+      ['assessment.html', 'Final Assessment', '✓']
+    ]}
+  ];
+  window.BOOK_PARTS = PARTS;
+  var COURSES_HOME = '../../index.html';
+
+  function currentFile() {
+    var f = location.pathname.split('/').pop();
+    return f === '' ? 'index.html' : decodeURIComponent(f);
+  }
+
+  function flat() {
+    var out = [];
+    PARTS.forEach(function (p) {
+      p.chapters.forEach(function (c) {
+        var num = c[2] || String(parseInt(c[0], 10));
+        out.push({ file: c[0], title: c[1], num: num, part: p.part });
+      });
+    });
+    return out;
+  }
+
+  function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // ---------- sidebar ----------
+  function buildSidebar() {
+    var nav = document.getElementById('sidebar');
+    if (!nav) return;
+    var here = currentFile();
+    // Back to the course launcher (learning-courses/index.html); outside <details> so it shows on phones too
+    nav.appendChild(el('a', { href: COURSES_HOME, 'class': 'all-courses' }, '← All courses'));
+    nav.appendChild(el('a', { href: '../../problems/index.html', 'class': 'all-courses' }, '🧩 Practice problems'));
+    var det = el('details');
+    det.appendChild(el('summary', null, '☰ AI for Developers Study Book — chapters'));
+    var brand = el('a', { href: 'index.html', 'class': 'brand' });
+    brand.innerHTML = '🤖 AI for Developers <span>Study Book</span>';
+    det.appendChild(brand);
+    PARTS.forEach(function (p) {
+      det.appendChild(el('div', { 'class': 'part' }, p.part));
+      var ol = el('ol');
+      p.chapters.forEach(function (c) {
+        var li = el('li');
+        var a = el('a', { href: c[0] });
+        if (c[0] === here) { a.className = 'current'; a.setAttribute('aria-current', 'page'); }
+        a.appendChild(el('span', { 'class': 'num' }, c[2] || String(parseInt(c[0], 10))));
+        a.appendChild(el('span', null, c[1]));
+        li.appendChild(a);
+        ol.appendChild(li);
+      });
+      det.appendChild(ol);
+    });
+    // Open on desktop, collapsed on phones.
+    if (window.matchMedia('(min-width: 901px)').matches) det.open = true;
+    nav.appendChild(det);
+  }
+
+  // ---------- pager ----------
+  function buildPager() {
+    var pager = document.getElementById('pager');
+    if (!pager) return;
+    var list = [{ file: 'index.html', title: 'Home', num: '' }].concat(flat());
+    var i = list.findIndex(function (x) { return x.file === currentFile(); });
+    if (i < 0) return;
+    function link(item, cls, dir) {
+      var a = el('a', { href: item.file, 'class': cls });
+      a.appendChild(el('small', null, dir));
+      var prefix = /^[0-9A-Z]/.test(item.num) ? item.num + '. ' : '';   // no "▶." or "✓." prefixes
+      a.appendChild(document.createTextNode(prefix + item.title));
+      return a;
+    }
+    if (i > 0) pager.appendChild(link(list[i - 1], 'prev', '← Previous'));
+    else pager.appendChild(el('span', { 'class': 'spacer' }));
+    if (i < list.length - 1) pager.appendChild(link(list[i + 1], 'next', 'Next →'));
+    else pager.appendChild(el('span', { 'class': 'spacer' }));
+  }
+
+  // ---------- code blocks ----------
+  function dedent(src) {
+    src = src.replace(/<\\\/script>/gi, '</' + 'script>').replace(/\t/g, '    ');
+    var lines = src.split('\n');
+    while (lines.length && lines[0].trim() === '') lines.shift();
+    while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+    var min = Infinity;
+    lines.forEach(function (l) {
+      if (l.trim() === '') return;
+      var m = l.match(/^ */)[0].length;
+      if (m < min) min = m;
+    });
+    if (min === Infinity) min = 0;
+    return lines.map(function (l) { return l.slice(min); }).join('\n');
+  }
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function span(cls, s) { return '<span class="tok-' + cls + '">' + esc(s) + '</span>'; }
+
+  var JS_KW = ('as async await break case catch class const continue debugger default delete do else export extends ' +
+    'false finally for from function get if import in instanceof let new null of return set static super switch this ' +
+    'throw true try typeof undefined using var void while with yield').split(' ');
+  var JS_KW_SET = {};
+  JS_KW.forEach(function (k) { JS_KW_SET[k] = true; });
+  var JAVA_KW = ('abstract assert boolean break byte case catch char class continue default do double else enum extends ' +
+    'final finally float for if implements import instanceof int interface long new null package permits private protected ' +
+    'public record return sealed short static super switch synchronized this throw throws transient try var void volatile while yield true false').split(' ');
+  var JAVA_KW_SET = {};
+  JAVA_KW.forEach(function (k) { JAVA_KW_SET[k] = true; });
+
+  var PY_KW = ('False None True and as assert async await break case class continue def del elif else ' +
+    'except finally for from global if import in is lambda lazy match nonlocal not or pass raise return try ' +
+    'type while with yield self').split(' ');
+  var PY_KW_SET = {};
+  PY_KW.forEach(function (k) { PY_KW_SET[k] = true; });
+
+  // A small Python tokenizer: strings (incl. triple and prefixed), comments, keywords, numbers.
+  function highlightPython(src) {
+    var out = '', i = 0, n = src.length;
+    while (i < n) {
+      var ch = src[i];
+      if (ch === '#') {
+        var end = src.indexOf('\n', i); if (end < 0) end = n;
+        out += span('c', src.slice(i, end)); i = end; continue;
+      }
+      var m = /^([rRbBfFuUtT]{0,2})('''|"""|'|")/.exec(src.slice(i, i + 5));
+      if (m && (m[1] === '' || !/[A-Za-z0-9_]/.test(src[i - 1] || ''))) {
+        var q = m[2], j = i + m[0].length;
+        while (j < n) {
+          if (src[j] === '\\') { j += 2; continue; }
+          if (src.substr(j, q.length) === q) { j += q.length; break; }
+          if (q.length === 1 && src[j] === '\n') break;
+          j++;
+        }
+        out += span('s', src.slice(i, j)); i = j; continue;
+      }
+      if (/[A-Za-z_]/.test(ch)) {
+        var w = /^[A-Za-z_][A-Za-z0-9_]*/.exec(src.slice(i))[0];
+        out += PY_KW_SET[w] ? span('k', w) : esc(w); i += w.length; continue;
+      }
+      if (/[0-9]/.test(ch) && !/[A-Za-z0-9_]/.test(src[i - 1] || '')) {
+        var num = /^(0[xXoObB][0-9a-fA-F_]+|[0-9][0-9_]*(\.[0-9_]*)?([eE][+-]?[0-9]+)?j?)/.exec(src.slice(i))[0];
+        out += span('n', num); i += num.length; continue;
+      }
+      out += esc(ch); i++;
+    }
+    return out;
+  }
+
+  function highlightPycon(src) {
+    return src.split('\n').map(function (line) {
+      if (line === '<BLANKLINE>') return '';      // doctest's marker for an empty output line
+      var m = /^(>>> |\.\.\. |>>>$|\.\.\.$)(.*)$/.exec(line);
+      if (m) return span('p', m[1]) + highlightPython(m[2]);
+      return span('o', line);
+    }).join('\n');
+  }
+
+  var JAVA_MODE = false;
+  function highlightJava(src) { JAVA_MODE = true; try { return highlightJs(src); } finally { JAVA_MODE = false; } }
+  // Comments for properties/YAML (#) and SQL (--); everything else plain.
+  function highlightConf(src, mark) {
+    return src.split('\n').map(function (line) {
+      var t = line.trim();
+      if (t.indexOf(mark) === 0) return span('c', line);
+      var m = /^(\s*[\w.\-\[\]]+)(\s*[=:])(.*)$/.exec(line);
+      if (m && mark === '#') return span('k', m[1]) + esc(m[2]) + span('s', m[3]);
+      return esc(line);
+    }).join('\n');
+  }
+  // A small JavaScript tokenizer: strings, template literals, comments, regex literals, keywords, numbers.
+  function highlightJs(src) {
+    var out = '', i = 0, n = src.length, prevSig = '';
+    while (i < n) {
+      var ch = src[i], two = src.substr(i, 2);
+      if (two === '//') {
+        var end = src.indexOf('\n', i); if (end < 0) end = n;
+        out += span('c', src.slice(i, end)); i = end; continue;
+      }
+      if (two === '/*') {
+        var e2 = src.indexOf('*/', i + 2); e2 = e2 < 0 ? n : e2 + 2;
+        out += span('c', src.slice(i, e2)); i = e2; continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') {
+        var j = i + 1;
+        while (j < n && src[j] !== ch) { if (src[j] === '\\') j++; if (ch !== '`' && src[j] === '\n') break; j++; }
+        j = Math.min(j + 1, n);
+        out += span('s', src.slice(i, j)); i = j; prevSig = 's'; continue;
+      }
+      // a "/" starts a regex literal when it can't be division (never in Java)
+      if (ch === '/' && !JAVA_MODE && (prevSig === '' || /[(,=:[!&|?{};+\-*%<>~^]$/.test(prevSig) || prevSig === 'kw')) {
+        var k = i + 1, inClass = false;
+        while (k < n && src[k] !== '\n') {
+          if (src[k] === '\\') { k += 2; continue; }
+          if (src[k] === '[') inClass = true; else if (src[k] === ']') inClass = false;
+          else if (src[k] === '/' && !inClass) break;
+          k++;
+        }
+        if (src[k] === '/') {
+          k++; while (k < n && /[a-z]/.test(src[k])) k++;
+          out += span('s', src.slice(i, k)); i = k; prevSig = 's'; continue;
+        }
+      }
+      if (ch === '@' && JAVA_MODE && /[A-Za-z]/.test(src[i + 1] || '')) {      // Java annotations
+        var ann = /^@[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i))[0];
+        out += span('n', ann); i += ann.length; prevSig = 'id'; continue;
+      }
+      if (/[A-Za-z_$#]/.test(ch)) {
+        var w = /^[#A-Za-z_$][A-Za-z0-9_$]*/.exec(src.slice(i))[0];
+        var isKw = (JAVA_MODE ? JAVA_KW_SET[w] : JS_KW_SET[w]) && src[i - 1] !== '.';
+        out += isKw ? span('k', w) : esc(w); i += w.length;
+        prevSig = isKw && /^(return|typeof|case|in|of|yield|await|void|delete|new|throw)$/.test(w) ? 'kw' : 'id';
+        continue;
+      }
+      if (/[0-9]/.test(ch) && !/[A-Za-z0-9_$]/.test(src[i - 1] || '')) {
+        var num = /^(0[xXoObB][0-9a-fA-F_]+n?|[0-9][0-9_]*(\.[0-9_]*)?([eE][+-]?[0-9]+)?n?)/.exec(src.slice(i))[0];
+        out += span('n', num); i += num.length; prevSig = 'n'; continue;
+      }
+      if (!/\s/.test(ch)) prevSig = ch;
+      out += esc(ch); i++;
+    }
+    return out;
+  }
+
+  // REPL transcripts: "> " input, "... " continuation, everything else is output
+  function highlightRepl(src) {
+    return src.split('\n').map(function (line) {
+      var m = /^(> |\.\.\. |>$)(.*)$/.exec(line);
+      if (m) return span('p', m[1]) + highlightJs(m[2]);
+      if (/^Uncaught /.test(line)) return '<span class="tok-err">' + esc(line) + '</span>';
+      return span('o', line);
+    }).join('\n');
+  }
+
+  function highlightShell(src) {
+    return src.split('\n').map(function (line) {
+      var m = /^(\$ |PS> )(.*)$/.exec(line);
+      if (/^\s*#/.test(line)) return span('c', line);
+      if (m) {
+        var rest = m[2], c = rest.indexOf(' #');
+        if (c >= 0) return span('p', m[1]) + esc(rest.slice(0, c)) + span('c', rest.slice(c));
+        return span('p', m[1]) + esc(rest);
+      }
+      return span('o', line);
+    }).join('\n');
+  }
+
+  function langOf(node) {
+    var lang = node.getAttribute('data-lang');
+    if (lang) return lang;
+    var file = node.getAttribute('data-file') || '';
+    var ext = file.split('.').pop().toLowerCase();
+    return { py: 'python', pyi: 'python', toml: 'properties', cfg: 'properties', md: 'text', jsonl: 'json', js: 'js', mjs: 'js', java: 'java', kt: 'java', properties: 'properties', yml: 'yaml', yaml: 'yaml', xml: 'xml', sql: 'sql',
+      json: 'json', txt: 'text', sh: 'shell', html: 'html', env: 'properties', log: 'text', http: 'http' }[ext] || 'text';
+  }
+
+  function renderCodeBlocks() {
+    var nodes = document.querySelectorAll('script[type="text/plain"].code');
+    Array.prototype.forEach.call(nodes, function (node) {
+      var code = dedent(node.textContent);
+      var lang = langOf(node);
+      var html;
+      if (lang === 'python') html = highlightPython(code);
+      else if (lang === 'pycon') html = highlightPycon(code);
+      else if (lang === 'java') html = highlightJava(code);
+      else if (lang === 'js' || lang === 'ts') html = highlightJs(code);
+      else if (lang === 'properties' || lang === 'yaml') html = highlightConf(code, '#');
+      else if (lang === 'sql') html = highlightConf(code, '--');
+      else if (lang === 'repl') html = highlightRepl(code);
+      else if (lang === 'shell') html = highlightShell(code);
+      else html = esc(code);
+
+      var wrap = el('div', { 'class': 'codeblock' });
+      var head = el('div', { 'class': 'code-head' });
+      var label = node.getAttribute('data-title') || node.getAttribute('data-file') ||
+        ({ pycon: 'python REPL', python: 'python', repl: 'jshell', shell: 'terminal', text: 'output', js: 'javascript', java: 'java', http: 'HTTP', properties: 'application.properties', yaml: 'application.yml' }[lang] || lang);
+      head.appendChild(el('span', null, label));
+      var btn = el('button', { type: 'button', 'class': 'copy' }, 'Copy');
+      btn.addEventListener('click', function () {
+        // For REPL and terminal blocks, copy only the typed lines (without prompts or output).
+        var text = code;
+        if (lang === 'pycon') {
+          text = code.split('\n').filter(function (l) { return /^(>>>|\.\.\.)/.test(l); })
+            .map(function (l) { return l.replace(/^(>>> ?|\.\.\. ?)/, ''); }).join('\n');
+        } else if (lang === 'repl') {
+          text = code.split('\n').filter(function (l) { return /^(> |\.\.\. |>$)/.test(l); })
+            .map(function (l) { return l.replace(/^(> ?|\.\.\. ?)/, ''); }).join('\n');
+        } else if (lang === 'shell') {
+          text = code.split('\n').filter(function (l) { return /^\$ /.test(l); })
+            .map(function (l) { return l.slice(2); }).join('\n') || code;
+        }
+        var done = function () { btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = 'Copy'; }, 1400); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+        } else { fallbackCopy(text); done(); }
+      });
+      head.appendChild(btn);
+      var pre = el('pre');
+      var c = el('code');
+      c.innerHTML = html;
+      pre.appendChild(c);
+      wrap.appendChild(head);
+      wrap.appendChild(pre);
+      node.parentNode.replaceChild(wrap, node);
+    });
+  }
+
+  function fallbackCopy(text) {
+    var ta = el('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+
+  // ---------- index cards ----------
+  function buildCards() {
+    var box = document.getElementById('cards');
+    if (!box) return;
+    var blurbs = window.BOOK_BLURBS || {};
+    PARTS.forEach(function (p) {
+      box.appendChild(el('h2', null, p.part));
+      var grid = el('div', { 'class': 'cards' });
+      p.chapters.forEach(function (c) {
+        var a = el('a', { href: c[0], 'class': 'card' });
+        var label = !c[2] ? 'Chapter ' + parseInt(c[0], 10) : c[2] === '✓' ? 'Assessment' : c[2] === '▶' ? 'Start here' : c[2] === 'G' ? 'Reference' : 'Appendix ' + c[2];
+        a.appendChild(el('div', { 'class': 'num' }, label));
+        a.appendChild(el('h3', null, c[1]));
+        if (blurbs[c[0]]) a.appendChild(el('p', null, blurbs[c[0]]));
+        grid.appendChild(a);
+      });
+      box.appendChild(grid);
+    });
+  }
+
+  function init() {
+    buildSidebar();
+    buildCards();
+    renderCodeBlocks();
+    buildPager();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

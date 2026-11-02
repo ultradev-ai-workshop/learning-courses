@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏭&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Production Concerns · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Shipping AI Features</div>
+<h1>Production Concerns</h1>
+<p class="lead">Make LLM features behave like the rest of your production estate: bounded latency, graceful degradation, controlled spend, and outputs checked before they reach users.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>A resilience stack for model calls: timeouts, retries, circuit breakers, bulkheads, fallbacks.</li>
+  <li>Prompt caching: how it works, what it saves, and how to structure prompts for it.</li>
+  <li>Response caching, and why semantic caching needs care.</li>
+  <li>Rate limits: how to read the headers and shape your own traffic.</li>
+  <li>The Message Batches API for offline work at half price.</li>
+  <li>Input and output guardrails, and cost controls.</li>
+</ul>
+</div>
+
+<h2 id="resilience">The resilience stack</h2>
+<p>A model API is a remote dependency with variable latency and occasional overload. Treat it like any critical downstream:</p>
+<div class="table-wrap"><table>
+<tr><th>Layer</th><th>Purpose</th><th>Notes for LLM calls</th></tr>
+<tr><td>Timeouts</td><td>bound the wait</td><td>long generations need long timeouts; stream instead of raising them forever</td></tr>
+<tr><td>Retries with backoff and jitter</td><td>ride out transient errors</td><td>429, 5xx, 529, connection errors; honour <code>retry-after</code> (<a href="03-api.html">Chapter 3</a>)</td></tr>
+<tr><td>Circuit breaker</td><td>stop hammering a failing dependency</td><td>open on sustained 5xx/529 or timeouts; probe again after a cool-down</td></tr>
+<tr><td>Fallback</td><td>degrade instead of failing</td><td>another model, another platform, or a non-LLM path</td></tr>
+<tr><td>Bulkhead</td><td>protect the rest of the service</td><td>cap in-flight model calls per feature</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a restaurant kitchen on a busy night.</strong> If the grill breaks, a good kitchen doesn't stop serving: it offers the pasta (a fallback model), stops sending orders to the grill for a while (the breaker), limits how many orders the grill station takes at once (the bulkhead), and, if everything fails, hands out bread and an apology (the non-LLM path: links to the top documents).</p>
+</div>
+<p>A circuit breaker and an ordered fallback chain fit in a few dozen lines. The clock is a parameter so the tests don't wait:</p>
+<script type="text/plain" class="code" data-file="resilient.py" data-save>
+import threading
+import time
+import anthropic
+
+
+class CircuitBreaker:
+    """closed -> (failures >= threshold) -> open -> (after cooldown) -> half-open -> one probe."""
+
+    def __init__(self, threshold=3, cooldown=30.0, clock=time.monotonic):
+        self.threshold, self.cooldown, self.clock = threshold, cooldown, clock
+        self.failures, self.opened_at = 0, None
+
+    @property
+    def state(self):
+        if self.opened_at is None:
+            return "closed"
+        return "half-open" if self.clock() - self.opened_at >= self.cooldown else "open"
+
+    def allow(self):
+        return self.state != "open"
+
+    def success(self):
+        self.failures, self.opened_at = 0, None
+
+    def failure(self):
+        self.failures += 1
+        if self.failures >= self.threshold or self.state == "half-open":
+            self.opened_at = self.clock()
+
+
+class Unavailable(Exception):
+    pass
+
+
+class ResilientClaude:
+    def __init__(self, client, chain=("claude-sonnet-5-5", "claude-haiku-5-5"), max_in_flight=32, clock=time.monotonic):
+        self.client, self.chain = client, list(chain)
+        self.breakers = {m: CircuitBreaker(clock=clock) for m in self.chain}
+        self.bulkhead = threading.BoundedSemaphore(max_in_flight)
+
+    def create(self, **params):
+        if not self.bulkhead.acquire(timeout=2):
+            raise Unavailable("too many concurrent LLM calls")
+        try:
+            last = None
+            for model in self.chain:
+                if not self.breakers[model].allow():
+                    continue
+                try:
+                    msg = self.client.messages.create(**{**params, "model": model})
+                    self.breakers[model].success()
+                    return msg                                    # msg.model says who answered
+                except anthropic.APIStatusError as e:
+                    if e.status_code < 500 and e.status_code != 429:
+                        raise                                         # client errors: no fallback
+                    self.breakers[model].failure()
+                    last = e
+                except anthropic.APIConnectionError as e:
+                    self.breakers[model].failure()
+                    last = e
+            raise Unavailable("all models unavailable") from last   # the caller serves the non-LLM path
+        finally:
+            self.bulkhead.release()
+</script>
+<p>Test it against a mock server that fails every request with 529 for a while. The SDK's own retries are turned off (<code>max_retries=0</code>) so you can see the breaker and the fallback work:</p>
+<script type="text/plain" class="code" data-file="resilient_demo.py">
+import anthropic
+from llmkit import mock_api
+from resilient import ResilientClaude, Unavailable
+
+now = [0.0]
+with mock_api(fail_first=6, fail_status=529) as url:
+    client = anthropic.Anthropic(base_url=url, api_key="test", max_retries=0)
+    llm = ResilientClaude(client, clock=lambda: now[0])
+    ask = dict(max_tokens=100, messages=[{"role": "user", "content": "How do I roll back?"}])
+    for i in range(4):
+        try:
+            msg = llm.create(**ask)
+            print(i, "answered by", msg.model)
+        except Unavailable as e:
+            print(i, e)
+        print("   breakers:", {m: b.state for m, b in llm.breakers.items()})
+    now[0] += 31                                               # the cool-down passes
+    print("after cool-down:", llm.create(**ask).model, "| requests:", len(url.requests))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 all models unavailable
+   breakers: {'claude-sonnet-5-5': 'closed', 'claude-haiku-5-5': 'closed'}
+1 all models unavailable
+   breakers: {'claude-sonnet-5-5': 'closed', 'claude-haiku-5-5': 'closed'}
+2 all models unavailable
+   breakers: {'claude-sonnet-5-5': 'open', 'claude-haiku-5-5': 'open'}
+3 all models unavailable
+   breakers: {'claude-sonnet-5-5': 'open', 'claude-haiku-5-5': 'open'}
+after cool-down: claude-sonnet-5-5 | requests: 7
+</script>
+<p>Calls 0–2 try both models; the third failure opens each breaker. Call 3 fails fast: both breakers are open, so no request is sent at all, which protects a struggling provider and your own threads. After the cool-down a half-open probe succeeds and closes the breaker: seven requests in total, six failures and the probe.</p>
+<div class="pitfall">
+<p><strong>Silent quality drops.</strong> A fallback model may be measurably worse at your task. Record which model actually answered (<code>msg.model</code>) on every response, include the fallback models in your evals, and alert when the fallback rate rises.</p>
+</div>
+<div class="note">
+<p><strong>Server-side fallbacks.</strong> For a different failure, a request the model <em>declines</em> (<code>stop_reason == "refusal"</code>), the Claude API can retry on a fallback model inside the same call: the <code>fallbacks</code> parameter on the beta Messages endpoint. It complements your own fallback chain, which handles outages. Check the refusals page for the current form of the parameter.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> Resilience4j gives you <code>CircuitBreaker</code>, <code>Bulkhead</code>, <code>Retry</code> and <code>TimeLimiter</code> as decorators around the call. Keep retries inside the HTTP client and wrap each model in its own breaker, exactly as above.</p>
+</div>
+
+<h2 id="caching">Prompt caching</h2>
+<p>Many requests share a large, identical prefix: tool definitions, a long system prompt, a big document. <strong>Prompt caching</strong> lets the API reuse the processed prefix across requests. Cache reads are billed at a small fraction of the normal input price and are faster.</p>
+<ul>
+  <li>Mark the end of a reusable prefix with <code>"cache_control": {"type": "ephemeral"}</code> on a content block (the last tool, a system block, a document), or set <code>cache_control</code> at the top level to cache automatically up to the last block.</li>
+  <li>The cache key is the exact prefix, in order: <strong>tools → system → messages</strong>. Any byte change before the breakpoint is a miss.</li>
+  <li>The first request <strong>writes</strong> the cache (priced a little above normal input); later requests within the TTL <strong>read</strong> it (priced far below). The default TTL is 5 minutes, refreshed on each hit; a 1-hour TTL costs more to write.</li>
+  <li>There's a minimum cacheable prefix length, which varies by model; shorter prefixes silently don't cache.</li>
+  <li><code>usage</code> reports <code>cache_creation_input_tokens</code> and <code>cache_read_input_tokens</code>. Track both.</li>
+</ul>
+<script type="text/plain" class="code" data-file="prompt_cache.py">
+import anthropic
+
+client = anthropic.Anthropic()
+RULES = "You are DocsPilot. " + "Answer only from the provided documents and cite them. " * 120   # a long, stable prompt
+
+def ask(question):
+    msg = client.messages.create(
+        model="claude-sonnet-5-5", max_tokens=500,
+        system=[{"type": "text", "text": RULES, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": question}])         # variable content AFTER the breakpoint
+    u = msg.usage
+    print(f"write={u.cache_creation_input_tokens:5}  read={u.cache_read_input_tokens:5}  uncached={u.input_tokens}")
+
+ask("How do I roll back?")
+ask("Who approves a SEV1 postmortem?")
+ask("What is the VPN for?")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: real token counts differ)">
+write= 1582  read=    0  uncached=44
+write=    0  read= 1582  uncached=48
+write=    0  read= 1582  uncached=44
+</script>
+<p>What does it save? With reads at 0.1× and 5-minute writes at 1.25× the input price (check the <a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">prompt caching</a> page for current multipliers):</p>
+<script type="text/plain" class="code" data-file="cache_savings.py">
+def input_cost(prefix, variable, requests, price, cached):
+    if not cached:
+        return requests * (prefix + variable) * price / 1e6
+    write = prefix * 1.25 + variable
+    reads = (requests - 1) * (prefix * 0.10 + variable)
+    return (write + reads) * price / 1e6
+
+for requests in (1, 10, 1000):
+    plain = input_cost(6000, 200, requests, 2.00, cached=False)
+    cached = input_cost(6000, 200, requests, 2.00, cached=True)
+    print(f"{requests:5} requests: ${plain:8.3f} -> ${cached:7.3f}  ({cached / plain - 1:+.0%})")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+   1 requests: $   0.012 -> $  0.015  (+24%)
+  10 requests: $   0.124 -> $  0.030  (-76%)
+1000 requests: $  12.400 -> $  1.614  (-87%)
+</script>
+<p>One request costs slightly more (the write premium); from the second request on, the stable prefix costs a tenth. Caching pays off as soon as the same prefix is reused within the TTL.</p>
+<div class="tip">
+<p><strong>Design prompts for caching.</strong> Stable content first, variable content last: tools, then the system prompt, then long shared documents, then the user's question. Keep tool lists in a fixed order and serialize JSON with sorted keys. Never interpolate timestamps, request IDs or user names into the system prompt: one changing character invalidates everything after it.</p>
+</div>
+<script type="text/plain" class="code" data-file="cache_miss.py">
+import datetime
+import anthropic
+
+client = anthropic.Anthropic()
+RULES = "You are DocsPilot. " + "Answer only from the provided documents and cite them. " * 120
+
+def ask(question, t):
+    system = f"Current time: {t.isoformat()}\n{RULES}"                 # the bug
+    msg = client.messages.create(
+        model="claude-sonnet-5-5", max_tokens=500,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": question}])
+    return msg.usage.cache_read_input_tokens
+
+t0 = datetime.datetime(2026, 11, 1, 9, 0, 0)
+print([ask("q", t0 + datetime.timedelta(seconds=s)) for s in range(3)])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[0, 0, 0]
+</script>
+<p>Three writes, zero reads. Put the date (to day precision) in the user turn instead.</p>
+
+<h2 id="response-cache">Response caching</h2>
+<p>Caching complete answers is a separate, application-level decision:</p>
+<ul>
+  <li><strong>Exact-match caching</strong> (a hash of model, prompt version, normalized input and retrieved chunk IDs) is safe and simple for classification-style features.</li>
+  <li><strong>Semantic caching</strong> (return a stored answer when a new question is <em>similar</em>) saves money but can return the wrong answer to a different question. Use it only with a high threshold, narrow scope and evals.</li>
+  <li>Invalidate when source documents change: include document versions in the key.</li>
+</ul>
+<script type="text/plain" class="code" data-file="semantic_cache.py">
+from llmkit import embed, cosine
+
+questions = ["How do I rotate the staging database password?",
+             "How do I rotate the production database password?"]
+print(f"similarity {cosine(embed(questions[0]), embed(questions[1])):.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+similarity 0.74
+</script>
+<p>A high similarity (a real embedding model scores pairs like this above 0.9) for questions with different answers: production rotation needs a change ticket. A semantic cache with a threshold loose enough to catch real paraphrases would serve the staging steps to someone working on production. That's why the safe default is exact match.</p>
+
+<h2 id="ratelimits">Rate limits</h2>
+<p>The API enforces limits per organization and model, in <strong>requests per minute</strong> and <strong>input and output tokens per minute</strong>, with tiers that rise with usage. Responses carry <code>anthropic-ratelimit-*</code> headers with your remaining capacity, and a 429 carries <code>retry-after</code>. Read the headers through <code>with_raw_response</code>:</p>
+<script type="text/plain" class="code" data-file="ratelimit_headers.py">
+import anthropic
+
+client = anthropic.Anthropic()
+raw = client.messages.with_raw_response.create(
+    model="claude-haiku-5-5", max_tokens=50, messages=[{"role": "user", "content": "ping"}])
+limit = int(raw.headers["anthropic-ratelimit-requests-limit"])
+remaining = int(raw.headers["anthropic-ratelimit-requests-remaining"])
+print("limit", limit, "| remaining within limit:", 0 <= remaining <= limit)
+print("reset at", raw.headers["anthropic-ratelimit-requests-reset"])
+msg = raw.parse()                                   # the usual Message object
+print(msg.stop_reason)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+limit 50 | remaining within limit: True
+reset at 2026-11-01T12:01:00Z
+end_turn
+</script>
+<p>Shape traffic on your side rather than discovering limits through 429s:</p>
+<ul>
+  <li>A <strong>client-side token bucket</strong> per model, sized below your limit (shared through Redis if you run many instances).</li>
+  <li><strong>Priority</strong>: interactive requests first; background jobs (re-indexing, contextualization) get the leftover capacity.</li>
+  <li><strong>Move offline work to batches.</strong></li>
+</ul>
+<script type="text/plain" class="code" data-file="token_bucket.py">
+class TokenBucket:
+    """Allows `rate` units per second on average, with bursts up to `capacity`."""
+
+    def __init__(self, rate, capacity, clock):
+        self.rate, self.capacity, self.clock = rate, capacity, clock
+        self.tokens, self.updated = capacity, clock()
+
+    def take(self, n=1):
+        now = self.clock()
+        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)
+        self.updated = now
+        if self.tokens >= n:
+            self.tokens -= n
+            return True
+        return False
+
+t = [0.0]
+bucket = TokenBucket(rate=10_000 / 60, capacity=2_000, clock=lambda: t[0])   # 10k input tokens per minute
+sizes = [800, 800, 800, 800]
+print([bucket.take(n) for n in sizes])         # a burst: the third request must wait
+t[0] += 6                                       # 6 seconds later, 1,000 tokens have refilled
+print(bucket.take(800))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[True, True, False, False]
+True
+</script>
+
+<h2 id="batches">The Message Batches API</h2>
+<p>For work nobody is waiting on (nightly ticket classification, re-contextualizing chunks, large eval runs), submit requests as a <strong>batch</strong>. Batches run asynchronously, usually well within 24 hours, at <strong>50% of the normal price</strong>, with separate rate limits. Results arrive in any order: key them by <code>custom_id</code>, never by position.</p>
+<script type="text/plain" class="code" data-file="batch_classify.py">
+import time
+import anthropic
+from llmkit import TICKETS
+
+client = anthropic.Anthropic()
+batch = client.messages.batches.create(requests=[
+    {"custom_id": key, "params": {
+        "model": "claude-haiku-5-5", "max_tokens": 300,
+        "system": "Classify the ticket: billing, auth, orders_api, data_export or other.",
+        "messages": [{"role": "user", "content": f"<ticket>{t['title']}</ticket>"}]}}
+    for key, t in TICKETS.items()
+] + [{"custom_id": "broken", "params": {"model": "claude-haiku-9", "max_tokens": 10,
+                                         "messages": [{"role": "user", "content": "x"}]}}])
+print(batch.id.startswith("msgbatch_"), batch.processing_status)
+
+while (batch := client.messages.batches.retrieve(batch.id)).processing_status != "ended":
+    time.sleep(0.1)                                  # in real life: a scheduled job checks every few minutes
+print(batch.request_counts.succeeded, "succeeded,", batch.request_counts.errored, "errored")
+
+for result in client.messages.batches.results(batch.id):
+    if result.result.type == "succeeded":
+        print(result.custom_id, "->", result.result.message.content[0].text[:40])
+    else:
+        print(result.custom_id, "->", result.result.type)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+True in_progress
+3 succeeded, 1 errored
+OPS-101 -> (mock reply) You said: <ticket>Checkout 
+OPS-102 -> (mock reply) You said: <ticket>Nightly e
+OPS-103 -> (mock reply) You said: <ticket>Login pag
+broken -> errored
+</script>
+
+<h2 id="guardrails">Guardrails</h2>
+<p>Guardrails are checks around the model call, in code.</p>
+<div class="table-wrap"><table>
+<tr><th>Input guardrails</th><th>Output guardrails</th></tr>
+<tr><td>size limits (characters and counted tokens) per field and per request</td><td>schema and business validation (<a href="04-structured.html">Chapter 4</a>)</td></tr>
+<tr><td>detect and redact secrets and personal data before they reach the model</td><td>citation and identifier validation: every cited doc was sent, every ticket key exists</td></tr>
+<tr><td>scope check: a cheap classifier routes off-topic or abusive requests away</td><td>redaction of secrets and personal data with deterministic patterns</td></tr>
+<tr><td>rate limits per user</td><td>policy checks for high-risk features, with a safe fallback message</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="guardrails.py" data-save>
+import re
+from llmkit import count_tokens, TICKETS
+
+PATTERNS = {
+    "api_key": re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    "aws_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "email": re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"),
+    "card": re.compile(r"\b(?:\d[ -]?){13,16}\b"),
+}
+
+
+def redact(text):
+    found = []
+    for name, pat in PATTERNS.items():
+        if pat.search(text):
+            found.append(name)
+            text = pat.sub(f"[{name.upper()}]", text)
+    return text, found
+
+
+def check_input(question, max_tokens=2000):
+    if count_tokens(question) > max_tokens:
+        raise ValueError(f"question too long ({count_tokens(question)} tokens)")
+    return redact(question)
+
+
+def check_output(answer):
+    answer, found = redact(answer)
+    unknown = [k for k in re.findall(r"\bOPS-\d+\b", answer) if k not in TICKETS]
+    for k in unknown:
+        answer = answer.replace(k, f"{k} (unverified)")
+    return answer, found, unknown
+</script>
+<script type="text/plain" class="code" data-file="guardrails_demo.py">
+from guardrails import check_input, check_output
+
+q, found = check_input("My key sk-ant-api03-abcdefghijklmnopqrst fails, mail me at asha@acme.dev")
+print(q, found)
+a, found, unknown = check_output("See OPS-101 and OPS-555. Contact priya@acme.dev.")
+print(a, found, unknown)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+My key [API_KEY] fails, mail me at [EMAIL] ['api_key', 'email']
+See OPS-101 and OPS-555 (unverified). Contact [EMAIL]. ['email'] ['OPS-555']
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> guardrails are input validation and output encoding for a component that can produce surprising output. You validate every request and encode every response even though most traffic is benign; this is the same discipline, and it's cheap compared with the incident it prevents.</p>
+</div>
+
+<h2 id="cost">Cost controls</h2>
+<ul>
+  <li>Set <code>max_tokens</code> per feature to what the output really needs (and remember you pay only for what's generated).</li>
+  <li>Route by difficulty (<a href="08-agents.html">Chapter 8</a>); use the smallest model, and the lowest <code>effort</code>, that passes your evals.</li>
+  <li>Cache prefixes; batch offline work.</li>
+  <li>Enforce budgets per tenant and per agent run in code, and alert on spend rate.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>An exact-match response cache</h3>
+<p>The key includes everything that changes the answer: model, prompt version, normalized input and the versions of the documents used.</p>
+<script type="text/plain" class="code" data-file="response_cache.py">
+import hashlib, json
+from llmkit import FakeAnthropic
+
+CACHE = {}
+client = FakeAnthropic(replies=['{"label": "bug"}', '{"label": "question"}'])
+
+def classify(text, prompt_id="triage@v1", model="claude-haiku-5-5", doc_versions=()):
+    norm = " ".join(text.lower().split())
+    key = hashlib.sha256(json.dumps([model, prompt_id, norm, sorted(doc_versions)]).encode()).hexdigest()
+    if key not in CACHE:
+        CACHE[key] = client.messages.create(model=model, max_tokens=50,
+                                            messages=[{"role": "user", "content": norm}]).content[0].text
+    return CACHE[key]
+
+print(classify("App crashes on save"), classify("  app CRASHES on save "), classify("How do I export?"))
+print("model calls:", len(client.calls))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{"label": "bug"} {"label": "bug"} {"label": "question"}
+model calls: 2
+</script>
+
+<h3>Degrading to a non-LLM answer</h3>
+<p>When every model is unavailable, DocsPilot can still help: show the top retrieved sections as links.</p>
+<script type="text/plain" class="code" data-file="degrade.py">
+from retrievers import default_index
+from resilient import Unavailable
+
+index = default_index()
+by_id = {c.id: c for c in index.chunks}
+
+def answer_or_links(question, llm_answer):
+    try:
+        return llm_answer(question)
+    except Unavailable:
+        links = [by_id[i].path for i in index.hybrid(question, 3)]
+        return "The assistant is unavailable right now. These sections may help:\n- " + "\n- ".join(links)
+
+def down(q):
+    raise Unavailable("all models unavailable")
+
+print(answer_or_links("how do I fail over the orders database", down))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+The assistant is unavailable right now. These sections may help:
+- Runbook: database failover › When to fail over
+- ADR-007: Use PostgreSQL for the orders service › Consequences
+- ADR-007: Use PostgreSQL for the orders service › Context
+</script>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>A timestamp in the system prompt</strong>: <code>"Current time: 2026-10-31T09:14:07Z"</code> at the top of a cached prompt.</p></div>
+<div class="good"><p><strong>Variable data last</strong>: the date, to day precision, in the user turn after the breakpoint.</p></div>
+<div class="bad"><p><strong>A fallback nobody evaluated</strong>: switching to a smaller model that was never tested on this task.</p></div>
+<div class="good"><p><strong>Evaluated fallbacks</strong>: every model in the chain passes the eval suite at an agreed threshold.</p></div>
+<div class="bad"><p><strong>Background jobs at interactive priority</strong>: re-indexing competes with users for rate limits.</p></div>
+<div class="good"><p><strong>Batches and priorities</strong>: the Batches API for offline work, priority and per-model buckets for the rest.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Wrap model calls in timeouts, retries, breakers, bulkheads and evaluated fallbacks; record which model answered.</li>
+  <li>Prompt caching rewards stable prefixes (tools → system → documents → question); check <code>cache_read_input_tokens</code>.</li>
+  <li>Response caching is safe for exact matches; semantic caching needs strict scoping and evals.</li>
+  <li>Read the rate-limit headers and shape traffic with token buckets and priorities.</li>
+  <li>Batches: half price, asynchronous, results keyed by <code>custom_id</code>.</li>
+  <li>Guardrails in code on the way in and out; budgets and alerts for cost.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">order</span></h3>
+<p>Put these parts of a request in the best order for prompt caching: the user's question, tool definitions, retrieved documents, the system prompt.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Tools → system prompt → retrieved documents → question. The API's prefix order is tools, system, messages; within the messages, stable shared content goes before the question.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why is <code>max_retries=0</code> set in the circuit-breaker demo? Would you do that in production?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>To make each failure visible to the breaker in the demo. In production keep a small number of SDK retries (they absorb blips) and let the breaker see the call's final outcome; just make sure the total time of retries fits your timeout budget.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Batch or interactive? (a) re-classify 200,000 old tickets, (b) the DocsPilot answer in Slack, (c) nightly eval run, (d) contextualizing chunks after a docs import.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Batch. (b) Interactive (someone is waiting). (c) Batch, unless it blocks a merge and must finish fast. (d) Batch.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>Cache reads stay at zero although every request has the same system prompt. The tools are built like this. What's wrong?</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+tools = [tool_defs[name] for name in set(enabled_tools)]
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Iterating a <code>set</code> doesn't guarantee a stable order, so the tool list (which comes first in the prefix) can change between requests and processes. Use <code>sorted(enabled_tools)</code>, or a fixed list.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Test the breaker alone: after 3 failures it opens, after the cool-down it's half-open, and one more failure re-opens it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from resilient import CircuitBreaker
+
+t = [0.0]
+b = CircuitBreaker(threshold=3, cooldown=30, clock=lambda: t[0])
+for _ in range(3):
+    b.failure()
+print(b.state, b.allow())
+t[0] = 31
+print(b.state, b.allow())
+b.failure()
+print(b.state)
+t[0] = 62
+b.success()
+print(b.state)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+open False
+half-open True
+open
+closed
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">calculate</span></h3>
+<p>DocsPilot sends 6,000 tokens of tools and rules plus 1,500 tokens of documents and question per request, 40,000 requests a month on Sonnet ($2 per million input). Estimate the monthly input cost with and without caching the 6,000-token prefix, assuming one write per 100 requests.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+requests, prefix, rest, price = 40_000, 6_000, 1_500, 2.00
+plain = requests * (prefix + rest) * price / 1e6
+writes = requests / 100
+cached = (writes * prefix * 1.25 + (requests - writes) * prefix * 0.10 + requests * rest) * price / 1e6
+print(f"${plain:,.2f} -> ${cached:,.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+$600.00 -> $173.52
+</script>
+<p>About a 70% cut in input cost. The write rate depends on traffic: with steady traffic the cache rarely expires.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a <code>phone</code> pattern to the guardrails (international format such as <code>+44 20 7946 0958</code>) and test it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+import guardrails
+
+guardrails.PATTERNS["phone"] = re.compile(r"\+\d{1,3}(?:[ -]?\d{2,4}){2,4}")
+print(guardrails.redact("Call me on +44 20 7946 0958 after 5."))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('Call me on [PHONE] after 5.', ['phone'])
+</script>
+<p>Patterns catch structured data reliably; names and free-text personal data need a classifier or a dedicated PII service.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Use the batch results to build a dict <code>{ticket_key: label}</code>, and prove it doesn't depend on result order by shuffling the results first.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import random
+import anthropic
+from llmkit import TICKETS
+
+client = anthropic.Anthropic()
+batch = client.messages.batches.create(requests=[
+    {"custom_id": k, "params": {"model": "claude-haiku-5-5", "max_tokens": 50,
+                                "messages": [{"role": "user", "content": t["title"]}]}} for k, t in TICKETS.items()])
+while (batch := client.messages.batches.retrieve(batch.id)).processing_status != "ended":
+    pass
+results = list(client.messages.batches.results(batch.id))
+random.shuffle(results)
+labels = {r.custom_id: r.result.message.content[0].text for r in results if r.result.type == "succeeded"}
+print(sorted(labels))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['OPS-101', 'OPS-102', 'OPS-103']
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Give the token bucket a <code>wait_time(n)</code> method (seconds until <code>n</code> tokens are available) and a priority rule: background jobs may only take tokens while more than half the capacity is left.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+class PriorityBucket:
+    def __init__(self, rate, capacity, clock):
+        self.rate, self.capacity, self.clock = rate, capacity, clock
+        self.tokens, self.updated = capacity, clock()
+
+    def _refill(self):
+        now = self.clock()
+        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)
+        self.updated = now
+
+    def take(self, n, background=False):
+        self._refill()
+        reserve = self.capacity / 2 if background else 0
+        if self.tokens - n >= reserve:
+            self.tokens -= n
+            return True
+        return False
+
+    def wait_time(self, n):
+        self._refill()
+        return max(0.0, (n - self.tokens) / self.rate)
+
+t = [0.0]
+b = PriorityBucket(rate=100, capacity=1000, clock=lambda: t[0])
+print(b.take(400, background=True), b.take(400, background=True), b.take(400))
+print(round(b.wait_time(500), 1))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+True False True
+3.0
+</script>
+<p>Background work can never drain the bucket below half, so interactive requests always find capacity.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write the runbook entry "LLM provider degraded" for DocsPilot: signals, automatic behaviour, manual steps, and how you know it's over.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><strong>Signals</strong>: rising 529/5xx rate and latency on <code>anthropic.messages.create</code> spans; fallback rate above 5%; breaker-open events.</li>
+  <li><strong>Automatic</strong>: SDK retries, per-model breakers, fallback to the evaluated smaller model, then the "links only" answer; batch jobs pause.</li>
+  <li><strong>Manual</strong>: check the provider status page; if prolonged, switch the chain's primary by config flag; post in the incident channel; consider routing through another platform (for example a cloud provider's Claude endpoint) if pre-approved.</li>
+  <li><strong>Over</strong>: breakers closed for 15 minutes, error rate back to baseline, fallback rate under 1%; resume batch jobs; note the incident in the eval log (answers given by the fallback may need review).</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Prompt caching</a>: breakpoints, TTLs, minimum lengths, pricing.</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/batch-processing">Batch processing</a> (Message Batches API).</li>
+  <li><a href="https://platform.claude.com/docs/en/api/rate-limits">Rate limits</a>: tiers and headers.</li>
+  <li><a href="https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-latency">Reduce latency</a> and the other guardrail guides.</li>
+  <li><a href="https://resilience4j.readme.io/">Resilience4j</a> (Java) for breakers, bulkheads and retries.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

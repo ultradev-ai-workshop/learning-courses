@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗺️&lt;/text&gt;&lt;/svg&gt;">
+<title>F. The Framework Landscape · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix F · Popular Frameworks</div>
+<h1>The Framework Landscape</h1>
+<p class="lead">A map of the other frameworks you'll hear about (Spring AI, LangChain4j, Semantic Kernel, CrewAI, AutoGen, Haystack, agent SDKs from the model providers) and a method for choosing between them, or choosing none.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What each popular framework is for, in one paragraph.</li>
+  <li>The Java options: Spring AI and LangChain4j, with the same examples as the Python chapters.</li>
+  <li>Multi-agent frameworks (CrewAI, AutoGen) and when "many agents" is worth it.</li>
+  <li>Provider agent SDKs versus general frameworks.</li>
+  <li>A decision method based on your requirements and your evals, not on popularity.</li>
+</ul>
+</div>
+
+<h2 id="map">The map</h2>
+<div class="table-wrap"><table>
+<tr><th>Framework</th><th>Language</th><th>Centre of gravity</th><th>Covered</th></tr>
+<tr><td>LangChain</td><td>Python, JS</td><td>one interface for many providers; composable building blocks</td><td><a href="appendix-langchain.html">Appendix A</a></td></tr>
+<tr><td>LangGraph</td><td>Python, JS</td><td>stateful agent graphs with checkpoints and interrupts</td><td><a href="appendix-langgraph.html">Appendix B</a></td></tr>
+<tr><td>LlamaIndex</td><td>Python, TS</td><td>data ingestion, indexing and RAG</td><td><a href="appendix-llamaindex.html">Appendix C</a></td></tr>
+<tr><td>Pydantic AI</td><td>Python</td><td>typed agents, dependency injection, testability</td><td><a href="appendix-pydanticai.html">Appendix D</a></td></tr>
+<tr><td>DSPy</td><td>Python</td><td>declarative programs optimized against a metric</td><td><a href="appendix-dspy.html">Appendix E</a></td></tr>
+<tr><td><strong>Spring AI</strong></td><td>Java</td><td>Spring Boot-native <code>ChatClient</code>, advisors, vector stores, MCP</td><td>below</td></tr>
+<tr><td><strong>LangChain4j</strong></td><td>Java</td><td>AI Services (interfaces implemented by a model), tools, RAG</td><td>below</td></tr>
+<tr><td>Semantic Kernel</td><td>C#, Python, Java</td><td>Microsoft's SDK: plugins (functions), planners, agents</td><td>below</td></tr>
+<tr><td>CrewAI</td><td>Python</td><td>teams of role-playing agents with tasks</td><td>below</td></tr>
+<tr><td>AutoGen / AG2</td><td>Python, .NET</td><td>multi-agent conversations</td><td>below</td></tr>
+<tr><td>Haystack</td><td>Python</td><td>production search and RAG pipelines</td><td>below</td></tr>
+<tr><td>Provider agent SDKs</td><td>various</td><td>a provider's own agent harness (for example the Claude Agent SDK)</td><td>below</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: web frameworks, again.</strong> You can serve HTTP with the standard library, a micro-framework or a full framework. None is "the best"; each fits a team and a problem. LLM frameworks are at the same stage web frameworks were around 2008: many options, fast change, and the underlying protocol (here, the Messages API) matters more than any of them.</p>
+</div>
+
+<h2 id="java">Java: Spring AI</h2>
+<p><strong>Spring AI</strong> brings LLMs into Spring Boot the Spring way: auto-configured clients from properties, a fluent <code>ChatClient</code>, structured output into records, <code>@Tool</code> methods, <em>advisors</em> (interceptors for memory, RAG and logging), a <code>VectorStore</code> abstraction (pgvector, and many more) and MCP client and server starters.</p>
+<script type="text/plain" class="code" data-file="DocsController.java" data-norun>
+@RestController
+class DocsController {
+    private final ChatClient chat;
+
+    DocsController(ChatClient.Builder builder) {          // auto-configured from spring.ai.anthropic.* properties
+        this.chat = builder.defaultSystem("You are DocsPilot. Answer only from the provided documents.").build();
+    }
+
+    record Triage(String category, String severity) {}
+
+    @PostMapping("/triage")
+    Triage triage(@RequestBody String ticket) {
+        return chat.prompt().user(ticket).call().entity(Triage.class);   // structured output into a record
+    }
+
+    @GetMapping("/ask")
+    String ask(@RequestParam String q) {
+        return chat.prompt().user(q).tools(new OnCallTools()).call().content();
+    }
+}
+
+class OnCallTools {
+    @Tool(description = "Returns who is on call right now for a team such as payments or web")
+    String getOncall(String team) { return pager.currentPrimary(team); }
+}
+</script>
+<p>Everything from this book still applies: check how a framework maps structured output and tool choice onto the newest models (forced tool calls aren't accepted by <code>claude-opus-5-5</code> and <code>claude-sonnet-5-5</code>), and run your evals against the Spring service exactly as against the Python one.</p>
+
+<h2 id="lc4j">Java: LangChain4j</h2>
+<p><strong>LangChain4j</strong> is framework-agnostic Java (it also has Spring Boot and Quarkus integrations). Its signature feature is <strong>AI Services</strong>: declare an interface, and LangChain4j implements it with a model, memory, tools and retrieval:</p>
+<script type="text/plain" class="code" data-file="Assistant.java" data-norun>
+interface DocsAssistant {
+    @SystemMessage("You are DocsPilot. Answer only from the provided documents.")
+    String answer(@UserMessage String question);
+
+    Triage triage(String ticket);                          // returns a parsed record
+}
+
+ChatModel model = AnthropicChatModel.builder()
+        .apiKey(System.getenv("ANTHROPIC_API_KEY"))
+        .modelName("claude-sonnet-5-5")
+        .build();
+
+DocsAssistant assistant = AiServices.builder(DocsAssistant.class)
+        .chatModel(model)
+        .tools(new OnCallTools())                          // methods annotated with @Tool
+        .build();
+
+String reply = assistant.answer("How do I roll back a deploy?");
+</script>
+<div class="java">
+<p>☕ <strong>Which one?</strong> Already on Spring Boot and want auto-configuration, actuator metrics and familiar idioms: Spring AI. Want a library that works the same in Quarkus, Micronaut or plain Java, or like the AI Services style: LangChain4j. Either way, keep the provider behind your own interface (<a href="14-next.html">Chapter 14</a>) so the choice stays reversible.</p>
+</div>
+
+<h2 id="sk">Semantic Kernel</h2>
+<p>Microsoft's open-source SDK for C#, Python and Java. Functions are grouped into <strong>plugins</strong> that the model can call; it has connectors for many models (including Claude), memory and vector stores, and an agent framework. A natural choice in .NET shops and Azure-centred estates.</p>
+
+<h2 id="multi">Multi-agent frameworks: CrewAI and AutoGen</h2>
+<p>These frameworks organize work as several agents that talk to each other: a "researcher", a "writer", a "reviewer". <strong>CrewAI</strong> models a crew of agents with roles, goals and tasks:</p>
+<script type="text/plain" class="code" data-file="crew_example.py" data-norun>
+from crewai import Agent, Task, Crew
+
+researcher = Agent(role="Incident researcher", goal="Collect facts about the incident",
+                   backstory="An SRE who reads logs and runbooks carefully.")
+writer = Agent(role="Postmortem writer", goal="Write a clear, blameless summary",
+               backstory="A staff engineer who writes for managers.")
+facts = Task(description="Gather the timeline of INC-42 from the provided notes.",
+             expected_output="A bullet timeline", agent=researcher)
+summary = Task(description="Write a 150-word postmortem summary.",
+               expected_output="Markdown", agent=writer)
+print(Crew(agents=[researcher, writer], tasks=[facts, summary]).kickoff())
+</script>
+<p><strong>AutoGen</strong> (and its community fork AG2) models agents as participants in a conversation, with patterns like group chats and a user proxy that runs code.</p>
+<div class="pitfall">
+<p><strong>More agents, more cost and more failure modes.</strong> Every agent turn is a model call, and agents can loop, agree with each other's mistakes, or lose the thread. Anthropic's guidance (<a href="08-agents.html">Chapter 8</a>) applies: start with a single call or a workflow; split into several agents only when the parts are genuinely independent (parallel research, per-file work) and your evals show it helps.</p>
+</div>
+<p>You can measure the cost side before you build anything. Each agent turn resends its context:</p>
+<script type="text/plain" class="code" data-file="multi_agent_cost.py">
+from llmkit import cost
+
+def run_cost(agents, turns_each, context_tokens, output_tokens, model="claude-sonnet-5-5"):
+    calls = agents * turns_each
+    return calls, calls * cost(model, context_tokens, output_tokens)
+
+for name, agents, turns in [("single agent", 1, 6), ("3-agent crew", 3, 4), ("5-agent group chat", 5, 6)]:
+    calls, usd = run_cost(agents, turns, context_tokens=8_000, output_tokens=500)
+    print(f"{name:20} {calls:3} calls  ${usd:.2f} per run")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+single agent           6 calls  $0.13 per run
+3-agent crew          12 calls  $0.25 per run
+5-agent group chat    30 calls  $0.63 per run
+</script>
+
+<h2 id="haystack">Haystack</h2>
+<p>deepset's framework for production search and RAG: typed components connected into pipelines (retrievers, rankers, generators), with strong document-store integrations. A good fit for teams whose product is search.</p>
+
+<h2 id="provider">Provider agent SDKs</h2>
+<p>Model providers also ship their own harnesses. Anthropic's <strong>Claude Agent SDK</strong> packages the harness behind Claude Code (file, shell and web tools, subagents, hooks, permissions) as a library you run on your own infrastructure; Anthropic's hosted <strong>Managed Agents</strong> run the loop and a sandbox for you; and the <code>anthropic</code> SDK's Tool Runner (<a href="05-tools.html">Chapter 5</a>) automates a loop over your own tools. OpenAI and others have their own agent SDKs. These track their provider's features first; general frameworks give you portability.</p>
+
+<h2 id="choose">Choosing</h2>
+<p>Write your requirements down, weight them, and score candidates; then confirm the top two with a spike measured on your eval set. A tiny scoring helper:</p>
+<script type="text/plain" class="code" data-file="choose.py">
+WEIGHTS = {"language fit": 3, "pause/resume + approvals": 2, "RAG integrations": 2, "typed outputs": 1, "few deps": 1}
+CANDIDATES = {   # 0-3, from your own spike, not from blog posts
+    "plain SDK":     {"language fit": 3, "pause/resume + approvals": 0, "RAG integrations": 0, "typed outputs": 2, "few deps": 3},
+    "LangGraph":     {"language fit": 3, "pause/resume + approvals": 3, "RAG integrations": 2, "typed outputs": 2, "few deps": 1},
+    "Pydantic AI":   {"language fit": 3, "pause/resume + approvals": 1, "RAG integrations": 1, "typed outputs": 3, "few deps": 2},
+    "LlamaIndex":    {"language fit": 3, "pause/resume + approvals": 1, "RAG integrations": 3, "typed outputs": 2, "few deps": 1},
+}
+scores = {name: sum(WEIGHTS[k] * v for k, v in s.items()) for name, s in CANDIDATES.items()}
+for name, score in sorted(scores.items(), key=lambda kv: -kv[1]):
+    print(f"{name:12} {score}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+LangGraph    22
+LlamaIndex   20
+Pydantic AI  18
+plain SDK    14
+</script>
+<p>The numbers are only as good as your spike. The point is to make the trade-off explicit and reviewable, like an ADR.</p>
+<div class="tip">
+<p><strong>Rules that survive every framework change.</strong> Keep prompts in files, model IDs in config, tools behind your own validation and permissions, and evals in CI. Then a framework is a replaceable implementation detail, and switching costs a sprint, not a rewrite.</p>
+</div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Python: LangChain (building blocks), LangGraph (stateful graphs), LlamaIndex (data/RAG), Pydantic AI (typed agents), DSPy (optimized programs), Haystack (search pipelines).</li>
+  <li>Java: Spring AI for Spring Boot teams, LangChain4j for framework-agnostic Java; Semantic Kernel for .NET-centred estates.</li>
+  <li>Multi-agent frameworks (CrewAI, AutoGen) multiply calls; use them only when parts are independent and evals agree.</li>
+  <li>Provider SDKs track provider features first; general frameworks give portability.</li>
+  <li>Choose with weighted requirements and a spike measured on your eval set; keep the choice reversible.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">match</span></h3>
+<p>Which framework fits best? (a) a Spring Boot team adding a chat endpoint, (b) an agent that waits a day for an approval, (c) a PDF-heavy knowledge base, (d) tuning a prompt against 500 labelled tickets.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Spring AI. (b) LangGraph (checkpoints + interrupts). (c) LlamaIndex (or Haystack). (d) DSPy.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What is a LangChain4j "AI Service"?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A Java interface you declare (methods, system message annotations, return types) that LangChain4j implements at runtime by calling a model, optionally with memory, tools and retrieval. Callers just call the interface method.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What is a Spring AI <em>advisor</em>, in Spring terms?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>An interceptor around the <code>ChatClient</code> call, like a servlet filter or an AOP aspect: it can add memory to the request, inject retrieved documents (RAG), log, or post-process the response.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">calculate</span></h3>
+<p>Using <code>run_cost</code>, how much more does the 5-agent group chat cost than the single agent per run, and per 10,000 runs a month?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import cost
+
+single = 6 * cost("claude-sonnet-5-5", 8_000, 500)
+group = 30 * cost("claude-sonnet-5-5", 8_000, 500)
+print(f"{group / single:.0f}x, ${(group - single) * 10_000:,.0f} more per month")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5x, $5,040 more per month
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a requirement "Java support" (weight 3) to the scoring and score Spring AI and LangChain4j alongside the Python options for a Java-only team.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+WEIGHTS = {"java support": 3, "spring integration": 2, "pause/resume + approvals": 1, "few deps": 1}
+CANDIDATES = {
+    "Spring AI":   {"java support": 3, "spring integration": 3, "pause/resume + approvals": 1, "few deps": 2},
+    "LangChain4j": {"java support": 3, "spring integration": 2, "pause/resume + approvals": 1, "few deps": 2},
+    "LangGraph":   {"java support": 0, "spring integration": 0, "pause/resume + approvals": 3, "few deps": 1},
+}
+for name, s in CANDIDATES.items():
+    print(f"{name:12} {sum(WEIGHTS[k] * v for k, v in s.items())}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Spring AI    18
+LangChain4j  16
+LangGraph    4
+</script>
+<p>Weights encode your constraints: for a Java-only team, language fit dominates everything else.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">review</span></h3>
+<p>A proposal says: "We'll use a 6-agent crew (planner, researcher, coder, tester, reviewer, manager) to answer DocsPilot questions." Review it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Most DocsPilot questions are answered by one RAG call; a crew multiplies calls, latency and failure modes for no gain. Ask for an eval comparison against the single-call and single-agent versions, with cost and latency. A crew might fit a different job (multi-file code changes), with per-file verification.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>What must you verify about any framework before using it with <code>claude-opus-5-5</code> or <code>claude-sonnet-5-5</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>That it doesn't send parameters these models reject: sampling parameters (<code>temperature</code>, <code>top_p</code>), forced <code>tool_choice</code>, assistant prefill, or old thinking budgets; that its structured-output mode uses native structured outputs; and that it passes <code>effort</code> and caching options through. Check the actual requests in a trace once.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">plan</span></h3>
+<p>Plan a one-week spike comparing two frameworks for DocsPilot's agent path.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Fix the eval set (live-data and mixed questions) and the tools (same functions behind both).</li>
+  <li>Implement the agent in both frameworks with the same prompts and model.</li>
+  <li>Measure pass rate, p95 latency, tokens and cost per question, lines of code, and test ergonomics.</li>
+  <li>Try the hard requirement explicitly (an approval that pauses and resumes).</li>
+  <li>Write an ADR with the numbers and the decision.</li>
+</ol>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design a "provider-neutral" layer for a Java service so you could move from Spring AI to LangChain4j (or to the raw SDK) without touching business code.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Your own interfaces: <code>TextModel.complete(...)</code>, <code>StructuredModel.extract(Class&lt;T&gt;, ...)</code>, <code>Retriever.search(query, user)</code>, <code>ToolRegistry</code>.</li>
+  <li>One adapter module per framework implementing them; business code depends only on the interfaces.</li>
+  <li>Prompts as files, model IDs in configuration, tools as plain beans with your validation and permissions.</li>
+  <li>Contract tests run against every adapter with a fake model; the eval suite runs against the deployed service.</li>
+</ul>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">write</span></h3>
+<p>Write the outline of an ADR "Framework for DocsPilot".</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Context: requirements (languages, approvals, RAG sources, team skills), constraints (dependencies, security review).</li>
+  <li>Options considered: plain SDK, LangGraph, Pydantic AI, Spring AI (if Java), with the spike numbers.</li>
+  <li>Decision and the requirement that decided it.</li>
+  <li>Consequences: what we own (evals, guardrails, permissions), upgrade policy, how to reverse the decision.</li>
+  <li>Review date (frameworks move fast: revisit in six months).</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.spring.io/spring-ai/reference/">Spring AI reference</a> and <a href="https://docs.langchain4j.dev/">LangChain4j documentation</a>.</li>
+  <li><a href="https://learn.microsoft.com/semantic-kernel/">Semantic Kernel</a>, <a href="https://docs.crewai.com/">CrewAI</a>, <a href="https://microsoft.github.io/autogen/">AutoGen</a>, <a href="https://docs.haystack.deepset.ai/">Haystack</a>.</li>
+  <li><a href="https://code.claude.com/docs/en/agent-sdk">Claude Agent SDK</a>.</li>
+  <li><a href="https://www.anthropic.com/engineering/building-effective-agents">Building effective agents</a>: why simple usually wins.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

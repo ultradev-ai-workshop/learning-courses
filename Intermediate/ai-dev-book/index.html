@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🤖&lt;/text&gt;&lt;/svg&gt;">
+<title>AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+<div class="eyebrow">Intermediate · Python 3.13 · anthropic SDK · Claude Opus / Sonnet / Haiku 5.5</div>
+<h1>🤖 AI for Developers Study Book</h1>
+<p class="lead">Building with LLMs, from a developer's point of view. You already know how to build reliable services; this book teaches you to build reliable services where one dependency is a probabilistic text engine: with contracts, tests, retries, budgets, observability and threat models.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> 15 chapters in five parts: Foundations (how LLMs work, prompts, APIs), Building Blocks (structured output, tools, embeddings, RAG), Agents &amp; Integration (agents, MCP), Shipping AI Features (evals, production, security) and At Work &amp; Beyond, ending with the <a href="15-project.html">DocsPilot project</a>.</li>
+  <li><strong>Python first, Java alongside.</strong> Every example is Python and runs. The ☕ boxes connect each idea to Java and backend practice, with Java versions of the key code (raw HTTP, the Anthropic Java SDK, Spring AI, LangChain4j).</li>
+  <li><strong>Raw API first, frameworks later.</strong> Chapters 3–5 build clients, tool loops and structured output by hand, so you know what every framework does for you. The appendices then cover <a href="appendix-langchain.html">LangChain</a>, <a href="appendix-langgraph.html">LangGraph</a>, <a href="appendix-llamaindex.html">LlamaIndex</a>, <a href="appendix-pydanticai.html">Pydantic AI</a>, <a href="appendix-dspy.html">DSPy</a> and <a href="appendix-landscape.html">the rest of the landscape</a>.</li>
+  <li><strong>Look for the 🧠 boxes.</strong> Every hard idea (tokens, injection, RAG, agents, evals) comes with a real-world analogy.</li>
+  <li><strong>Run the examples without a key.</strong> All examples run offline: <code>llmkit</code> provides a toy tokenizer, a tiny language model, a small embedding model, <code>FakeAnthropic</code>, and a local mock of the Messages API that the real <code>anthropic</code>, <code>openai</code>, LangChain, Pydantic AI and DSPy clients talk to unchanged. Every output in the book was produced by running it. See <a href="playground-howto.html">Using the Playground</a>.</li>
+  <li><strong>Do the exercises.</strong> Each chapter and appendix has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000, with a 50-minute timer, and scores you per chapter.</li>
+</ul>
+</div>
+<div class="note">
+<p>📝 <strong>Setup:</strong> clone the playground repository, <a href="https://github.com/coderhop-learning/ai-book-playground">coderhop-learning/ai-book-playground</a>, with <code>git clone https://github.com/coderhop-learning/ai-book-playground.git</code>. Then, with Python 3.12 or newer, run <code>pip install anthropic pydantic numpy rank-bm25 mcp</code> inside it (and the framework packages for the appendices). With an <code>ANTHROPIC_API_KEY</code> the examples call Claude; without one, start the mock server as described in <a href="playground-howto.html">Using the Playground</a>.</p>
+</div>
+<div class="tip">
+<p>💡 <strong>Facts that change often.</strong> Model IDs, prices, SDK method names and spec revisions in this edition are current as of November 2026 (models <code>claude-opus-5-5</code>, <code>claude-sonnet-5-5</code>, <code>claude-haiku-5-5</code>; MCP 2026-07-28). Each chapter ends with the official pages to check before you depend on a detail.</p>
+</div>
+<div id="cards"></div>
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Set up Python, run the examples offline with llmkit and the mock Messages API, or against Claude with a key.",
+  "01-llms.html": "Next-token prediction, statelessness, tokens, the context window, sampling, hallucinations, cost and latency.",
+  "02-prompts.html": "System prompts, clear instructions, few-shot examples, XML tags, output contracts, effort, and prompts as code.",
+  "03-api.html": "The Messages API on the wire, a raw HTTP client with retries, the SDK, async, streaming and errors.",
+  "04-structured.html": "JSON Schema via output_config, Pydantic models with messages.parse, business rules, retry with feedback.",
+  "05-tools.html": "The tool round trip, a typed registry, a bounded loop, parallel calls, errors, the Tool Runner, server tools.",
+  "06-embeddings.html": "Vectors of meaning, cosine similarity, NumPy search, embedding APIs, pgvector, ANN indexes and recall@k.",
+  "07-rag.html": "Chunking, contextual retrieval, BM25 + vectors with RRF, reranking, context budgets, native citations, RAG evals.",
+  "08-agents.html": "Workflows vs agents, the five patterns, a budgeted agent loop, planning, memory, and when not to build one.",
+  "09-mcp.html": "Hosts, clients and servers; tools, resources and prompts; stateless 2026-07-28; building and securing a server.",
+  "10-evals.html": "Success criteria, eval sets, code graders and LLM judges, calibration, CI gates, OpenTelemetry traces, cost.",
+  "11-production.html": "Breakers and fallbacks, prompt caching, response caching, rate limits, the Batches API and guardrails.",
+  "12-security.html": "Prompt injection, the dangerous combination, safe rendering, data leakage, tool permissions and bound approvals.",
+  "13-work.html": "Incident triage, code migration, test generation, ticket classification and docs Q&A, with value metrics.",
+  "14-next.html": "Fine-tuning vs RAG, local models, a provider-neutral seam, attention, quantization, upgrades and staying current.",
+  "15-project.html": "Assemble DocsPilot: routing, RAG with ACLs and citations, an agent, guardrails, budgets, MCP and acceptance tests.",
+  "appendix-langchain.html": "Chat models, LCEL chains, structured output, tools, create_agent, retrievers and fake models for tests.",
+  "appendix-langgraph.html": "State, nodes and edges, reducers, the tool agent, checkpointers, threads and human-in-the-loop interrupts.",
+  "appendix-llamaindex.html": "Documents and nodes, Settings, indexes, retrievers, filters, query engines and custom LLM adapters.",
+  "appendix-pydanticai.html": "Typed agents, structured output, tools with dependencies, TestModel and FunctionModel, usage limits.",
+  "appendix-dspy.html": "Signatures, modules, ReAct, metrics and Evaluate, optimizers, and inspecting the generated prompts.",
+  "appendix-landscape.html": "Spring AI, LangChain4j, Semantic Kernel, CrewAI, AutoGen, Haystack, provider SDKs, and how to choose.",
+  "glossary.html": "Every AI term in the book with a definition, its backend cousin and the chapter that explains it.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, 50 minutes, scored per chapter."
+};
+</script>
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

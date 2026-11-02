@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;💼&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Applying AI at Work · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · At Work &amp; Beyond</div>
+<h1>Applying AI at Work</h1>
+<p class="lead">Five production patterns for backend teams, each built from the parts you now know: the design, the critical code, how to evaluate it, and where it goes wrong.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to recognize which pattern from Chapters 3–12 a business problem needs.</li>
+  <li>Five concrete designs: incident triage, code migration, test generation, ticket classification and docs Q&amp;A.</li>
+  <li>How to evaluate each with record-and-replay, builds, mutation testing and shadow mode.</li>
+  <li>How to scope a first version that ships in two weeks and earns trust.</li>
+  <li>How to measure value, not just quality.</li>
+</ul>
+</div>
+
+<h2 id="choose">Choosing the pattern</h2>
+<div class="table-wrap"><table>
+<tr><th>Problem shape</th><th>Pattern</th><th>Chapters</th></tr>
+<tr><td>label or extract from text at volume</td><td>one call + structured output, often batched</td><td>4, 11</td></tr>
+<tr><td>answer from a body of knowledge</td><td>RAG with citations</td><td>6, 7</td></tr>
+<tr><td>investigate across live systems</td><td>agent with read-only tools</td><td>5, 8</td></tr>
+<tr><td>transform many files the same way</td><td>workflow (orchestrator–workers) with verification</td><td>8, 10</td></tr>
+<tr><td>generate artifacts that can be checked</td><td>generate → verify mechanically → repair</td><td>4, 8, 10</td></tr>
+</table></div>
+<p>A good first project has a measurable baseline (how long humans take today), a cheap way to verify outputs, a low cost of errors, and users who want it.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: choosing a vehicle.</strong> You don't take a lorry to buy bread or a bicycle to move house. A single structured call is the bicycle: cheap, quick, good for one parcel. RAG is the delivery van with a fixed route. An agent is the lorry with a driver who decides the route: powerful, expensive, and you want a good reason to use it.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> you don't pick Kafka, Postgres or Redis by fashion; you pick by access pattern and consistency needs. Same here: start from the problem shape and the cost of a wrong answer, then pick the simplest pattern that passes your evals.</p>
+</div>
+
+<h2 id="incident">Case 1: incident triage</h2>
+<p><strong>Problem.</strong> On-call engineers spend the first 20 minutes of an incident collecting context: which deploy, which errors, which runbook.</p>
+<p><strong>Design.</strong> A read-only agent (<a href="08-agents.html">Chapter 8</a>) triggered by the alert webhook, with tools such as <code>recent_deploys(service, since)</code>, <code>error_summary(service, window)</code> (pre-aggregated by your observability backend, not raw logs) and <code>search_docs</code>. It writes a structured note into the incident channel:</p>
+<script type="text/plain" class="code" data-file="incident_note.py" data-save>
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+class IncidentNote(BaseModel):
+    likely_cause: str = Field(description="One sentence, or 'unclear'")
+    evidence: list[str] = Field(description="Each item quotes or cites a tool result")
+    suggested_runbook: str = Field(description="Doc id from search_docs, or empty")
+    next_checks: list[str] = Field(description="Concrete commands or dashboards")
+    confidence: Literal["low", "medium", "high"]
+</script>
+<p><strong>Key decisions.</strong> Pre-aggregate logs and give the model summaries (top error signatures with counts), not megabytes of lines. Read-only tools only: the note suggests, humans act. Evidence must reference tool output, and low confidence must be allowed and visible.</p>
+<p><strong>Evaluate with record and replay.</strong> Freeze the tool responses of 20 past incidents (like contract-test fixtures), replay the agent against them, and grade the notes. The fixtures make the run repeatable and free of side effects:</p>
+<script type="text/plain" class="code" data-file="replay.py">
+import json
+from registry import Registry
+
+FIXTURES = {   # recorded during incident INC-42; replayed in every eval run
+    ("recent_deploys", '{"service": "payments"}'): '[{"version": "2.31.0", "at": "09:05", "author": "marco"}]',
+    ("error_summary", '{"service": "payments"}'): '[{"signature": "NullPointerException in FxRates.convert", "count": 412}]',
+}
+
+def replay_registry(fixtures):
+    reg = Registry()
+    def make(name):
+        def tool(service: str) -> str:
+            key = (name, json.dumps({"service": service}))
+            return fixtures.get(key, f"no recording for {key}")
+        tool.__name__, tool.__doc__ = name, f"Replayed {name}."
+        return tool
+    for name in {n for n, _ in fixtures}:
+        reg.tool(make(name))
+    return reg
+
+reg = replay_registry(FIXTURES)
+print(sorted(reg.tools))
+print(reg.run("error_summary", {"service": "payments"}))
+print(reg.run("recent_deploys", {"service": "web"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['error_summary', 'recent_deploys']
+('[{"signature": "NullPointerException in FxRates.convert", "count": 412}]', False)
+('no recording for (\'recent_deploys\', \'{"service": "web"}\')', False)
+</script>
+<div class="pitfall">
+<p><strong>Confident wrong causes.</strong> A plausible but wrong cause can anchor a whole incident response. Show confidence prominently, always show the evidence, and measure how often "high confidence" was wrong.</p>
+</div>
+
+<h2 id="migration">Case 2: legacy code migration</h2>
+<p><strong>Problem.</strong> 300 classes on JUnit 4, or <code>javax.*</code> to <code>jakarta.*</code>, or an internal framework you are retiring.</p>
+<p><strong>Design.</strong> A workflow, not an open-ended agent: list the files → for each file, one model call with the migration guide and two before/after examples → write the result → <strong>build and test</strong> → one repair attempt with the errors → otherwise revert and leave it for a human. The build is the grader. Here the "build" is Python's own compiler plus a test, and the "model" is scripted:</p>
+<script type="text/plain" class="code" data-file="migrate.py">
+from llmkit import FakeAnthropic
+
+def build(code):
+    """Our verifier: does it compile, and does the function still behave?"""
+    try:
+        ns = {}
+        exec(compile(code, "<migrated>", "exec"), ns)
+        return None if ns["total"]([1, 2, 3]) == 6 else "test failed: total([1, 2, 3]) != 6"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+def migrate(client, original):
+    ask = lambda text: client.messages.create(model="claude-sonnet-5-5", max_tokens=2000,
+                                              messages=[{"role": "user", "content": text}]).content[0].text
+    migrated = ask(f"Migrate to Python 3 style:\n{original}")
+    error = build(migrated)
+    if error is None:
+        return "ok", migrated
+    repaired = ask(f"The migrated code fails: {error}\n{migrated}\nFix it.")
+    if build(repaired) is None:
+        return "repaired", repaired
+    return "needs human (reverted)", original
+
+legacy = "def total(xs):\n    return reduce(lambda a, b: a + b, xs)"
+cases = {
+    "first try": ["def total(xs):\n    return sum(xs)"],
+    "after repair": ["def total(xs):\n    return functools.reduce(lambda a, b: a + b, xs)",
+                     "import functools\ndef total(xs):\n    return functools.reduce(lambda a, b: a + b, xs)"],
+    "revert": ["def total(xs):\n    return sum(xs) + 1", "def total(xs):\n    return sum(xs, 1)"],
+}
+for name, replies in cases.items():
+    status, _ = migrate(FakeAnthropic(replies=replies), legacy)
+    print(f"{name:12} -> {status}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+first try    -> ok
+after repair -> repaired
+revert       -> needs human (reverted)
+</script>
+<p><strong>Key decisions.</strong> Deterministic tools first: if a codemod or OpenRewrite recipe exists for your migration, run it and send only the leftovers to the model. Commit per file or per module so review stays small. <strong>Evaluate</strong> with the share of files that build green, review time per PR, and defects found after merge.</p>
+
+<h2 id="tests">Case 3: test generation</h2>
+<p><strong>Problem.</strong> Low test coverage on legacy services; engineers avoid touching them.</p>
+<p><strong>Design.</strong> Generate → verify → keep only what passes. For each class: give the model the class, its collaborators' signatures and one existing test as a style example; run the generated tests; keep the passing ones.</p>
+<ul>
+  <li>A generated test that passes against current behaviour <em>documents</em> that behaviour; it doesn't prove it's right. Label these <strong>characterization tests</strong>.</li>
+  <li><strong>Mutation score</strong>, not line coverage, is the quality bar: tests without real assertions inflate coverage.</li>
+  <li>Never let the generator modify production code to make a test pass.</li>
+</ul>
+<p>Mutation testing in miniature: change the code slightly (a "mutant") and check whether the tests notice. A test that still passes against a mutant isn't really testing that behaviour:</p>
+<script type="text/plain" class="code" data-file="mutation.py">
+SOURCE = "def discount(total):\n    return total * 0.9 if total >= 100 else total"
+MUTANTS = [SOURCE.replace(">=", ">"), SOURCE.replace("0.9", "0.8"), SOURCE.replace("else total", "else 0")]
+
+generated_tests = {
+    "weak (no real assertion)": "assert discount(150) is not None",
+    "typical case": "assert discount(150) == 135.0",
+    "boundary + small order": "assert discount(100) == 90.0 and discount(50) == 50",
+}
+
+def passes(code, test):
+    ns = {}
+    exec(code, ns)
+    try:
+        exec(test, ns)
+        return True
+    except AssertionError:
+        return False
+
+for name, test in generated_tests.items():
+    assert passes(SOURCE, test)                         # keep only tests that pass on the real code
+    killed = sum(not passes(m, test) for m in MUTANTS)
+    print(f"{name:26} kills {killed}/{len(MUTANTS)} mutants")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+weak (no real assertion)   kills 0/3 mutants
+typical case               kills 1/3 mutants
+boundary + small order     kills 3/3 mutants
+</script>
+<p>All three tests pass and give the same line coverage, but only the boundary test catches the <code>&gt;=</code> → <code>&gt;</code> mutant. Tools such as PIT (Java) and mutmut (Python) do this at scale.</p>
+
+<h2 id="classify">Case 4: ticket classification and routing</h2>
+<p><strong>Problem.</strong> A shared support queue where tickets wait hours to reach the right team.</p>
+<p><strong>Design.</strong> The triage service from <a href="04-structured.html">Chapter 4</a>: Haiku with structured output (enums for team, category and severity, plus <code>needs_info</code>), interactive for new tickets and the Batches API for re-labelling history.</p>
+<p><strong>Key decisions.</strong> Historical tickets with their final team are a labelled set you already have. Measure per-class accuracy and a confusion matrix, not just overall accuracy. Start in <strong>shadow mode</strong>: the model labels every ticket, humans keep routing, and you compare, with zero risk.</p>
+<script type="text/plain" class="code" data-file="shadow_report.py">
+from collections import Counter
+
+shadow = [("payments", "payments")] * 41 + [("web", "web")] * 30 + [("data", "data")] * 15 + \
+         [("platform", "data")] * 6 + [("data", "platform")] * 3 + [("web", "payments")] * 2 + [("platform", "platform")] * 3
+accuracy = sum(h == m for h, m in shadow) / len(shadow)
+print(f"accuracy {accuracy:.1%} on {len(shadow)} tickets")
+for team in ("payments", "web", "data", "platform"):
+    rows = [(h, m) for h, m in shadow if h == team]
+    print(f"   {team:9} recall {sum(h == m for h, m in rows) / len(rows):.0%}")
+for (human, model), n in Counter((h, m) for h, m in shadow if h != m).most_common(3):
+    print(f"{n:4}  human={human:9} model={model}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+accuracy 89.0% on 100 tickets
+   payments  recall 100%
+   web       recall 94%
+   data      recall 83%
+   platform  recall 33%
+   6  human=platform  model=data
+   3  human=data      model=platform
+   2  human=web       model=payments
+</script>
+<p>Overall accuracy looks fine, yet the platform team's tickets are mostly misrouted to data. When two teams are confused, first check whether their boundary is clear to humans; often the fix is a clearer category definition in the prompt, not a bigger model.</p>
+
+<h2 id="docsqa">Case 5: internal docs Q&amp;A</h2>
+<p><strong>Problem.</strong> Knowledge is spread across wikis, repos and runbooks. This is DocsPilot.</p>
+<p><strong>Design.</strong> Everything from Chapters 6–12: structural chunking and contextual retrieval; hybrid retrieval with ACL filters; reranking; cited answers; abstention; routing to tools for live data; an MCP server so other hosts can use it; evals in CI. <a href="15-project.html">Chapter 15</a> builds it end to end.</p>
+<p><strong>Key decisions.</strong> Freshness (re-ingest on doc change), ownership (each doc has an owner who receives "this answer was wrong" feedback) and trust (citations always visible, abstention preferred to guessing).</p>
+
+<h2 id="devprod">Developer productivity</h2>
+<p>Beyond the features you ship, AI changes how your team builds. Agentic coding tools such as Claude Code work best on the principles of this book: clear instructions (a project <code>CLAUDE.md</code> with conventions and commands), fast mechanical verification (tests, linters, type checks they can run), small reviewable changes, and permissions that match the risk. The same discipline that makes your LLM features reliable makes AI-assisted development reliable.</p>
+
+<h2 id="value">Measuring value</h2>
+<p>Quality metrics tell you whether it works; value metrics tell you whether it matters.</p>
+<div class="table-wrap"><table>
+<tr><th>Use case</th><th>Value metric</th></tr>
+<tr><td>Incident triage</td><td>time from alert to first meaningful action</td></tr>
+<tr><td>Migration</td><td>engineer-days saved versus the estimate; defects after merge</td></tr>
+<tr><td>Test generation</td><td>mutation score gained per engineer-hour</td></tr>
+<tr><td>Classification</td><td>median time to the correct team; re-routes per ticket</td></tr>
+<tr><td>Docs Q&amp;A</td><td>questions answered without a human; repeat questions in chat</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="value.py">
+import statistics
+
+before = [190, 240, 75, 310, 120, 260, 95, 180]       # minutes to the right team, last month (baseline)
+after = [12, 30, 8, 240, 15, 22, 9, 18]               # with classification, shadow mode switched off
+saved = statistics.median(before) - statistics.median(after)
+print(f"median {statistics.median(before):.0f} -> {statistics.median(after):.0f} min (-{saved:.0f})")
+print(f"model cost per ticket ~${0.0002:.4f}; tickets/month 4,000 -> ${0.0002 * 4000:.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+median 185 -> 16 min (-168)
+model cost per ticket ~$0.0002; tickets/month 4,000 -> $0.80
+</script>
+<p>A before-and-after median beats any demo in a budget meeting. Notice the one ticket that still took 240 minutes: it's the next eval case.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A two-week first version</h3>
+<p>Scope the first release so it can't hurt anyone and can prove its value:</p>
+<script type="text/plain" class="code" data-file="rollout.py">
+PLAN = [
+    ("week 1", "shadow", "classify every new ticket; humans route as before; nightly shadow report"),
+    ("week 2", "suggest", "show the suggested team to the human router; log accept/override"),
+    ("later", "auto", "auto-route when confidence is high AND per-class recall >= 95% for 4 weeks"),
+]
+for when, mode, what in PLAN:
+    print(f"{when:7} {mode:8} {what}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+week 1  shadow   classify every new ticket; humans route as before; nightly shadow report
+week 2  suggest  show the suggested team to the human router; log accept/override
+later   auto     auto-route when confidence is high AND per-class recall >= 95% for 4 weeks
+</script>
+
+<h3>Precision and recall for one class</h3>
+<p>For "is this a SEV1?", missing a real SEV1 (low recall) costs far more than a false alarm (low precision). Compute both:</p>
+<script type="text/plain" class="code" data-file="sev1_metrics.py">
+pairs = [(1, 1)] * 8 + [(1, 0)] * 2 + [(0, 1)] * 5 + [(0, 0)] * 85      # (truly SEV1, predicted SEV1)
+tp = sum(t and p for t, p in pairs)
+fp = sum((not t) and p for t, p in pairs)
+fn = sum(t and not p for t, p in pairs)
+precision, recall = tp / (tp + fp), tp / (tp + fn)
+print(f"precision {precision:.2f}  recall {recall:.2f}  F1 {2 * precision * recall / (precision + recall):.2f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+precision 0.62  recall 0.80  F1 0.70
+</script>
+<p>Two real SEV1s in a hundred tickets were missed: for this class, tune the prompt (and route borderline cases to humans) for recall first.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Starting with the hardest problem</strong>: a fully autonomous incident remediator as the first AI project.</p></div>
+<div class="good"><p><strong>Start read-only and verifiable</strong>: triage notes, classification in shadow mode, cited Q&amp;A.</p></div>
+<div class="bad"><p><strong>No baseline</strong>: shipping without knowing how long the task takes today.</p></div>
+<div class="good"><p><strong>Measure before and after</strong>: record the human baseline, then the AI-assisted number.</p></div>
+<div class="bad"><p><strong>Coverage as the goal</strong> for generated tests.</p></div>
+<div class="good"><p><strong>Mutation score</strong>, and tests labelled as characterization tests.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Pick the pattern from the problem shape and the cost of errors; start with the simplest.</li>
+  <li>Incident agents get pre-aggregated, read-only data and are evaluated with recorded fixtures.</li>
+  <li>Migrations use the build as the grader: migrate → build → repair once → revert.</li>
+  <li>Keep only generated tests that pass and kill mutants.</li>
+  <li>Run classifiers in shadow mode; read per-class recall and the confusion matrix.</li>
+  <li>Measure value against a baseline, not just quality.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Name the pattern and the verifier: (a) generating OpenAPI specs from controllers, (b) summarizing weekly on-call handovers, (c) detecting personal data in support tickets.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Workflow per controller; verifier: an OpenAPI validator plus a contract test against the running service. (b) One structured call over the week's incidents; verifier: human rating of a sample, then a calibrated judge. (c) Classification/extraction with structured output (plus deterministic patterns); verifier: a labelled set with precision and recall.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why should the incident agent get pre-aggregated error summaries instead of raw logs?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Context is a budget: megabytes of logs are expensive, slow and dilute attention. Aggregating ("top 5 error signatures with counts") is ordinary data engineering that makes the agent better and cheaper, and it keeps sensitive log content out of prompts.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>A generated test passes. What does that prove?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only that the code currently behaves as the test describes. If the code has a bug, the test may enshrine it. That's why they're labelled characterization tests, and why mutation testing checks whether they would catch a change.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">define</span></h3>
+<p>What is shadow mode, and what does it give you?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The model makes its decision on real traffic, but humans keep doing the real work and nothing acts on the model's output. You get a real-world accuracy measurement, per class, with zero risk.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Validate an incident note: every <code>evidence</code> item must mention one of the tool names that were actually called, and <code>high</code> confidence needs at least two evidence items.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from incident_note import IncidentNote
+
+def check(note, called_tools):
+    problems = [e for e in note.evidence if not any(t in e for t in called_tools)]
+    if note.confidence == "high" and len(note.evidence) < 2:
+        problems.append("high confidence needs at least two pieces of evidence")
+    return problems
+
+note = IncidentNote(likely_cause="NPE in FxRates after the 09:05 deploy",
+                    evidence=["error_summary: 412 x NullPointerException in FxRates.convert", "I think it's the cache"],
+                    suggested_runbook="runbook-payments-outage", next_checks=["deployctl rollback payments"],
+                    confidence="high")
+print(check(note, {"error_summary", "recent_deploys"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+["I think it's the cache"]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a fourth generated test for <code>discount</code> that kills all three mutants with a single assertion line, and check it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+SOURCE = "def discount(total):\n    return total * 0.9 if total >= 100 else total"
+MUTANTS = [SOURCE.replace(">=", ">"), SOURCE.replace("0.9", "0.8"), SOURCE.replace("else total", "else 0")]
+test = "assert [discount(100), discount(50)] == [90.0, 50]"
+
+def passes(code):
+    ns = {}
+    exec(code, ns)
+    try:
+        exec(test, ns)
+        return True
+    except AssertionError:
+        return False
+
+print(passes(SOURCE), [not passes(m) for m in MUTANTS])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+True [True, True, True]
+</script>
+<p>Boundaries (exactly 100) and the "else" branch are where mutants hide.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Extend <code>migrate</code> to return a summary over many files: how many were green first time, repaired, and reverted.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from collections import Counter
+
+results = ["ok", "ok", "repaired", "ok", "needs human (reverted)", "ok", "repaired", "ok"]
+summary = Counter(results)
+print(dict(summary), f"| green without a human: {(summary['ok'] + summary['repaired']) / len(results):.0%}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'ok': 5, 'repaired': 2, 'needs human (reverted)': 1} | green without a human: 88%
+</script>
+<p>Report this per module in the PR description; reviewers look closest at the repaired files.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>Your manager asks for "an AI agent that fixes production incidents automatically". Propose a first version that ships in two weeks instead.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A read-only triage note (Case 1) posted to the incident channel within 2 minutes of the alert: likely cause, evidence, runbook, next checks, confidence. Success: time to first meaningful action drops on the next 20 incidents, with no wrong "high confidence" notes. Remediation (rollback) comes later, as a <em>suggested</em> command with a human approval button, once the notes have earned trust.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Turn the shadow data into a routing policy: auto-route a class only if its recall is at least 95%; otherwise keep humans. Which classes are auto-routed?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+shadow = [("payments", "payments")] * 41 + [("web", "web")] * 30 + [("data", "data")] * 15 + \
+         [("platform", "data")] * 6 + [("data", "platform")] * 3 + [("web", "payments")] * 2 + [("platform", "platform")] * 3
+
+def recall(team):
+    rows = [(h, m) for h, m in shadow if h == team]
+    return sum(h == m for h, m in rows) / len(rows)
+
+policy = {t: ("auto" if recall(t) >= 0.95 else "human") for t in ("payments", "web", "data", "platform")}
+print(policy)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'payments': 'auto', 'web': 'human', 'data': 'human', 'platform': 'human'}
+</script>
+<p>Per-class gating lets you ship value for the easy classes while you fix the confused boundary. Also check precision for the auto classes: a class that attracts misrouted tickets from others shouldn't be auto-routed blindly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">write</span></h3>
+<p>Write the outline of a two-page proposal for one AI use case at your company.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Problem and baseline (with today's numbers).</li>
+  <li>Chosen pattern and why the simpler ones aren't enough.</li>
+  <li>Data and permissions: what the model sees, whose identity the tools use, what leaves the company.</li>
+  <li>Eval plan: the set, the graders, success criteria.</li>
+  <li>Rollout: shadow → suggest → limited → general, with exit criteria for each step.</li>
+  <li>Risks and mitigations (security, wrong answers, cost).</li>
+  <li>Cost estimate (tokens × prices × volume) and expected value.</li>
+</ol>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/about-claude/use-case-guides/ticket-routing">Use case guide: ticket routing</a> and the <a href="https://platform.claude.com/docs/en/about-claude/use-case-guides/overview">use case overview</a>.</li>
+  <li><a href="https://www.anthropic.com/engineering/building-effective-agents">Building effective agents</a>.</li>
+  <li><a href="https://code.claude.com/docs/en/overview">Claude Code overview</a>, for agentic coding in your team.</li>
+  <li><a href="https://docs.openrewrite.org/">OpenRewrite</a>, <a href="https://pitest.org/">PIT mutation testing</a> and <a href="https://mutmut.readthedocs.io/">mutmut</a>.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

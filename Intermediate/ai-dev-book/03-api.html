@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔌&lt;/text&gt;&lt;/svg&gt;">
+<title>3. Calling LLM APIs · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 3 · Foundations</div>
+<h1>Calling LLM APIs</h1>
+<p class="lead">Call the Messages API with nothing but an HTTP client, then with the official SDK. Add streaming, timeouts, retries and the error handling you would expect from any production client.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The exact shape of a Messages API request and response.</li>
+  <li>How to call it with Python's standard library only, so you know what an SDK hides.</li>
+  <li>How the official <code>anthropic</code> SDK maps to the same request, in sync and async code.</li>
+  <li>How to hold a multi-turn conversation.</li>
+  <li>How streaming works (Server-Sent Events) and when to use it.</li>
+  <li>Which errors to retry, which to surface, and how <code>stop_reason</code> tells you an answer is incomplete.</li>
+</ul>
+</div>
+
+<h2 id="wire">The request, on the wire</h2>
+<p>There is one core endpoint: <code>POST https://api.anthropic.com/v1/messages</code>.</p>
+<script type="text/plain" class="code" data-lang="http">
+POST /v1/messages HTTP/1.1
+Host: api.anthropic.com
+x-api-key: $ANTHROPIC_API_KEY
+anthropic-version: 2023-06-01
+content-type: application/json
+
+{
+  "model": "claude-sonnet-5-5",
+  "max_tokens": 1024,
+  "system": "You are a concise assistant for backend engineers.",
+  "messages": [
+    {"role": "user", "content": "What is idempotency, in two sentences?"}
+  ]
+}
+</script>
+<script type="text/plain" class="code" data-lang="json" data-title="response">
+{
+  "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-5-5",
+  "content": [
+    {"type": "text", "text": "An operation is idempotent when doing it once or many times has the same effect..."}
+  ],
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 31, "output_tokens": 48}
+}
+</script>
+<p>Things to notice:</p>
+<ul>
+  <li><code>max_tokens</code> is required. It caps the <em>output</em>, not the input.</li>
+  <li><code>content</code> is an <strong>array of blocks</strong>, not a string. Today you get <code>text</code>; later you will see <code>tool_use</code> (<a href="05-tools.html">Chapter 5</a>) and <code>thinking</code> blocks.</li>
+  <li><code>stop_reason</code> tells you <em>why</em> generation stopped. Always check it.</li>
+  <li><code>usage</code> is your billing record. Log it on every call.</li>
+</ul>
+<div class="java">
+<p>☕ <strong>Java:</strong> nothing here is special. An auth header, a version header (like an <code>Accept-Version</code> pin), a JSON body, a JSON response, standard HTTP status codes and a <code>request-id</code> response header for support tickets. Everything you know about calling a REST service applies.</p>
+</div>
+
+<h2 id="raw">Version 1: raw HTTP with the standard library</h2>
+<p>Writing the client by hand once teaches you what every SDK and framework hides. This one uses only <code>urllib</code> and <code>json</code>, retries transient failures with exponential backoff and jitter, honours <code>retry-after</code>, and puts the <code>request-id</code> into every error:</p>
+<script type="text/plain" class="code" data-file="claude_http.py" data-save>
+import json
+import os
+import random
+import time
+import urllib.error
+import urllib.request
+
+RETRYABLE = {408, 409, 429, 500, 502, 503, 504, 529}      # 529 = overloaded
+
+
+class ClaudeAPIError(Exception):
+    def __init__(self, status, request_id, body):
+        super().__init__(f"Claude API {status} (request-id {request_id}): {body}")
+        self.status, self.request_id, self.body = status, request_id, body
+
+
+class ClaudeHttp:
+    def __init__(self, max_retries=3, timeout=120.0, base_url=None, api_key=None, sleep=time.sleep):
+        self.base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        self.api_key = api_key if api_key is not None else os.environ["ANTHROPIC_API_KEY"]
+        self.max_retries, self.timeout, self.sleep = max_retries, timeout, sleep
+
+    def create(self, body: dict) -> dict:
+        for attempt in range(self.max_retries + 1):
+            req = urllib.request.Request(
+                self.base_url + "/v1/messages", data=json.dumps(body).encode(), method="POST",
+                headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                    return json.load(res)
+            except urllib.error.HTTPError as e:              # the server answered with an error status
+                retry = e.code in RETRYABLE and attempt < self.max_retries
+                if not retry:
+                    raise ClaudeAPIError(e.code, e.headers.get("request-id", "?"), e.read().decode()) from None
+                self.sleep(backoff(attempt, e.headers.get("retry-after")))
+            except urllib.error.URLError:                     # connection refused, DNS, timeout
+                if attempt >= self.max_retries:
+                    raise
+                self.sleep(backoff(attempt, None))
+
+
+def backoff(attempt, retry_after):
+    """Honour retry-after when present; otherwise exponential backoff with full jitter."""
+    if retry_after is not None:
+        return float(retry_after)
+    return random.uniform(0, min(30.0, 0.5 * 2 ** attempt))
+
+
+def text(response: dict) -> str:
+    return "".join(b["text"] for b in response["content"] if b["type"] == "text")
+</script>
+<script type="text/plain" class="code" data-file="hello_raw.py">
+from claude_http import ClaudeHttp, text
+
+claude = ClaudeHttp()
+res = claude.create({
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 512,
+    "system": "You are a concise assistant for backend engineers.",
+    "messages": [{"role": "user", "content": "What is idempotency, in two sentences?"}],
+})
+print(text(res))
+print("stop_reason =", res["stop_reason"], " usage =", res["usage"])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: What is idempotency, in two sentences?
+stop_reason = end_turn  usage = {'input_tokens': 46, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'output_tokens': 19}
+</script>
+<p>To see the retries, run it against a mock server that fails twice with <code>529 overloaded</code> before it answers, and one that is asked for a model that doesn't exist:</p>
+<script type="text/plain" class="code" data-file="retries_raw.py">
+from claude_http import ClaudeHttp, ClaudeAPIError, text
+from llmkit import mock_api
+
+waits = []
+with mock_api(fail_first=2, fail_status=529) as url:
+    claude = ClaudeHttp(base_url=url, api_key="test", sleep=waits.append)
+    res = claude.create({"model": "claude-haiku-5-5", "max_tokens": 50,
+                         "messages": [{"role": "user", "content": "ping"}]})
+    print(len(url.requests), "requests,", len(waits), "waits:", text(res))
+
+with mock_api() as url:
+    claude = ClaudeHttp(base_url=url, api_key="test", sleep=waits.append)
+    try:
+        claude.create({"model": "claude-does-not-exist", "max_tokens": 50,
+                       "messages": [{"role": "user", "content": "ping"}]})
+    except ClaudeAPIError as e:
+        print(e.status, "after", len(url.requests), "request(s); request-id starts with", e.request_id[:9])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 requests, 2 waits: (mock reply) You said: ping
+404 after 1 request(s); request-id starts with req_mock_
+</script>
+<p>Injecting <code>sleep</code> is a small design choice that pays off: tests run instantly and can assert on the waits.</p>
+
+<div class="java">
+<p>☕ <strong>The same client in Java</strong> with <code>java.net.http</code> and Jackson (shortened; the full class is in the <code>reference/</code> folder of the <a href="https://github.com/coderhop-learning/ai-book-playground">playground repository</a>):</p>
+<script type="text/plain" class="code" data-file="ClaudeHttp.java" data-norun>
+public JsonNode create(ObjectNode body) throws Exception {
+    for (int attempt = 0; ; attempt++) {
+        HttpRequest req = HttpRequest.newBuilder(URL)
+            .timeout(Duration.ofSeconds(120))
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+            .build();
+        HttpResponse<String> res;
+        try {
+            res = http.send(req, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException e) {                         // connection reset, timeout
+            if (attempt >= maxRetries) throw e;
+            Thread.sleep(backoff(attempt, null)); continue;
+        }
+        int s = res.statusCode();
+        if (s == 200) return JSON.readTree(res.body());
+        boolean retryable = s == 408 || s == 409 || s == 429 || s >= 500;
+        if (!retryable || attempt >= maxRetries)
+            throw new ClaudeApiException(s, res.headers().firstValue("request-id").orElse("?"), res.body());
+        Thread.sleep(backoff(attempt, res.headers().firstValue("retry-after").orElse(null)));
+    }
+}
+</script>
+</div>
+
+<h2 id="sdk">Version 2: the official SDK</h2>
+<p>The SDK gives you typed requests and responses, automatic retries with backoff (2 by default), timeouts (10 minutes by default), streaming helpers and typed exceptions. Use it in production once you understand what it does.</p>
+<script type="text/plain" class="code" data-file="hello_sdk.py">
+import anthropic
+
+client = anthropic.Anthropic(max_retries=3, timeout=120.0)   # reads ANTHROPIC_API_KEY
+message = client.messages.create(
+    model="claude-sonnet-5-5",
+    max_tokens=512,
+    system="You are a concise assistant for backend engineers.",
+    messages=[{"role": "user", "content": "What is idempotency, in two sentences?"}],
+)
+print("".join(b.text for b in message.content if b.type == "text"))
+print(message.stop_reason, message.usage.input_tokens, message.usage.output_tokens)
+print(message._request_id.startswith("req_"))          # log this when you report a problem
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: What is idempotency, in two sentences?
+end_turn 46 19
+True
+</script>
+<p>The response is a typed object (a Pydantic model), so your editor completes <code>message.usage.output_tokens</code>, and <code>message.to_dict()</code> gives you the plain JSON when you need it.</p>
+<div class="java">
+<p>☕ <strong>Java SDK</strong> (<code>com.anthropic:anthropic-java</code>). The builder mirrors the JSON body:</p>
+<script type="text/plain" class="code" data-file="HelloSdk.java" data-norun>
+AnthropicClient client = AnthropicOkHttpClient.fromEnv();          // ANTHROPIC_API_KEY
+
+MessageCreateParams params = MessageCreateParams.builder()
+    .model("claude-sonnet-5-5")
+    .maxTokens(512L)
+    .system("You are a concise assistant for backend engineers.")
+    .addUserMessage("What is idempotency, in two sentences?")
+    .build();
+
+Message message = client.messages().create(params);
+message.content().stream()
+    .flatMap(block -> block.text().stream())
+    .forEach(t -> System.out.println(t.text()));
+</script>
+<p>Spring developers can also use <strong>Spring AI</strong>'s <code>ChatClient</code> on top; see <a href="appendix-landscape.html">Appendix F</a>.</p>
+</div>
+
+<h3>Async: many calls at once</h3>
+<p>LLM calls spend almost all their time waiting on the network, so concurrency helps a lot. The <code>AsyncAnthropic</code> client has the same methods, awaited:</p>
+<script type="text/plain" class="code" data-file="async_calls.py">
+import asyncio
+import anthropic
+
+async def classify(client, ticket):
+    msg = await client.messages.create(
+        model="claude-haiku-5-5", max_tokens=50,
+        messages=[{"role": "user", "content": f"Category of: {ticket}"}])
+    return msg.content[0].text
+
+async def main():
+    client = anthropic.AsyncAnthropic()
+    tickets = ["Login fails", "Invoice typo", "Export slow"]
+    results = await asyncio.gather(*(classify(client, t) for t in tickets))
+    for r in results:
+        print(r)
+
+asyncio.run(main())
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: Category of: Login fails
+(mock reply) You said: Category of: Invoice typo
+(mock reply) You said: Category of: Export slow
+</script>
+<p><code>asyncio.gather</code> keeps the order of the inputs. For hundreds of calls, limit concurrency with an <code>asyncio.Semaphore</code> so you stay under your rate limits (<a href="11-production.html">Chapter 11</a>), or use the Batches API at half the price when nobody is waiting.</p>
+
+<h2 id="multiturn">Multi-turn conversations</h2>
+<p>The API is stateless, so a conversation is a list you keep and resend. You can append the response's <code>content</code> blocks directly as the assistant turn:</p>
+<script type="text/plain" class="code" data-file="multi_turn.py">
+import anthropic
+
+client = anthropic.Anthropic()
+messages = [{"role": "user", "content": "Our p99 latency doubled after a deploy. Where do I start?"}]
+first = client.messages.create(model="claude-sonnet-5-5", max_tokens=800, messages=messages)
+
+messages.append({"role": "assistant", "content": first.content})
+messages.append({"role": "user", "content": "We also see GC pauses of 800ms. Does that change your answer?"})
+second = client.messages.create(model="claude-sonnet-5-5", max_tokens=800, messages=messages)
+
+print([m["role"] for m in messages])
+print(second.content[0].text)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+['user', 'assistant', 'user']
+(mock reply) You said: We also see GC pauses of 800ms. Does that change your answer?
+</script>
+<p>In production, store conversations server-side (a table keyed by conversation ID), and trim or summarize old turns when the history passes a token budget (<a href="01-llms.html#context">Chapter 1</a>).</p>
+
+<h2 id="streaming">Streaming</h2>
+<p>With <code>"stream": true</code> the API sends <strong>Server-Sent Events</strong> while the model generates. Use streaming for anything a human watches, and for long outputs that would otherwise hit HTTP idle timeouts. The event sequence is:</p>
+<figure class="diagram">
+<svg viewBox="0 0 640 110" role="img" aria-label="Streaming event sequence">
+  <rect class="hi" x="6" y="30" width="112" height="40" rx="6"/><text x="62" y="55" text-anchor="middle">message_start</text>
+  <rect class="bx" x="128" y="30" width="150" height="40" rx="6"/><text x="203" y="55" text-anchor="middle">content_block_start</text>
+  <rect class="hi" x="288" y="30" width="150" height="40" rx="6"/><text x="363" y="55" text-anchor="middle">content_block_delta ×N</text>
+  <rect class="bx" x="448" y="30" width="80" height="40" rx="6"/><text x="488" y="55" text-anchor="middle">block_stop</text>
+  <rect class="hi" x="538" y="30" width="96" height="40" rx="6"/><text x="586" y="55" text-anchor="middle">message_delta</text>
+  <text class="mut" x="320" y="95" text-anchor="middle">per content block: start → deltas → stop; message_delta carries stop_reason and usage; then message_stop</text>
+</svg>
+</figure>
+<p>The raw protocol is just lines of text. Parsing it by hand shows there is no magic:</p>
+<script type="text/plain" class="code" data-file="stream_raw.py">
+import json, os, urllib.request
+
+req = urllib.request.Request(
+    os.environ["ANTHROPIC_BASE_URL"] + "/v1/messages", method="POST",
+    data=json.dumps({"model": "claude-sonnet-5-5", "max_tokens": 200, "stream": True,
+                     "messages": [{"role": "user", "content": "Explain backpressure."}]}).encode(),
+    headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+             "content-type": "application/json"})
+
+events = []
+with urllib.request.urlopen(req) as res:
+    for raw in res:
+        line = raw.decode().rstrip("\n")
+        if not line.startswith("data: "):
+            continue
+        ev = json.loads(line[6:])
+        events.append(ev["type"])
+        if ev["type"] == "content_block_delta" and ev["delta"]["type"] == "text_delta":
+            print(ev["delta"]["text"], end="", flush=True)
+        elif ev["type"] == "message_delta":
+            print(f"\n[stop_reason={ev['delta']['stop_reason']}, output_tokens={ev['usage']['output_tokens']}]")
+print(events[0], events[1], "...", events[-2], events[-1])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: Explain backpressure.
+[stop_reason=end_turn, output_tokens=13]
+message_start content_block_start ... message_delta message_stop
+</script>
+<p>The SDK wraps all of this in a context manager. <code>text_stream</code> yields the text pieces, and <code>get_final_message()</code> gives you the complete <code>Message</code> with <code>usage</code> and <code>stop_reason</code> for logging:</p>
+<script type="text/plain" class="code" data-file="stream_sdk.py">
+import anthropic
+
+client = anthropic.Anthropic()
+pieces = []
+with client.messages.stream(
+    model="claude-sonnet-5-5",
+    max_tokens=64000,
+    messages=[{"role": "user", "content": "Explain backpressure with an example."}],
+) as stream:
+    for text in stream.text_stream:
+        pieces.append(text)              # in a real app: print(text, end="", flush=True)
+    final = stream.get_final_message()
+
+print(len(pieces), "pieces:", "".join(pieces))
+print(final.stop_reason, final.usage.output_tokens)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+17 pieces: (mock reply) You said: Explain backpressure with an example.
+end_turn 17
+</script>
+<div class="tip">
+<p><strong>Streaming to your own clients.</strong> In a web service, relay the deltas to the browser as SSE (FastAPI's <code>StreamingResponse</code>, Spring's <code>SseEmitter</code> or <code>Flux&lt;ServerSentEvent&gt;</code>). Keep accumulating the full text on the server, so you can log, evaluate and store it when the stream ends.</p>
+</div>
+
+<h2 id="errors">Errors and what to do about them</h2>
+<div class="table-wrap"><table>
+<tr><th>Status</th><th><code>error.type</code></th><th>Meaning</th><th>Action</th></tr>
+<tr><td>400</td><td><code>invalid_request_error</code></td><td>bad body or parameter, too many tokens</td><td>Fix the request. Don't retry.</td></tr>
+<tr><td>401</td><td><code>authentication_error</code></td><td>bad or missing key</td><td>Alert. Don't retry.</td></tr>
+<tr><td>403</td><td><code>permission_error</code></td><td>key lacks access</td><td>Alert. Don't retry.</td></tr>
+<tr><td>404</td><td><code>not_found_error</code></td><td>wrong model ID or endpoint</td><td>Fix the config.</td></tr>
+<tr><td>413</td><td><code>request_too_large</code></td><td>body over the size limit</td><td>Shrink the request.</td></tr>
+<tr><td>429</td><td><code>rate_limit_error</code></td><td>over your rate limits</td><td>Retry after <code>retry-after</code>; shape traffic (<a href="11-production.html">Ch. 11</a>).</td></tr>
+<tr><td>500</td><td><code>api_error</code></td><td>server error</td><td>Retry with backoff.</td></tr>
+<tr><td>529</td><td><code>overloaded_error</code></td><td>temporarily overloaded</td><td>Retry with backoff; consider a fallback model.</td></tr>
+</table></div>
+<p>The SDK raises a typed exception for each. Catch the specific ones first, so retryable and non-retryable failures stay distinct:</p>
+<script type="text/plain" class="code" data-file="sdk_errors.py">
+import anthropic
+
+def ask(client, model):
+    try:
+        msg = client.messages.create(model=model, max_tokens=100,
+                                     messages=[{"role": "user", "content": "hi"}])
+        return "ok: " + msg.content[0].text
+    except anthropic.NotFoundError:
+        return "config bug: unknown model " + model
+    except anthropic.AuthenticationError:
+        return "bad API key: alert someone"
+    except anthropic.RateLimitError as e:
+        return "rate limited, retry after " + e.response.headers.get("retry-after", "?")
+    except anthropic.APIStatusError as e:
+        return f"API error {e.status_code}"
+    except anthropic.APIConnectionError:
+        return "network problem"
+
+client = anthropic.Anthropic()
+print(ask(client, "claude-haiku-5-5"))
+print(ask(client, "claude-haiku-9"))
+print(ask(anthropic.Anthropic(api_key="bad-key"), "claude-haiku-5-5"))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+ok: (mock reply) You said: hi
+config bug: unknown model claude-haiku-9
+bad API key: alert someone
+</script>
+
+<h3>Two failures that come back as HTTP 200</h3>
+<ul>
+  <li><strong><code>stop_reason: "max_tokens"</code></strong>: the answer was cut off. The response is HTTP 200 but incomplete, and it is billed. Treat it as an error for structured output, or raise <code>max_tokens</code>.</li>
+  <li><strong><code>stop_reason: "refusal"</code></strong>: the model declined for safety reasons; <code>stop_details</code> says why. Show a graceful message; don't retry the identical request in a loop.</li>
+</ul>
+<script type="text/plain" class="code" data-file="stop_reason.py">
+import anthropic
+
+client = anthropic.Anthropic()
+msg = client.messages.create(model="claude-sonnet-5-5", max_tokens=5,
+                             messages=[{"role": "user", "content": "Explain the CAP theorem."}])
+
+def answer_or_raise(msg):
+    if msg.stop_reason == "max_tokens":
+        raise RuntimeError(f"truncated after {msg.usage.output_tokens} tokens: raise max_tokens or ask for less")
+    if msg.stop_reason == "refusal":
+        return "Sorry, I can't help with that request."
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+try:
+    answer_or_raise(msg)
+except RuntimeError as e:
+    print(repr(msg.content[0].text), "->", e)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+'(mock reply) You' -> truncated after 5 tokens: raise max_tokens or ask for less
+</script>
+<div class="pitfall">
+<p><strong>Retrying non-idempotent work.</strong> Retrying the API call itself is safe: creating a message has no side effects. Retrying a whole <em>workflow</em> that also sent an email or wrote a row is not. Keep side effects out of the retried section, or make them idempotent, exactly as with any other remote call.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A usage log line per call</h3>
+<p>Log one structured line per call: it becomes your cost and latency dashboard in <a href="10-evals.html">Chapter 10</a>.</p>
+<script type="text/plain" class="code" data-file="usage_log.py">
+import json, time
+import anthropic
+from llmkit import cost
+
+client = anthropic.Anthropic()
+
+def logged_create(prompt_id, **params):
+    t0 = time.perf_counter()
+    msg = client.messages.create(**params)
+    line = {"event": "llm_call", "prompt": prompt_id, "model": msg.model,
+            "in": msg.usage.input_tokens, "out": msg.usage.output_tokens,
+            "usd": round(cost(msg.model, msg.usage.input_tokens, msg.usage.output_tokens), 6),
+            "ms": round((time.perf_counter() - t0) * 1000), "stop": msg.stop_reason}
+    print(json.dumps(line))
+    return msg
+
+logged_create("triage@v1", model="claude-haiku-5-5", max_tokens=100,
+              messages=[{"role": "user", "content": "Classify: login fails"}])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+{"event": "llm_call", "prompt": "triage@v1", "model": "claude-haiku-5-5", "in": 24, "out": 12, "usd": 8e-06, "ms": ..., "stop": "end_turn"}
+</script>
+
+<h3>The other big SDK: OpenAI-style chat completions</h3>
+<p>Many providers and local model servers speak the OpenAI "chat completions" format. The ideas are identical; the field names differ. The system prompt is a message, the answer lives in <code>choices[0].message.content</code>, and <code>finish_reason</code> plays the role of <code>stop_reason</code>:</p>
+<script type="text/plain" class="code" data-file="openai_style.py">
+from openai import OpenAI
+
+client = OpenAI()                          # reads OPENAI_API_KEY and OPENAI_BASE_URL
+resp = client.chat.completions.create(
+    model="gpt-5",
+    messages=[{"role": "system", "content": "You are concise."},
+              {"role": "user", "content": "What is idempotency?"}],
+)
+print(resp.choices[0].message.content)
+print(resp.choices[0].finish_reason, resp.usage.prompt_tokens, resp.usage.completion_tokens)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: What is idempotency?
+stop 45 13
+</script>
+<p>Frameworks such as LangChain (<a href="appendix-langchain.html">Appendix A</a>) hide these differences behind one interface, which makes switching providers cheap.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Reading <code>content[0].text</code> blindly.</strong> Assumes the first block is text and the answer is complete.</p></div>
+<div class="good"><p><strong>Iterate blocks, check <code>stop_reason</code>.</strong> Collect <code>text</code> blocks by type and branch on <code>stop_reason</code> before you use the result.</p></div>
+<div class="bad"><p><strong>Retrying every error.</strong> Retrying 400s and 401s burns quota and hides config bugs.</p></div>
+<div class="good"><p><strong>Retry only transient failures</strong>: 408, 409, 429, 5xx, 529 and connection errors, with backoff and jitter, honouring <code>retry-after</code>.</p></div>
+<div class="bad"><p><strong>No timeout.</strong> A hung request ties up a worker until the load balancer gives up.</p></div>
+<div class="good"><p><strong>Explicit timeouts</strong> on every call; stream long outputs.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>One endpoint, JSON in and out, standard HTTP semantics, plus a <code>request-id</code> to log.</li>
+  <li><code>content</code> is an array of typed blocks; <code>stop_reason</code> and <code>usage</code> come with every answer.</li>
+  <li>The SDK adds types, retries, timeouts, async and stream helpers on top of the same request.</li>
+  <li>Conversations are lists you store and resend.</li>
+  <li>Stream anything a human waits on; <code>message_delta</code> carries the final <code>stop_reason</code> and usage.</li>
+  <li>Retry transient errors with backoff; treat <code>max_tokens</code> truncation as a failure.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A response comes back with HTTP 200 and <code>stop_reason: "max_tokens"</code>. Is the answer complete? Is it billed?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No, it was cut off at the cap you set. Yes, you pay for every token generated. Raise <code>max_tokens</code>, ask for a shorter answer, or treat it as a failure.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Which of these should a client retry? 400, 401, 404, 408, 429, 500, 529, a connection reset.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Retry 408, 429, 500, 529 and the connection reset (with backoff, honouring <code>retry-after</code>). Don't retry 400, 401 or 404: they need a fix, not another attempt.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>Why does this crash with <code>TypeError</code> on the second call, and how do you fix it?</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+messages.append({"role": "assistant", "content": first})      # first is the Message object
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>The <code>content</code> of a message must be a string or a list of content blocks, not a whole <code>Message</code> (with its <code>id</code>, <code>usage</code> and so on). Append <code>first.content</code> (the list of blocks), or the extracted text.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Which streaming event carries the final <code>stop_reason</code> and output token count?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>message_delta</code>. <code>message_stop</code> follows it and ends the stream. In the SDK, <code>stream.get_final_message()</code> gives you both on the assembled <code>Message</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Write a test proving that <code>ClaudeHttp</code> does <em>not</em> retry a 401. Use <code>mock_api()</code>, which answers 401 for API keys that start with <code>bad</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from claude_http import ClaudeHttp, ClaudeAPIError
+from llmkit import mock_api
+
+with mock_api() as url:
+    claude = ClaudeHttp(base_url=url, api_key="bad-key", sleep=lambda s: None)
+    try:
+        claude.create({"model": "claude-haiku-5-5", "max_tokens": 5,
+                       "messages": [{"role": "user", "content": "x"}]})
+    except ClaudeAPIError as e:
+        print(e.status, len(url.requests))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+401 1
+</script>
+<p>One request, no retries. A retry here would just repeat the same mistake.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a <code>total_retries</code> counter to <code>ClaudeHttp</code> and check it against a mock server that fails 3 times with 429 (<code>max_retries=3</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from claude_http import ClaudeHttp
+from llmkit import mock_api
+
+class CountingClaude(ClaudeHttp):
+    total_retries = 0
+    def __init__(self, **kw):
+        super().__init__(sleep=self._count, **kw)
+    def _count(self, seconds):
+        self.total_retries += 1
+
+with mock_api(fail_first=3, fail_status=429) as url:
+    c = CountingClaude(base_url=url, api_key="t", max_retries=3)
+    c.create({"model": "claude-haiku-5-5", "max_tokens": 5, "messages": [{"role": "user", "content": "x"}]})
+    print(c.total_retries, len(url.requests))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 4
+</script>
+<p>Three waits, four requests. Export this counter as a metric: a rising retry rate is an early warning of rate-limit trouble.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Use the SDK's streaming helper to print the stream while also measuring the time to the first text piece (TTFT).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import time
+import anthropic
+
+client = anthropic.Anthropic()
+t0 = time.perf_counter()
+ttft = None
+with client.messages.stream(model="claude-sonnet-5-5", max_tokens=1000,
+                            messages=[{"role": "user", "content": "Explain retries."}]) as stream:
+    for text in stream.text_stream:
+        if ttft is None:
+            ttft = time.perf_counter() - t0
+total = time.perf_counter() - t0
+print(0 <= ttft <= total)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+True
+</script>
+<p>TTFT is what users feel; log it next to the total.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Limit concurrency: rewrite the async example to classify 20 tickets with at most 5 requests in flight.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import asyncio
+import anthropic
+
+async def main():
+    client = anthropic.AsyncAnthropic()
+    limit = asyncio.Semaphore(5)
+    in_flight = peak = 0
+
+    async def classify(t):
+        nonlocal in_flight, peak
+        async with limit:
+            in_flight += 1
+            peak = max(peak, in_flight)
+            msg = await client.messages.create(model="claude-haiku-5-5", max_tokens=20,
+                                               messages=[{"role": "user", "content": t}])
+            in_flight -= 1
+            return msg.stop_reason
+
+    results = await asyncio.gather(*(classify(f"ticket {i}") for i in range(20)))
+    print(len(results), "done, peak in flight:", peak)
+
+asyncio.run(main())
+</script>
+<script type="text/plain" class="code" data-lang="text">
+20 done, peak in flight: 5
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write a <code>Conversation</code> class that stores history, trims it to a token budget using the count endpoint (<code>client.messages.count_tokens</code>), and drops the oldest user/assistant <em>pair</em> at a time so roles keep alternating.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import anthropic
+
+class Conversation:
+    def __init__(self, client, model="claude-sonnet-5-5", budget=200):
+        self.client, self.model, self.budget, self.messages = client, model, budget, []
+
+    def _tokens(self):
+        return self.client.messages.count_tokens(model=self.model, messages=self.messages).input_tokens
+
+    def ask(self, text):
+        self.messages.append({"role": "user", "content": text})
+        while len(self.messages) > 1 and self._tokens() > self.budget:
+            del self.messages[:2]                          # oldest user + assistant pair
+        msg = self.client.messages.create(model=self.model, max_tokens=500, messages=self.messages)
+        self.messages.append({"role": "assistant", "content": msg.content[0].text})
+        return msg
+
+c = Conversation(anthropic.Anthropic())
+for i in range(8):
+    c.ask(f"Question {i}: tell me something about distributed systems.")
+print(len(c.messages), c.messages[0]["role"], c.messages[0]["content"][:10])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+6 user Question 5
+</script>
+<p>Counting with the API is exact but costs a round trip; many apps count once per message and cache the number.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design a resilient CLI chat: history, streaming, a 20k-token budget, and a friendly message when the network is gone. Which of this chapter's pieces do you use for each requirement, and which failure would you still not handle?</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>History and budget: the <code>Conversation</code> class from exercise 9.</li>
+  <li>Streaming: <code>client.messages.stream(...)</code> with <code>text_stream</code>, and <code>get_final_message()</code> to store the assistant turn.</li>
+  <li>Network loss: the SDK retries connection errors; catch <code>anthropic.APIConnectionError</code> after that and print "Can't reach the API, your message is kept; press Enter to retry".</li>
+  <li>Truncation: check <code>stop_reason</code> and offer "continue".</li>
+  <li>Still unhandled: a stream that breaks <em>halfway</em>. The partial text is shown but the final message never arrives; keep the partial text, mark the turn incomplete, and let the user retry.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/working-with-messages">Using the Messages API</a>: request shape, multi-turn, content blocks.</li>
+  <li><a href="https://platform.claude.com/docs/en/api/messages">Messages API reference</a>: every parameter and response field.</li>
+  <li><a href="https://platform.claude.com/docs/en/build-with-claude/streaming">Streaming messages</a> and <a href="https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons">Handling stop reasons</a>.</li>
+  <li><a href="https://platform.claude.com/docs/en/api/errors">Errors</a>: status codes, error types, <code>request-id</code>.</li>
+  <li><a href="https://github.com/anthropics/anthropic-sdk-python">Python SDK</a> and <a href="https://github.com/anthropics/anthropic-sdk-java">Java SDK</a> on GitHub.</li>
+  <li><a href="https://platform.openai.com/docs/api-reference/chat">OpenAI chat completions reference</a>, for the other common format.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

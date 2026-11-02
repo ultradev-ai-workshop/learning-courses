@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🦙&lt;/text&gt;&lt;/svg&gt;">
+<title>C. LlamaIndex · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix C · Popular Frameworks</div>
+<h1>LlamaIndex</h1>
+<p class="lead">A framework centred on connecting models to your data: loading, parsing into nodes, indexing, retrieving and querying. Where LangChain is a general toolbox, LlamaIndex is a specialist in the RAG pipeline of <a href="07-rag.html">Chapter 7</a>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>LlamaIndex's vocabulary: documents, nodes, indexes, retrievers, query engines.</li>
+  <li>How to parse Markdown into nodes that keep their heading metadata.</li>
+  <li>How to plug in an embedding model and an LLM through <code>Settings</code>.</li>
+  <li>Retrievers, metadata filters and query engines with source nodes.</li>
+  <li>How to write a small custom LLM adapter, and test with <code>MockLLM</code>.</li>
+  <li>When LlamaIndex is the right choice.</li>
+</ul>
+</div>
+
+<div class="note">
+<p><strong>Versions.</strong> This appendix uses <code>llama-index-core</code> 0.14. Provider integrations (such as <code>llama-index-llms-anthropic</code>) are separate packages that follow their SDKs at their own pace; at the time of writing the Anthropic integration hadn't caught up with <code>anthropic</code> 2.x, so the book writes a 20-line adapter instead. Check the integration's release notes before you pin versions.</p>
+</div>
+
+<h2 id="vocab">The vocabulary</h2>
+<div class="table-wrap"><table>
+<tr><th>Concept</th><th>What it is</th><th>Chapter equivalent</th></tr>
+<tr><td><code>Document</code></td><td>a loaded source (file, page, row) with metadata</td><td>a doc from <code>load_docs()</code></td></tr>
+<tr><td><code>Node</code></td><td>a chunk of a document, with metadata and relationships</td><td>a <code>Chunk</code> (Ch. 7)</td></tr>
+<tr><td>Node parser</td><td>splits documents into nodes</td><td><code>chunk_markdown</code></td></tr>
+<tr><td><code>VectorStoreIndex</code></td><td>embeds nodes and stores the vectors</td><td><code>VectorStore</code> (Ch. 6)</td></tr>
+<tr><td>Retriever</td><td>question → scored nodes</td><td><code>Index.vector</code></td></tr>
+<tr><td>Query engine</td><td>retriever + LLM synthesis → answer with source nodes</td><td><code>rag.answer</code></td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a library's back office.</strong> Documents arrive as donations, cataloguers cut them into indexed cards (nodes) with shelf marks (metadata), the index is the card catalogue, the retriever is the librarian who pulls cards, and the query engine is the reference desk that reads the cards and writes you a reply with the card numbers attached.</p>
+</div>
+
+<h2 id="nodes">Documents and nodes</h2>
+<script type="text/plain" class="code" data-file="li_nodes.py">
+from llama_index.core import Document
+from llama_index.core.node_parser import MarkdownNodeParser
+from llmkit import load_docs
+
+docs = [Document(text=d.text, metadata={"doc_id": d.id, "kind": d.meta["kind"]}) for d in load_docs()]
+nodes = MarkdownNodeParser().get_nodes_from_documents(docs)
+print(len(docs), "documents ->", len(nodes), "nodes")
+n = next(n for n in nodes if "pgctl promote" in n.text)
+print(n.metadata)
+print(n.text.splitlines()[0])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+11 documents -> 43 nodes
+{'doc_id': 'runbook-db-failover', 'kind': 'runbook', 'header_path': '/Runbook: database failover/'}
+## Steps
+</script>
+<p>The Markdown parser keeps the heading path in <code>header_path</code> and copies the document's metadata to every node: the same "keep the heading path" rule as Chapter 7.</p>
+
+<h2 id="settings">Plugging in models</h2>
+<p>LlamaIndex needs an embedding model (for indexing and retrieval) and an LLM (for answer synthesis). Set them globally with <code>Settings</code>, or pass them per index. An embedding adapter implements three methods:</p>
+<script type="text/plain" class="code" data-file="li_setup.py" data-save>
+import anthropic
+from llama_index.core import Settings
+from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.llms import CustomLLM, CompletionResponse, LLMMetadata
+from llama_index.core.llms.callbacks import llm_completion_callback
+from llmkit import embed
+
+
+class ToyEmbedding(BaseEmbedding):
+    """The book's toy embedding; in real life use an integration such as VoyageEmbedding."""
+    def _get_query_embedding(self, query):
+        return embed(query)
+
+    def _get_text_embedding(self, text):
+        return embed(text)
+
+    async def _aget_query_embedding(self, query):
+        return embed(query)
+
+
+class ClaudeLLM(CustomLLM):
+    """A minimal LlamaIndex LLM backed by the anthropic SDK."""
+    model: str = "claude-sonnet-5-5"
+    max_tokens: int = 1000
+
+    @property
+    def metadata(self):
+        return LLMMetadata(model_name=self.model, num_output=self.max_tokens, context_window=1_000_000)
+
+    @llm_completion_callback()
+    def complete(self, prompt, formatted=False, **kwargs):
+        msg = anthropic.Anthropic().messages.create(
+            model=self.model, max_tokens=self.max_tokens, messages=[{"role": "user", "content": prompt}])
+        return CompletionResponse(text="".join(b.text for b in msg.content if b.type == "text"), raw=msg.to_dict())
+
+    @llm_completion_callback()
+    def stream_complete(self, prompt, formatted=False, **kwargs):
+        yield self.complete(prompt)
+
+
+def configure():
+    Settings.embed_model = ToyEmbedding()
+    Settings.llm = ClaudeLLM()
+</script>
+<div class="java">
+<p>☕ <strong>Java:</strong> the adapter pattern is the same as implementing a Spring AI <code>ChatModel</code> or a LangChain4j <code>ChatModel</code>: a small class that maps the framework's request type to your provider's API. It's also your escape hatch when an integration lags behind the SDK.</p>
+</div>
+
+<h2 id="index">Index, retrieve, query</h2>
+<script type="text/plain" class="code" data-file="li_query.py">
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.node_parser import MarkdownNodeParser
+from li_setup import configure
+from llmkit import load_docs
+
+configure()
+docs = [Document(text=d.text, metadata={"doc_id": d.id}) for d in load_docs()]
+index = VectorStoreIndex(MarkdownNodeParser().get_nodes_from_documents(docs))
+
+retriever = index.as_retriever(similarity_top_k=2)
+for hit in retriever.retrieve("how do I promote the standby postgres"):
+    print(f"{hit.score:.2f}", hit.node.metadata["doc_id"], hit.node.metadata.get("header_path"))
+
+engine = index.as_query_engine(similarity_top_k=2)
+response = engine.query("How do I promote the standby?")
+print(str(response)[:60])
+print("sources:", [s.node.metadata["doc_id"] for s in response.source_nodes])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server for the answer)">
+0.39 runbook-db-failover /Runbook: database failover/
+0.38 runbook-db-failover /Runbook: database failover/
+(mock reply) You said: Context information is below.
+-------
+sources: ['runbook-db-failover', 'runbook-db-failover']
+</script>
+<p>The query engine retrieves, packs the nodes into its prompt template, calls the LLM and returns the answer with <code>source_nodes</code>: the raw material for citations. As with LangChain, access control, hybrid search, abstention and evals are your job.</p>
+
+<h3>Metadata filters</h3>
+<p>Filters are applied by the vector store during retrieval, which is where access control belongs:</p>
+<script type="text/plain" class="code" data-file="li_filters.py">
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
+from li_setup import configure
+from llmkit import load_docs
+
+configure()
+docs = [Document(text=d.text, metadata={"doc_id": d.id, "acl": "security" if d.id == "policy-secrets" else "all"})
+        for d in load_docs()]
+index = VectorStoreIndex.from_documents(docs)
+everyone = index.as_retriever(similarity_top_k=3, filters=MetadataFilters(filters=[ExactMatchFilter(key="acl", value="all")]))
+print([h.node.metadata["doc_id"] for h in everyone.retrieve("a secret leaked, what now")])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['api-orders', 'policy-incident-severity', 'adr-012-kafka']
+</script>
+
+<h2 id="testing">Testing with MockLLM</h2>
+<p><code>MockLLM</code> returns placeholder text, so you can test the retrieval and plumbing of a query engine without any model:</p>
+<script type="text/plain" class="code" data-file="li_mock.py">
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.llms import MockLLM
+from llama_index.core.node_parser import MarkdownNodeParser
+from li_setup import ToyEmbedding
+from llmkit import load_docs
+
+nodes = MarkdownNodeParser().get_nodes_from_documents(
+    [Document(text=d.text, metadata={"doc_id": d.id}) for d in load_docs()])
+index = VectorStoreIndex(nodes, embed_model=ToyEmbedding())
+engine = index.as_query_engine(llm=MockLLM(max_tokens=5), similarity_top_k=1)
+r = engine.query("how do I promote the standby postgres during failover")
+assert r.source_nodes[0].node.metadata["doc_id"] == "runbook-db-failover", r.source_nodes[0].node.metadata
+print("retrieval test passed:", repr(str(r)))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+retrieval test passed: 'text text text text text'
+</script>
+
+<h2 id="when">When to use LlamaIndex</h2>
+<div class="table-wrap"><table>
+<tr><th>Good fit</th><th>Think twice</th></tr>
+<tr><td>a data-heavy RAG app with many source types (PDFs, wikis, databases)</td><td>a tool-heavy agent with little retrieval</td></tr>
+<tr><td>you want ready parsers, node relationships and query engines</td><td>you need fine control of every prompt and request</td></tr>
+<tr><td>you'll use LlamaParse or LlamaCloud for document parsing</td><td>you already have a search platform you trust</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Documents → nodes (via a node parser) → index → retriever → query engine with source nodes.</li>
+  <li><code>Settings</code> holds the default embedding model and LLM; adapters are small classes.</li>
+  <li>Filters run inside retrieval; use them for access control.</li>
+  <li><code>MockLLM</code> and a toy embedding make the pipeline testable offline.</li>
+  <li>Integrations can lag behind SDKs: pin versions, or write a thin adapter.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">map</span></h3>
+<p>Map these LlamaIndex terms to the book's code: <code>Node</code>, <code>VectorStoreIndex</code>, query engine.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Node</code> ≈ <code>Chunk</code> from Chapter 7; <code>VectorStoreIndex</code> ≈ <code>VectorStore</code> / <code>Index</code>; query engine ≈ <code>rag.answer</code> (retrieve, assemble, generate).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why does the book write <code>ClaudeLLM</code> instead of installing the official integration package?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The integration hadn't been updated for the current <code>anthropic</code> SDK major version. A thin adapter keeps you unblocked; switch back to the integration once its release notes support your SDK version.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Count the nodes per document kind (runbook, adr, guide, policy, api).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from collections import Counter
+from llama_index.core import Document
+from llama_index.core.node_parser import MarkdownNodeParser
+from llmkit import load_docs
+
+docs = [Document(text=d.text, metadata={"kind": d.meta["kind"]}) for d in load_docs()]
+print(dict(sorted(Counter(n.metadata["kind"] for n in MarkdownNodeParser().get_nodes_from_documents(docs)).items())))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'adr': 10, 'api': 4, 'guide': 11, 'policy': 10, 'runbook': 8}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Where should the ACL filter go: in <code>as_retriever(filters=...)</code> or in a post-processing step on the answer?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In the retriever: forbidden nodes must never reach the prompt. Filtering the answer is too late; the model already read the text.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Measure recall@3 of a LlamaIndex retriever on the Chapter 6 cases (<code>retrieval_eval.CASES</code>, document IDs).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llama_index.core import Document, VectorStoreIndex
+from li_setup import ToyEmbedding
+from llmkit import load_docs
+from retrieval_eval import recall_at_k
+
+index = VectorStoreIndex.from_documents([Document(text=d.text, metadata={"doc_id": d.id}) for d in load_docs()],
+                                        embed_model=ToyEmbedding())
+search = lambda q, k: [h.node.metadata["doc_id"] for h in index.as_retriever(similarity_top_k=k).retrieve(q)]
+r, missed = recall_at_k(search, 3)
+print(f"recall@3 {r:.2f}", missed)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+recall@3 1.00 []
+</script>
+<p>Same eval, different framework: that's how you compare implementations fairly.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Turn <code>response.source_nodes</code> into citation dicts <code>{"doc", "section", "score"}</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.llms import MockLLM
+from llama_index.core.node_parser import MarkdownNodeParser
+from li_setup import ToyEmbedding
+from llmkit import load_docs
+
+nodes = MarkdownNodeParser().get_nodes_from_documents([Document(text=d.text, metadata={"doc": d.title}) for d in load_docs()])
+engine = VectorStoreIndex(nodes, embed_model=ToyEmbedding()).as_query_engine(llm=MockLLM(max_tokens=5), similarity_top_k=2)
+r = engine.query("what counts as SEV2")
+print([{"doc": s.node.metadata["doc"], "section": s.node.metadata.get("header_path"), "score": round(s.score, 2)}
+       for s in r.source_nodes])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[{'doc': 'Guide: deploying a service', 'section': '/Guide: deploying a service/', 'score': 0.23}, {'doc': 'Policy: incident severity', 'section': '/Policy: incident severity/', 'score': 0.18}]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Write a test that the ACL filter never returns <code>policy-secrets</code> for 5 different questions about secrets.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
+from li_setup import ToyEmbedding
+from llmkit import load_docs
+
+docs = [Document(text=d.text, metadata={"doc_id": d.id, "acl": "security" if d.id == "policy-secrets" else "all"})
+        for d in load_docs()]
+r = VectorStoreIndex.from_documents(docs, embed_model=ToyEmbedding()).as_retriever(
+    similarity_top_k=5, filters=MetadataFilters(filters=[ExactMatchFilter(key="acl", value="all")]))
+qs = ["secret leaked", "rotate api keys", "vault", "where do secrets live", "llm provider keys"]
+assert all("policy-secrets" not in [h.node.metadata["doc_id"] for h in r.retrieve(q)] for q in qs)
+print("ACL holds for", len(qs), "questions")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ACL holds for 5 questions
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">compare</span></h3>
+<p>Compare the number of nodes from <code>MarkdownNodeParser</code> with the chunks from <code>chunk_markdown</code>. Why do they differ?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llama_index.core import Document
+from llama_index.core.node_parser import MarkdownNodeParser
+from llmkit import load_docs
+from chunker import chunk_markdown
+
+docs = load_docs()
+li = MarkdownNodeParser().get_nodes_from_documents([Document(text=d.text) for d in docs])
+mine = [c for d in docs for c in chunk_markdown(d)]
+print(len(li), len(mine))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+43 32
+</script>
+<p>LlamaIndex also makes a node for the text under the <code># title</code> heading of each document, which <code>chunk_markdown</code> skips. Neither is "right": chunking is a choice you measure.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Add hybrid retrieval to LlamaIndex: combine the vector retriever's ranking with a BM25 ranking (from <code>rank_bm25</code>) using the <code>rrf</code> function from Chapter 7.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from rank_bm25 import BM25Okapi
+from llama_index.core import Document, VectorStoreIndex
+from llama_index.core.node_parser import MarkdownNodeParser
+from li_setup import ToyEmbedding
+from llmkit import load_docs
+from retrievers import rrf, words
+
+nodes = MarkdownNodeParser().get_nodes_from_documents([Document(text=d.text) for d in load_docs()])
+index = VectorStoreIndex(nodes, embed_model=ToyEmbedding())
+bm25 = BM25Okapi([words(n.text) for n in nodes])
+
+def hybrid(q, k=3):
+    vec = [h.node.node_id for h in index.as_retriever(similarity_top_k=20).retrieve(q)]
+    scores = bm25.get_scores(words(q))
+    kw = [nodes[i].node_id for i in sorted(range(len(nodes)), key=lambda i: -scores[i])[:20] if scores[i] > 0]
+    by_id = {n.node_id: n for n in nodes}
+    return [by_id[i].text.splitlines()[0] for i in rrf([vec, kw])[:k]]
+
+print(hybrid("Idempotency-Key header"))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['## POST /orders', '# Policy: secrets', '# Policy: on-call']
+</script>
+<p>LlamaIndex also ships fusion retrievers and BM25 integrations; writing it yourself once shows you exactly what they do.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>You must index 20,000 PDFs and Confluence pages, with per-space permissions. Which LlamaIndex pieces would you use, and what would you build yourself?</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Use: readers/loaders for Confluence and PDFs (or a parsing service), node parsers, a persistent vector store integration (pgvector, Qdrant), metadata on every node (space, page id, version).</li>
+  <li>Build: the permission model (space ACLs mapped to metadata filters, tested), incremental re-indexing by version, hybrid search if the store lacks it, citations validation, abstention thresholds, evals and cost tracking.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://developers.llamaindex.ai/python/framework/">LlamaIndex Python framework docs</a>.</li>
+  <li><a href="https://developers.llamaindex.ai/python/framework/module_guides/loading/node_parsers/">Node parsers</a> and <a href="https://developers.llamaindex.ai/python/framework/module_guides/querying/">querying</a>.</li>
+  <li><a href="https://developers.llamaindex.ai/python/framework/module_guides/models/llms/usage_custom/">Custom LLMs</a>.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛠️&lt;/text&gt;&lt;/svg&gt;">
+<title>5. Tool Use · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Building Blocks</div>
+<h1>Tool Use</h1>
+<p class="lead">Let the model decide which of your functions to call and with what arguments, while your code stays in charge of actually calling them.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The tool-use round trip: definitions, <code>tool_use</code> blocks, <code>tool_result</code> blocks.</li>
+  <li>How to build a tool registry from typed Python functions, and a bounded tool loop.</li>
+  <li>How parallel tool calls, <code>tool_choice</code> and <code>strict: true</code> work.</li>
+  <li>How to design tools that models use well, and how to report tool errors back.</li>
+  <li>How the SDK's Tool Runner automates the loop.</li>
+  <li>The difference between client tools (you run them) and server tools (Anthropic runs them).</li>
+</ul>
+</div>
+
+<h2 id="roundtrip">The round trip</h2>
+<p>Tool use lets the model ask your code to run a function. The model never executes anything itself.</p>
+<ol>
+  <li>You send a request with <code>tools</code>: each has a <code>name</code>, a <code>description</code> and an <code>input_schema</code> (JSON Schema).</li>
+  <li>If a tool would help, the model replies with <code>stop_reason: "tool_use"</code> and one or more <code>tool_use</code> blocks, each with an <code>id</code>, a <code>name</code> and an <code>input</code> object.</li>
+  <li>Your code validates the input, runs the function, and sends a new <code>user</code> message with one <code>tool_result</code> block per call, each pointing at its <code>tool_use_id</code>.</li>
+  <li>The model continues, possibly calling more tools, until it answers with <code>stop_reason: "end_turn"</code>.</li>
+</ol>
+<figure class="diagram">
+<svg viewBox="0 0 620 170" role="img" aria-label="Tool use round trip between your code and the model">
+  <rect class="bx" x="10" y="20" width="170" height="130" rx="8"/><text x="95" y="45" text-anchor="middle">Your code</text>
+  <text class="mut" x="95" y="70" text-anchor="middle">validates input</text><text class="mut" x="95" y="88" text-anchor="middle">runs the function</text><text class="mut" x="95" y="106" text-anchor="middle">checks permissions</text>
+  <rect class="hi" x="440" y="20" width="170" height="130" rx="8"/><text x="525" y="45" text-anchor="middle">The model</text>
+  <text class="mut" x="525" y="70" text-anchor="middle">reads tool docs</text><text class="mut" x="525" y="88" text-anchor="middle">proposes calls</text><text class="mut" x="525" y="106" text-anchor="middle">writes the answer</text>
+  <text x="310" y="40" text-anchor="middle">① question + tools →</text>
+  <text x="310" y="72" text-anchor="middle">← ② tool_use {team: "payments"}</text>
+  <text x="310" y="104" text-anchor="middle">③ tool_result "priya" →</text>
+  <text x="310" y="136" text-anchor="middle">← ④ end_turn "Page Priya."</text>
+</svg>
+</figure>
+<p>Here is one round trip by hand, with the real SDK. (Against the book's mock server, which picks a tool whose name or description matches the question.)</p>
+<script type="text/plain" class="code" data-file="round_trip.py">
+import anthropic
+from llmkit import ONCALL
+
+client = anthropic.Anthropic()
+tools = [{
+    "name": "get_oncall",
+    "description": "Returns the engineer currently on call for one team. Use when the user asks "
+                   "who is on call, who to page, or who owns an alert right now.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"team": {"type": "string", "enum": ["payments", "platform", "data", "web"],
+                                "description": "Team slug"}},
+        "required": ["team"],
+        "additionalProperties": False,
+    },
+}]
+messages = [{"role": "user", "content": "Who is on call for payments right now?"}]
+
+res = client.messages.create(model="claude-sonnet-5-5", max_tokens=1024, tools=tools, messages=messages)
+print(res.stop_reason)
+call = next(b for b in res.content if b.type == "tool_use")
+print(call.name, call.input)
+
+messages.append({"role": "assistant", "content": res.content})          # keep the tool_use block
+messages.append({"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": call.id, "content": ONCALL[call.input["team"]]}]})
+
+res = client.messages.create(model="claude-sonnet-5-5", max_tokens=1024, tools=tools, messages=messages)
+print(res.stop_reason, "->", res.content[0].text)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+tool_use
+get_oncall {'team': 'payments'}
+end_turn -> Based on the tool results: priya
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a manager with a phone and an assistant.</strong> The model is a manager who can't touch any system, but can say "please look up who's on call for payments" and read the answer. Your code is the assistant who decides whether the request is allowed, makes the call, and reports back. A good assistant also says "that number doesn't exist" instead of hanging up: that is an error result.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> picture a client that reads your OpenAPI spec and decides which endpoint to call. The tool definitions are that spec, the <code>tool_use</code> block is a request the model <em>proposes</em>, and your code is the server: it authenticates, validates, authorizes, executes and responds, exactly as it would for any untrusted caller.</p>
+</div>
+
+<h2 id="design">Defining tools well</h2>
+<p>The description is the most important field. The model chooses tools by reading it, the way a new teammate reads API docs.</p>
+<ul>
+  <li><strong>Say what it does, when to use it, and when not to.</strong> Three or four sentences is normal.</li>
+  <li><strong>Describe every parameter</strong>, with formats and examples ("Ticket key such as OPS-1234").</li>
+  <li><strong>Prefer a few high-level tools</strong> over many thin CRUD wrappers. <code>get_incident_context(incident_id)</code> that returns what an engineer needs beats five tools the model must chain.</li>
+  <li><strong>Return concise, meaningful results</strong>: names and readable fields, not raw rows with 40 columns and internal UUIDs. Every result token costs money and attention.</li>
+  <li><strong>Namespace</strong> related tools (<code>tickets_get</code>, <code>tickets_search</code>) so they are easy to tell apart.</li>
+</ul>
+
+<h2 id="registry">Worked example: a registry and a bounded loop</h2>
+<p>Writing JSON Schemas by hand gets old fast. A small registry can build them from type hints and docstrings with Pydantic, and validate the model's input with the same model before your function runs:</p>
+<script type="text/plain" class="code" data-file="registry.py" data-save>
+import inspect
+import json
+from pydantic import ValidationError, create_model
+
+
+class ToolError(Exception):
+    """An error the model should see (and can recover from)."""
+
+
+class Registry:
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self, fn):
+        """Register fn as a tool. Its docstring is the description, its type hints the schema."""
+        params = inspect.signature(fn).parameters
+        fields = {n: (p.annotation, ... if p.default is p.empty else p.default) for n, p in params.items()}
+        model = create_model(fn.__name__ + "_input", **fields)
+        schema = model.model_json_schema()
+        schema.pop("title", None)
+        self.tools[fn.__name__] = (fn, model, {
+            "name": fn.__name__,
+            "description": inspect.cleandoc(fn.__doc__ or ""),
+            "input_schema": {**schema, "additionalProperties": False},
+        })
+        return fn
+
+    def definitions(self):
+        return [d for _, _, d in self.tools.values()]
+
+    def run(self, name, raw_input) -> tuple[str, bool]:
+        """Returns (content, is_error). Never raises: errors go back to the model."""
+        if name not in self.tools:
+            return f"unknown tool {name}", True
+        fn, model, _ = self.tools[name]
+        try:
+            args = model.model_validate(raw_input)
+            result = fn(**args.model_dump())
+            return result if isinstance(result, str) else json.dumps(result), False
+        except ValidationError as e:
+            return f"invalid input: {e.errors()[0]['msg']} at {e.errors()[0]['loc']}", True
+        except ToolError as e:
+            return str(e), True
+</script>
+<p>The tools for DocsPilot wrap the sample company's on-call rota and ticket system:</p>
+<script type="text/plain" class="code" data-file="docspilot_tools.py" data-save>
+from typing import Literal
+from llmkit import ONCALL, TICKETS
+from registry import Registry, ToolError
+
+registry = Registry()
+
+
+@registry.tool
+def get_oncall(team: Literal["payments", "platform", "data", "web"]) -> dict:
+    """Returns the engineer currently on call for one team. Use when the user asks who is
+    on call, who to page, or who owns an alert right now. Not for past schedules."""
+    return {"team": team, "primary": ONCALL[team]}
+
+
+@registry.tool
+def get_ticket(key: str) -> dict:
+    """Looks up one ticket by its key, such as OPS-101. Returns title, status, team and severity.
+    Use when the user mentions a ticket key."""
+    if key not in TICKETS:
+        raise ToolError(f"ticket {key} not found")
+    return {"key": key, **TICKETS[key]}
+</script>
+<script type="text/plain" class="code" data-file="show_tools.py">
+import json
+from docspilot_tools import registry
+
+d = registry.definitions()[0]
+print(d["name"], "-", d["description"][:52])
+print(json.dumps(d["input_schema"]))
+print(registry.run("get_ticket", {"key": "OPS-102"}))
+print(registry.run("get_ticket", {"key": "OPS-999"}))
+print(registry.run("get_oncall", {"team": "marketing"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+get_oncall - Returns the engineer currently on call for one team.
+{"properties": {"team": {"enum": ["payments", "platform", "data", "web"], "title": "Team", "type": "string"}}, "required": ["team"], "type": "object", "additionalProperties": false}
+('{"key": "OPS-102", "title": "Nightly export job slow", "status": "in_progress", "team": "data", "severity": "SEV3"}', False)
+('ticket OPS-999 not found', True)
+("invalid input: Input should be 'payments', 'platform', 'data' or 'web' at ('team',)", True)
+</script>
+<p>Now the loop. It keeps the assistant's blocks verbatim, runs every <code>tool_use</code> block, returns <em>all</em> results in one user message, and stops after a fixed number of steps:</p>
+<script type="text/plain" class="code" data-file="tool_loop.py" data-save>
+MAX_STEPS = 8
+
+
+def run(client, registry, question, system="You are DocsPilot.", model="claude-sonnet-5-5", trace=None):
+    messages = [{"role": "user", "content": question}]
+    for step in range(MAX_STEPS):
+        res = client.messages.create(model=model, max_tokens=2048, system=system,
+                                     tools=registry.definitions(), messages=messages)
+        messages.append({"role": "assistant", "content": res.content})
+        if res.stop_reason != "tool_use":                     # end_turn, max_tokens, refusal...
+            return "".join(b.text for b in res.content if b.type == "text"), messages
+        results = []
+        for block in res.content:
+            if block.type == "tool_use":
+                content, is_error = registry.run(block.name, block.input)
+                if trace is not None:
+                    trace.append((block.name, block.input, is_error))
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": content, "is_error": is_error})
+        messages.append({"role": "user", "content": results})  # all results in ONE user turn
+    raise RuntimeError(f"tool loop exceeded {MAX_STEPS} steps")
+</script>
+<p>Test it with a scripted fake: the "model" asks for two tools in parallel, then answers.</p>
+<script type="text/plain" class="code" data-file="loop_demo.py">
+from llmkit import FakeAnthropic
+from docspilot_tools import registry
+from tool_loop import run
+
+client = FakeAnthropic(replies=[
+    {"tool": [{"name": "get_oncall", "input": {"team": "payments"}},
+              {"name": "get_ticket", "input": {"key": "OPS-101"}}]},
+    "OPS-101 (checkout 502s, SEV2) is open; page Priya, the payments on-call.",
+])
+trace = []
+answer, messages = run(client, registry, "Who should I page about OPS-101?", trace=trace)
+print(answer)
+print(trace)
+print([m["role"] for m in messages], "| results in turn 3:", len(messages[2]["content"]))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+OPS-101 (checkout 502s, SEV2) is open; page Priya, the payments on-call.
+[('get_oncall', {'team': 'payments'}, False), ('get_ticket', {'key': 'OPS-101'}, False)]
+['user', 'assistant', 'user', 'assistant'] | results in turn 3: 2
+</script>
+<p>The same loop runs unchanged against the real client: swap <code>FakeAnthropic(...)</code> for <code>anthropic.Anthropic()</code>. That swap is the whole point of a fake with the same interface.</p>
+
+<div class="java">
+<p>☕ <strong>Java</strong>: the same design as an interface plus a loop over Jackson nodes. Each tool validates its own input and throws a <code>ToolException</code> for errors the model should see:</p>
+<script type="text/plain" class="code" data-file="Tool.java" data-norun>
+public interface Tool {
+    String name();
+    String description();
+    JsonNode inputSchema();
+    /** Must validate its own input. Throw ToolException for errors the model should see. */
+    String execute(JsonNode input) throws ToolException;
+}
+
+// inside the loop, for each tool_use block:
+ObjectNode r = results.addObject().put("type", "tool_result").put("tool_use_id", block.path("id").asText());
+try {
+    r.put("content", tools.get(block.path("name").asText()).execute(block.path("input")));
+} catch (Tool.ToolException e) {
+    r.put("content", e.getMessage()).put("is_error", true);     // let the model recover
+}
+</script>
+<p>Spring AI and LangChain4j generate the definitions from annotated methods (<code>@Tool</code>) and run the loop for you; see <a href="appendix-landscape.html">Appendix F</a>.</p>
+</div>
+
+<h2 id="control">Parallel calls, <code>tool_choice</code> and <code>strict</code></h2>
+<ul>
+  <li><strong>Parallel tool use</strong> is on by default: the model may return several <code>tool_use</code> blocks in one turn. Run independent calls concurrently, and return <em>all</em> results in a <em>single</em> user message. Splitting them over several messages teaches the model to stop making parallel calls. Set <code>disable_parallel_tool_use: true</code> in <code>tool_choice</code> if you need one call at a time.</li>
+  <li><strong>Strict tool use</strong>: add <code>"strict": true</code> to a tool definition (next to <code>name</code>) to guarantee that <code>input</code> matches its schema, with the same constrained decoding as <a href="04-structured.html">Chapter 4</a>. The schema needs <code>additionalProperties: false</code> and <code>required</code>.</li>
+</ul>
+<div class="table-wrap"><table>
+<tr><th><code>tool_choice</code></th><th>Behaviour</th></tr>
+<tr><td><code>{"type": "auto"}</code> (default)</td><td>The model decides whether to call tools.</td></tr>
+<tr><td><code>{"type": "none"}</code></td><td>Tools are visible but can't be called.</td></tr>
+<tr><td><code>{"type": "any"}</code> / <code>{"type": "tool", "name": ...}</code></td><td>Force a call. Rejected with a 400 by <code>claude-opus-5-5</code> and <code>claude-sonnet-5-5</code>; on those, use <code>auto</code> and name the tool in the prompt.</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="parallel.py">
+from concurrent.futures import ThreadPoolExecutor
+import time
+from llmkit import FakeAnthropic
+from docspilot_tools import registry
+
+def slow_run(name, input):            # pretend every tool call is a 200 ms HTTP request
+    time.sleep(0.2)
+    return registry.run(name, input)
+
+client = FakeAnthropic(replies=[{"tool": [{"name": "get_oncall", "input": {"team": t}}
+                                          for t in ("payments", "platform", "data", "web")]}])
+res = client.messages.create(model="claude-sonnet-5-5", max_tokens=500, tools=registry.definitions(),
+                             messages=[{"role": "user", "content": "Who is on call for every team?"}])
+calls = [b for b in res.content if b.type == "tool_use"]
+
+t0 = time.perf_counter()
+with ThreadPoolExecutor() as pool:
+    outputs = list(pool.map(lambda b: slow_run(b.name, b.input), calls))   # keeps the order
+elapsed = time.perf_counter() - t0
+print(len(calls), "calls in", "under 0.5 s" if elapsed < 0.5 else f"{elapsed:.1f} s")
+print([o for o, _ in outputs][0])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 calls in under 0.5 s
+{"team": "payments", "primary": "priya"}
+</script>
+
+<h2 id="errors">Reporting tool errors</h2>
+<p>Don't let a failing tool crash the request. Send the error text back with <code>"is_error": true</code>: the model can fix its input and try again, or tell the user honestly what went wrong. The registry above already does this; here is what the model sees:</p>
+<script type="text/plain" class="code" data-file="tool_error.py">
+from llmkit import FakeAnthropic
+from docspilot_tools import registry
+from tool_loop import run
+
+client = FakeAnthropic(replies=[
+    {"tool": "get_ticket", "input": {"key": "OPS-999"}},
+    "I couldn't find ticket OPS-999. Could you check the key?",
+])
+answer, messages = run(client, registry, "What's the status of OPS-999?")
+print(messages[2]["content"][0])
+print(answer)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'type': 'tool_result', 'tool_use_id': 'toolu_01_get_ticket', 'content': 'ticket OPS-999 not found', 'is_error': True}
+I couldn't find ticket OPS-999. Could you check the key?
+</script>
+<div class="pitfall">
+<p><strong>Executing input unchecked.</strong> <code>db.execute(tool_input["sql"])</code> because the model wrote it is a vulnerability, not a feature. Treat tool input like input from a public endpoint: typed parameters, allow-lists, and the <em>user's</em> permissions, never raw SQL or shell. <a href="12-security.html">Chapter 12</a> goes deeper.</p>
+</div>
+
+<h2 id="runner">The SDK's Tool Runner</h2>
+<p>The loop above is short, but you'll write it in every project. The SDK has a beta helper that does it for you: decorate typed functions with <code>@beta_tool</code> (the docstring's <code>Args:</code> section describes the parameters) and iterate over <code>client.beta.messages.tool_runner(...)</code>. Each iteration yields the next assistant message; the runner runs the tools and feeds the results back until the model is done.</p>
+<script type="text/plain" class="code" data-file="tool_runner.py">
+import anthropic
+from anthropic import beta_tool
+from llmkit import ONCALL
+
+@beta_tool
+def get_oncall(team: str) -> str:
+    """Returns the engineer currently on call for one team.
+
+    Args:
+        team: Team slug such as payments, platform, data or web.
+    """
+    return ONCALL.get(team, f"no team called {team}")
+
+client = anthropic.Anthropic()
+runner = client.beta.messages.tool_runner(
+    model="claude-sonnet-5-5",
+    max_tokens=2048,
+    tools=[get_oncall],
+    messages=[{"role": "user", "content": "Who is on call for the data team?"}],
+)
+for message in runner:
+    print(message.stop_reason, [b.type for b in message.content])
+print(message.content[-1].text)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+tool_use ['text', 'tool_use']
+end_turn ['text']
+Based on the tool results: lena
+</script>
+<p>Write the manual loop when you need control the runner doesn't give you; otherwise prefer the runner. Approval gates don't need a manual loop: check inside the tool function and return "the user declined" as the result.</p>
+
+<h2 id="server">Client tools and server tools</h2>
+<p><strong>Client tools</strong> are the ones you define and execute (everything above). <strong>Server tools</strong>, such as web search, web fetch and code execution, are defined by Anthropic and run on Anthropic's infrastructure: you list them in <code>tools</code> and their results arrive as content blocks in the same response, with no loop on your side.</p>
+<script type="text/plain" class="code" data-file="server_tools.py" data-norun>
+res = client.messages.create(
+    model="claude-opus-5-5",
+    max_tokens=16000,
+    tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}],
+    messages=[{"role": "user", "content": "What changed in the latest PostgreSQL minor release?"}],
+)
+# res.content holds text, server_tool_use and web_search_tool_result blocks
+</script>
+<p>Server tool names carry a version date and change over time; check the <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview">tool use overview</a> for the current list and prices.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Routing with a tool description</h3>
+<p>Descriptions are prompts. Watch the mock server pick a different tool when the question changes:</p>
+<script type="text/plain" class="code" data-file="routing.py">
+import anthropic
+from docspilot_tools import registry
+
+client = anthropic.Anthropic()
+for q in ["Who do I page for the platform team?", "Is ticket OPS-103 closed?", "Tell me a joke"]:
+    res = client.messages.create(model="claude-sonnet-5-5", max_tokens=500,
+                                 tools=registry.definitions(), messages=[{"role": "user", "content": q}])
+    call = next((b for b in res.content if b.type == "tool_use"), None)
+    print(f"{q:38} ->", f"{call.name}({call.input})" if call else "no tool")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+Who do I page for the platform team?   -> get_oncall({'team': 'platform'})
+Is ticket OPS-103 closed?              -> get_ticket({'key': 'OPS-103'})
+Tell me a joke                         -> no tool
+</script>
+
+<h3>A human approval gate</h3>
+<p>Tools that change something (restart, deploy, refund) should ask a human first. The gate lives in your code, not in the prompt:</p>
+<script type="text/plain" class="code" data-file="approval.py">
+from registry import Registry
+
+registry = Registry()
+APPROVED = {"restart_service:payments"}          # in real life: a Slack button or a ticket
+
+@registry.tool
+def restart_service(service: str) -> str:
+    """Restarts one service. Changes production: needs a human's approval first."""
+    if f"restart_service:{service}" not in APPROVED:
+        return f"Not approved. Ask the user to approve restarting {service}."
+    return f"{service} restarted"
+
+print(registry.run("restart_service", {"service": "payments"}))
+print(registry.run("restart_service", {"service": "orders"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('payments restarted', False)
+('Not approved. Ask the user to approve restarting orders.', False)
+</script>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>Executing input unchecked</strong>: raw SQL, shell commands or URLs straight from <code>tool_use.input</code>.</p></div>
+<div class="good"><p><strong>Validate and authorize like a public endpoint</strong>: typed parameters, allow-lists, the user's permissions.</p></div>
+<div class="bad"><p><strong>Throwing on tool failure</strong>, so one failed lookup aborts the whole request.</p></div>
+<div class="good"><p><strong>Return <code>is_error</code> results</strong>; the model can retry with fixed input or explain the failure.</p></div>
+<div class="bad"><p><strong>No step limit</strong>: <code>while res.stop_reason == "tool_use"</code> with no cap.</p></div>
+<div class="good"><p><strong>A bounded loop</strong> with a maximum step count, plus a token or cost budget (<a href="08-agents.html">Chapter 8</a>).</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Tools are JSON-Schema-described functions; the model proposes calls, your code executes them.</li>
+  <li>The loop: request → <code>tool_use</code> blocks → all <code>tool_result</code> blocks in one user turn → repeat until <code>end_turn</code>, with a step limit.</li>
+  <li>Descriptions drive tool selection: what, when, when not, and parameter formats.</li>
+  <li>Generate schemas from typed functions and validate input before running anything.</li>
+  <li><code>strict: true</code> guarantees the input shape; forced <code>tool_choice</code> isn't available on the newest models.</li>
+  <li>Report failures as <code>is_error</code> results. The Tool Runner automates the loop; server tools run on Anthropic's side.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Who executes a client tool's function: the model, the API, or your code? What follows from that?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Your code. The model only proposes the call. So your code must validate the input, check the user's permissions and handle failures, exactly like an endpoint exposed to untrusted callers.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p>The model returned three <code>tool_use</code> blocks. This code answers each in its own user message. What's wrong?</p>
+<script type="text/plain" class="code" data-lang="python" data-norun>
+for block in tool_uses:
+    messages.append({"role": "user", "content": [result_for(block)]})
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>All results for one assistant turn belong in <em>one</em> user message. Build the list first, then append a single <code>{"role": "user", "content": results}</code>. Split results break the expected structure and discourage parallel calls.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">improve</span></h3>
+<p>Rewrite this tool description so the model knows when to use it: <code>"description": "Gets deploys"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>"Returns the deploys of one service in the last N hours (default 24), newest first, with version, author and time. Use when the user asks what changed, what shipped, or whether a deploy could explain an incident. Not for future or scheduled deploys." Plus a described <code>service</code> parameter with an enum, and <code>hours</code> with a range.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>The registry receives <code>{"team": "payments", "region": "eu"}</code> for <code>get_oncall</code>. What happens, and why is that good?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>By default Pydantic ignores the unknown field, so the call runs with <code>team="payments"</code>; the schema sent to the model says <code>additionalProperties: false</code>, so with <code>strict: true</code> the model can't produce it at all. If you want unknown fields to be an error in code too, give the input model <code>extra="forbid"</code>. Either way the function never receives a parameter it didn't declare.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a <code>search_tickets(team, status)</code> tool to the registry that returns the keys and titles of matching tickets. Test it with <code>registry.run</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from typing import Literal
+from llmkit import TICKETS
+from docspilot_tools import registry
+
+@registry.tool
+def search_tickets(team: Literal["payments", "platform", "data", "web"],
+                   status: Literal["open", "in_progress", "closed"] = "open") -> list:
+    """Lists tickets of one team with the given status (default open): key and title only."""
+    return [{"key": k, "title": t["title"]} for k, t in TICKETS.items()
+            if t["team"] == team and t["status"] == status]
+
+print(registry.run("search_tickets", {"team": "payments"}))
+print(registry.run("search_tickets", {"team": "web", "status": "closed"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('[{"key": "OPS-101", "title": "Checkout returns 502 for EU users"}]', False)
+('[{"key": "OPS-103", "title": "Login page typo"}]', False)
+</script>
+<p>Returning only key and title keeps results small; the model can call <code>get_ticket</code> for details.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Write a test that the loop raises after <code>MAX_STEPS</code> when a buggy "model" keeps calling tools forever.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic
+from docspilot_tools import registry
+import tool_loop
+
+forever = FakeAnthropic(replies=[{"tool": "get_oncall", "input": {"team": "web"}}] * 20)
+try:
+    tool_loop.run(forever, registry, "loop please")
+except RuntimeError as e:
+    print(e, "| requests made:", len(forever.calls))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+tool loop exceeded 8 steps | requests made: 8
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Make the registry produce <code>strict</code> tool definitions: add <code>"strict": True</code> to every definition, and check that every schema has <code>additionalProperties: false</code> and lists every property in <code>required</code>. Which tool fails the second check, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from docspilot_tools import registry
+from typing import Literal
+
+@registry.tool
+def list_deploys(service: str, hours: int = 24) -> str:
+    """Lists recent deploys of one service."""
+    return "[]"
+
+def strict_definitions(reg):
+    out = []
+    for d in reg.definitions():
+        s = d["input_schema"]
+        missing = set(s.get("properties", {})) - set(s.get("required", []))
+        if missing:
+            print(f"{d['name']}: optional parameters {sorted(missing)} are not in required")
+        out.append({**d, "strict": True})
+    return out
+
+defs = strict_definitions(registry)
+print(len(defs), all(d["strict"] for d in defs))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+list_deploys: optional parameters ['hours'] are not in required
+3 True
+</script>
+<p>Strict schemas usually want every property listed in <code>required</code>. Express "optional" as a nullable type (<code>int | None</code>) and apply the default in code.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">design</span></h3>
+<p>A colleague proposes five tools: <code>get_user</code>, <code>get_orders_for_user</code>, <code>get_order_items</code>, <code>get_shipment_for_order</code>, <code>get_carrier_status</code>. The main question users ask is "where is my order?". What do you propose instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>One high-level tool such as <code>get_order_status(order_id)</code> that returns what an engineer or agent needs: status, items summary, carrier and the latest tracking event. Fewer steps means fewer chances to go wrong, lower latency and fewer tokens. Keep the thin tools only if real questions need them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Add per-user permissions: <code>Registry.run(name, input, user)</code> must refuse tools the user's role may not use, returning an <code>is_error</code> result. Viewers may only use <code>get_*</code> tools.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from docspilot_tools import registry
+
+ROLES = {"asha": "viewer", "marco": "operator"}
+
+def run_as(user, name, raw_input):
+    if ROLES.get(user) != "operator" and not name.startswith("get_"):
+        return f"user {user} may not use {name}", True
+    return registry.run(name, raw_input)
+
+print(run_as("asha", "get_oncall", {"team": "web"}))
+print(run_as("asha", "restart_service", {"service": "web"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('{"team": "web", "primary": "sam"}', False)
+('user asha may not use restart_service', True)
+</script>
+<p>Even better: don't send tools the user can't use in <code>tools</code> at all. Then the model can't even propose them, and you save tokens.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Give the loop a cost budget: stop with a clear error when the total input + output tokens of all calls exceed <code>max_tokens_total</code>. Use <code>res.usage</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic
+from docspilot_tools import registry
+
+def run_budgeted(client, registry, question, max_tokens_total, max_steps=8):
+    messages, used = [{"role": "user", "content": question}], 0
+    for _ in range(max_steps):
+        res = client.messages.create(model="claude-sonnet-5-5", max_tokens=1024,
+                                     tools=registry.definitions(), messages=messages)
+        used += res.usage.input_tokens + res.usage.output_tokens
+        if used > max_tokens_total:
+            raise RuntimeError(f"token budget exceeded: {used} > {max_tokens_total}")
+        messages.append({"role": "assistant", "content": res.content})
+        if res.stop_reason != "tool_use":
+            return res.content[0].text, used
+        messages.append({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": b.id, "content": registry.run(b.name, b.input)[0]}
+            for b in res.content if b.type == "tool_use"]})
+
+client = FakeAnthropic(replies=[{"tool": "get_oncall", "input": {"team": "web"}}] * 5)
+try:
+    run_budgeted(client, registry, "Who is on call?", max_tokens_total=1500)
+except RuntimeError as e:
+    print(str(e).split(":")[0], "after", len(client.calls), "calls")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+token budget exceeded after 4 calls
+</script>
+<p>Each step resends the growing history, so tokens per step rise. A budget turns a runaway loop into a bounded cost.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview">Tool use overview</a>: client and server tools, the loop, pricing.</li>
+  <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works">How tool use works</a> and <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use">strict tool use</a>.</li>
+  <li><a href="https://github.com/anthropics/anthropic-sdk-python">Python SDK on GitHub</a> (see its tool helpers and Tool Runner docs).</li>
+  <li><a href="https://www.anthropic.com/engineering/writing-tools-for-agents">Writing effective tools for agents</a> (Anthropic Engineering).</li>
+  <li><a href="https://docs.pydantic.dev/latest/concepts/models/#dynamic-model-creation">Pydantic: dynamic model creation</a> (<code>create_model</code>).</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

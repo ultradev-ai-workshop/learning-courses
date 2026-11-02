@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎛️&lt;/text&gt;&lt;/svg&gt;">
+<title>E. DSPy · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix E · Popular Frameworks</div>
+<h1>DSPy</h1>
+<p class="lead">A framework that treats prompts as programs to be <em>optimized</em> rather than hand-written: you declare what goes in and out, write a metric, and let an optimizer choose instructions and examples against your data. It's evals-first development (<a href="10-evals.html">Chapter 10</a>) taken to its conclusion.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Signatures: declaring inputs and outputs instead of writing prompt text.</li>
+  <li>Modules: <code>Predict</code>, <code>ChainOfThought</code>, <code>ReAct</code>, and composing your own.</li>
+  <li>Examples, metrics and <code>Evaluate</code>.</li>
+  <li>Optimizers ("teleprompters"): what <code>LabeledFewShot</code>, <code>BootstrapFewShot</code> and MIPROv2 change.</li>
+  <li>How to test DSPy programs with <code>DummyLM</code>, and how to inspect the prompts it generates.</li>
+  <li>When DSPy is worth it.</li>
+</ul>
+</div>
+
+<div class="note">
+<p><strong>Versions.</strong> This appendix uses <code>dspy</code> 3.x, which calls providers through LiteLLM. Models are named <code>"provider/model"</code>, for example <code>dspy.LM("anthropic/claude-haiku-5-5")</code>. Here <code>ANTHROPIC_BASE_URL</code> points LiteLLM at the book's mock server, which understands DSPy's field format, so programs run end to end (with placeholder answers).</p>
+</div>
+
+<h2 id="signatures">Signatures and Predict</h2>
+<p>A <strong>signature</strong> says what a step takes and returns. DSPy turns it into a prompt and parses the reply into fields. The short form is a string; the class form adds instructions and field descriptions:</p>
+<script type="text/plain" class="code" data-file="dspy_setup.py" data-save>
+import dspy
+
+def configure(model="anthropic/claude-haiku-5-5"):
+    # LiteLLM reads ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL, which points at the mock server here)
+    dspy.configure(lm=dspy.LM(model, max_tokens=1000, cache=False))
+</script>
+<script type="text/plain" class="code" data-file="dspy_predict.py">
+import dspy
+from dspy_setup import configure
+
+configure()
+
+class Triage(dspy.Signature):
+    """Classify the severity of an internal support ticket."""
+    ticket: str = dspy.InputField()
+    severity: str = dspy.OutputField(desc="one of sev1, sev2, sev3, needs_info")
+
+triage = dspy.Predict(Triage)
+pred = triage(ticket="Checkout returns 502 for all EU users")
+print(pred.severity)
+
+qa = dspy.Predict("question -> answer")                 # the short string form
+print(qa(question="What is a SEV2?").answer)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: placeholder values)">
+example severity for: Checkout returns 502 for all EU users
+example answer for: What is a SEV2?
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: SQL versus hand-written loops.</strong> In SQL you declare <em>what</em> you want and the query planner decides <em>how</em> to fetch it, using statistics about your data. In DSPy you declare the signature and the metric, and the optimizer decides how to phrase the prompt and which examples to include, using your labelled data. Hand-written prompts are the hand-written loop: sometimes best, often not worth it.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> a signature is like an interface method declaration (<code>Severity triage(String ticket)</code>) whose implementation is generated and then tuned against a test suite. There's no mainstream Java DSPy; Java teams often run DSPy offline in Python to find a good prompt, then ship that prompt in their Java service.</p>
+</div>
+
+<h2 id="modules">Modules</h2>
+<p><code>ChainOfThought</code> adds a <code>reasoning</code> output before the declared outputs. <code>ReAct</code> runs a tool-using loop. Your own modules subclass <code>dspy.Module</code> and compose others in <code>forward</code>, like a PyTorch model:</p>
+<script type="text/plain" class="code" data-file="dspy_modules.py">
+import dspy
+from dspy_setup import configure
+
+configure()
+cot = dspy.ChainOfThought("ticket -> severity")
+p = cot(ticket="Login fails for every user")
+print(sorted(p.keys()))
+
+class TriageAndRoute(dspy.Module):
+    def __init__(self):
+        super().__init__()
+        self.severity = dspy.ChainOfThought("ticket -> severity")
+        self.team = dspy.Predict("ticket, severity -> team")
+
+    def forward(self, ticket):
+        sev = self.severity(ticket=ticket).severity
+        return dspy.Prediction(severity=sev, team=self.team(ticket=ticket, severity=sev).team)
+
+print(TriageAndRoute()(ticket="Nightly export is slow"))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+['reasoning', 'severity']
+Prediction(
+    severity='example severity for: Nightly export is slow',
+    team='example team for: Nightly export is slow'
+)
+</script>
+<p><code>ReAct</code> takes plain Python functions as tools. Here a scripted <code>DummyLM</code> plays the model, so you can see the trajectory:</p>
+<script type="text/plain" class="code" data-file="dspy_react.py">
+import dspy
+from dspy.utils.dummies import DummyLM
+from llmkit import ONCALL
+
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team such as payments, platform, data or web."""
+    return ONCALL[team]
+
+dspy.configure(lm=DummyLM([
+    {"next_thought": "I should look up the web on-call.", "next_tool_name": "get_oncall", "next_tool_args": {"team": "web"}},
+    {"next_thought": "I have the answer.", "next_tool_name": "finish", "next_tool_args": {}},
+    {"reasoning": "The tool returned sam.", "answer": "Page sam."},
+]))
+agent = dspy.ReAct("question -> answer", tools=[get_oncall], max_iters=4)
+r = agent(question="Who do I page for the web team?")
+print(r.answer)
+print({k: v for k, v in r.trajectory.items() if k.endswith("_0")})
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Page sam.
+{'thought_0': 'I should look up the web on-call.', 'tool_name_0': 'get_oncall', 'tool_args_0': {'team': 'web'}, 'observation_0': 'sam'}
+</script>
+
+<h2 id="evaluate">Examples, metrics and Evaluate</h2>
+<p>An <strong>example</strong> is a labelled case; <code>with_inputs</code> says which fields are inputs. A <strong>metric</strong> is a function <code>(example, prediction, trace=None) → bool or float</code>. <code>Evaluate</code> runs a program over a dev set and reports the score:</p>
+<script type="text/plain" class="code" data-file="dspy_eval.py">
+import dspy
+from dspy.utils.dummies import DummyLM
+
+devset = [dspy.Example(ticket=t, severity=s).with_inputs("ticket") for t, s in [
+    ("Checkout down for all users", "sev1"),
+    ("Checkout slow in EU", "sev2"),
+    ("Typo on login page", "sev3"),
+    ("Something feels off", "needs_info"),
+]]
+metric = lambda ex, pred, trace=None: ex.severity == pred.severity.strip().lower()
+
+dspy.configure(lm=DummyLM([{"severity": "sev2"}] * 4))       # a "model" that always says sev2
+result = dspy.Evaluate(devset=devset, metric=metric, display_progress=False)(dspy.Predict("ticket -> severity"))
+print(result.score)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+25.0
+</script>
+<p>This is Chapter 10's eval harness in DSPy form: a fixed set, a grader, a score. The metric can itself call a model (an LLM judge) for open-ended outputs.</p>
+
+<h2 id="optimize">Optimizers</h2>
+<p>An <strong>optimizer</strong> (DSPy also calls them teleprompters) takes a program, a training set and a metric, and returns an improved program:</p>
+<div class="table-wrap"><table>
+<tr><th>Optimizer</th><th>What it changes</th><th>Cost</th></tr>
+<tr><td><code>LabeledFewShot</code></td><td>adds k labelled examples as demonstrations</td><td>no model calls</td></tr>
+<tr><td><code>BootstrapFewShot</code></td><td>runs the program on training inputs, keeps the traces that pass the metric as demonstrations</td><td>one run per training example</td></tr>
+<tr><td><code>MIPROv2</code> and newer optimizers</td><td>proposes and searches instructions and demonstrations together</td><td>many calls: budget it</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="dspy_optimize.py">
+import dspy
+from dspy.teleprompt import LabeledFewShot
+
+trainset = [dspy.Example(ticket=t, severity=s).with_inputs("ticket") for t, s in [
+    ("Orders API returns 503 for everyone", "sev1"),
+    ("Export takes twice as long", "sev3"),
+    ("Payment page slow but works", "sev2"),
+]]
+program = dspy.Predict("ticket -> severity")
+compiled = LabeledFewShot(k=2).compile(program, trainset=trainset)
+print(len(program.demos), "->", len(compiled.demos), "demonstrations")
+print(compiled.demos[0].ticket, "=>", compiled.demos[0].severity)
+compiled.save("triage_program.json")                    # the optimized prompt is data you can version
+print(open("triage_program.json").read().count('"ticket"') >= 2)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 -> 2 demonstrations
+Export takes twice as long => sev3
+True
+</script>
+<div class="pitfall">
+<p><strong>Optimizing against your test set.</strong> An optimizer will happily overfit. Keep three splits: train (the optimizer sees it), dev (you compare runs) and a held-out test set you look at once, before shipping (<a href="14-next.html">Chapter 14</a>).</p>
+</div>
+
+<h2 id="inspect">Seeing the actual prompt</h2>
+<p>DSPy writes the prompt for you, so look at it. <code>dspy.inspect_history</code> prints the last calls; the LM object also keeps them:</p>
+<script type="text/plain" class="code" data-file="dspy_inspect.py">
+import dspy
+from dspy_setup import configure
+
+configure()
+dspy.Predict("ticket -> severity")(ticket="Login broken")
+last = dspy.settings.lm.history[-1]
+system = last["messages"][0]["content"]
+print(system.splitlines()[0])
+print("[[ ## severity ## ]]" in system, last["messages"][-1]["role"])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+Your input fields are:
+True user
+</script>
+<p>Everything you learned about prompts still applies: the generated prompt is a spec, it costs tokens, and you should check it for injection risks when inputs are untrusted.</p>
+
+<h2 id="when">When to use DSPy</h2>
+<div class="table-wrap"><table>
+<tr><th>Good fit</th><th>Think twice</th></tr>
+<tr><td>you have labelled data and a clear metric</td><td>you have no eval set yet (build one first)</td></tr>
+<tr><td>multi-step pipelines whose prompts interact</td><td>a single, simple prompt that already passes</td></tr>
+<tr><td>you switch models often and want prompts re-tuned automatically</td><td>you need full control of every word sent</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Signatures declare inputs and outputs; DSPy writes and parses the prompt.</li>
+  <li>Modules (<code>Predict</code>, <code>ChainOfThought</code>, <code>ReAct</code>, your own) compose like functions.</li>
+  <li>Examples + metric + <code>Evaluate</code> = an eval harness.</li>
+  <li>Optimizers change demonstrations and instructions to raise the metric; guard against overfitting with splits.</li>
+  <li><code>DummyLM</code> makes programs testable; inspect the generated prompts.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What does a signature replace in a hand-written prompt?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The instructions about what to produce and the output format ("reply with the severity…"), plus the parsing code. You still choose the field names, descriptions and the docstring, which become the prompt's content.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Which fields does <code>dspy.ChainOfThought("ticket -> severity")</code> return?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>reasoning</code> and <code>severity</code>: ChainOfThought adds a reasoning field before the declared outputs.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why must the metric be decided before optimizing?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The optimizer maximizes whatever the metric rewards. A vague or wrong metric produces a program that is good at the wrong thing, as with any optimization.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a signature class <code>Summarize</code> with input <code>incident</code> and outputs <code>summary</code> and <code>owner</code>, and print its fields.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import dspy
+
+class Summarize(dspy.Signature):
+    """Summarize an incident for the weekly review."""
+    incident: str = dspy.InputField()
+    summary: str = dspy.OutputField(desc="at most 2 sentences")
+    owner: str = dspy.OutputField(desc="the team that owns the fix")
+
+print(list(Summarize.input_fields), list(Summarize.output_fields), Summarize.instructions)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['incident'] ['summary', 'owner'] Summarize an incident for the weekly review.
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Write a metric that gives partial credit: 1.0 for the exact severity, 0.5 if it's one level off (sev1 vs sev2), 0 otherwise. Evaluate a <code>DummyLM</code> that always says sev2.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import dspy
+from dspy.utils.dummies import DummyLM
+
+LEVEL = {"sev1": 1, "sev2": 2, "sev3": 3}
+def metric(ex, pred, trace=None):
+    a, b = LEVEL.get(ex.severity), LEVEL.get(pred.severity.strip())
+    return 1.0 if a == b else 0.5 if a and b and abs(a - b) == 1 else 0.0
+
+devset = [dspy.Example(ticket=t, severity=s).with_inputs("ticket")
+          for t, s in [("down", "sev1"), ("slow", "sev2"), ("typo", "sev3"), ("??", "needs_info")]]
+dspy.configure(lm=DummyLM([{"severity": "sev2"}] * 4))
+print(dspy.Evaluate(devset=devset, metric=metric, display_progress=False)(dspy.Predict("ticket -> severity")).score)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+50.0
+</script>
+<p>(1 + 0.5 + 0.5 + 0) / 4 = 50%. Partial credit tells an optimizer that "close" beats "wrong".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Test the <code>TriageAndRoute</code> module with a <code>DummyLM</code>, asserting both outputs.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import dspy
+from dspy.utils.dummies import DummyLM
+
+class TriageAndRoute(dspy.Module):
+    def __init__(self):
+        super().__init__()
+        self.severity = dspy.ChainOfThought("ticket -> severity")
+        self.team = dspy.Predict("ticket, severity -> team")
+    def forward(self, ticket):
+        sev = self.severity(ticket=ticket).severity
+        return dspy.Prediction(severity=sev, team=self.team(ticket=ticket, severity=sev).team)
+
+dspy.configure(lm=DummyLM([{"reasoning": "export is batch", "severity": "sev3"}, {"team": "data"}]))
+p = TriageAndRoute()(ticket="Nightly export is slow")
+assert (p.severity, p.team) == ("sev3", "data"), p
+print("ok", p.severity, p.team)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok sev3 data
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Load the saved <code>triage_program.json</code> into a fresh <code>Predict</code> and check that the demonstrations came back.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import dspy
+from dspy.teleprompt import LabeledFewShot
+
+train = [dspy.Example(ticket="API down", severity="sev1").with_inputs("ticket"),
+         dspy.Example(ticket="typo", severity="sev3").with_inputs("ticket")]
+LabeledFewShot(k=2).compile(dspy.Predict("ticket -> severity"), trainset=train).save("p.json")
+fresh = dspy.Predict("ticket -> severity")
+fresh.load("p.json")
+print(len(fresh.demos), fresh.demos[1]["severity"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 sev1
+</script>
+<p>Saved programs are artifacts: commit them, review their diffs, and record which one is deployed, as you do with prompt files (<a href="02-prompts.html">Chapter 2</a>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>BootstrapFewShot keeps only traces that pass the metric. Why does that tend to produce better demonstrations than hand-picked examples?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The kept demonstrations are outputs the current model actually produced and that met your metric, in exactly the format the program uses, including intermediate fields like reasoning. Hand-picked examples may be in a style the model doesn't naturally produce, or miss the intermediate steps.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Run <code>BootstrapFewShot</code> with a scripted <code>DummyLM</code> that answers correctly for two training tickets and wrongly for the third. How many demonstrations survive?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import dspy
+from dspy.teleprompt import BootstrapFewShot
+from dspy.utils.dummies import DummyLM
+
+train = [dspy.Example(ticket=t, severity=s).with_inputs("ticket")
+         for t, s in [("API down", "sev1"), ("typo", "sev3"), ("slow page", "sev2")]]
+dspy.configure(lm=DummyLM([{"severity": "sev1"}, {"severity": "sev3"}, {"severity": "sev3"}]))
+metric = lambda ex, pred, trace=None: ex.severity == pred.severity
+opt = BootstrapFewShot(metric=metric, max_bootstrapped_demos=3, max_labeled_demos=0, max_rounds=1)
+compiled = opt.compile(dspy.Predict("ticket -> severity"), trainset=train)
+print(len(compiled.demos), [d.ticket for d in compiled.demos])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Bootstrapped 2 full traces after 2 examples for up to 1 rounds, amounting to 3 attempts.
+2 ['API down', 'typo']
+</script>
+<p>The failing trace ("slow page" answered sev3) is dropped; only passing traces become demonstrations.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Plan a DSPy experiment to improve DocsPilot's triage prompt: data, splits, metric, optimizer, budget, and how the result reaches production.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Data: 600 historical tickets with final severities; 300 train, 150 dev, 150 held-out test.</li>
+  <li>Metric: exact match, with a heavier penalty for under-rating a SEV1 (recall matters).</li>
+  <li>Baseline: the current hand-written prompt, evaluated on dev.</li>
+  <li>Optimizers: LabeledFewShot (free), then BootstrapFewShot, then MIPROv2 with a capped number of trials; record cost per run.</li>
+  <li>Decision: the best dev score, confirmed once on the test set; then export the optimized prompt (or ship the saved program), run the normal eval CI gate, and deploy behind a flag.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://dspy.ai/">DSPy documentation</a>.</li>
+  <li><a href="https://dspy.ai/learn/programming/signatures/">Signatures</a>, <a href="https://dspy.ai/learn/programming/modules/">modules</a> and <a href="https://dspy.ai/learn/optimization/optimizers/">optimizers</a>.</li>
+  <li><a href="https://arxiv.org/abs/2310.03714">DSPy: Compiling Declarative Language Model Calls</a> (the paper).</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>D. Pydantic AI · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix D · Popular Frameworks</div>
+<h1>Pydantic AI</h1>
+<p class="lead">An agent framework from the Pydantic team that feels like ordinary typed Python: an agent has a model, instructions, typed dependencies, typed tools and a typed output. It's the closest framework to the style of this book.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Agents: model, instructions, <code>run_sync</code> / <code>run</code>, results and usage.</li>
+  <li>Typed output with Pydantic models, and how it maps to structured outputs.</li>
+  <li>Tools and dependency injection with <code>RunContext</code>.</li>
+  <li>Testing with <code>TestModel</code>, <code>FunctionModel</code> and <code>agent.override</code>.</li>
+  <li>Message history for multi-turn conversations, and usage limits.</li>
+  <li>When to choose Pydantic AI.</li>
+</ul>
+</div>
+
+<div class="note">
+<p><strong>Versions.</strong> This appendix uses <code>pydantic-ai-slim</code> 2.x with the Anthropic extra. Model names use the <code>"provider:model"</code> form, for example <code>"anthropic:claude-sonnet-5-5"</code>; it reads <code>ANTHROPIC_API_KEY</code> (and here the mock server's base URL) from the environment.</p>
+</div>
+
+<h2 id="agent">Agents</h2>
+<script type="text/plain" class="code" data-file="pa_hello.py">
+from pydantic_ai import Agent
+
+agent = Agent("anthropic:claude-sonnet-5-5", instructions="You are DocsPilot. Answer in one sentence.")
+result = agent.run_sync("How do I roll back a deploy?")
+print(result.output)
+print(result.usage.requests, "request,", result.usage.input_tokens, "input tokens")
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: How do I roll back a deploy?
+1 request, 71 input tokens
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a typed function that happens to think.</strong> A Pydantic AI agent is used like a function with a signature: dependencies in, a validated object out. The model is an implementation detail behind that signature, which is exactly why it's easy to swap in a fake for tests.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> the feel is close to LangChain4j's "AI Services" (an interface whose methods are implemented by a model, returning POJOs) or Spring AI's <code>ChatClient...entity(Triage.class)</code>: typed in, typed out, with the plumbing hidden.</p>
+</div>
+
+<h2 id="output">Typed output</h2>
+<p>Give the agent an <code>output_type</code> and the result is a validated instance. With current Claude models Pydantic AI sends the schema as native structured output (<code>output_config.format</code>), the guarantee you met in <a href="04-structured.html">Chapter 4</a>:</p>
+<script type="text/plain" class="code" data-file="pa_output.py">
+from typing import Literal
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+class Triage(BaseModel):
+    category: Literal["billing", "auth", "orders_api", "other"]
+    severity: Literal["sev1", "sev2", "sev3", "needs_info"]
+
+agent = Agent("anthropic:claude-haiku-5-5", output_type=Triage, instructions="Triage support tickets.")
+t = agent.run_sync("Login fails for every user since 08:00.").output
+print(type(t).__name__, t.category, t.severity)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: a minimal valid object)">
+Triage billing sev1
+</script>
+
+<h2 id="tools">Tools and dependencies</h2>
+<p>Tools are decorated functions. <code>@agent.tool</code> tools receive a <code>RunContext</code> whose <code>deps</code> carries per-run dependencies (the current user, a database client, an HTTP client); <code>@agent.tool_plain</code> tools don't need it. Dependencies are how you keep tools acting <em>on behalf of the user</em> (<a href="12-security.html">Chapter 12</a>) without globals:</p>
+<script type="text/plain" class="code" data-file="pa_tools.py">
+from dataclasses import dataclass
+from pydantic_ai import Agent, RunContext
+from llmkit import ONCALL, TICKETS
+
+@dataclass
+class Deps:
+    user: str
+    teams_visible: set[str]
+
+agent = Agent("anthropic:claude-sonnet-5-5", deps_type=Deps, instructions="You are DocsPilot.")
+
+@agent.tool
+def get_ticket(ctx: RunContext[Deps], key: str) -> str:
+    """Looks up a ticket by key, such as OPS-101."""
+    t = TICKETS.get(key)
+    if t is None:
+        return f"ticket {key} not found"
+    if t["team"] not in ctx.deps.teams_visible:
+        return f"{ctx.deps.user} may not see tickets of team {t['team']}"
+    return f"{key}: {t['title']} ({t['status']})"
+
+@agent.tool_plain
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team such as payments, platform, data or web."""
+    return ONCALL.get(team, "unknown team")
+
+r = agent.run_sync("What is the status of ticket OPS-102?", deps=Deps("asha", {"payments", "web"}))
+print(r.output)
+print([type(m).__name__ for m in r.all_messages()])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+Based on the tool results: asha may not see tickets of team data
+['ModelRequest', 'ModelResponse', 'ModelRequest', 'ModelResponse']
+</script>
+<p>The permission check lives in the tool, using the dependencies the <em>application</em> passed in, not anything the model said.</p>
+
+<h2 id="testing">Testing without a model</h2>
+<p>Pydantic AI has two test models. <code>TestModel</code> calls every tool once with generated arguments and returns schema-valid output, which is great for smoke tests. <code>FunctionModel</code> lets you script the model's behaviour as a Python function. <code>agent.override(model=...)</code> swaps the model inside a <code>with</code> block, so production code needs no changes:</p>
+<script type="text/plain" class="code" data-file="pa_testing.py">
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
+from llmkit import ONCALL
+
+agent = Agent("anthropic:claude-sonnet-5-5", instructions="You are DocsPilot.")
+calls = []
+
+@agent.tool_plain
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team."""
+    calls.append(team)
+    return ONCALL.get(team, "unknown team")
+
+with agent.override(model=TestModel()):
+    agent.run_sync("anything")
+print("TestModel called the tool with:", calls)
+
+def scripted(messages, info: AgentInfo):
+    if len(messages) == 1:                                  # first turn: ask for a tool
+        return ModelResponse(parts=[ToolCallPart("get_oncall", {"team": "web"})])
+    return ModelResponse(parts=[TextPart("Page sam, the web on-call.")])
+
+with agent.override(model=FunctionModel(scripted)):
+    print(agent.run_sync("Who do I page for web?").output, "| tool calls:", calls)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TestModel called the tool with: ['a']
+Page sam, the web on-call. | tool calls: ['a', 'web']
+</script>
+
+<h2 id="history">Conversations and limits</h2>
+<p>Pass the previous run's messages as <code>message_history</code> to continue a conversation (the API is still stateless; Pydantic AI resends the history). <code>UsageLimits</code> enforces budgets in code:</p>
+<script type="text/plain" class="code" data-file="pa_history.py">
+from pydantic_ai import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.usage import UsageLimits
+
+agent = Agent("anthropic:claude-haiku-5-5", instructions="You are DocsPilot.")
+first = agent.run_sync("My team is payments.")
+second = agent.run_sync("Which team am I on?", message_history=first.all_messages())
+print(len(second.all_messages()), "messages in the conversation")
+
+try:
+    agent.run_sync("Write a long essay.", usage_limits=UsageLimits(output_tokens_limit=5))
+except UsageLimitExceeded as e:
+    print("stopped:", type(e).__name__)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+4 messages in the conversation
+stopped: UsageLimitExceeded
+</script>
+
+<h2 id="when">When to use Pydantic AI</h2>
+<div class="table-wrap"><table>
+<tr><th>Good fit</th><th>Think twice</th></tr>
+<tr><td>you like typed Python and Pydantic already</td><td>you need a large catalogue of data loaders</td></tr>
+<tr><td>agents with a few typed tools and typed outputs</td><td>long-running, resumable workflows with approvals (consider LangGraph)</td></tr>
+<tr><td>testability matters (TestModel, FunctionModel, override)</td><td>you only make single calls (the SDK is enough)</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>Agent("provider:model", instructions=..., output_type=..., deps_type=...)</code>; <code>run_sync</code> returns <code>output</code>, messages and usage.</li>
+  <li>Typed outputs use native structured outputs on current Claude models.</li>
+  <li>Tools get per-run dependencies through <code>RunContext</code>: the place for user identity and permissions.</li>
+  <li><code>TestModel</code>, <code>FunctionModel</code> and <code>agent.override</code> make agents unit-testable.</li>
+  <li><code>message_history</code> continues conversations; <code>UsageLimits</code> enforces budgets.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What's the difference between <code>@agent.tool</code> and <code>@agent.tool_plain</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@agent.tool</code> functions take a <code>RunContext</code> as their first argument (with <code>deps</code>, usage and more); <code>@agent.tool_plain</code> functions don't. The model never sees the context: only the other parameters become the tool's schema.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why pass the user through <code>deps</code> rather than as a tool parameter?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Tool parameters are chosen by the model, so an injection could set <code>user="admin"</code>. <code>deps</code> are set by your application from the authenticated session; the model can't change them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Which test model would you use to check (a) that every tool can be called without crashing, (b) the exact behaviour when the model calls <code>get_ticket</code> with an unknown key?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>TestModel</code>: it calls each tool with generated arguments. (b) <code>FunctionModel</code>: you script exactly that call and assert on what follows.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Make an agent whose output is a list of action items (<code>list[str]</code>) and run it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic_ai import Agent
+
+agent = Agent("anthropic:claude-haiku-5-5", output_type=list[str], instructions="Extract action items.")
+items = agent.run_sync("Asha rotates the key; Marco updates the runbook.").output
+print(type(items).__name__, len(items) >= 1)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+list True
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>With <code>FunctionModel</code>, script a call to <code>get_ticket("OPS-101")</code> for a user who can only see the <code>web</code> team, and assert that the tool refuses.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from dataclasses import dataclass
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.models.function import FunctionModel
+from llmkit import TICKETS
+
+@dataclass
+class Deps:
+    teams_visible: set[str]
+
+agent = Agent("anthropic:claude-sonnet-5-5", deps_type=Deps)
+@agent.tool
+def get_ticket(ctx: RunContext[Deps], key: str) -> str:
+    """Looks up a ticket by key."""
+    t = TICKETS[key]
+    return "not allowed" if t["team"] not in ctx.deps.teams_visible else t["title"]
+
+def scripted(messages, info):
+    if len(messages) == 1:
+        return ModelResponse(parts=[ToolCallPart("get_ticket", {"key": "OPS-101"})])
+    returned = [p.content for m in messages for p in m.parts if isinstance(p, ToolReturnPart)]
+    return ModelResponse(parts=[TextPart(f"tool said: {returned[-1]}")])
+
+with agent.override(model=FunctionModel(scripted)):
+    out = agent.run_sync("OPS-101?", deps=Deps({"web"})).output
+assert out == "tool said: not allowed", out
+print(out)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+tool said: not allowed
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a validator to a typed output: a <code>Summary</code> with a <code>text</code> field of at most 200 characters, using Pydantic's <code>Field(max_length=200)</code>. What happens when the model returns too much?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic import BaseModel, Field, ValidationError
+
+class Summary(BaseModel):
+    text: str = Field(max_length=200)
+
+try:
+    Summary(text="x" * 250)
+except ValidationError as e:
+    print(e.errors()[0]["type"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+string_too_long
+</script>
+<p>Inside an agent run, Pydantic AI sends validation errors back to the model and asks it to retry (bounded by the agent's retry setting), the "retry once with feedback" pattern from Chapter 4, built in.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Print the cost the run reports in <code>result.usage</code> and compare it with <code>llmkit.cost</code> for the same tokens.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic_ai import Agent
+from llmkit import cost
+
+r = Agent("anthropic:claude-sonnet-5-5").run_sync("hello")
+u = r.usage
+print(u.input_tokens > 0, round(cost("claude-sonnet-5-5", u.input_tokens, u.output_tokens), 6) == round(float(u.cost), 6))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+True True
+</script>
+<p>Framework cost numbers come from a price table; verify them against your own once, and keep your own for budgets.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">compare</span></h3>
+<p>Rewrite the tool loop test from <a href="05-tools.html">Chapter 5</a> (exercise 6, the "runs forever" model) with Pydantic AI and <code>UsageLimits(request_limit=3)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from pydantic_ai import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.usage import UsageLimits
+
+agent = Agent("anthropic:claude-sonnet-5-5")
+@agent.tool_plain
+def ping() -> str:
+    """Ping."""
+    return "pong"
+
+forever = FunctionModel(lambda messages, info: ModelResponse(parts=[ToolCallPart("ping", {})]))
+with agent.override(model=forever):
+    try:
+        agent.run_sync("loop", usage_limits=UsageLimits(request_limit=3))
+    except UsageLimitExceeded as e:
+        print("stopped:", str(e).split(".")[0])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+stopped: The next request would exceed the request_limit of 3
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Build DocsPilot's router with Pydantic AI: an agent with <code>output_type=Literal["docs", "live_data", "both", "out_of_scope"]</code>, tested with <code>FunctionModel</code> for four questions.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+from typing import Literal
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.function import FunctionModel
+
+Route = Literal["docs", "live_data", "both", "out_of_scope"]
+router = Agent("anthropic:claude-haiku-5-5", output_type=Route, instructions="Route engineering questions.")
+
+def fake_router(messages, info):
+    q = next(p.content for m in messages for p in m.parts if isinstance(p, UserPromptPart))
+    live, docs = bool(re.search(r"OPS-\d+|on call", q)), bool(re.search(r"how|runbook|policy", q, re.I))
+    route = "both" if live and docs else "live_data" if live else "docs" if docs else "out_of_scope"
+    return ModelResponse(parts=[TextPart(f'{{"response": "{route}"}}')])
+
+with router.override(model=FunctionModel(fake_router)):
+    for q in ["How do I fail over?", "Who is on call for web?", "How do I handle OPS-101?", "Best pizza?"]:
+        print(f"{router.run_sync(q).output:13} {q}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+docs          How do I fail over?
+live_data     Who is on call for web?
+both          How do I handle OPS-101?
+out_of_scope  Best pizza?
+</script>
+<p>Scalar output types are wrapped in an object with a <code>response</code> field on the wire; a scripted model must reply in that shape.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Compare Pydantic AI and LangGraph for DocsPilot's agent path. Which would you choose, and what would make you switch?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Pydantic AI if the agent is a request-scoped loop with a few typed tools: less code, typed outputs, easy tests. LangGraph if runs must pause for approvals and resume later, survive restarts, or branch into many explicit steps. Switch when a requirement like "approve a write tool tomorrow morning" appears. Either way, the same eval set decides whether the rewrite kept quality.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://ai.pydantic.dev/">Pydantic AI documentation</a>.</li>
+  <li><a href="https://ai.pydantic.dev/tools/">Function tools</a> and <a href="https://ai.pydantic.dev/dependencies/">dependencies</a>.</li>
+  <li><a href="https://ai.pydantic.dev/output/">Output</a> and <a href="https://ai.pydantic.dev/testing/">testing</a>.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

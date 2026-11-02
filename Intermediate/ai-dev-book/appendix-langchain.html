@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⛓️&lt;/text&gt;&lt;/svg&gt;">
+<title>A. LangChain · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A · Popular Frameworks</div>
+<h1>LangChain</h1>
+<p class="lead">The most widely used LLM application framework: one interface for every model provider, composable "runnables", tools, agents and retrieval building blocks. Learn what it gives you on top of the raw SDK, and what it costs.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How LangChain is packaged: <code>langchain-core</code>, <code>langchain</code>, and provider packages such as <code>langchain-anthropic</code>.</li>
+  <li>Chat models, messages and prompt templates.</li>
+  <li>Composing steps with the pipe operator (LCEL): <code>prompt | model | parser</code>, plus streaming and batching.</li>
+  <li>Structured output, tools and the <code>create_agent</code> agent.</li>
+  <li>Retrieval building blocks: splitters, embeddings, vector stores and retrievers.</li>
+  <li>How to test LangChain code with fake models, and when to choose it over the plain SDK.</li>
+</ul>
+</div>
+
+<div class="note">
+<p><strong>Versions.</strong> This appendix uses <code>langchain</code> 1.x, <code>langchain-core</code> 1.x and <code>langchain-anthropic</code> 1.x. LangChain changed a lot before 1.0 (old <code>LLMChain</code>, <code>initialize_agent</code> and <code>AgentExecutor</code> tutorials are outdated). The examples run against the book's mock server through the real <code>ChatAnthropic</code> class.</p>
+</div>
+
+<h2 id="what">What LangChain is</h2>
+<div class="table-wrap"><table>
+<tr><th>Package</th><th>What's in it</th></tr>
+<tr><td><code>langchain-core</code></td><td>the interfaces: chat models, messages, prompts, output parsers, tools, runnables, documents, retrievers</td></tr>
+<tr><td><code>langchain</code></td><td>higher-level pieces, notably <code>create_agent</code> and its middleware</td></tr>
+<tr><td><code>langchain-anthropic</code>, <code>langchain-openai</code>, …</td><td>one package per provider, implementing the core interfaces</td></tr>
+<tr><td><code>langchain-text-splitters</code>, community integrations</td><td>document loaders, splitters, vector stores</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a universal power adapter with a cable organizer.</strong> Each provider has its own plug shape (request format). LangChain is the adapter that makes them all fit one socket, plus a box of standard cables (prompts, parsers, retrievers) that snap together. Handy when you travel between providers; extra bulk when you only ever use one socket.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> the closest equivalents are <strong>LangChain4j</strong> (inspired by LangChain, with <code>ChatModel</code>, <code>@Tool</code> and "AI Services" interfaces) and <strong>Spring AI</strong> (<code>ChatClient</code>, advisors, vector stores). The ideas in this appendix map directly; see <a href="appendix-landscape.html">Appendix F</a>.</p>
+</div>
+
+<h2 id="models">Chat models and messages</h2>
+<p>Every chat model implements the same interface: <code>invoke</code>, <code>stream</code>, <code>batch</code> (and async versions). Messages are typed objects:</p>
+<script type="text/plain" class="code" data-file="lc_model.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage, HumanMessage
+
+llm = ChatAnthropic(model="claude-sonnet-5-5", max_tokens=1000)   # reads ANTHROPIC_API_KEY
+reply = llm.invoke([SystemMessage("You are DocsPilot."), HumanMessage("How do I roll back a deploy?")])
+print(type(reply).__name__, "|", reply.content)
+print(reply.usage_metadata["input_tokens"] > 0, reply.response_metadata["stop_reason"])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+AIMessage | (mock reply) You said: How do I roll back a deploy?
+True end_turn
+</script>
+<p>Swapping providers means swapping this one line (<code>ChatOpenAI(...)</code>, or <code>init_chat_model("anthropic:claude-sonnet-5-5")</code> from <code>langchain.chat_models</code>), while the rest of the code stays the same.</p>
+
+<h2 id="lcel">Prompts and LCEL chains</h2>
+<p>A <strong>prompt template</strong> fills variables into messages. The <strong>pipe operator</strong> (LangChain Expression Language, LCEL) connects runnables: the output of one becomes the input of the next.</p>
+<script type="text/plain" class="code" data-file="lc_chain.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are DocsPilot. Answer in at most {limit} sentences."),
+    ("user", "{question}"),
+])
+chain = prompt | ChatAnthropic(model="claude-haiku-5-5", max_tokens=500) | StrOutputParser()
+
+print(prompt.invoke({"limit": 2, "question": "What is a SEV2?"}).to_messages()[0].content)
+print(chain.invoke({"limit": 2, "question": "What is a SEV2?"}))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+You are DocsPilot. Answer in at most 2 sentences.
+(mock reply) You said: What is a SEV2?
+</script>
+<p>Every runnable gets streaming and batching for free:</p>
+<script type="text/plain" class="code" data-file="lc_stream.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.output_parsers import StrOutputParser
+
+chain = ChatAnthropic(model="claude-haiku-5-5", max_tokens=500) | StrOutputParser()
+pieces = list(chain.stream("Explain backpressure"))
+print(len(pieces), "pieces:", "".join(pieces))
+print(chain.batch(["Define SLO", "Define SLA"], config={"max_concurrency": 2}))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+14 pieces: (mock reply) You said: Explain backpressure
+['(mock reply) You said: Define SLO', '(mock reply) You said: Define SLA']
+</script>
+<p>Plain functions join a chain as <code>RunnableLambda</code>, and <code>RunnableParallel</code> (or a dict) runs branches on the same input:</p>
+<script type="text/plain" class="code" data-file="lc_parallel.py">
+from langchain_core.runnables import RunnableLambda, RunnableParallel
+
+clean = RunnableLambda(lambda s: " ".join(s.split()).strip())
+stats = RunnableParallel(words=RunnableLambda(lambda s: len(s.split())),
+                         shouting=RunnableLambda(lambda s: s.isupper()))
+print((clean | stats).invoke("   PROD   IS   DOWN  "))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{'words': 3, 'shouting': True}
+</script>
+
+<h2 id="structured">Structured output</h2>
+<p><code>with_structured_output</code> returns a runnable that produces validated Pydantic objects. On current Claude models use <code>method="json_schema"</code>, which uses the API's structured outputs. The older default forces a tool call, which <code>claude-sonnet-5-5</code> and <code>claude-opus-5-5</code> don't support; LangChain warns you about that.</p>
+<script type="text/plain" class="code" data-file="lc_structured.py">
+from typing import Literal
+from pydantic import BaseModel
+from langchain_anthropic import ChatAnthropic
+
+class Triage(BaseModel):
+    category: Literal["billing", "auth", "orders_api", "other"]
+    severity: Literal["sev1", "sev2", "sev3", "needs_info"]
+
+triage = ChatAnthropic(model="claude-haiku-5-5", max_tokens=500).with_structured_output(Triage, method="json_schema")
+t = triage.invoke("Login fails for every user since 08:00.")
+print(type(t).__name__, t.category, t.severity)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: a minimal valid object)">
+Triage billing sev1
+</script>
+
+<h2 id="tools">Tools and agents</h2>
+<p>The <code>@tool</code> decorator turns a typed function into a tool (name, description from the docstring, schema from the type hints). <code>bind_tools</code> attaches tools to a model; the reply carries <code>tool_calls</code>:</p>
+<script type="text/plain" class="code" data-file="lc_tools.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.tools import tool
+from llmkit import ONCALL
+
+@tool
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team such as payments, platform, data or web."""
+    return ONCALL.get(team, "unknown team")
+
+print(get_oncall.name, get_oncall.args)
+llm = ChatAnthropic(model="claude-sonnet-5-5", max_tokens=1000).bind_tools([get_oncall])
+msg = llm.invoke("Who is on call for payments?")
+print(msg.tool_calls[0]["name"], msg.tool_calls[0]["args"])
+print(get_oncall.invoke(msg.tool_calls[0]["args"]))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+get_oncall {'team': {'title': 'Team', 'type': 'string'}}
+get_oncall {'team': 'payments'}
+priya
+</script>
+<p><code>create_agent</code> runs the loop for you (model → tools → model, until there are no more tool calls). It's built on LangGraph (<a href="appendix-langgraph.html">Appendix B</a>), so the result is a list of messages, and you can add middleware for things like approvals and summarization:</p>
+<script type="text/plain" class="code" data-file="lc_agent.py">
+from langchain.agents import create_agent
+from langchain_anthropic import ChatAnthropic
+from langchain_core.tools import tool
+from llmkit import ONCALL, TICKETS
+
+@tool
+def get_oncall(team: str) -> str:
+    """Returns who is on call right now for a team such as payments, platform, data or web."""
+    return ONCALL.get(team, "unknown team")
+
+@tool
+def get_ticket(key: str) -> str:
+    """Looks up a ticket by key, such as OPS-101."""
+    return str(TICKETS.get(key, f"ticket {key} not found"))
+
+agent = create_agent(ChatAnthropic(model="claude-sonnet-5-5", max_tokens=2000),
+                     tools=[get_oncall, get_ticket],
+                     system_prompt="You are DocsPilot. Use the tools for live data.")
+result = agent.invoke({"messages": [{"role": "user", "content": "What is the status of ticket OPS-102?"}]})
+for m in result["messages"]:
+    print(f"{type(m).__name__:12}", (m.content if isinstance(m.content, str) else "[blocks]")[:60])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+HumanMessage What is the status of ticket OPS-102?
+AIMessage    [blocks]
+ToolMessage  {'title': 'Nightly export job slow', 'status': 'in_progress'
+AIMessage    Based on the tool results: {'title': 'Nightly export job slo
+</script>
+
+<h2 id="rag">Retrieval building blocks</h2>
+<p>LangChain's RAG pieces are interfaces: a <strong>splitter</strong> makes chunks, an <strong>Embeddings</strong> class makes vectors, a <strong>vector store</strong> stores and searches them, and <code>as_retriever()</code> turns the store into a runnable. Here the book's toy embedding plugs into the interface:</p>
+<script type="text/plain" class="code" data-file="lc_rag.py">
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_text_splitters import MarkdownHeaderTextSplitter
+from llmkit import embed, load_docs
+
+class ToyEmbeddings(Embeddings):          # in real life: VoyageAIEmbeddings, OpenAIEmbeddings, ...
+    def embed_documents(self, texts):
+        return [embed(t) for t in texts]
+    def embed_query(self, text):
+        return embed(text)
+
+splitter = MarkdownHeaderTextSplitter([("#", "title"), ("##", "section")])
+chunks = []
+for d in load_docs():
+    for part in splitter.split_text(d.text):
+        chunks.append(Document(page_content=part.page_content, metadata={**part.metadata, "doc": d.id}))
+store = InMemoryVectorStore(ToyEmbeddings())
+store.add_documents(chunks)
+retriever = store.as_retriever(search_kwargs={"k": 2})
+print(len(chunks), "chunks")
+for doc in retriever.invoke("how do I promote the standby postgres"):
+    print("  ", doc.metadata["title"], "›", doc.metadata["section"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+32 chunks
+   ADR-007: Use PostgreSQL for the orders service › Decision
+   Runbook: database failover › Steps
+</script>
+<p>A RAG chain then wires retriever, prompt and model together:</p>
+<script type="text/plain" class="code" data-file="lc_rag_chain.py">
+from langchain_anthropic import ChatAnthropic
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.vectorstores import InMemoryVectorStore
+from llmkit import embed, load_docs
+
+class ToyEmbeddings(Embeddings):
+    def embed_documents(self, texts): return [embed(t) for t in texts]
+    def embed_query(self, text): return embed(text)
+
+store = InMemoryVectorStore.from_documents(
+    [Document(page_content=d.text, metadata={"title": d.title}) for d in load_docs()], ToyEmbeddings())
+format_docs = lambda docs: "\n\n".join(f"<doc title='{d.metadata['title']}'>{d.page_content}</doc>" for d in docs)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "Answer only from <documents>. Say so if they don't contain the answer."),
+    ("user", "<documents>{context}</documents>\n<question>{question}</question>"),
+])
+rag = ({"context": store.as_retriever(search_kwargs={"k": 2}) | format_docs, "question": RunnablePassthrough()}
+       | prompt | ChatAnthropic(model="claude-sonnet-5-5", max_tokens=1000) | StrOutputParser())
+print(rag.invoke("Can I deploy on Friday afternoon?")[:70])
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: <documents><doc title='Guide: deploying a servi
+</script>
+<p>Note what this chain does <em>not</em> do on its own: access control, hybrid search, reranking, native citations, abstention checks or evals. Those are still yours to add, exactly as in Chapters 6–10.</p>
+
+<h2 id="testing">Testing with fake models</h2>
+<p><code>langchain-core</code> ships fake chat models that return scripted messages, so chains can be unit-tested without a network:</p>
+<script type="text/plain" class="code" data-file="lc_fake.py">
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+
+fake = GenericFakeChatModel(messages=iter([AIMessage("sev2"), AIMessage("needs_info")]))
+chain = ChatPromptTemplate.from_template("Severity of: {ticket}") | fake | StrOutputParser()
+assert chain.invoke({"ticket": "checkout slow"}) == "sev2"
+assert chain.invoke({"ticket": "something weird"}) == "needs_info"
+print("chain tests passed")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+chain tests passed
+</script>
+
+<h2 id="when">When to use LangChain</h2>
+<div class="table-wrap"><table>
+<tr><th>Good fit</th><th>Think twice</th></tr>
+<tr><td>you need several providers behind one interface</td><td>you use one provider and want its newest features on day one</td></tr>
+<tr><td>you want ready-made integrations (loaders, vector stores)</td><td>you need full control of every request field</td></tr>
+<tr><td>you'll use LangGraph for stateful agents</td><td>your app is a couple of calls; the SDK is simpler</td></tr>
+<tr><td>a team wants shared, familiar building blocks</td><td>you want fewer dependencies to upgrade</td></tr>
+</table></div>
+<div class="tip">
+<p><strong>Know what runs underneath.</strong> Every LangChain call is still a Messages API request. When something behaves oddly, look at the actual request (LangSmith tracing, or the SDK's OpenTelemetry spans from <a href="10-evals.html">Chapter 10</a>) and apply what you know from Chapters 3–5.</p>
+</div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>LangChain = core interfaces + provider packages + higher-level pieces such as <code>create_agent</code>.</li>
+  <li>Chat models share <code>invoke</code>/<code>stream</code>/<code>batch</code>; LCEL pipes compose prompts, models, parsers and functions.</li>
+  <li><code>with_structured_output(Model, method="json_schema")</code> on current Claude models; <code>@tool</code> + <code>bind_tools</code> for tools; <code>create_agent</code> for the loop.</li>
+  <li>Retrieval pieces are interfaces; access control, hybrid search, citations and evals are still yours.</li>
+  <li>Fake chat models make chains unit-testable.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>What does the <code>|</code> operator do between a prompt template and a chat model?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It composes two runnables into a sequence: the prompt's output (a list of messages) becomes the model's input. The result is itself a runnable with <code>invoke</code>, <code>stream</code> and <code>batch</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the bug</span></h3>
+<p><code>llm.with_structured_output(Triage).invoke(...)</code> raises <code>OutputParserException</code> on <code>claude-sonnet-5-5</code>. Why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The default method forces a tool call, which the newest Claude models reject (forced <code>tool_choice</code>), so no tool call comes back to parse. Use <code>with_structured_output(Triage, method="json_schema")</code>, which uses native structured outputs.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">build it</span></h3>
+<p>Write a prompt template with a <code>{team}</code> variable and print the rendered messages for <code>team="web"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from langchain_core.prompts import ChatPromptTemplate
+
+p = ChatPromptTemplate.from_messages([("system", "You help the {team} team."), ("user", "{q}")])
+for m in p.invoke({"team": "web", "q": "deploy?"}).to_messages():
+    print(type(m).__name__, "|", m.content)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SystemMessage | You help the web team.
+HumanMessage | deploy?
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does <code>get_oncall.args</code> show for the <code>@tool</code> above, and where does the description come from?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>{'team': {'title': 'Team', 'type': 'string'}}</code>, from the type hints. The description is the docstring, which is why tool docstrings must be written like API docs (<a href="05-tools.html">Chapter 5</a>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Build a chain that classifies a ticket with structured output and then routes to a different message per category, using a <code>RunnableLambda</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from typing import Literal
+from pydantic import BaseModel
+from langchain_anthropic import ChatAnthropic
+from langchain_core.runnables import RunnableLambda
+
+class Label(BaseModel):
+    category: Literal["billing", "auth", "other"]
+
+ROUTES = {"billing": "-> finance queue", "auth": "-> identity team", "other": "-> triage rota"}
+chain = (ChatAnthropic(model="claude-haiku-5-5", max_tokens=200).with_structured_output(Label, method="json_schema")
+         | RunnableLambda(lambda label: ROUTES[label.category]))
+print(chain.invoke("Invoice PDF shows the wrong logo"))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server: always the first category)">
+-> finance queue
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Test the RAG chain's prompt formatting with a fake model: check that the documents reach the model inside <code>&lt;documents&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
+
+seen = []
+spy = RunnableLambda(lambda pv: seen.append(pv.to_messages()[-1].content) or pv)
+fake = GenericFakeChatModel(messages=iter([AIMessage("ok")]))
+prompt = ChatPromptTemplate.from_messages([("user", "<documents>{context}</documents>\n{question}")])
+chain = prompt | spy | fake
+chain.invoke({"context": "Rollback takes 2 minutes.", "question": "How long?"})
+print(seen[0].startswith("<documents>Rollback"), "</documents>" in seen[0])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+True True
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a metadata filter to the in-memory retriever so only chunks of runbooks are returned. (Hint: <code>similarity_search(query, k, filter=callable)</code>.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_core.vectorstores import InMemoryVectorStore
+from llmkit import embed, load_docs
+
+class ToyEmbeddings(Embeddings):
+    def embed_documents(self, texts): return [embed(t) for t in texts]
+    def embed_query(self, text): return embed(text)
+
+store = InMemoryVectorStore.from_documents(
+    [Document(page_content=d.text, metadata={"id": d.id, "kind": d.meta["kind"]}) for d in load_docs()], ToyEmbeddings())
+hits = store.similarity_search("database", k=3, filter=lambda doc: doc.metadata["kind"] == "runbook")
+print([d.metadata["id"] for d in hits])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['runbook-db-failover', 'runbook-payments-outage']
+</script>
+<p>The same mechanism carries access control: filter on the user's groups inside the search, never afterwards.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">compare</span></h3>
+<p>Rewrite <code>lc_chain.py</code> with the plain <code>anthropic</code> SDK. Which version is shorter, and what did LangChain give you?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import anthropic
+
+client = anthropic.Anthropic()
+def answer(question, limit=2):
+    msg = client.messages.create(model="claude-haiku-5-5", max_tokens=500,
+                                 system=f"You are DocsPilot. Answer in at most {limit} sentences.",
+                                 messages=[{"role": "user", "content": question}])
+    return msg.content[0].text
+print(answer("What is a SEV2?"))
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+(mock reply) You said: What is a SEV2?
+</script>
+<p>For one call, the SDK is just as short and has no extra dependency. LangChain pays off with provider switching, streaming/batching for whole chains, and ready-made integrations.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Write a custom tool that validates its input (ticket key format) and returns an error string the agent can recover from, then run it through <code>create_agent</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import re
+from langchain.agents import create_agent
+from langchain_anthropic import ChatAnthropic
+from langchain_core.tools import tool
+from llmkit import TICKETS
+
+@tool
+def get_ticket(key: str) -> str:
+    """Looks up a ticket by key, such as OPS-101."""
+    if not re.fullmatch(r"[A-Z]+-\d+", key):
+        return "Error: key must look like OPS-101"
+    t = TICKETS.get(key)
+    return f"{key}: {t['title']} ({t['status']})" if t else f"Error: ticket {key} not found"
+
+agent = create_agent(ChatAnthropic(model="claude-sonnet-5-5", max_tokens=1000), tools=[get_ticket])
+out = agent.invoke({"messages": [{"role": "user", "content": "Status of ticket OPS-999?"}]})
+print(out["messages"][-2].content)
+print(out["messages"][-1].content)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-title="output (mock server)">
+Error: ticket OPS-999 not found
+Based on the tool results: Error: ticket OPS-999 not found
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your team wants to rebuild DocsPilot on LangChain. List what LangChain replaces from Chapters 3–15, and what you must keep writing yourself.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Replaced: the provider client wrapper, prompt templating, streaming plumbing, the tool loop (<code>create_agent</code>), splitters and vector-store adapters, structured-output parsing.</li>
+  <li>Kept: ACL filtering and hybrid search with RRF (or a vector store that supports them), native citations and their validation, abstention thresholds, guardrails and redaction, budgets, degraded mode, the permissioned executor and approvals, evals and CI gates, cost tracking.</li>
+</ul>
+<p>Frameworks remove plumbing, not engineering. Run the same eval set before and after the rewrite.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://docs.langchain.com/oss/python/langchain/overview">LangChain (Python) documentation</a>.</li>
+  <li><a href="https://docs.langchain.com/oss/python/integrations/chat/anthropic">ChatAnthropic integration</a>.</li>
+  <li><a href="https://docs.langchain.com/oss/python/langchain/agents">Agents (<code>create_agent</code>)</a> and <a href="https://docs.langchain.com/oss/python/langchain/structured-output">structured output</a>.</li>
+  <li><a href="https://docs.langchain4j.dev/">LangChain4j</a>, the Java counterpart.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

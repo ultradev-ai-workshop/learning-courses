@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🕵️&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Agents &amp; Orchestration · AI for Developers Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Agents &amp; Integration</div>
+<h1>Agents &amp; Orchestration</h1>
+<p class="lead">Know the difference between a workflow and an agent, build a bounded agent loop with budgets and memory, and recognize the many cases where you shouldn't build an agent at all.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The difference between workflows and agents, and the five common workflow patterns.</li>
+  <li>How an agent loop differs from the tool loop of <a href="05-tools.html">Chapter 5</a>: goals, budgets, stopping rules.</li>
+  <li>Planning, working memory, compaction and long-term memory.</li>
+  <li>How to keep agents observable, interruptible and cheap.</li>
+  <li>A checklist for deciding when <em>not</em> to use an agent.</li>
+</ul>
+</div>
+
+<h2 id="vs">Workflows versus agents</h2>
+<p>Anthropic's engineering guidance draws a clear line:</p>
+<ul>
+  <li>A <strong>workflow</strong> orchestrates LLM calls and tools through <strong>predefined code paths</strong>. You own the control flow.</li>
+  <li>An <strong>agent</strong> lets the LLM <strong>direct its own process and tool use</strong>, choosing the next step at run time until the task is done.</li>
+</ul>
+<p>Both are "agentic systems". The consistent advice: find the simplest solution that works, and add autonomy only when it measurably improves outcomes. Often a single well-prompted call with retrieval is enough.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a recipe versus a chef.</strong> A workflow is a recipe: the steps are written down, and a kitchen assistant follows them, perhaps tasting (a model call) at step 3. An agent is a chef given a goal ("make dinner from what's in the fridge"): they look, decide, try, taste and adjust. Chefs handle the unexpected, but they cost more, take longer and occasionally make something strange. Don't hire a chef to boil an egg.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java:</strong> a workflow is a saga or a BPMN process: the steps are known, each may call an LLM, and you can draw the diagram before it runs. An agent is a job whose next step a planner chooses at run time from the current state, a bit like a query optimizer choosing a plan, except that the planner is non-deterministic.</p>
+</div>
+
+<h2 id="patterns">The workflow patterns</h2>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Shape</th><th>Example</th></tr>
+<tr><td>Prompt chaining</td><td>step A's output feeds step B, with checks in between</td><td>extract fields → validate → write a summary</td></tr>
+<tr><td>Routing</td><td>classify the input, dispatch to a specialized path or model</td><td>Haiku labels the question → docs path or live-data path</td></tr>
+<tr><td>Parallelization</td><td>independent subtasks at once (sectioning), or several attempts voted on</td><td>review a PR for security, performance and style concurrently</td></tr>
+<tr><td>Orchestrator–workers</td><td>a model splits a task at run time and delegates the parts</td><td>plan a multi-file change, one worker per file</td></tr>
+<tr><td>Evaluator–optimizer</td><td>one call generates, another critiques; loop until it passes</td><td>draft release notes → check against a rubric → revise</td></tr>
+</table></div>
+<p>Each is a few lines of ordinary code on top of Chapters 3–5. Routing alone (simple questions to a small model, hard ones to a large model) is often the single biggest cost win in a system:</p>
+<script type="text/plain" class="code" data-file="routing.py">
+from typing import Literal
+from pydantic import BaseModel
+from llmkit import FakeAnthropic
+
+class Route(BaseModel):
+    route: Literal["docs", "live_data", "both", "out_of_scope"]
+
+HANDLERS = {
+    "docs": lambda q: "RAG path (Chapter 7)",
+    "live_data": lambda q: "tool loop (Chapter 5)",
+    "both": lambda q: "agent (this chapter)",
+    "out_of_scope": lambda q: "polite refusal, no model call",
+}
+
+def route(client, question):
+    res = client.messages.create(
+        model="claude-haiku-5-5", max_tokens=50,
+        system="Route engineering questions. docs: answered by internal docs. live_data: needs on-call "
+               "or ticket lookups. both: needs both. out_of_scope: not an engineering question.",
+        messages=[{"role": "user", "content": question}],
+        output_config={"format": {"type": "json_schema", "schema": Route.model_json_schema()}})
+    return Route.model_validate_json(res.content[0].text).route
+
+client = FakeAnthropic(replies=['{"route": "docs"}', '{"route": "live_data"}',
+                                '{"route": "both"}', '{"route": "out_of_scope"}'])
+for q in ["How do I fail over Postgres?", "Who is on call for web?",
+          "Is OPS-101 covered by the payments runbook, and who owns it now?", "Recommend a pizza place"]:
+    r = route(client, q)
+    print(f"{r:13} -> {HANDLERS[r](q)}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+docs          -> RAG path (Chapter 7)
+live_data     -> tool loop (Chapter 5)
+both          -> agent (this chapter)
+out_of_scope  -> polite refusal, no model call
+</script>
+
+<h3>Prompt chaining with a gate</h3>
+<p>A chain checks each step's output in code before the next step runs, so a bad intermediate result stops the chain instead of polluting the rest:</p>
+<script type="text/plain" class="code" data-file="chain.py">
+import json
+from llmkit import FakeAnthropic
+
+def step(client, system, text):
+    return client.messages.create(model="claude-haiku-5-5", max_tokens=500, system=system,
+                                  messages=[{"role": "user", "content": text}]).content[0].text
+
+def incident_summary(client, report):
+    facts = json.loads(step(client, "Extract service, start time and impact as JSON.", report))
+    missing = [k for k in ("service", "started", "impact") if not facts.get(k)]
+    if missing:                                              # the gate
+        return f"needs a human: missing {missing}"
+    return step(client, "Write a two-sentence summary for managers.", json.dumps(facts))
+
+ok = FakeAnthropic(replies=['{"service": "orders-api", "started": "09:10", "impact": "5% of checkouts"}',
+                            "Orders API errors from 09:10 affected 5% of checkouts. Fixed by rollback."])
+bad = FakeAnthropic(replies=['{"service": "orders-api", "started": null, "impact": "unknown"}'])
+print(incident_summary(ok, "..."))
+print(incident_summary(bad, "..."), "| calls:", len(bad.calls))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Orders API errors from 09:10 affected 5% of checkouts. Fixed by rollback.
+needs a human: missing ['started'] | calls: 1
+</script>
+
+<h3>Evaluator–optimizer</h3>
+<p>One call writes, another grades against a rubric, and the loop stops when it passes or after a fixed number of rounds:</p>
+<script type="text/plain" class="code" data-file="evaluator.py">
+from llmkit import FakeAnthropic
+
+def ask(client, system, text):
+    return client.messages.create(model="claude-sonnet-5-5", max_tokens=800, system=system,
+                                  messages=[{"role": "user", "content": text}]).content[0].text
+
+def write_until_good(writer, grader, task, rounds=3):
+    draft = ask(writer, "Write release notes.", task)
+    for i in range(1, rounds + 1):
+        verdict = ask(grader, "Reply PASS, or FAIL: <reason>. Rubric: under 50 words, no internal ticket keys.", draft)
+        if verdict.startswith("PASS"):
+            return draft, i
+        draft = ask(writer, "Revise the release notes.", f"{draft}\n\nReviewer: {verdict}")
+    return draft, rounds
+
+writer = FakeAnthropic(replies=["Fixed OPS-101: EU checkout errors.", "Fixed checkout errors for EU customers."])
+grader = FakeAnthropic(replies=["FAIL: mentions an internal ticket key", "PASS"])
+print(write_until_good(writer, grader, "Notes for the 2.3 release"))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('Fixed checkout errors for EU customers.', 2)
+</script>
+
+<h2 id="loop">The agent loop</h2>
+<p>An agent is the tool loop from Chapter 5 plus four things:</p>
+<ol>
+  <li><strong>A goal</strong> the model can tell it has reached, or can't reach.</li>
+  <li><strong>Tools to observe and act</strong> (search the docs, read a ticket, run a query).</li>
+  <li><strong>Budgets that your code enforces</strong>: steps, tokens, money, wall-clock time.</li>
+  <li><strong>Stopping rules</strong> beyond <code>end_turn</code>: budget exhausted, repeated identical calls, a tool that needs human approval.</li>
+</ol>
+<script type="text/plain" class="code" data-file="agent.py" data-save>
+import json
+import time
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Budget:
+    max_steps: int = 10
+    max_input_tokens: int = 200_000
+    max_output_tokens: int = 20_000
+    max_seconds: float = 90.0
+
+
+@dataclass
+class Result:
+    answer: str | None
+    stop: str                 # end_turn, step_budget, token_budget, time_budget, ...
+    steps: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    trace: list = field(default_factory=list)
+
+
+def run_agent(client, registry, goal, system="You are DocsPilot.", budget=Budget(),
+              model="claude-sonnet-5-5", clock=time.monotonic):
+    deadline = clock() + budget.max_seconds
+    messages = [{"role": "user", "content": goal}]
+    r = Result(None, "step_budget", 0)
+    seen = set()
+    for r.steps in range(1, budget.max_steps + 1):
+        if clock() > deadline:
+            r.stop = "time_budget"
+            return r
+        res = client.messages.create(model=model, max_tokens=4096, system=system,
+                                     tools=registry.definitions(), messages=messages)
+        r.input_tokens += res.usage.input_tokens
+        r.output_tokens += res.usage.output_tokens
+        messages.append({"role": "assistant", "content": res.content})
+        if res.stop_reason != "tool_use":
+            r.answer = "".join(b.text for b in res.content if b.type == "text")
+            r.stop = res.stop_reason
+            return r
+        if r.input_tokens > budget.max_input_tokens or r.output_tokens > budget.max_output_tokens:
+            r.stop = "token_budget"
+            return r
+        results = []
+        for b in (b for b in res.content if b.type == "tool_use"):
+            signature = (b.name, json.dumps(b.input, sort_keys=True))
+            if signature in seen:                                         # loop detection
+                content, is_error = "You already made this exact call. Use the earlier result.", True
+            else:
+                seen.add(signature)
+                content, is_error = registry.run(b.name, b.input)
+            r.trace.append(f"{b.name}({json.dumps(b.input)}){' ERROR' if is_error else ''}")
+            results.append({"type": "tool_result", "tool_use_id": b.id, "content": content, "is_error": is_error})
+        messages.append({"role": "user", "content": results})
+    return r
+</script>
+<p>DocsPilot's agent gets one more tool, <code>search_docs</code>, which wraps the RAG retriever from Chapter 7. A multi-step question then needs both docs and live data:</p>
+<script type="text/plain" class="code" data-file="agent_tools.py" data-save>
+from docspilot_tools import registry           # get_oncall, get_ticket (Chapter 5)
+from retrievers import default_index           # Chapter 7
+
+_index = default_index()
+_by_id = {c.id: c for c in _index.chunks}
+
+
+@registry.tool
+def search_docs(query: str) -> list:
+    """Searches the internal engineering docs (runbooks, ADRs, guides, policies). Returns the
+    3 best sections with their title. Use for how-to and policy questions."""
+    return [{"section": _by_id[i].path, "text": _by_id[i].text[:300]} for i in _index.hybrid(query, 3)]
+</script>
+<script type="text/plain" class="code" data-file="agent_demo.py">
+from llmkit import FakeAnthropic
+from agent_tools import registry
+from agent import run_agent
+
+client = FakeAnthropic(replies=[
+    {"tool": "get_ticket", "input": {"key": "OPS-101"}},
+    {"tool": [{"name": "search_docs", "input": {"query": "checkout 502 payments outage"}},
+              {"name": "get_oncall", "input": {"team": "payments"}}]},
+    "OPS-101 is a SEV2 checkout outage. Follow 'Runbook: payments outage' (check the provider, "
+    "then roll back the last deploy) and page Priya, the payments on-call.",
+])
+r = run_agent(client, registry, "OPS-101 is still open. What should I do, and whom do I page?")
+print(r.stop, "after", r.steps, "steps")
+print(*r.trace, sep="\n")
+print(r.answer)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+end_turn after 3 steps
+get_ticket({"key": "OPS-101"})
+search_docs({"query": "checkout 502 payments outage"})
+get_oncall({"team": "payments"})
+OPS-101 is a SEV2 checkout outage. Follow 'Runbook: payments outage' (check the provider, then roll back the last deploy) and page Priya, the payments on-call.
+</script>
+<p>When the agent stops on a budget, return what it has and say so. A partial result with an honest reason ("I checked the runbook and the on-call rota but ran out of steps before reading the ticket") is useful; a silent timeout is not.</p>
+<script type="text/plain" class="code" data-file="budget_demo.py">
+from llmkit import FakeAnthropic
+from agent_tools import registry
+from agent import run_agent, Budget
+
+stuck = FakeAnthropic(replies=[{"tool": "search_docs", "input": {"query": "failover"}}] * 10)
+r = run_agent(stuck, registry, "How do I fail over?", budget=Budget(max_steps=4))
+print(r.stop, r.steps)
+print(r.trace)
+
+ticks = iter(range(0, 1000, 40))                 # a fake clock: every call "takes" 40 seconds
+slow = FakeAnthropic(replies=[{"tool": "get_oncall", "input": {"team": t}} for t in ("web", "data", "platform")])
+r = run_agent(slow, registry, "Who is on call everywhere?", clock=lambda: next(ticks))
+print(r.stop, r.steps)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+step_budget 4
+['search_docs({"query": "failover"})', 'search_docs({"query": "failover"}) ERROR', 'search_docs({"query": "failover"}) ERROR', 'search_docs({"query": "failover"}) ERROR']
+time_budget 3
+</script>
+<p>The second run shows why the clock is a parameter: tests of time budgets shouldn't take 90 real seconds.</p>
+<div class="java">
+<p>☕ <strong>Java:</strong> the same loop with <code>record Budget(int maxSteps, long maxInputTokens, long maxOutputTokens, Duration maxTime)</code>, an <code>Instant deadline</code>, and a <code>Set&lt;String&gt;</code> of call signatures for loop detection. Inject a <code>java.time.Clock</code> for the same testing reason.</p>
+</div>
+
+<h2 id="planning">Planning</h2>
+<p>For multi-step goals, agents do better when they plan explicitly and revise the plan as they learn. Two simple techniques:</p>
+<ul>
+  <li><strong>Plan in the system prompt</strong>: "Before acting, list the steps you intend to take. After each tool result, update the list." Thinking models often do this internally.</li>
+  <li><strong>A plan tool</strong>: give the agent <code>update_plan(steps)</code> and show its latest plan in your UI. That makes the agent observable to humans without parsing prose.</li>
+</ul>
+<script type="text/plain" class="code" data-file="plan_tool.py">
+from registry import Registry
+
+registry = Registry()
+PLAN = []
+
+@registry.tool
+def update_plan(steps: list[str], done: list[int]) -> str:
+    """Record your plan. steps: the steps you intend to take, in order. done: indexes of finished steps.
+    Call this before acting, and again whenever the plan changes."""
+    PLAN[:] = [("✔ " if i in done else "· ") + s for i, s in enumerate(steps)]
+    return "plan saved"
+
+registry.run("update_plan", {"steps": ["read OPS-101", "find the runbook", "find the on-call"], "done": [0]})
+print(*PLAN, sep="\n")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+✔ read OPS-101
+· find the runbook
+· find the on-call
+</script>
+
+<h2 id="memory">Memory</h2>
+<div class="table-wrap"><table>
+<tr><th>Kind</th><th>What it is</th><th>Implementation</th></tr>
+<tr><td>Working memory</td><td>the current <code>messages</code> list</td><td>your loop; bounded by the context window</td></tr>
+<tr><td>Compaction</td><td>replace old turns with a summary when history grows</td><td>a summarization call past a threshold, or the API's compaction feature</td></tr>
+<tr><td>Long-term memory</td><td>facts that persist across sessions</td><td>your database, exposed as tools (<code>remember</code>, <code>recall</code>), scoped per user</td></tr>
+<tr><td>Knowledge</td><td>your documents</td><td>RAG as a tool (<code>search_docs</code>)</td></tr>
+</table></div>
+<p>Long-term memory is an ordinary table with ordinary concerns: scope it per user, cap its size, and decide how facts expire. Never let one user's memory leak into another's context.</p>
+<script type="text/plain" class="code" data-file="memory.py">
+from registry import Registry, ToolError
+
+class Memory:
+    def __init__(self, max_facts=20):
+        self.facts, self.max = {}, max_facts           # user -> list of facts
+
+    def tools(self, user):
+        reg = Registry()
+
+        @reg.tool
+        def remember(fact: str) -> str:
+            """Store a short fact about the current user's preferences for future sessions."""
+            facts = self.facts.setdefault(user, [])
+            if len(facts) >= self.max:
+                raise ToolError("memory is full; ask the user what to forget")
+            facts.append(fact[:200])
+            return "remembered"
+
+        @reg.tool
+        def recall() -> list:
+            """Return what you remembered about the current user."""
+            return self.facts.get(user, [])
+        return reg
+
+mem = Memory(max_facts=2)
+asha, sam = mem.tools("asha"), mem.tools("sam")
+asha.run("remember", {"fact": "prefers answers with shell commands"})
+print(asha.run("recall", {}))
+print(sam.run("recall", {}))
+asha.run("remember", {"fact": "works on the payments team"})
+print(asha.run("remember", {"fact": "likes tea"}))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('["prefers answers with shell commands"]', False)
+('[]', False)
+('memory is full; ask the user what to forget', True)
+</script>
+<p>The user is bound when the tools are built, from your authenticated session, never from something the model says. The model can't ask for "sam's" memories because no tool takes a user parameter.</p>
+<div class="note">
+<p><strong>Platform features.</strong> The Claude API has features for long-running agents (a memory tool, context editing that clears old tool results, server-side compaction), and Anthropic also ships the Claude Agent SDK (a ready-made agent harness with file and shell tools) and hosted Managed Agents. They change quickly; read the <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview">agents and tools docs</a> before you build your own version of something that exists. Frameworks such as LangGraph (<a href="appendix-langgraph.html">Appendix B</a>) give you the loop as a graph with checkpoints.</p>
+</div>
+
+<h2 id="not">When <em>not</em> to use an agent</h2>
+<p>Work through this list before you build one:</p>
+<ol>
+  <li><strong>Can you draw the flowchart?</strong> Then build a workflow. It's cheaper, faster, testable and explainable.</li>
+  <li><strong>Is one call with good context enough?</strong> Measure that first (<a href="10-evals.html">Chapter 10</a>). It often is.</li>
+  <li><strong>Is latency critical?</strong> Each step is a full model round trip; 8 steps at 3 s each is a 24 s request.</li>
+  <li><strong>Are actions irreversible?</strong> Agents that can delete, pay, deploy or email need human approval gates (<a href="12-security.html">Chapter 12</a>), or shouldn't be agents.</li>
+  <li><strong>Can you verify progress?</strong> Agents shine where results can be checked (tests pass, the query returns rows). Without a check, errors compound silently.</li>
+</ol>
+<p>Good fits: incident investigation across several read-only systems, codebase exploration, research across many documents, open-ended support questions with read-only tools.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Parallel review with a vote</h3>
+<p>Parallelization's "voting" form runs the same check several times (or with different prompts) and takes the majority, trading cost for reliability on a yes/no decision:</p>
+<script type="text/plain" class="code" data-file="vote.py">
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from llmkit import FakeAnthropic
+
+client = FakeAnthropic(replies=["UNSAFE", "SAFE", "UNSAFE"])
+def check(_):
+    return client.messages.create(model="claude-haiku-5-5", max_tokens=10,
+        messages=[{"role": "user", "content": "Is this SQL migration safe to run online? ALTER TABLE orders ..."}]).content[0].text
+
+with ThreadPoolExecutor(3) as pool:
+    votes = list(pool.map(check, range(3)))
+print(sorted(votes), "->", Counter(votes).most_common(1)[0][0])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['SAFE', 'UNSAFE', 'UNSAFE'] -> UNSAFE
+</script>
+
+<h3>Orchestrator and workers</h3>
+<p>The orchestrator plans the parts at run time; plain code fans them out and collects the results:</p>
+<script type="text/plain" class="code" data-file="orchestrator.py">
+import json
+from llmkit import FakeAnthropic
+
+planner = FakeAnthropic(replies=['["src/Order.java", "src/OrderTest.java", "src/OrderRepo.java"]'])
+worker = FakeAnthropic(replies=[lambda req: "migrated " + req["messages"][0]["content"].split()[-1]] * 3)
+
+files = json.loads(planner.messages.create(model="claude-opus-5-5", max_tokens=500,
+    messages=[{"role": "user", "content": "Which files must change to migrate to JUnit 5? JSON list."}]).content[0].text)
+results = [worker.messages.create(model="claude-sonnet-5-5", max_tokens=2000,
+    messages=[{"role": "user", "content": f"Migrate this file: {f}"}]).content[0].text for f in files]
+print(results)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+['migrated src/Order.java', 'migrated src/OrderTest.java', 'migrated src/OrderRepo.java']
+</script>
+<p>Note the model split: a strong model plans once, cheaper models do the many parts. Add a verification step (compile and run the tests) before accepting any worker's output.</p>
+
+<h2 id="mistakes">Common mistakes</h2>
+<div class="bad"><p><strong>An agent for a fixed process</strong>: an "onboarding agent" that always does the same six steps in the same order.</p></div>
+<div class="good"><p><strong>A workflow with LLM steps</strong>: six coded steps, two of which call a model.</p></div>
+<div class="bad"><p><strong>Unbounded loops</strong>, "budgeted" by asking the model to stop after a few steps.</p></div>
+<div class="good"><p><strong>Budgets in code</strong>: steps, tokens, time and money checked by the loop, with an honest partial result.</p></div>
+<div class="bad"><p><strong>Too many tools</strong>: forty fine-grained tools; the agent wanders and the context fills with definitions.</p></div>
+<div class="good"><p><strong>A few high-level tools</strong> that return what the task needs.</p></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Workflows have code-defined paths; agents choose their path at run time.</li>
+  <li>Start with the simplest thing that passes your eval: one call → workflow → agent.</li>
+  <li>The patterns: chaining (with gates), routing, parallelization, orchestrator–workers, evaluator–optimizer.</li>
+  <li>An agent = goal + tools + budgets + stopping rules, all enforced by your code; inject the clock.</li>
+  <li>Make plans and memory explicit, scoped per user and observable.</li>
+  <li>Don't use agents for fixed processes, latency-critical paths or unverifiable irreversible actions.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Workflow or agent? (a) a nightly summary of yesterday's incidents, (b) "why is checkout slow right now?", (c) translate release notes into four languages, (d) migrate 300 Java files from JUnit 4 to JUnit 5.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Workflow: fixed steps. (b) Agent: the path depends on what each read-only check reveals. (c) Workflow with parallelization. (d) Workflow (orchestrator–workers) with a compile-and-test step per file; at most a small agent per file for the hard ones.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why does <code>run_agent</code> check the token budget in code instead of telling the model "stop after about 10 steps"?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The model can't see its own token usage reliably and may ignore or misjudge the instruction; a budget is a promise about cost and latency, so it must be enforced by deterministic code. The prompt can still mention the budget so the model plans for it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>The agent calls <code>search_docs({"query": "failover"})</code> twice in a row. What does the second call return in <code>run_agent</code>, and why is that better than running it again?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>An <code>is_error</code> result: "You already made this exact call. Use the earlier result." Running it again would return the same text, cost tokens, and do nothing to break the loop; the error nudges the model to try something else.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">calculate</span></h3>
+<p>An agent averages 6 steps per question at 2.5 s each, 9,000 input and 400 output tokens per step, on <code>claude-sonnet-5-5</code>. What are the latency and the cost per question?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import cost
+
+steps = 6
+print(f"{steps * 2.5:.0f} s, ${steps * cost('claude-sonnet-5-5', 9_000, 400):.3f}")
+</script>
+<script type="text/plain" class="code" data-lang="text">
+15 s, $0.132
+</script>
+<p>15 seconds and about 13 cents. A single RAG call might be 2 seconds and a cent. That gap is why you route only the questions that need an agent to the agent.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add a cost budget in dollars to <code>Budget</code> (<code>max_usd</code>) and stop with <code>cost_budget</code> when it's exceeded. Use <code>llmkit.cost</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic, cost
+from agent_tools import registry
+
+def run_with_usd(client, goal, max_usd, model="claude-opus-5-5", max_steps=10):
+    messages, spent = [{"role": "user", "content": goal}], 0.0
+    for step in range(1, max_steps + 1):
+        res = client.messages.create(model=model, max_tokens=4096, tools=registry.definitions(), messages=messages)
+        spent += cost(model, res.usage.input_tokens, res.usage.output_tokens)
+        if spent > max_usd:
+            return "cost_budget", step, round(spent, 4)
+        messages.append({"role": "assistant", "content": res.content})
+        if res.stop_reason != "tool_use":
+            return res.stop_reason, step, round(spent, 4)
+        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": b.id,
+                         "content": registry.run(b.name, b.input)[0]} for b in res.content if b.type == "tool_use"]})
+
+client = FakeAnthropic(replies=[{"tool": "search_docs", "input": {"query": f"q{i}"}} for i in range(10)])
+print(run_with_usd(client, "Research everything about deploys", max_usd=0.01))
+</script>
+<script type="text/plain" class="code" data-lang="text">
+('cost_budget', 3, 0.0101)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">test it</span></h3>
+<p>Write a test that the agent's trace for the OPS-101 demo contains exactly three tool calls and that <code>get_oncall</code> was called with <code>payments</code>. Why test the trace rather than the answer text?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic
+from agent_tools import registry
+from agent import run_agent
+
+client = FakeAnthropic(replies=[
+    {"tool": "get_ticket", "input": {"key": "OPS-101"}},
+    {"tool": [{"name": "search_docs", "input": {"query": "checkout 502"}},
+              {"name": "get_oncall", "input": {"team": "payments"}}]},
+    "Page Priya."])
+r = run_agent(client, registry, "OPS-101: what now?")
+assert len(r.trace) == 3, r.trace
+assert 'get_oncall({"team": "payments"})' in r.trace
+print("ok", r.stop)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok end_turn
+</script>
+<p>With a real model the wording changes every run, but the <em>behaviour</em> (which tools, with which arguments, in how many steps) is what you care about and what you can assert on. <a href="10-evals.html">Chapter 10</a> builds on this.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Add an approval stop rule: if the model calls a tool listed in <code>NEEDS_APPROVAL</code>, stop with <code>needs_approval</code> and return the pending call instead of running it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+from llmkit import FakeAnthropic
+from registry import Registry
+
+reg = Registry()
+@reg.tool
+def restart_service(service: str) -> str:
+    """Restarts a service."""
+    return "restarted"
+
+NEEDS_APPROVAL = {"restart_service"}
+client = FakeAnthropic(replies=[{"tool": "restart_service", "input": {"service": "payments"}}])
+res = client.messages.create(model="claude-sonnet-5-5", max_tokens=500, tools=reg.definitions(),
+                             messages=[{"role": "user", "content": "Payments is stuck, fix it."}])
+pending = [b for b in res.content if b.type == "tool_use" and b.name in NEEDS_APPROVAL]
+if pending:
+    print("needs_approval:", pending[0].name, pending[0].input)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+needs_approval: restart_service {'service': 'payments'}
+</script>
+<p>Persist the conversation and the pending call; when a human approves, run the tool and continue the loop from there. That's the "interruptible" property.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">build it</span></h3>
+<p>Implement compaction for <code>run_agent</code>'s messages: when there are more than 8 messages, replace everything between the goal and the last 4 messages with a single summary (use a function argument <code>summarize</code>). Keep tool_use/tool_result pairs intact.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+def compact(messages, summarize, keep=4):
+    if len(messages) <= 8:
+        return messages
+    cut = len(messages) - keep
+    while messages[cut]["role"] != "assistant":     # start the kept tail at an assistant turn, so no
+        cut -= 1                                      # tool_result is separated from its tool_use
+    old = messages[1:cut]
+    goal = messages[0]["content"]
+    note = f"{goal}\n\nProgress so far (summary): {summarize(old)}"
+    return [{"role": "user", "content": note}] + messages[cut:]
+
+msgs = [{"role": "user", "content": "goal"}]
+for i in range(5):
+    msgs += [{"role": "assistant", "content": f"call {i}"}, {"role": "user", "content": f"result {i}"}]
+out = compact(msgs, summarize=lambda ms: f"{len(ms)} earlier messages")
+print(len(msgs), "->", len(out), "|", out[0]["content"].splitlines()[-1], "|", out[1]["content"])
+</script>
+<script type="text/plain" class="code" data-lang="text">
+11 -> 5 | Progress so far (summary): 6 earlier messages | call 3
+</script>
+<p>Merging the summary into the first user message keeps the roles alternating. The API's server-side compaction does this for you on supported models.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design an incident-investigation agent for "why is checkout slow right now?". List its tools, budgets, stop rules and what it must return, and say which tools must <em>not</em> be included.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Tools (read-only): <code>get_metrics(service, window)</code>, <code>recent_deploys(service, hours)</code>, <code>search_logs(service, query, minutes)</code>, <code>search_docs(query)</code>, <code>get_oncall(team)</code>.</li>
+  <li>Budgets: 10 steps, 90 s, $0.50; results trimmed to the essentials.</li>
+  <li>Stop rules: end_turn, any budget, repeated calls, "no new information in 3 steps".</li>
+  <li>Output (structured): likely cause, evidence (quoted log lines, metric values, deploy IDs), confidence, next action, who to page.</li>
+  <li>Not included: rollback, restart, scale or any write tool. Suggest the command; a human runs it.</li>
+</ul>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Measure the cost of autonomy: run the same question through the RAG path (1 call) and through the agent (scripted: 3 calls), with <code>mock_api()</code> and the real SDK, and compare total tokens.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="python">
+import anthropic
+from rag import answer
+from agent_tools import registry
+from agent import run_agent, Budget
+
+client = anthropic.Anthropic()
+q = "Search the docs: how do I fail over the orders database?"
+text, cits, sent = answer(q, client)
+print("rag:   1 call,", len(sent), "chunks sent")
+r = run_agent(client, registry, q, budget=Budget(max_steps=3))
+print("agent:", r.stop, r.steps, "steps,", r.input_tokens + r.output_tokens, "tokens")
+print("trace:", r.trace)
+</script>
+<script type="text/plain" class="code" data-lang="text">
+rag:   1 call, 4 chunks sent
+agent: end_turn 2 steps, 1588 tokens
+trace: ['search_docs({"query": "Search the docs: how do I fail over the orders database?"})']
+</script>
+<p>Against the mock the agent searches, gets an answer and stops; with a real model it may take more steps. Either way, the agent re-sends tool definitions and the growing history on every step, so its tokens add up quickly. Compare the totals with the RAG call's <code>usage</code> before choosing.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.anthropic.com/engineering/building-effective-agents">Building effective agents</a> (Anthropic Engineering): workflows, agents and the patterns.</li>
+  <li><a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Effective context engineering for AI agents</a>.</li>
+  <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview">Tool use and agents overview</a>: memory tool, context editing, compaction.</li>
+  <li><a href="https://code.claude.com/docs/en/agent-sdk">Claude Agent SDK</a>: a ready-made agent harness.</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

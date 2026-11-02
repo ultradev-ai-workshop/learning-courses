@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const COURSES = {
   python: "Beginner/python-book", react: "Beginner/react-book", javascript: "Intermediate/javascript-book",
-  nodejs: "Intermediate/nodejs-book", springboot: "Advanced/spring-boot-book", problems: "problems",
+  nodejs: "Intermediate/nodejs-book", aidev: "Intermediate/ai-dev-book", springboot: "Advanced/spring-boot-book", problems: "problems",
 };
 // Minutes per unit — the model explained on the launcher page.
 export const MODEL = { wordsPerMinute: 180, minutesPerCodeLine: 1 / 6, exercise: { easy: 1.5, medium: 3.75, hard: 8.75 }, assessment: 50,
