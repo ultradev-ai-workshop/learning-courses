@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚛️&lt;/text&gt;&lt;/svg&gt;">
+<title>A. React &amp; TypeScript for Next.js · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A · Refresher</div>
+<h1>React &amp; TypeScript for Next.js</h1>
+<p class="lead">The docs assume you know HTML, CSS, JavaScript and React. This appendix is a compact refresher of the React and TypeScript you need for this book: components and JSX, props and their types, state, events, effects, lists, forms, context, refs and custom hooks. Every example is a Client Component in a real Next.js app, checked in a browser. For the full story, see the <a href="../react-book/index.html">React Beginner Book</a> and the <a href="../typescript-book/index.html">TypeScript Study Book</a>.</p>
+
+<div class="learn">
+<h2>You will review</h2>
+<ul>
+  <li>Components, JSX rules, and typing props (including <code>children</code>).</li>
+  <li>State with <code>useState</code>, typed event handlers, and lifting state up.</li>
+  <li>Lists with keys, and conditional rendering.</li>
+  <li>Controlled forms, effects with cleanup, refs.</li>
+  <li>Context and custom hooks.</li>
+  <li>The TypeScript features you'll meet most: unions, optional props, <code>type</code> vs <code>interface</code>.</li>
+</ul>
+</div>
+
+<h2 id="components">Components, JSX and props</h2>
+<p>A component is a function that returns JSX. Its name starts with a capital letter. JSX looks like HTML with a few differences: <code>className</code> instead of <code>class</code>, <code>htmlFor</code> instead of <code>for</code>, every tag must be closed, a component returns one root element (or a fragment <code>&lt;&gt;…&lt;/&gt;</code>), and <code>{ }</code> embeds any JavaScript expression.</p>
+<p>Props are the component's arguments, passed like HTML attributes. In TypeScript, describe them with a type:</p>
+<script type="text/plain" class="code" data-file="app/greeting.tsx">
+type GreetingProps = {
+  name: string;
+  times?: number;                    // optional, with a default below
+  children?: React.ReactNode;        // anything renderable: text, elements, arrays…
+};
+
+export function Greeting({ name, times = 1, children }: GreetingProps) {
+  return (
+    <section>
+      <p>{"Hello ".repeat(times).trim()}, {name}!</p>
+      {children}
+    </section>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import { Greeting } from "./greeting";
+
+export default function Page() {
+  return (
+    <>
+      <Greeting name="Ada" />
+      <Greeting name="Ben" times={2}>
+        <em>Welcome back.</em>
+      </Greeting>
+    </>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+Hello, Ada!
+Hello Hello, Ben!
+Welcome back.
+</script>
+<p>These two are Server Components (no <code>"use client"</code>): plain components without state can run on either side (Chapter 5).</p>
+
+<h2 id="state">State and events</h2>
+<p><code>useState</code> keeps a value between renders; calling its setter re-renders the component. Event handlers receive typed event objects. Hooks only work in Client Components, and only at the top level of a component (not inside conditions or loops).</p>
+<script type="text/plain" class="code" data-file="app/state/page.tsx">
+"use client";
+
+import { useState } from "react";
+
+export default function Page() {
+  const [count, setCount] = useState(0);
+  const [name, setName] = useState("");
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setName(e.target.value);
+  }
+
+  return (
+    <main>
+      <button onClick={() => setCount((c) => c + 1)}>Clicked {count} times</button>
+      <input value={name} onChange={handleChange} placeholder="Your name" />
+      <p>{name ? `Hi, ${name}` : "Type your name"}</p>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/state" data-steps="click:button; click:button; fill:input=Ada">
+Clicked 2 times
+Hi, Ada
+</script>
+<p><code>setCount((c) =&gt; c + 1)</code> uses the <em>updater</em> form, which is correct even when several updates happen before the next render. The input is <strong>controlled</strong>: its value always comes from state.</p>
+
+<h2 id="lists">Lists, keys and conditions</h2>
+<p>Render arrays with <code>map</code>. Each item needs a <code>key</code> that's stable and unique among its siblings (an ID, not the array index if the list can change), so React can match items between renders:</p>
+<script type="text/plain" class="code" data-file="app/lists/page.tsx">
+"use client";
+
+import { useState } from "react";
+
+type Book = { id: number; title: string; read: boolean };
+
+const initial: Book[] = [
+  { id: 1, title: "The Hobbit", read: true },
+  { id: 2, title: "Dune", read: false },
+  { id: 3, title: "Beloved", read: false },
+];
+
+export default function Page() {
+  const [books, setBooks] = useState(initial);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const visible = onlyUnread ? books.filter((b) => !b.read) : books;
+
+  function toggle(id: number) {
+    setBooks(books.map((b) => (b.id === id ? { ...b, read: !b.read } : b)));   // a new array: never mutate state
+  }
+
+  return (
+    <main>
+      <label><input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} /> Only unread</label>
+      <ul>
+        {visible.map((b) => (
+          <li key={b.id}>
+            {b.title} {b.read && "✅"} <button onClick={() => toggle(b.id)}>toggle</button>
+          </li>
+        ))}
+      </ul>
+      {visible.length === 0 && <p>Nothing left to read!</p>}
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/lists" data-steps="click:li:nth-of-type(2) button; click:input[type=checkbox]">
+Only unread
+Beloved toggle
+</script>
+<p>"Dune" was marked read, then the filter hid both read books. <code>{cond && &lt;X /&gt;}</code> renders <code>X</code> only when <code>cond</code> is true; use a ternary <code>{cond ? &lt;A /&gt; : &lt;B /&gt;}</code> to choose between two. Watch out: <code>{count && …}</code> renders "0" when <code>count</code> is 0, so compare explicitly (<code>count &gt; 0 &amp;&amp; …</code>).</p>
+
+<h2 id="effects">Effects and cleanup</h2>
+<p><code>useEffect</code> runs code <em>after</em> rendering, to synchronize with something outside React: timers, subscriptions, browser APIs. Return a cleanup function to undo it. The dependency array lists the values the effect reads; it re-runs when they change.</p>
+<script type="text/plain" class="code" data-file="app/effects/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+
+export default function Page() {
+  const [running, setRunning] = useState(true);
+  const [ticks, setTicks] = useState(0);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setTicks((t) => t + 1), 100);
+    return () => clearInterval(id);              // cleanup: stop the old timer
+  }, [running]);
+
+  return (
+    <main>
+      <p>{ticks >= 3 ? "Ticked at least 3 times" : "Waiting…"}</p>
+      <button onClick={() => setRunning(!running)}>{running ? "Stop" : "Start"}</button>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/effects" data-steps="wait:600; click:button">
+Ticked at least 3 times
+Start
+</script>
+<div class="tip">
+<p>💡 In Next.js, you need far fewer effects than in a single-page app: <strong>don't fetch data in effects</strong> when a Server Component can load it (Chapter 6). Effects are for browser-only work: reading <code>window</code>, <code>localStorage</code>, subscribing to events.</p>
+</div>
+
+<h2 id="context">Context</h2>
+<p>Context passes a value to any depth without threading props through every level. Create it, provide it, and read it with <code>useContext</code> (or React 19's <code>use</code>). In Next.js, providers are Client Components rendered from a layout (Chapter 5):</p>
+<script type="text/plain" class="code" data-file="app/context/page.tsx">
+"use client";
+
+import { createContext, useContext, useState } from "react";
+
+const UnitContext = createContext<"km" | "mi">("km");
+
+function Distance({ km }: { km: number }) {
+  const unit = useContext(UnitContext);
+  return <p>{unit === "km" ? `${km} km` : `${(km * 0.621).toFixed(1)} mi`}</p>;
+}
+
+export default function Page() {
+  const [unit, setUnit] = useState<"km" | "mi">("km");
+  return (
+    <UnitContext.Provider value={unit}>
+      <button onClick={() => setUnit(unit === "km" ? "mi" : "km")}>Switch units</button>
+      <Distance km={42} />
+    </UnitContext.Provider>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/context" data-steps="click:button">
+Switch units
+26.1 mi
+</script>
+
+<h2 id="refs">Refs</h2>
+<p><code>useRef</code> holds a value that survives re-renders without causing one, most often a reference to a DOM element:</p>
+<script type="text/plain" class="code" data-file="app/refs/page.tsx">
+"use client";
+
+import { useRef } from "react";
+
+export default function Page() {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <main>
+      <input ref={input} placeholder="Search" />
+      <button onClick={() => input.current?.focus()}>Focus the search box</button>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/refs" data-steps="click:button" data-eval="'focused: ' + (document.activeElement && document.activeElement.getAttribute('placeholder'))">
+focused: Search
+</script>
+
+<h2 id="custom-hooks">Custom hooks</h2>
+<p>A custom hook is a function whose name starts with <code>use</code> and that calls other hooks. It shares <em>logic</em>, not state: each component that calls it gets its own state.</p>
+<script type="text/plain" class="code" data-file="app/hooks/use-toggle.ts">
+import { useState } from "react";
+
+export function useToggle(initial = false) {
+  const [on, setOn] = useState(initial);
+  return [on, () => setOn((v) => !v)] as const;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/hooks/page.tsx">
+"use client";
+
+import { useToggle } from "./use-toggle";
+
+export default function Page() {
+  const [a, toggleA] = useToggle();
+  const [b, toggleB] = useToggle(true);
+  return (
+    <main>
+      <button onClick={toggleA}>A is {a ? "on" : "off"}</button>{" "}
+      <button onClick={toggleB}>B is {b ? "on" : "off"}</button>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/hooks" data-steps="click:button">
+A is on B is on
+</script>
+<p><code>as const</code> makes the return type a tuple (<code>readonly [boolean, () =&gt; void]</code>) instead of an array of either, so destructuring keeps the right types.</p>
+
+<h2 id="typescript">TypeScript you'll meet in Next.js code</h2>
+<div class="table-wrap"><table>
+<tr><th>Syntax</th><th>Meaning</th><th>Example in this book</th></tr>
+<tr><td><code>type A = { … }</code> / <code>interface A { … }</code></td><td>Name an object shape; both work for props</td><td><code>type Book = { id: string; … }</code></td></tr>
+<tr><td><code>"a" | "b"</code></td><td>A union of literal values</td><td><code>role: "admin" | "reader"</code></td></tr>
+<tr><td><code>x?: T</code></td><td>Optional property</td><td><code>children?: React.ReactNode</code></td></tr>
+<tr><td><code>Promise&lt;T&gt;</code></td><td>The result of an <code>async</code> function</td><td><code>params: Promise&lt;{ id: string }&gt;</code></td></tr>
+<tr><td><code>Omit&lt;T, K&gt;</code>, <code>Pick&lt;T, K&gt;</code></td><td>Derive a type without/with some keys</td><td><code>Omit&lt;Book, "id"&gt;</code></td></tr>
+<tr><td><code>import type</code></td><td>Import only a type (erased at runtime)</td><td><code>import type { Metadata } from "next"</code></td></tr>
+<tr><td><code>satisfies</code>, <code>as const</code></td><td>Check against a type / keep literal types</td><td><code>as const</code> tuples and arrays</td></tr>
+<tr><td><code>PageProps&lt;"/route"&gt;</code>, <code>LayoutProps</code>, <code>RouteContext</code></td><td>Next.js's generated global types</td><td>Chapters 3, 4, 14</td></tr>
+</table></div>
+
+<h2 id="recap-table">Recap</h2>
+<div class="recap">
+<ul>
+  <li>Components are capitalised functions returning JSX; props are typed with a <code>type</code> or <code>interface</code>; <code>React.ReactNode</code> types <code>children</code>.</li>
+  <li><code>useState</code> + event handlers make Client Components interactive; never mutate state, create new objects and arrays.</li>
+  <li>Lists need stable <code>key</code>s; render conditionally with <code>&amp;&amp;</code> and ternaries.</li>
+  <li><code>useEffect</code> is for syncing with the outside world, with cleanup; don't fetch data in effects when a Server Component can.</li>
+  <li>Context shares values deeply; refs hold DOM nodes or mutable values; custom hooks share logic.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">fix the JSX</span></h3>
+<p>Find four mistakes: <code>&lt;div class="card"&gt;&lt;label for="q"&gt;Search&lt;/label&gt;&lt;input id="q"&gt;&lt;img src="/x.png"&gt;&lt;/div&gt;&lt;p&gt;Done&lt;/p&gt;</code> returned from a component.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>class</code> → <code>className</code>; <code>for</code> → <code>htmlFor</code>; <code>&lt;input /&gt;</code> and <code>&lt;img /&gt;</code> must be closed (and the image needs <code>alt</code>, or use <code>&lt;Image&gt;</code>); two root elements need a fragment <code>&lt;&gt;…&lt;/&gt;</code> around them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">types</span></h3>
+<p>Write a props type for a <code>BookCard</code> that takes a required <code>title</code>, an optional <code>year</code>, a <code>status</code> that is <code>"read"</code> or <code>"unread"</code>, and optional children.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/book-card.tsx" data-norun>
+type BookCardProps = {
+  title: string;
+  year?: number;
+  status: "read" | "unread";
+  children?: React.ReactNode;
+};
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does <code>{items.length && &lt;p&gt;{items.length} items&lt;/p&gt;}</code> render when <code>items</code> is empty? How do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It renders <code>0</code>, because <code>0 &amp;&amp; …</code> evaluates to <code>0</code>, which React renders as text. Use <code>{items.length &gt; 0 && …}</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">keys</span></h3>
+<p>Why is <code>key={index}</code> a problem in a list where items can be deleted or reordered?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Keys tell React which item is which between renders. With indexes, deleting the first item makes every other item "become" the one before it, so state inside list items (an open menu, typed text) moves to the wrong item. Use a stable ID from the data.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">state</span></h3>
+<p>Write a Client Component with a text input and an "Add" button that appends the text to a list and clears the input. Ignore empty input.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/ex5/page.tsx">
+"use client";
+
+import { useState } from "react";
+
+export default function Page() {
+  const [text, setText] = useState("");
+  const [items, setItems] = useState<string[]>([]);
+  function add() {
+    if (!text.trim()) return;
+    setItems([...items, text.trim()]);
+    setText("");
+  }
+  return (
+    <main>
+      <input value={text} onChange={(e) => setText(e.target.value)} />
+      <button onClick={add}>Add</button>
+      <ul>{items.map((i) => <li key={i}>{i}</li>)}</ul>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/ex5" data-steps="fill:input=Dune; click:button; fill:input=   ; click:button; fill:input=Beloved; click:button" data-eval="document.querySelector('ul').innerText + '\ninput: [' + document.querySelector('input').value + ']'">
+Dune
+Beloved
+input: []
+</script>
+<p>(Using the item text as the key is fine here only because duplicates aren't expected; use IDs otherwise.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">effect</span></h3>
+<p>Write a <code>useLocalStorage(key, initial)</code> hook that reads the stored value after mounting and saves changes. Why must the read happen in an effect in Next.js?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/use-local-storage.ts" data-norun>
+import { useEffect, useState } from "react";
+
+export function useLocalStorage(key: string, initial: string) {
+  const [value, setValue] = useState(initial);
+  useEffect(() => {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) setValue(stored);
+  }, [key]);
+  useEffect(() => {
+    localStorage.setItem(key, value);
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+</script>
+<p>Client Components are also prerendered on the server, where <code>localStorage</code> doesn't exist. Effects only run in the browser, after hydration, and the first render matches the server's HTML.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">lifting state</span></h3>
+<p>Two sibling components, <code>Filter</code> (a text input) and <code>BookList</code>, must share the filter text. Where does the state live, and how do they get it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In their closest common parent, a Client Component holding <code>const [filter, setFilter] = useState("")</code>. It passes <code>value={filter}</code> and <code>onChange={setFilter}</code> to <code>Filter</code>, and <code>filter={filter}</code> to <code>BookList</code>. In Next.js, consider putting it in the URL (<code>?q=</code>, Chapter 4) instead: then it survives reloads and can be shared, and a Server Component can filter.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">TypeScript</span></h3>
+<p>Type an <code>onSubmit</code> handler for a form, and an <code>onChange</code> for a <code>&lt;select&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>function onSubmit(e: React.FormEvent&lt;HTMLFormElement&gt;) { e.preventDefault(); … }</code> and <code>function onChange(e: React.ChangeEvent&lt;HTMLSelectElement&gt;) { setGenre(e.target.value); }</code>. In Next.js, forms often use a Server Action with <code>action</code> instead (Chapter 7), and then you don't need <code>onSubmit</code> at all.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">debug</span></h3>
+<p>This effect causes an endless loop. Why, and how do you fix it?</p>
+<script type="text/plain" class="code" data-file="app/loop.tsx" data-norun>
+const [options, setOptions] = useState({ sort: "title" });
+const [books, setBooks] = useState<Book[]>([]);
+useEffect(() => {
+  setBooks(sortBooks(allBooks, options));
+  setOptions({ ...options });          // "keep options in sync"
+}, [options]);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>The effect depends on <code>options</code>, and sets <code>options</code> to a <em>new object</em> every time, which changes the dependency and runs the effect again, forever. Remove the pointless <code>setOptions</code>. Better still, don't store derived data in state at all: compute <code>const books = sortBooks(allBooks, options)</code> during render (wrap it in <code>useMemo</code> only if it's expensive).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">server or client</span></h3>
+<p>You're porting a React SPA component that fetches books in <code>useEffect</code>, shows a spinner, stores them in state and renders a filter input. Rewrite its structure the Next.js way.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Split it. A Server Component page awaits <code>getBooks()</code> (cached or inside <code>&lt;Suspense&gt;</code> with a skeleton fallback, which replaces the spinner) and renders a small Client Component <code>&lt;BookFilter books={books} /&gt;</code> that holds only the filter text in state and filters the received array. The effect, the loading state and the fetch code disappear; the book data is in the first HTML response. If the list is large, filter on the server with <code>searchParams</code> instead (Chapter 4).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://react.dev/learn">react.dev: Learn React</a> · <a href="https://react.dev/learn/typescript">Using TypeScript</a></li>
+  <li><a href="https://nextjs.org/learn/react-foundations">Next.js Learn: React Foundations</a> (the course the docs recommend)</li>
+  <li><a href="https://react.dev/reference/react/hooks">react.dev: Built-in hooks</a> · <a href="https://react.dev/learn/you-might-not-need-an-effect">You Might Not Need an Effect</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/intro.html">The TypeScript Handbook</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

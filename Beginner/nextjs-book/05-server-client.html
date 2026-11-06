@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔀&lt;/text&gt;&lt;/svg&gt;">
+<title>5. Server and Client Components · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Rendering &amp; Data</div>
+<h1>Server and Client Components</h1>
+<p class="lead">This is the central idea of the App Router. Some components run only on the server and send no JavaScript; others are also sent to the browser to handle clicks and state. This chapter follows the docs' <em>Server and Client Components</em> page. You'll learn when to use each, how <code>"use client"</code> draws the boundary, what can cross it, and the patterns for combining the two. Several examples show the real build errors you'll hit when you get it wrong.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What each kind of component can do, and how to choose.</li>
+  <li>How rendering works: the RSC Payload, prerendered HTML, and hydration.</li>
+  <li>The <code>"use client"</code> directive as a <strong>boundary</strong> in the module graph.</li>
+  <li>Passing data from server to client as serializable props.</li>
+  <li>Interleaving: Server Components as <code>children</code> of Client Components.</li>
+  <li>Context providers, third-party components, and keeping server code out of the browser with <code>server-only</code>.</li>
+</ul>
+</div>
+
+<h2 id="when">When to use each</h2>
+<div class="table-wrap"><table>
+<tr><th>You need…</th><th><span class="rsc server">Server</span></th><th><span class="rsc client">Client</span></th></tr>
+<tr><td>Fetch data close to the source (database, internal API)</td><td>✅</td><td>via an API</td></tr>
+<tr><td>Use secrets: API keys, tokens</td><td>✅</td><td>❌ never</td></tr>
+<tr><td>Send less JavaScript to the browser</td><td>✅ (none)</td><td>❌</td></tr>
+<tr><td>State and event handlers (<code>useState</code>, <code>onClick</code>)</td><td>❌</td><td>✅</td></tr>
+<tr><td>Effects and lifecycle (<code>useEffect</code>)</td><td>❌</td><td>✅</td></tr>
+<tr><td>Browser APIs (<code>localStorage</code>, <code>window</code>, geolocation)</td><td>❌</td><td>✅</td></tr>
+<tr><td>Custom hooks that use any of the above</td><td>❌</td><td>✅</td></tr>
+</table></div>
+<p>Every component in <code>app/</code> is a <strong>Server Component</strong> unless it's marked otherwise. A good default: keep pages and layouts as Server Components that load data, and make small, leaf-level <strong>Client Components</strong> for the interactive bits. The docs' first example does exactly that: a page loads a post and passes its <code>likes</code> to a <code>LikeButton</code>.</p>
+<script type="text/plain" class="code" data-file="lib/data.ts">
+export type Post = { id: string; title: string; likes: number };
+
+export async function getPost(id: string): Promise<Post> {
+  return { id, title: `Post number ${id}`, likes: 41 };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/ui/like-button.tsx">
+"use client";
+
+import { useState } from "react";
+
+export default function LikeButton({ likes }: { likes: number }) {
+  const [count, setCount] = useState(likes);
+  return <button onClick={() => setCount(count + 1)}>♥ {count}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/posts/[id]/page.tsx">
+import LikeButton from "@/app/ui/like-button";
+import { getPost } from "@/lib/data";
+
+export function generateStaticParams() {
+  return [{ id: "1" }];
+}
+
+export default async function Page({ params }: PageProps<"/posts/[id]">) {
+  const { id } = await params;
+  const post = await getPost(id);
+  return (
+    <main>
+      <h1>{post.title}</h1>
+      <LikeButton likes={post.likes} />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/posts/1" data-steps="click:button">
+Post number 1
+♥ 42
+</script>
+<p>The page started the button at 41 likes; one click made it 42. The page and <code>getPost</code> ran on the server (at build time, thanks to <code>generateStaticParams</code>); only <code>like-button.tsx</code> runs in the browser.</p>
+
+<h2 id="how">How rendering works</h2>
+<p><strong>On the server</strong>, for each route segment (layout and page):</p>
+<ol>
+  <li>Server Components render into the <strong>RSC Payload</strong> (React Server Component Payload), a compact description of the rendered tree. It contains the output of Server Components, placeholders for Client Components with references to their JavaScript files, and the props passed to them.</li>
+  <li>Client Components and the RSC Payload are used to <strong>prerender HTML</strong>.</li>
+</ol>
+<p><strong>In the browser, on first load:</strong></p>
+<ol>
+  <li>The <strong>HTML</strong> shows a fast, non-interactive preview.</li>
+  <li>The <strong>RSC Payload</strong> lets React rebuild the component tree.</li>
+  <li>The <strong>JavaScript</strong> for Client Components <strong>hydrates</strong> them: React attaches event handlers to the existing HTML, and they become interactive.</li>
+</ol>
+<p><strong>On later navigations</strong>, the RSC Payload is prefetched and cached, and Client Components render entirely in the browser. No HTML is needed.</p>
+<p>You can ask for a route's RSC Payload yourself by sending the <code>RSC: 1</code> header, as <code>&lt;Link&gt;</code> does when it navigates (<code>-L</code> follows the redirect to <code>/posts/1?_rsc</code> that Next.js adds). It's a text format with one piece of the tree per line. Here is the line for the page's <code>&lt;main&gt;</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -sL -H "RSC: 1" localhost:3000/posts/1 | grep -o '\["\$","main".*'
+["$","main",null,{"children":[["$","h1",null,{"children":"Post number 1"}],["$","$L1c",null,{"likes":41}]]}]
+</script>
+<p>Read it as JSX: a <code>main</code> element whose children are an <code>h1</code> with the text "Post number 1" (already rendered by the server), and <code>$L1c</code>, a <strong>reference</strong> to a Client Component (the <code>LikeButton</code>) with the props <code>{ likes: 41 }</code>. The browser loads that component's JavaScript and renders it there.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> furniture delivery. A Server Component is furniture that arrives <em>assembled</em> (finished HTML, nothing to do). A Client Component arrives flat-packed with instructions (JavaScript): there's a photo of the finished piece in the box (the prerendered HTML) so you can see it at once, but it only works after you assemble it (hydration). The RSC Payload is the delivery note listing what goes where, including which boxes still need assembly.</p>
+</div>
+
+<h2 id="use-client">"use client" is a boundary</h2>
+<p>Put <code>"use client"</code> at the very top of a file, above the imports. It marks the file as an <strong>entry point to the client bundle</strong>. Everything that file imports, and every component it renders directly, becomes client code too. So you don't add the directive to every component: only to the files where server code hands over to client code.</p>
+<p>You can see the boundary in the build. Below, a page (server) imports a helper and renders a Client Component that imports a different helper. Only the client side's text shows up in the JavaScript sent to browsers, under <code>.next/static</code>:</p>
+<script type="text/plain" class="code" data-file="app/boundary/server-helper.ts" data-app="boundary">
+export const serverNote = "SERVER-ONLY-NOTE";
+</script>
+<script type="text/plain" class="code" data-file="app/boundary/client-helper.ts" data-app="boundary">
+export const clientNote = "CLIENT-SIDE-NOTE";
+</script>
+<script type="text/plain" class="code" data-file="app/boundary/widget.tsx" data-app="boundary">
+"use client";
+
+import { useState } from "react";
+import { clientNote } from "./client-helper";   // pulled into the client bundle
+
+export function Widget() {
+  const [open, setOpen] = useState(false);
+  return <button onClick={() => setOpen(!open)}>{open ? clientNote : "Show note"}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/boundary/page.tsx" data-app="boundary">
+import { serverNote } from "./server-helper";
+import { Widget } from "./widget";
+
+export default function Page() {
+  return (
+    <main>
+      <p>{serverNote}</p>
+      <Widget />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/boundary" data-app="boundary" data-steps="click:button">
+SERVER-ONLY-NOTE
+CLIENT-SIDE-NOTE
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="boundary">
+$ grep -rl "CLIENT-SIDE-NOTE" .next/static | wc -l | tr -d ' '
+1
+$ grep -rl "SERVER-ONLY-NOTE" .next/static | wc -l | tr -d ' '
+0
+</script>
+<p><code>SERVER-ONLY-NOTE</code> is in the page's HTML, but not in any JavaScript file. <code>CLIENT-SIDE-NOTE</code> had to ship, because the widget may show it after a click.</p>
+<div class="tip">
+<p>💡 <strong>Keep boundaries low.</strong> Marking a whole layout <code>"use client"</code> to make one search box interactive sends the whole layout, and everything it imports, to the browser. Put the directive on <code>search.tsx</code> instead, and keep the layout on the server.</p>
+</div>
+
+<h3 id="mistakes">What happens if you forget the directive</h3>
+<p>Hooks and event handlers don't exist in Server Components. Next.js catches the mistake at build time. Using <code>useState</code> without <code>"use client"</code>:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="nohook">
+import { useState } from "react";
+
+export default function Page() {
+  const [n] = useState(0);
+  return <p>{n}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="nohook">
+...
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./app/page.tsx:1:10
+Error: You're importing a module that depends on `useState` into a React Server Component module. This API is only available in Client Components. To fix, mark the file (or its parent) with the `"use client"` directive.
+    Learn more: https://nextjs.org/docs/app/api-reference/directives/use-client
+> 1 | import { useState } from "react";
+    |          ^^^^^^^^
+...
+</script>
+<p>Passing an event handler from a Server Component to an element fails when the page is prerendered:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="nohandler">
+export default function Page() {
+  return <button onClick={() => console.log("hi")}>Say hi</button>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="nohandler">
+...
+Error occurred prerendering page "/". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Event handlers cannot be passed to Client Component props.
+  {onClick: function onClick, children: ...}
+            ^^^^^^^^^^^^^^^^
+If you need interactivity, consider converting part of this to a Client Component.
+...
+</script>
+<p>Here the code compiles, but rendering fails: a server-rendered <code>&lt;button&gt;</code> is just HTML, and a function can't be turned into HTML or sent to the browser.</p>
+
+<h2 id="props">Passing data across the boundary</h2>
+<p>A Server Component passes data to a Client Component through <strong>props</strong>. Those props travel over the network inside the RSC Payload, so they must be <strong>serializable</strong> by React: strings, numbers, booleans, <code>null</code>, <code>undefined</code>, arrays and plain objects of these, <code>Date</code>, <code>Map</code>, <code>Set</code>, typed arrays, promises, JSX, and Server Functions (Chapter 7). Ordinary functions and class instances can't cross.</p>
+<script type="text/plain" class="code" data-file="app/badge.tsx" data-app="props">
+"use client";
+
+export function Badge({ added, tags, format }: { added: Date; tags: Set<string>; format?: (d: Date) => string }) {
+  return <p>Added {added.toISOString().slice(0, 10)}, tags: {[...tags].join(", ")}{format ? "" : "."}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="props">
+import { Badge } from "./badge";
+
+export default function Page() {
+  return <Badge added={new Date("2026-11-06")} tags={new Set(["sci-fi", "classic"])} />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="props">
+Added 2026-11-06, tags: sci-fi, classic.
+</script>
+<p>The <code>Date</code> and the <code>Set</code> arrived as a real <code>Date</code> and <code>Set</code>. Passing the optional <code>format</code> function from the page, though, fails:</p>
+<script type="text/plain" class="code" data-file="app/badge.tsx" data-app="fnprop">
+"use client";
+
+export function Badge({ format }: { format: (d: Date) => string }) {
+  return <p>{format(new Date())}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="fnprop">
+import { Badge } from "./badge";
+
+export default function Page() {
+  return <Badge format={(d) => d.toDateString()} />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="fnprop">
+...
+Error occurred prerendering page "/". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Functions cannot be passed directly to Client Components unless you explicitly expose it by marking it with "use server". Or maybe you meant to call this function rather than return it.
+  {format: function format}
+           ^^^^^^^^^^^^^^^
+...
+</script>
+<p>The fix is to do the formatting on one side: format the date on the server and pass a string, or define <code>format</code> inside the Client Component. The message mentions <code>"use server"</code>: Server Functions <em>can</em> be passed, as Chapter 7 shows.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Everything you pass as a prop is visible in the browser.</strong> If a Server Component loads a whole user record and passes it to a Client Component, the password hash goes along with it. Pass only the fields the client needs. The docs' <em>Data Security</em> guide recommends a data access layer that returns minimal objects (Chapter 16).</p>
+</div>
+
+<h2 id="interleaving">Interleaving: Server Components inside Client Components</h2>
+<p>A Client Component <em>can't import</em> a Server Component: anything it imports becomes client code. But it can <strong>receive one as a prop</strong>, usually <code>children</code>. The Server Component is rendered on the server first, and the client gets the finished result in its slot. The docs' example is a <code>Cart</code> that loads data on the server, shown in a <code>Modal</code> that toggles on the client:</p>
+<script type="text/plain" class="code" data-file="app/ui/modal.tsx" data-app="interleave">
+"use client";
+
+import { useState } from "react";
+
+export default function Modal({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}>{open ? "Close cart" : "Open cart"}</button>
+      {open && <div role="dialog">{children}</div>}
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/ui/cart.tsx" data-app="interleave">
+async function getCartItems() {
+  return ["Dune", "The Hobbit"];      // imagine a database query
+}
+
+export default async function Cart() {
+  const items = await getCartItems();
+  return <ul>{items.map((i) => <li key={i}>{i}</li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="interleave">
+import Modal from "./ui/modal";
+import Cart from "./ui/cart";
+
+export default function Page() {
+  return (
+    <Modal>
+      <Cart />
+    </Modal>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="interleave" data-steps="click:button">
+Close cart
+Dune
+The Hobbit
+</script>
+<p>The page (a Server Component) composes both: <code>Cart</code> is rendered on the server and passed into <code>Modal</code>'s <code>children</code> slot. <code>Modal</code> decides <em>whether</em> to show it, without knowing what it is. <code>cart.tsx</code> stays out of the browser bundle.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a Client Component with <code>children</code> is a gift box with a lid that opens and closes. The box (client) handles the lid. What's inside was packed in the shop (server). The box doesn't need to know how to make the gift, only where to hold it.</p>
+</div>
+
+<h2 id="context">Context providers</h2>
+<p>React context doesn't work in Server Components. To share client state (a theme, a cart) across the app, create a Client Component provider that accepts <code>children</code>, and render it from a Server Component such as the root layout:</p>
+<script type="text/plain" class="code" data-file="app/theme-provider.tsx" data-app="context">
+"use client";
+
+import { createContext, useContext, useState } from "react";
+
+type Theme = { theme: "light" | "dark"; toggle: () => void };
+const ThemeContext = createContext<Theme | null>(null);
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
+  return ctx;
+}
+
+export default function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const toggle = () => setTheme(theme === "light" ? "dark" : "light");
+  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/theme-button.tsx" data-app="context">
+"use client";
+
+import { useTheme } from "./theme-provider";
+
+export function ThemeButton() {
+  const { theme, toggle } = useTheme();
+  return <button onClick={toggle}>Theme: {theme}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="context">
+import ThemeProvider from "./theme-provider";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="context">
+import { ThemeButton } from "./theme-button";
+
+export default function Page() {
+  return (
+    <main>
+      <h1>Settings</h1>   {/* still a Server Component */}
+      <ThemeButton />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="context" data-steps="click:button">
+Settings
+Theme: dark
+</script>
+<p>The page is still a Server Component, even though it's inside a client provider: it's passed through as <code>children</code>, like the cart above. The docs suggest rendering providers as deep as possible: here it wraps <code>{children}</code>, not the whole <code>&lt;html&gt;</code>.</p>
+
+<h2 id="third-party">Third-party components</h2>
+<p>Many npm packages use hooks but don't have <code>"use client"</code> in their files yet. They work inside your Client Components, but importing them straight into a Server Component fails. The fix is a one-line wrapper file:</p>
+<script type="text/plain" class="code" data-file="app/carousel.tsx" data-norun>
+"use client";
+
+import { Carousel } from "acme-carousel";
+
+export default Carousel;
+</script>
+<p>Now any Server Component can render <code>&lt;Carousel /&gt;</code>. (Library authors: add <code>"use client"</code> to your client entry points so users don't need wrappers.)</p>
+
+<h2 id="server-only">Keeping server code on the server: server-only</h2>
+<p>A module can be imported from both sides. If a data module that reads a secret is imported by a Client Component by mistake, its code ships to the browser. (Secret environment variables are replaced with empty strings there, so it would just fail. Chapter 16 covers environment variables.) Make that mistake a build error by importing <code>server-only</code> at the top of the module:</p>
+<script type="text/plain" class="code" data-file="lib/secret-data.ts" data-app="serveronly">
+import "server-only";
+
+export async function getData() {
+  return { plan: "pro", apiKeyLast4: process.env.API_KEY?.slice(-4) };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="serveronly">
+"use client";
+
+import { getData } from "@/lib/secret-data";
+
+export default function Page() {
+  return <button onClick={() => getData()}>Load</button>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="serveronly">
+...
+./lib/secret-data.ts:1:1
+Error: 'server-only' cannot be imported from a Client Component module
+> 1 | import "server-only";
+    | ^^^^^^^^^^^^^^^^^^^^^
+...
+It should only be used from a Server Component.
+
+Import traces:
+  Client Component Browser:
+    ./lib/secret-data.ts [Client Component Browser]
+    ./app/page.tsx [Client Component Browser]
+    ./app/page.tsx [Server Component]
+...
+</script>
+<p>The <em>import trace</em> shows the chain that pulled the module into the client: <code>app/page.tsx</code> (a Client Component) imports <code>lib/secret-data.ts</code>.</p>
+<p>Installing the <code>server-only</code> package is optional: Next.js recognises the import itself. The opposite package, <code>client-only</code>, marks modules that must never run on the server (for example, code that touches <code>window</code>).</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A Server Component used inside a Client Component's file becomes client code.</strong> A component without any directive runs wherever it's imported from. Here <code>Price</code> has no directive and uses no server-only APIs, so it works on both sides:</p>
+<script type="text/plain" class="code" data-file="app/price.tsx" data-app="shared">
+export function Price({ cents }: { cents: number }) {
+  return <span>${(cents / 100).toFixed(2)}</span>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/quantity.tsx" data-app="shared">
+"use client";
+
+import { useState } from "react";
+import { Price } from "./price";
+
+export function Quantity({ unitCents }: { unitCents: number }) {
+  const [qty, setQty] = useState(1);
+  return (
+    <p>
+      <button onClick={() => setQty(qty + 1)}>+1</button> {qty} × <Price cents={unitCents} /> = <Price cents={qty * unitCents} />
+    </p>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="shared">
+import { Price } from "./price";
+import { Quantity } from "./quantity";
+
+export default function Page() {
+  return (
+    <main>
+      <p>Unit price: <Price cents={1299} /></p>
+      <Quantity unitCents={1299} />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="shared" data-steps="click:button; click:button">
+Unit price: $12.99
++1 3 × $12.99 = $38.97
+</script>
+<p>The first <code>Price</code> is rendered by the server page; the others are part of <code>Quantity</code>'s client bundle. Shared, pure components like this are fine either way.</p>
+
+<p><strong>Browser-only APIs need an effect.</strong> Even Client Components are prerendered on the server, where <code>window</code> and <code>localStorage</code> don't exist. Read them in <code>useEffect</code>, which only runs in the browser:</p>
+<script type="text/plain" class="code" data-file="app/screen-width.tsx" data-app="shared">
+"use client";
+
+import { useEffect, useState } from "react";
+
+export function ScreenWidth() {
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => setWidth(window.innerWidth), []);
+  return <p>Window width: {width === null ? "unknown (server)" : `${width}px`}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/width/page.tsx" data-app="shared">
+import { ScreenWidth } from "../screen-width";
+
+export default function Page() {
+  return <ScreenWidth />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="shared">
+$ curl -s localhost:3000/width | sed 's/<!-- -->//g' | grep -o "Window width: [^<]*"
+Window width: unknown (server)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/width" data-app="shared">
+Window width: 1100px
+</script>
+<p>(The <code>sed</code> removes the empty <code>&lt;!-- --&gt;</code> comments React puts between neighbouring pieces of text in server HTML, so it can match them up during hydration.) The server's HTML says "unknown (server)"; after hydration, the effect runs in the browser (here a 1100&nbsp;px wide window) and fills in the real value. Reading <code>window.innerWidth</code> directly during render would crash the prerender with "window is not defined".</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Components in <code>app/</code> are Server Components by default: they fetch data, use secrets and ship no JavaScript.</li>
+  <li><code>"use client"</code> marks the entry to the client bundle; its imports and the components it renders become client code. Keep boundaries small and low in the tree.</li>
+  <li>First load: HTML preview → RSC Payload → hydration. Later navigations use the prefetched RSC Payload.</li>
+  <li>Props from server to client must be serializable, and everything in them is visible in the browser.</li>
+  <li>Pass Server Components to Client Components as <code>children</code> (interleaving); wrap context providers and hook-based third-party components in Client Components.</li>
+  <li><code>import "server-only"</code> turns accidental client imports into build errors.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Server or Client Component? (a) A list of books loaded from a database. (b) A "dark mode" toggle. (c) A footer with links. (d) A chart that animates on hover. (e) A component that reads <code>localStorage</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Server. (b) Client (state, event). (c) Server. (d) Client (events, maybe effects). (e) Client, and it reads <code>localStorage</code> in an effect.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) Every component in a Client Component's file must have <code>"use client"</code>. (2) Client Components are rendered to HTML on the server too. (3) A Client Component can import a Server Component. (4) A Server Component can render a Client Component.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: the directive goes once, at the top of the entry file. (2) True. (3) False: an imported component becomes client code; pass Server Components as props/children instead. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">serializable?</span></h3>
+<p>Which props can a Server Component pass to a Client Component? <code>"Dune"</code>, <code>{ id: 1, tags: ["a"] }</code>, <code>new Date()</code>, <code>() =&gt; alert("hi")</code>, <code>new Map([["a", 1]])</code>, <code>&lt;p&gt;Hello&lt;/p&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>All except the arrow function. Strings, plain objects and arrays, <code>Date</code>, <code>Map</code> and JSX are serializable. Ordinary functions aren't (Server Functions are, Chapter 7).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">read the error</span></h3>
+<p>A build fails with "You're importing a module that depends on <code>useEffect</code> into a React Server Component module". Give two different fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Add <code>"use client"</code> at the top of that file, if the whole component needs to be interactive. (2) Better, usually: move the part that uses <code>useEffect</code> into its own small Client Component file, and keep the rest on the server.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add a "♡ Want to read" toggle button to the playground's book detail page. The page stays a Server Component; create <code>app/_components/want-button.tsx</code> as a Client Component that receives the book title as a prop.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/_components/want-button.tsx" data-app="ex5">
+"use client";
+
+import { useState } from "react";
+
+export function WantButton({ title }: { title: string }) {
+  const [want, setWant] = useState(false);
+  return (
+    <button aria-pressed={want} onClick={() => setWant(!want)}>
+      {want ? `♥ ${title} is on your list` : "♡ Want to read"}
+    </button>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import { WantButton } from "@/app/_components/want-button";
+
+export function generateStaticParams() {
+  return [{ id: "2" }];
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const { id } = await params;
+  const book = { id, title: "Dune" };       // from lib/books.ts in the playground
+  return (
+    <article>
+      <h1>{book.title}</h1>
+      <WantButton title={book.title} />
+    </article>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-app="ex5" data-steps="click:button">
+Dune
+♥ Dune is on your list
+</script>
+<p>Chapter 7 makes this persist with a Server Function.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor</span></h3>
+<p>This layout is all client code because of one search box. Refactor it so only the search box is a Client Component.</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-norun>
+"use client";
+import { useState } from "react";
+import { Logo, NavLinks, Footer } from "./ui";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const [q, setQ] = useState("");
+  return (
+    <html lang="en"><body>
+      <header><Logo /><NavLinks /><input value={q} onChange={(e) => setQ(e.target.value)} /></header>
+      {children}<Footer />
+    </body></html>
+  );
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/search.tsx" data-norun>
+"use client";
+import { useState } from "react";
+
+export function Search() {
+  const [q, setQ] = useState("");
+  return <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" />;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-norun>
+import { Logo, NavLinks, Footer } from "./ui";
+import { Search } from "./search";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en"><body>
+      <header><Logo /><NavLinks /><Search /></header>
+      {children}<Footer />
+    </body></html>
+  );
+}
+</script>
+<p><code>Logo</code>, <code>NavLinks</code> (unless it uses <code>usePathname</code>), <code>Footer</code> and the layout itself now stay on the server.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">interleave</span></h3>
+<p>Write a Client Component <code>&lt;Tabs&gt;</code> that takes two props, <code>first</code> and <code>second</code> (both <code>React.ReactNode</code>), and shows one at a time with two buttons. Use it from a Server Component page, passing two server-rendered lists.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/tabs.tsx" data-app="ex7">
+"use client";
+
+import { useState } from "react";
+
+export function Tabs({ first, second }: { first: React.ReactNode; second: React.ReactNode }) {
+  const [tab, setTab] = useState<1 | 2>(1);
+  return (
+    <div>
+      <button onClick={() => setTab(1)}>To read</button> <button onClick={() => setTab(2)}>Finished</button>
+      {tab === 1 ? first : second}
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="ex7">
+import { Tabs } from "./tabs";
+
+export default function Page() {
+  return (
+    <Tabs
+      first={<ul><li>Dune</li><li>Beloved</li></ul>}
+      second={<ul><li>The Hobbit</li></ul>}
+    />
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="ex7" data-steps="click:button:nth-of-type(2)">
+To read Finished
+The Hobbit
+</script>
+<p>Any prop of type <code>ReactNode</code> works as a slot, not just <code>children</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">security</span></h3>
+<p>A page loads <code>user = { id, name, email, passwordHash, isAdmin }</code> and renders <code>&lt;ProfileMenu user={user} /&gt;</code>, a Client Component that only shows the name. What leaks, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The whole object is serialized into the RSC Payload and the HTML, so the email, password hash and admin flag can be read in the browser (view source, or the network tab). Pass only what's needed: <code>&lt;ProfileMenu name={user.name} /&gt;</code>. Even better, have your data layer return a minimal object, so a full record never reaches a component (Chapter 16).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">predict</span></h3>
+<p><code>chart.tsx</code> has <code>"use client"</code> and imports <code>heavy-chart-lib</code> (300 KB). It's rendered by a page only when <code>showChart</code> is true. The page passes <code>showChart={false}</code>. Is the 300 KB downloaded? What could you do about it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Probably yes: the import is static, so the chart module is part of the client bundle for that route, whether or not it renders. To load it only when needed, use a dynamic import inside the Client Component: <code>const Chart = dynamic(() =&gt; import("./chart"))</code> with <code>next/dynamic</code> (or <code>React.lazy</code>), so the code downloads when the chart first renders. The docs' <em>Lazy Loading</em> guide covers this.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design the component split for a book detail page with: title, author and description (from a database), a "Want to read" button, a reviews list (from the database), and a "Write a review" form with a character counter. Mark each component server or client, and say what props cross the boundary.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><code>BookPage</code> (server): loads the book and its reviews.</li>
+  <li><code>BookHeader</code> (server): title, author, description. No JS.</li>
+  <li><code>WantButton</code> (client): gets <code>bookId</code> and <code>initialWanted: boolean</code>.</li>
+  <li><code>ReviewList</code> (server): renders reviews. No JS.</li>
+  <li><code>ReviewForm</code> (client): character counter state; gets <code>bookId</code>, and later a Server Function to submit (Chapter 7).</li>
+</ul>
+<p>Only IDs, booleans and a Server Function cross the boundary; the description and reviews stay as server-rendered HTML.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/server-and-client-components">Getting Started: Server and Client Components</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/server-and-client-boundary">Guide: The Server and Client Boundary</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/directives/use-client">Directives: use client</a></li>
+  <li><a href="https://react.dev/reference/rsc/server-components">react.dev: Server Components</a> · <a href="https://react.dev/reference/rsc/use-client">'use client'</a> (serializable types)</li>
+  <li><a href="https://nextjs.org/docs/app/guides/data-security">Guide: Data Security</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

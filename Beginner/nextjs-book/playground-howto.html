@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;▶️&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here</div>
+<h1>Using the Playground</h1>
+<p class="lead">The <strong>playground</strong> is the project you build throughout the book: a fresh <code>create-next-app</code> app that the exercises marked <em>playground</em> turn into the Reading List, step by step. Its <code>reference/</code> folder holds the finished capstone from Chapter 19. This page shows how to get it, the everyday loop of editing, running and building, and what to do when something goes wrong.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What's in the <a href="https://github.com/coderhop-learning/nextjs-playground">nextjs-playground</a> repository.</li>
+  <li>The one-time setup: Node.js, cloning, installing.</li>
+  <li>The everyday loop: <code>npm run dev</code>, edit, and regularly <code>npm run build</code> + <code>npm start</code>.</li>
+  <li>How to run the reference solution and its tests.</li>
+  <li>Fixes for the problems beginners hit most often.</li>
+</ul>
+</div>
+
+<h2 id="what">What is the playground?</h2>
+<script type="text/plain" class="code" data-lang="text" data-title="nextjs-playground/" data-norun>
+nextjs-playground/
+├── app/                ← layout.tsx, page.tsx, globals.css, favicon.ico (from create-next-app)
+├── public/             ← the default SVGs
+├── AGENTS.md           ← instructions for AI coding agents (create-next-app writes it)
+├── next.config.ts      ← cacheComponents, partialPrefetching, the Tailwind loader
+├── package.json        ← next 16.4.5, react 19.3.0 and the dev tools
+├── tsconfig.json, eslint.config.mjs
+├── README.md
+└── reference/          ← the finished Reading List (Chapter 19): its own package.json, tests and README
+</script>
+<p>The starter is exactly what <code>npx create-next-app@latest --yes</code> produced with Next.js 16.4.5 when this book was written, so it matches Chapter 2's tour. The only change: <code>tsconfig.json</code> and <code>eslint.config.mjs</code> ignore <code>reference/</code>, which is a separate app.</p>
+
+<h2 id="setup">One-time setup</h2>
+<ol>
+  <li><strong>Install Node.js 20.9 or newer</strong> (the LTS version from <a href="https://nodejs.org/">nodejs.org</a>, or with a version manager such as <code>nvm</code>). Check it:</li>
+</ol>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --version
+v22.13.0
+</script>
+<ol start="2">
+  <li><strong>Clone the repository</strong> and install its dependencies:</li>
+</ol>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ git clone https://github.com/coderhop-learning/nextjs-playground.git
+$ cd nextjs-playground
+$ npm install
+</script>
+<ol start="3">
+  <li><strong>Open the folder in your editor.</strong> In VS Code, choose <em>TypeScript: Select TypeScript Version → Use Workspace Version</em> to activate the Next.js TypeScript plugin, and optionally add the tab labels from Chapter 2.</li>
+</ol>
+<div class="note">
+<p>📝 Prefer to start from scratch? <code>npx create-next-app@latest nextjs-playground --yes</code> gives you the same starter (with whatever Next.js version is current). The reference solution is the part you'd miss, so clone the repo anyway.</p>
+</div>
+
+<h2 id="loop">The everyday loop</h2>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>Command</th><th>Why</th></tr>
+<tr><td>1. Develop</td><td><code>npm run dev</code></td><td>Opens <a href="http://localhost:3000">localhost:3000</a>. Edits appear immediately (Fast Refresh). Errors appear in an overlay in the browser and in the terminal.</td></tr>
+<tr><td>2. Build</td><td><code>npm run build</code></td><td>Type-checks, prerenders and prints the route table (<code>○</code> <code>◐</code> <code>ƒ</code>). Many problems (type errors, Cache Components rules) only appear here.</td></tr>
+<tr><td>3. Run the build</td><td><code>npm start</code></td><td>Serves the production build: real caching, prefetching and streaming. Stop <code>npm run dev</code> first, or use another port: <code>npm start -- -p 4000</code>.</td></tr>
+<tr><td>4. Lint</td><td><code>npm run lint</code></td><td>ESLint with the Next.js rules (not run by <code>next build</code> since version 16).</td></tr>
+<tr><td>5. Test</td><td><code>npm run test</code> (after Chapter 17)</td><td>Vitest unit tests; Playwright for end-to-end tests.</td></tr>
+</table></div>
+<div class="tip">
+<p>💡 Make <strong>build often</strong> a habit: after every chapter, run <code>npm run build</code>. The book's examples show many errors (missing <code>&lt;Suspense&gt;</code>, <code>Date.now()</code> during prerendering, <code>dynamicParams</code> with Cache Components) that development mode doesn't report.</p>
+</div>
+
+<h2 id="reference">Running the reference solution</h2>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ cd reference
+$ npm install
+$ cp .env.example .env.local      # then set SESSION_SECRET, e.g. from: openssl rand -base64 32
+$ npm run build && npm start      # http://localhost:3000
+</script>
+<p>Log in at <code>/login</code> as <code>ada@example.com</code> / <code>correct horse</code> (admin) or <code>ben@example.com</code> / <code>battery staple</code> (reader). Run the tests with <code>npm run test:run</code> (Vitest) and, while <code>npm start</code> is running, <code>npm run test:e2e</code> (Playwright, using your installed Chrome). Adding books changes <code>data/books.json</code>; restore it with <code>git checkout data/books.json</code>.</p>
+
+<h2 id="capstone">How the exercises lead to the capstone</h2>
+<div class="table-wrap"><table>
+<tr><th>Chapters</th><th>You add to the playground</th></tr>
+<tr><td>1–2</td><td>The Reading List home page; <code>lib/books.ts</code> with a <code>Book</code> type</td></tr>
+<tr><td>3–4</td><td>Header, footer and active nav links; <code>/about</code>, <code>/books</code>, <code>/books/[id]</code> with <code>generateStaticParams</code></td></tr>
+<tr><td>5–7</td><td>A "want to read" Client Component; Suspense and loading states; the add-book form with validation</td></tr>
+<tr><td>8–10</td><td><code>"use cache"</code> with tags, <code>updateTag</code> after adding; <code>not-found.tsx</code> and <code>error.tsx</code></td></tr>
+<tr><td>11–13</td><td>Tailwind cards and dark mode; covers with <code>&lt;Image&gt;</code>; titles, sitemap and OG images</td></tr>
+<tr><td>14–16</td><td>The <code>/api/books</code> endpoints; <code>proxy.ts</code>; login, sessions and the data access layer</td></tr>
+<tr><td>17–19</td><td>Vitest and Playwright; a production build; the capstone, compared with <code>reference/</code></td></tr>
+</table></div>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Cause and fix</th></tr>
+<tr><td><code>next: command not found</code></td><td>Run <code>npm install</code> first; use the npm scripts (<code>npm run dev</code>) or <code>npx next …</code>.</td></tr>
+<tr><td><code>Port 3000 is in use</code></td><td>Another server is running (often an old <code>npm run dev</code>). Stop it, or use <code>npm run dev -- -p 3001</code>.</td></tr>
+<tr><td>"Next.js encountered uncached or runtime data during prerendering"</td><td>A component reads <code>params</code>, <code>searchParams</code>, <code>cookies()</code>, <code>headers()</code> or slow data outside <code>&lt;Suspense&gt;</code>. Wrap it, cache it with <code>"use cache"</code>, or use <code>generateStaticParams</code> (Chapters 4, 6, 8).</td></tr>
+<tr><td>"…encountered the unstable value <code>new Date()</code>" (or <code>Math.random()</code>)</td><td>Call <code>await connection()</code> first inside <code>&lt;Suspense&gt;</code>, or cache the value (Chapter 8).</td></tr>
+<tr><td>"You're importing a module that depends on <code>useState</code> into a React Server Component"</td><td>Add <code>"use client"</code> to that file, or move the interactive part into its own Client Component (Chapter 5).</td></tr>
+<tr><td>"Route segment config "dynamicParams" is not compatible with <code>nextConfig.cacheComponents</code>"</td><td>Remove old route segment options (<code>dynamicParams</code>, <code>dynamic</code>, <code>revalidate</code>); use <code>notFound()</code> and <code>cacheLife</code> instead (Chapters 4, 8).</td></tr>
+<tr><td>My change doesn't show up after a Server Action</td><td>The data is cached: call <code>updateTag</code>/<code>revalidateTag</code>/<code>revalidatePath</code> in the action (Chapter 9).</td></tr>
+<tr><td>Works in <code>npm run dev</code>, fails in <code>npm run build</code> with a <code>Type error</code></td><td><code>next dev</code> doesn't type-check. Fix the error (your editor shows it with the workspace TypeScript).</td></tr>
+<tr><td>Styles missing after adding <code>proxy.ts</code></td><td>Add a <code>matcher</code> that skips <code>_next/static</code> and <code>_next/image</code> (Chapter 15).</td></tr>
+<tr><td>An environment variable is <code>undefined</code> in the browser</td><td>Only <code>NEXT_PUBLIC_</code> variables reach the browser, and they're fixed at build time: rebuild after changing them (Chapter 16).</td></tr>
+<tr><td><code>reference/</code> shows type errors in the starter</td><td>Make sure <code>tsconfig.json</code> excludes <code>"reference"</code> (it does in the repo); open <code>reference/</code> as its own folder to work on it.</td></tr>
+<tr><td>The <code>reference</code> folder doesn't exist</td><td>You downloaded only part of the repository: clone <a href="https://github.com/coderhop-learning/nextjs-playground">nextjs-playground</a> again.</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Clone <a href="https://github.com/coderhop-learning/nextjs-playground">coderhop-learning/nextjs-playground</a>, run <code>npm install</code>, then <code>npm run dev</code>.</li>
+  <li>The root is a <code>create-next-app</code> starter; <code>reference/</code> is the finished capstone.</li>
+  <li>Develop with <code>npm run dev</code>, but build and start often to see production behaviour and errors.</li>
+  <li>The troubleshooting table maps the common error messages to the chapter that explains them.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/installation">Getting Started: Installation</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/local-development">Guide: Local Development</a> · <a href="https://nextjs.org/docs/app/guides/debugging">Debugging</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/cli/next">The next CLI</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

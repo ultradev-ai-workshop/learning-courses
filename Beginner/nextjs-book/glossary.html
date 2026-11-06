@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📖&lt;/text&gt;&lt;/svg&gt;">
+<title>Glossary · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+<style>
+  dl.gloss dt { font-weight: 700; margin-top: 1em; }
+  dl.gloss dd { margin: .2em 0 0 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Glossary</h1>
+<p class="lead">The Next.js terms used in this book, in plain words, each with the chapter where it's explained. The docs have their own <a href="https://nextjs.org/docs/app/glossary">glossary</a> too.</p>
+
+<dl class="gloss">
+<dt id="app-router">App Router</dt><dd>The router based on the <code>app/</code> folder, with Server Components, layouts and streaming. The one this book teaches. <a href="01-what.html#routers">Ch. 1</a></dd>
+<dt id="app-shell">App Shell</dt><dd>The reusable static shell of a dynamic route whose params aren't known at build time; served instantly while the rest streams in. <a href="08-caching.html">Ch. 8</a></dd>
+<dt id="build">Build</dt><dd><code>next build</code>: compiles, type-checks, prerenders and prints the route table. <a href="02-install.html#scripts">Ch. 2</a></dd>
+<dt id="cache-components">Cache Components</dt><dd>The caching model enabled with <code>cacheComponents: true</code>: everything is dynamic unless cached with <code>"use cache"</code>, and every route gets a static shell. <a href="08-caching.html">Ch. 8</a></dd>
+<dt id="cache-key">Cache key</dt><dd>What identifies a cached result: the function, its arguments and captured values, and the build ID. <a href="08-caching.html#keys">Ch. 8</a></dd>
+<dt id="cachelife">cacheLife</dt><dd>Sets a cache entry's <code>stale</code>, <code>revalidate</code> and <code>expire</code> times, by profile (<code>hours</code>, <code>max</code>…) or object. <a href="08-caching.html#cachelife">Ch. 8</a></dd>
+<dt id="cachetag">cacheTag</dt><dd>Labels cache entries so they can be invalidated on demand. <a href="09-revalidating.html#tags">Ch. 9</a></dd>
+<dt id="client-component">Client Component</dt><dd>A component in a file marked <code>"use client"</code> (or imported by one): prerendered to HTML, then hydrated so it can use state, effects and events. <a href="05-server-client.html">Ch. 5</a></dd>
+<dt id="client-transition">Client-side transition</dt><dd>Navigating with <code>&lt;Link&gt;</code> without a full page reload, keeping shared layouts. <a href="04-linking.html#how">Ch. 4</a></dd>
+<dt id="codemod">Codemod</dt><dd>A script that rewrites your code for an API change, e.g. <code>middleware-to-proxy</code>. <a href="18-deploying.html#upgrading">Ch. 18</a></dd>
+<dt id="colocation">Colocation</dt><dd>Keeping components and helpers next to the routes that use them; safe because only <code>page</code>/<code>route</code> files are public. <a href="03-layouts-pages.html#colocation">Ch. 3</a></dd>
+<dt id="connection">connection()</dt><dd>From <code>next/server</code>: marks that the following code must run at request time (for random values, the current time…). <a href="08-caching.html#random">Ch. 8</a></dd>
+<dt id="dal">Data access layer (DAL)</dt><dd>A server-only module that all data reads go through, with auth checks (<code>verifySession</code>) in one place. <a href="16-env-auth.html#dal">Ch. 16</a></dd>
+<dt id="digest">Digest</dt><dd>A hash attached to server errors in production; the server log shows the real error with the same digest. <a href="10-errors.html#production">Ch. 10</a></dd>
+<dt id="dto">Data transfer object (DTO)</dt><dd>An object with only the fields a caller may see, returned by the DAL instead of a whole database record. <a href="16-env-auth.html#dal">Ch. 16</a></dd>
+<dt id="dynamic-rendering">Dynamic rendering</dt><dd>Rendering at request time, because the content depends on the request or uncached data. Marked <code>ƒ</code> or streamed parts of <code>◐</code>. <a href="04-linking.html#how">Ch. 4</a></dd>
+<dt id="dynamic-segment">Dynamic segment</dt><dd>A folder name in brackets (<code>[id]</code>, <code>[...slug]</code>, <code>[[...slug]]</code>) that matches part of the URL and becomes <code>params</code>. <a href="04-linking.html#dynamic">Ch. 4</a></dd>
+<dt id="error-boundary">Error boundary</dt><dd>A component that catches rendering errors below it and shows a fallback: <code>error.tsx</code>, <code>global-error.tsx</code>, <code>catchError</code>. <a href="10-errors.html#uncaught">Ch. 10</a></dd>
+<dt id="fast-refresh">Fast Refresh</dt><dd>Instant updates in the browser while you edit, keeping component state, in <code>next dev</code>. <a href="02-install.html#scripts">Ch. 2</a></dd>
+<dt id="generatestaticparams">generateStaticParams</dt><dd>Returns the param values to prerender for a dynamic route at build time. <a href="04-linking.html#gsp">Ch. 4</a></dd>
+<dt id="hydration">Hydration</dt><dd>React attaching event handlers to server-rendered HTML in the browser, making Client Components interactive. <a href="05-server-client.html#how">Ch. 5</a></dd>
+<dt id="imageresponse">ImageResponse</dt><dd>From <code>next/og</code>: turns JSX into a PNG, for Open Graph images and icons. <a href="13-metadata.html#og-images">Ch. 13</a></dd>
+<dt id="interleaving">Interleaving</dt><dd>Passing Server Components to Client Components as <code>children</code> or other props. <a href="05-server-client.html#interleaving">Ch. 5</a></dd>
+<dt id="isr">ISR (Incremental Static Regeneration)</dt><dd>Older name for refreshing prerendered pages after a time or an event; with Cache Components, cached data with <code>cacheLife</code> and tags. <a href="01-what.html#rendering">Ch. 1</a></dd>
+<dt id="layout">Layout</dt><dd>Shared UI that wraps a route segment and its children, and keeps its state on navigation. <a href="03-layouts-pages.html#layouts">Ch. 3</a></dd>
+<dt id="metadata">Metadata API</dt><dd><code>metadata</code> and <code>generateMetadata</code> exports that produce <code>&lt;head&gt;</code> tags. <a href="13-metadata.html">Ch. 13</a></dd>
+<dt id="next-public">NEXT_PUBLIC_</dt><dd>Prefix for environment variables that are inlined into browser JavaScript at build time. <a href="16-env-auth.html#env">Ch. 16</a></dd>
+<dt id="page">Page</dt><dd>A <code>page.tsx</code> file: the UI of a route, which makes the route public. <a href="03-layouts-pages.html#pages">Ch. 3</a></dd>
+<dt id="pages-router">Pages Router</dt><dd>The original router, based on the <code>pages/</code> folder, with <code>getStaticProps</code> and <code>getServerSideProps</code>. <a href="appendix-pages-router.html">App. B</a></dd>
+<dt id="partial-prefetching">Partial Prefetching</dt><dd><code>partialPrefetching: true</code>: <code>&lt;Link&gt;</code> prefetches each route's static shell ahead of the click. <a href="04-linking.html#how">Ch. 4</a></dd>
+<dt id="ppr">Partial Prerendering (PPR)</dt><dd>A page made of a prerendered static shell with dynamic parts streamed in; the default with Cache Components. Marked <code>◐</code>. <a href="08-caching.html#together">Ch. 8</a></dd>
+<dt id="prefetching">Prefetching</dt><dd>Loading a route in the background when its <code>&lt;Link&gt;</code> comes into view, so navigation feels instant. Production only. <a href="04-linking.html#how">Ch. 4</a></dd>
+<dt id="prerendering">Prerendering</dt><dd>Rendering at build time (or during revalidation) and storing the result. <a href="01-what.html#rendering">Ch. 1</a></dd>
+<dt id="private-folder">Private folder</dt><dd>A folder starting with <code>_</code> that's never routed. <a href="03-layouts-pages.html#colocation">Ch. 3</a></dd>
+<dt id="progressive-enhancement">Progressive enhancement</dt><dd>Forms with Server Actions work before (or without) JavaScript, as plain HTML forms. <a href="07-mutating.html#progressive">Ch. 7</a></dd>
+<dt id="proxy">Proxy</dt><dd><code>proxy.ts</code> (formerly Middleware): code that runs before routes, to redirect, rewrite or change headers. <a href="15-proxy.html">Ch. 15</a></dd>
+<dt id="revalidation">Revalidation</dt><dd>Refreshing cached data: time-based with <code>cacheLife</code>, or on demand with <code>updateTag</code>, <code>revalidateTag</code>, <code>revalidatePath</code>. <a href="09-revalidating.html">Ch. 9</a></dd>
+<dt id="route-group">Route group</dt><dd>A folder in parentheses, <code>(name)</code>, that organises routes without appearing in the URL. <a href="03-layouts-pages.html#groups">Ch. 3</a></dd>
+<dt id="route-handler">Route Handler</dt><dd>A <code>route.ts</code> file that answers HTTP requests with the web <code>Request</code>/<code>Response</code> APIs. <a href="14-route-handlers.html">Ch. 14</a></dd>
+<dt id="route-segment">Route segment</dt><dd>One folder of a route; <code>/blog/authors</code> has the root, <code>blog</code> and <code>authors</code> segments. <a href="03-layouts-pages.html#pages">Ch. 3</a></dd>
+<dt id="rsc-payload">RSC Payload</dt><dd>The serialized result of rendering Server Components: rendered output, Client Component references and their props. <a href="05-server-client.html#how">Ch. 5</a></dd>
+<dt id="runtime-data">Runtime data</dt><dd>Data that depends on the request: <code>cookies()</code>, <code>headers()</code>, <code>searchParams</code>, unknown <code>params</code>. Must be read inside <code>&lt;Suspense&gt;</code>. <a href="04-linking.html#first-try">Ch. 4</a></dd>
+<dt id="server-action">Server Action</dt><dd>A Server Function used for a mutation, typically passed to a form's <code>action</code>. <a href="07-mutating.html#what">Ch. 7</a></dd>
+<dt id="server-component">Server Component</dt><dd>The default kind of component in <code>app/</code>: runs on the server or at build time, can be <code>async</code>, and ships no JavaScript. <a href="05-server-client.html">Ch. 5</a></dd>
+<dt id="server-function">Server Function</dt><dd>An <code>async</code> function marked <code>"use server"</code> that the client can call over the network (a <code>POST</code>). <a href="07-mutating.html">Ch. 7</a></dd>
+<dt id="session">Session (stateless)</dt><dd>Login state stored in a signed or encrypted cookie, verified on each request. <a href="16-env-auth.html#session">Ch. 16</a></dd>
+<dt id="standalone">Standalone output</dt><dd><code>output: "standalone"</code>: a minimal <code>server.js</code> with only the files the app needs, for small Docker images. <a href="18-deploying.html#standalone">Ch. 18</a></dd>
+<dt id="static-export">Static export</dt><dd><code>output: "export"</code>: HTML files in <code>out/</code> for any static host; no server features. <a href="18-deploying.html#export">Ch. 18</a></dd>
+<dt id="static-shell">Static shell</dt><dd>The prerendered part of a page, including Suspense fallbacks, sent immediately. <a href="06-fetching.html#rule">Ch. 6</a></dd>
+<dt id="streaming">Streaming</dt><dd>Sending a page in chunks in one response: the shell first, then each Suspense boundary's content as it's ready. <a href="06-fetching.html#loading-js">Ch. 6</a></dd>
+<dt id="swr">Stale-while-revalidate (SWR)</dt><dd>Serving the old cached value immediately while refreshing it in the background. <a href="09-revalidating.html#time">Ch. 9</a></dd>
+<dt id="template">Template</dt><dd>A <code>template.tsx</code> file: like a layout, but re-mounted on every navigation. <a href="03-layouts-pages.html#templates">Ch. 3</a></dd>
+<dt id="turbopack">Turbopack</dt><dd>The default bundler for <code>next dev</code> and <code>next build</code>. <a href="02-install.html#scripts">Ch. 2</a></dd>
+<dt id="uncached-data">Uncached data</dt><dd>I/O that doesn't finish during prerendering (database queries, <code>fetch</code>, async file reads): stream it or cache it. <a href="06-fetching.html#rule">Ch. 6</a></dd>
+<dt id="use-cache">"use cache"</dt><dd>Directive that caches the return value of an async function or component. <a href="08-caching.html#data-level">Ch. 8</a></dd>
+<dt id="use-client">"use client"</dt><dd>Directive that marks a file as the entry to the client bundle. <a href="05-server-client.html#use-client">Ch. 5</a></dd>
+<dt id="use-server">"use server"</dt><dd>Directive that marks a function, or every export of a file, as a Server Function. <a href="07-mutating.html#inline">Ch. 7</a></dd>
+<dt id="updatetag">updateTag / revalidateTag</dt><dd>Expire tagged cache entries now (Server Actions only) / mark them stale for a background refresh (also Route Handlers). <a href="09-revalidating.html#update-tag">Ch. 9</a></dd>
+</dl>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

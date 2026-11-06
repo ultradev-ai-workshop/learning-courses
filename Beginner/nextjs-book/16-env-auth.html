@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔐&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Environment Variables &amp; Auth Basics · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · The Backend Side</div>
+<h1>Environment Variables &amp; Auth Basics</h1>
+<p class="lead">Two topics every real app needs, and that go together: <strong>configuration and secrets</strong> (database URLs, API keys, the key that signs session cookies) and <strong>authentication</strong> (who is this user?) with <strong>authorization</strong> (what may they do?). This chapter follows the docs' <em>Environment Variables</em> and <em>Authentication</em> guides. You'll build a small but complete login flow: a form, a signed session cookie, a data access layer, protected pages and logout.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How <code>.env*</code> files are loaded, and in which order.</li>
+  <li>Why only <code>NEXT_PUBLIC_</code> variables reach the browser, and that they're fixed at build time.</li>
+  <li>The three parts of auth in the docs: authentication, session management, authorization.</li>
+  <li>A stateless session in an encrypted, signed, <code>httpOnly</code> cookie.</li>
+  <li>A <strong>data access layer</strong> with <code>verifySession()</code>, and data transfer objects.</li>
+  <li>Where to check auth: pages, Server Actions, Route Handlers, and (optimistically) Proxy.</li>
+</ul>
+</div>
+
+<h2 id="env">Environment variables</h2>
+<p>Next.js loads variables from <code>.env*</code> files in the project root into <code>process.env</code>. Values set in the real environment (your shell, your hosting platform) always win. Then the files are read in this order, and the first one that defines a variable wins:</p>
+<ol>
+  <li><code>process.env</code> (the real environment)</li>
+  <li><code>.env.$(NODE_ENV).local</code>, e.g. <code>.env.production.local</code></li>
+  <li><code>.env.local</code> (not loaded when <code>NODE_ENV</code> is <code>test</code>)</li>
+  <li><code>.env.$(NODE_ENV)</code>, e.g. <code>.env.development</code></li>
+  <li><code>.env</code></li>
+</ol>
+<p><code>next dev</code> uses <code>NODE_ENV=development</code>; <code>next build</code> and <code>next start</code> use <code>production</code>. The <code>create-next-app</code> template adds <code>.env*</code> to <code>.gitignore</code>: you almost never commit these files. (Teams often commit a <code>.env.example</code> listing the names without real values.)</p>
+<script type="text/plain" class="code" data-file=".env" data-app="env">
+SITE_NAME=Reading List
+DATABASE_URL=postgres://reader:s3cret@db.example.com/books
+NEXT_PUBLIC_SUPPORT_EMAIL=help@reading-list.example.com
+</script>
+<script type="text/plain" class="code" data-file=".env.production" data-app="env">
+SITE_NAME=Reading List (production)
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="env">
+import { ClientInfo } from "./client-info";
+
+export default function Page() {
+  return (
+    <main>
+      <p>Server sees SITE_NAME = {process.env.SITE_NAME}</p>
+      <p>Server sees DATABASE_URL set: {String(Boolean(process.env.DATABASE_URL))}</p>
+      <ClientInfo />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/client-info.tsx" data-app="env">
+"use client";
+
+export function ClientInfo() {
+  return (
+    <>
+      <p>Browser sees NEXT_PUBLIC_SUPPORT_EMAIL = {process.env.NEXT_PUBLIC_SUPPORT_EMAIL}</p>
+      <p>Browser sees DATABASE_URL = {String(process.env.DATABASE_URL)}</p>
+    </>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="env">
+Server sees SITE_NAME = Reading List (production)
+Server sees DATABASE_URL set: true
+Browser sees NEXT_PUBLIC_SUPPORT_EMAIL = help@reading-list.example.com
+Browser sees DATABASE_URL = undefined
+</script>
+<p>Three things to notice. <code>.env.production</code> won over <code>.env</code> for <code>SITE_NAME</code>, because this is a production build. The Client Component sees the <code>NEXT_PUBLIC_</code> variable. And it sees <code>DATABASE_URL</code> as <code>undefined</code>, so the secret never reached the browser. The build output confirms it:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="env">
+$ grep -rl "help@reading-list.example.com" .next/static | wc -l | tr -d ' '
+1
+$ grep -rl "s3cret" .next/static | wc -l | tr -d ' '
+0
+</script>
+<div class="pitfall">
+<p>⚠️ <strong><code>NEXT_PUBLIC_</code> values are inlined at build time.</strong> <code>next build</code> replaces <code>process.env.NEXT_PUBLIC_…</code> with the literal value in the JavaScript bundle. Changing the variable later, without rebuilding, has no effect in the browser. That also means: never put a secret in a <code>NEXT_PUBLIC_</code> variable, because it's published to everyone. Dynamic lookups such as <code>process.env[name]</code> aren't inlined.</p>
+</div>
+<p>Server code reads non-public variables at the time it runs. In a page that's prerendered, that's build time; in code that runs per request (after <code>connection()</code>, in Route Handlers that read the request, in Server Actions), it's request time. So one build (for example a Docker image) can run in several environments with different server-side values. Outside Next.js (a test runner, an ORM config), load the same files with <code>loadEnvConfig</code> from <code>@next/env</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> server-side variables are the combination of the safe in the back office: staff can read it whenever they need it. <code>NEXT_PUBLIC_</code> variables are printed on the leaflets you hand out. Once the leaflets are printed (the build), changing the number on the office wall doesn't change the leaflets already in people's hands.</p>
+</div>
+
+<h2 id="auth-concepts">Auth in three parts</h2>
+<p>The docs split auth into three concepts:</p>
+<ul>
+  <li><strong>Authentication</strong>: verifying who the user is (email and password, a passkey, "Log in with GitHub").</li>
+  <li><strong>Session management</strong>: remembering that across requests, usually with a cookie.</li>
+  <li><strong>Authorization</strong>: deciding what that user may see and do.</li>
+</ul>
+<p>The docs recommend an auth library for production (Auth.js, Better Auth, Clerk and others listed in the guide); they handle OAuth providers, password resets, rate limiting and many security details. Building a minimal version yourself once, as below, makes it clear what those libraries do and where Next.js expects the checks to happen.</p>
+
+<h2 id="session">Stateless sessions in a cookie</h2>
+<p>A <strong>stateless session</strong> stores the session data (here, the user's ID and role) in the cookie itself, encrypted or signed so the user can't change it. The docs' guide uses the <code>jose</code> library to sign a JWT with a secret key from the environment:</p>
+<script type="text/plain" class="code" data-file=".env" data-app="auth">
+# generate your own with: openssl rand -base64 32
+SESSION_SECRET=6tqlVc3f7Wf1pOr3yH2z8sJx0aQkP5eLmN4uVbRcTgY=
+</script>
+<script type="text/plain" class="code" data-file="lib/session.ts" data-app="auth">
+import "server-only";
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+
+export type SessionPayload = { userId: string; role: "admin" | "reader"; expiresAt: Date };
+
+const key = new TextEncoder().encode(process.env.SESSION_SECRET);
+
+export async function encrypt(payload: SessionPayload) {
+  return new SignJWT({ ...payload, expiresAt: payload.expiresAt.toISOString() })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(key);
+}
+
+export async function decrypt(token: string | undefined) {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key, { algorithms: ["HS256"] });
+    return payload as unknown as { userId: string; role: SessionPayload["role"] };
+  } catch {
+    return null;                                   // tampered with, or expired
+  }
+}
+
+export async function createSession(userId: string, role: SessionPayload["role"]) {
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const session = await encrypt({ userId, role, expiresAt });
+  (await cookies()).set("session", session, {
+    httpOnly: true,                                // JavaScript in the page can't read it
+    secure: true,                                  // only sent over HTTPS (and localhost)
+    sameSite: "lax",                               // not sent on most cross-site requests
+    expires: expiresAt,
+    path: "/",
+  });
+}
+
+export async function deleteSession() {
+  (await cookies()).delete("session");
+}
+</script>
+<p>The cookie options are the docs' recommendations. <code>httpOnly</code> keeps the token away from browser scripts (so an XSS bug can't steal it), <code>secure</code> keeps it off plain HTTP, and <code>sameSite: "lax"</code> limits cross-site requests. The signature means a user who edits the cookie (say, to change <code>role</code> to <code>admin</code>) just gets <code>null</code> from <code>decrypt</code>.</p>
+
+<h2 id="login">Logging in: a Server Action</h2>
+<p>The login form posts to a Server Action. It validates the fields, checks the password against a stored hash, creates the session and redirects. Passwords are never stored in plain text: here we use Node's built-in <code>scrypt</code>, a slow hashing function designed for passwords.</p>
+<script type="text/plain" class="code" data-file="lib/users.ts" data-app="auth">
+import "server-only";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+
+export type User = { id: string; email: string; name: string; role: "admin" | "reader"; passwordHash: string };
+
+function hash(password: string, salt = randomBytes(16).toString("hex")) {
+  return `${salt}:${scryptSync(password, salt, 32).toString("hex")}`;
+}
+
+// a demo "users table"; a real app keeps this in a database
+const users: User[] = [
+  { id: "u1", email: "ada@example.com", name: "Ada", role: "admin", passwordHash: hash("correct horse") },
+];
+
+export function findUserByEmail(email: string) {
+  return users.find((u) => u.email === email.toLowerCase());
+}
+
+export function findUserById(id: string) {
+  return users.find((u) => u.id === id);
+}
+
+export function checkPassword(user: User, password: string) {
+  const [salt, expected] = user.passwordHash.split(":");
+  const actual = scryptSync(password, salt, 32);
+  return timingSafeEqual(actual, Buffer.from(expected, "hex"));
+}
+</script>
+<script type="text/plain" class="code" data-file="app/login/actions.ts" data-app="auth">
+"use server";
+
+import { z } from "zod";
+import { redirect } from "next/navigation";
+import { createSession, deleteSession } from "@/lib/session";
+import { checkPassword, findUserByEmail } from "@/lib/users";
+
+const LoginForm = z.object({
+  email: z.email({ error: "Enter a valid email." }),
+  password: z.string().min(1, { error: "Enter your password." }),
+});
+
+export type LoginState = { error?: string };
+
+export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  const parsed = LoginForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const user = findUserByEmail(parsed.data.email);
+  if (!user || !checkPassword(user, parsed.data.password)) {
+    return { error: "Wrong email or password." };      // don't reveal which one
+  }
+  await createSession(user.id, user.role);
+  redirect("/dashboard");
+}
+
+export async function logout() {
+  await deleteSession();
+  redirect("/login");
+}
+</script>
+<script type="text/plain" class="code" data-file="app/login/page.tsx" data-app="auth">
+"use client";
+
+import { useActionState } from "react";
+import { login, type LoginState } from "./actions";
+
+export default function LoginPage() {
+  const [state, action, pending] = useActionState(login, {} as LoginState);
+  return (
+    <form action={action}>
+      <h1>Log in</h1>
+      <p><input name="email" type="email" placeholder="Email" /></p>
+      <p><input name="password" type="password" placeholder="Password" /></p>
+      {state.error && <p role="alert">{state.error}</p>}
+      <button disabled={pending}>Log in</button>
+    </form>
+  );
+}
+</script>
+
+<h2 id="dal">Authorization: a data access layer</h2>
+<p>The docs recommend putting every auth check in one place: a <strong>data access layer</strong> (DAL), a server-only module that all data reads go through. Its core is <code>verifySession()</code>, wrapped in <code>React.cache</code> so several components can call it in one request for the price of one check:</p>
+<script type="text/plain" class="code" data-file="lib/dal.ts" data-app="auth">
+import "server-only";
+import { cache } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { decrypt } from "./session";
+import { findUserById } from "./users";
+
+export const verifySession = cache(async () => {
+  const session = await decrypt((await cookies()).get("session")?.value);
+  if (!session?.userId) redirect("/login");
+  return { isAuth: true, userId: session.userId, role: session.role };
+});
+
+// A Data Transfer Object: only the fields the UI may see
+export const getCurrentUser = cache(async () => {
+  const session = await verifySession();
+  const user = findUserById(session.userId);
+  if (!user) redirect("/login");
+  return { name: user.name, role: user.role };       // never the email or password hash
+});
+</script>
+<p><code>getCurrentUser</code> returns a <strong>data transfer object</strong> (DTO): a new object with only safe fields. Even if a component passes it to a Client Component, the password hash can't leak (Chapter 5's warning about props).</p>
+
+<h2 id="protect">Protecting pages</h2>
+<p>A protected page calls the DAL. Reading cookies is runtime data, so the part that checks goes inside <code>&lt;Suspense&gt;</code>:</p>
+<script type="text/plain" class="code" data-file="app/dashboard/page.tsx" data-app="auth">
+import { Suspense } from "react";
+import { getCurrentUser } from "@/lib/dal";
+import { logout } from "../login/actions";
+
+async function Welcome() {
+  const user = await getCurrentUser();           // redirects to /login if not logged in
+  return (
+    <>
+      <p>Welcome back, {user.name}! Role: {user.role}</p>
+      <form action={logout}><button>Log out</button></form>
+    </>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <main>
+      <h1>Dashboard</h1>
+      <Suspense fallback={<p>Checking your session…</p>}>
+        <Welcome />
+      </Suspense>
+    </main>
+  );
+}
+</script>
+<p>The whole flow, in the browser. Visiting the dashboard while logged out lands on the login page:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/dashboard" data-app="auth" data-eval="location.pathname">
+/login
+</script>
+<p>A wrong password shows the error message from the action:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/login" data-app="auth" data-steps="fill:input[name=email]=ada@example.com; fill:input[name=password]=wrong; click:button; wait:600">
+Log in
+Wrong email or password.
+Log in
+</script>
+<p>The right password creates the session and redirects:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/login" data-app="auth" data-steps="fill:input[name=email]=ada@example.com; fill:input[name=password]=correct horse; click:button; wait:1200" data-eval="location.pathname + '\n' + document.body.innerText">
+/dashboard
+Dashboard
+Welcome back, Ada! Role: admin
+Log out
+</script>
+<p>The session cookie can't be read by scripts in the page:</p>
+<script type="text/plain" class="code" data-lang="text" data-app="auth" data-eval="'document.cookie contains session: ' + document.cookie.includes('session')">
+document.cookie contains session: false
+</script>
+<p>And logging out deletes it:</p>
+<script type="text/plain" class="code" data-lang="text" data-app="auth" data-steps="click:button; wait:1000" data-eval="location.pathname">
+/login
+</script>
+<div class="tip">
+<p>💡 <strong>Where to put the check.</strong> The docs warn against relying on a <em>layout</em> for auth: layouts don't re-render on navigation, so a check there isn't repeated for each page. Put the check close to the data: in the page (or the component that shows private data), and in each Server Action and Route Handler.</p>
+</div>
+
+<h2 id="actions">Checking in Server Actions and Route Handlers</h2>
+<p>Every mutation verifies the session itself, and checks the role for privileged operations (Chapter 7's security rule):</p>
+<script type="text/plain" class="code" data-file="app/admin/actions.ts" data-app="auth">
+"use server";
+
+import { verifySession } from "@/lib/dal";
+
+export async function deleteBook(id: string) {
+  const session = await verifySession();          // 1. logged in? (redirects if not)
+  if (session.role !== "admin") {                 // 2. allowed?
+    return { error: "Only admins can delete books." };
+  }
+  // 3. validate id, delete, revalidate…
+  return { ok: true, deleted: id };
+}
+</script>
+<p>In a Route Handler, return a status code instead of redirecting:</p>
+<script type="text/plain" class="code" data-file="app/api/me/route.ts" data-app="auth">
+import { cookies } from "next/headers";
+import { decrypt } from "@/lib/session";
+
+export async function GET() {
+  const session = await decrypt((await cookies()).get("session")?.value);
+  if (!session) return Response.json({ error: "unauthorized" }, { status: 401 });
+  return Response.json({ userId: session.userId, role: session.role });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="auth">
+$ curl -s -w " %{http_code}\n" localhost:3000/api/me
+{"error":"unauthorized"} 401
+$ curl -s -w " %{http_code}\n" -b "session=eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ1MSIsInJvbGUiOiJhZG1pbiJ9.forged" localhost:3000/api/me
+{"error":"unauthorized"} 401
+</script>
+<p>The second request sends a hand-made token claiming to be an admin, but its signature is wrong, so <code>jwtVerify</code> rejects it.</p>
+
+<h3 id="proxy-check">The optional Proxy check</h3>
+<p>Chapter 15's Proxy can now do a better optimistic check: decrypt the cookie (fast, no database) and redirect if it's missing or invalid. It's still only a convenience that saves rendering for anonymous visitors; the DAL remains the real check.</p>
+<script type="text/plain" class="code" data-file="proxy.ts" data-norun>
+import { NextResponse, type NextRequest } from "next/server";
+import { decrypt } from "@/lib/session";
+
+export async function proxy(request: NextRequest) {
+  const session = await decrypt(request.cookies.get("session")?.value);
+  if (!session) return NextResponse.redirect(new URL("/login", request.url));
+}
+
+export const config = { matcher: ["/dashboard/:path*", "/admin/:path*"] };
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Showing different UI by role.</strong> Because <code>verifySession</code> is cached per request, several components can ask for it:</p>
+<script type="text/plain" class="code" data-file="app/menu.tsx" data-norun>
+import { verifySession } from "@/lib/dal";
+
+export async function AdminMenu() {
+  const session = await verifySession();
+  if (session.role !== "admin") return null;
+  return <nav><a href="/admin">Manage books</a></nav>;
+}
+</script>
+
+<p><strong>Variables that reference others.</strong> <code>.env</code> files expand <code>$NAME</code>:</p>
+<script type="text/plain" class="code" data-file=".env" data-app="expand">
+API_HOST=https://api.example.com
+BOOKS_URL=$API_HOST/v1/books
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="expand">
+export default function Page() {
+  return <p>{process.env.BOOKS_URL}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="expand">
+https://api.example.com/v1/books
+</script>
+<p>Write <code>\$</code> for a literal dollar sign.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>.env*</code> files load into <code>process.env</code>; the real environment wins, then <code>.env.$(NODE_ENV).local</code>, <code>.env.local</code>, <code>.env.$(NODE_ENV)</code>, <code>.env</code>. Don't commit them.</li>
+  <li>Only <code>NEXT_PUBLIC_</code> variables reach the browser, inlined at build time; never put secrets in them.</li>
+  <li>Auth = authentication + session management + authorization. Prefer an auth library in production.</li>
+  <li>A stateless session is a signed (or encrypted) token in an <code>httpOnly</code>, <code>secure</code>, <code>sameSite</code> cookie; the secret comes from the environment.</li>
+  <li>A server-only data access layer with a cached <code>verifySession()</code> and DTOs keeps checks in one place and data minimal.</li>
+  <li>Check auth in pages, Server Actions and Route Handlers, not in layouts; Proxy is an optional optimistic filter.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">load order</span></h3>
+<p><code>API_URL</code> is defined in <code>.env</code> (<code>a</code>), <code>.env.local</code> (<code>b</code>) and <code>.env.production</code> (<code>c</code>). What does the server see in <code>next dev</code>? In <code>next start</code>? If the platform also sets <code>API_URL=d</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>next dev</code>: <code>b</code> (<code>.env.local</code> beats <code>.env</code>; <code>.env.production</code> isn't loaded in development). <code>next start</code>: <code>b</code> too (<code>.env.local</code> beats <code>.env.production</code>). With a real environment variable: <code>d</code> always wins.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">public or not?</span></h3>
+<p>Which of these may be <code>NEXT_PUBLIC_</code>? (a) the Stripe <em>publishable</em> key, (b) the Stripe <em>secret</em> key, (c) the analytics site ID, (d) the session signing secret.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) and (c): they're designed to be public. Never (b) or (d).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">definitions</span></h3>
+<p>Match the term to its meaning: authentication, session management, authorization. (1) "May Ada delete this book?" (2) "Is this really Ada?" (3) "Remember that Ada logged in."</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Authentication is (2), session management is (3), and authorization is (1).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">cookie options</span></h3>
+<p>What does each session cookie option protect against? <code>httpOnly</code>, <code>secure</code>, <code>sameSite: "lax"</code>, <code>expires</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>httpOnly</code>: scripts (including injected ones) can't read the cookie. <code>secure</code>: it's never sent over unencrypted HTTP. <code>sameSite: "lax"</code>: it isn't sent with most cross-site requests, which limits CSRF. <code>expires</code>: the session ends after a while instead of living forever.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add the login flow from this chapter to the playground: <code>lib/session.ts</code>, <code>lib/users.ts</code>, <code>lib/dal.ts</code>, <code>app/login</code>, and protect <code>/admin</code> with <code>getCurrentUser()</code>. Put <code>SESSION_SECRET</code> in <code>.env.local</code> (generated with <code>openssl rand -base64 32</code>) and add a <code>.env.example</code> with the name only.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Copy the files from this chapter. <code>.env.example</code> contains <code>SESSION_SECRET=</code>, so teammates know what to set. The admin page is the dashboard page above with a different heading. Check: logged out, <code>/admin</code> sends you to <code>/login</code>; after logging in as Ada it shows "Welcome back, Ada! Role: admin". The capstone (Chapter 19) uses exactly these files.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">DTO</span></h3>
+<p>Write <code>getBookForViewer(id)</code> for the DAL. Everyone may see title and author; only admins also see <code>internalNotes</code>. Return a DTO.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/dal.ts" data-norun>
+export const getBookForViewer = cache(async (id: string) => {
+  const book = await db.books.find(id);
+  if (!book) return null;
+  const session = await decrypt((await cookies()).get("session")?.value);   // optional: anonymous allowed
+  return {
+    id: book.id,
+    title: book.title,
+    author: book.author,
+    ...(session?.role === "admin" ? { internalNotes: book.internalNotes } : {}),
+  };
+});
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">build-time trap</span></h3>
+<p>A Docker image is built once with <code>NEXT_PUBLIC_API_URL=https://staging.example.com</code> and then deployed to production with <code>NEXT_PUBLIC_API_URL=https://api.example.com</code>. The browser keeps calling staging. Why? Give two fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>NEXT_PUBLIC_</code> values were inlined into the JavaScript during the build. Fixes: (1) build a separate image per environment; or (2) don't read the URL in client code: have the client call your own Route Handler or Server Function, which reads a non-public variable at request time; or pass the value from a dynamically rendered Server Component as a prop.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">review</span></h3>
+<p>Review this login action and list the problems:</p>
+<script type="text/plain" class="code" data-file="app/login/actions.ts" data-norun>
+"use server";
+export async function login(formData: FormData) {
+  const user = await db.users.find({ email: formData.get("email") });
+  if (user.password !== formData.get("password")) throw new Error("Wrong password for " + user.email);
+  (await cookies()).set("userId", user.id);
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>No validation of the form data.</li>
+  <li><code>user</code> may be undefined (crash for unknown emails).</li>
+  <li>Plain-text password comparison: passwords must be hashed (scrypt, bcrypt, argon2) and compared in constant time.</li>
+  <li>The error reveals whether the email exists and is thrown (it reaches an error boundary, and its message is hidden in production): return a generic "Wrong email or password" instead.</li>
+  <li>The cookie is an unsigned user ID: anyone can set <code>userId=1</code>. Use a signed or encrypted session, with <code>httpOnly</code>, <code>secure</code> and <code>sameSite</code>.</li>
+  <li>No redirect, and no rate limiting against password guessing (libraries help).</li>
+</ol>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does the docs' guide warn against doing the auth check in a layout? Describe a concrete scenario where it fails.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Layouts don't re-render on client-side navigation, and pages render in parallel with them, so a page's data can be fetched regardless of the layout's check. Scenario: <code>app/admin/layout.tsx</code> checks the session; the admin opens <code>/admin</code>, then their session expires (or is revoked); they click links to <code>/admin/users</code> and <code>/admin/settings</code>: the layout isn't re-run, and if those pages don't check themselves, they keep loading private data. Also, a Server Action defined in an admin page is reachable directly by POST without the layout ever running. Check in the page or data layer, and in every action.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Stateless (cookie) or database sessions? List two advantages of each, and choose one for the Reading List and for a bank.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>Stateless</strong>: no database lookup per request (fast, simple); scales without shared storage. <strong>Database sessions</strong>: can be revoked instantly (log out everywhere, ban a user); the cookie holds only an opaque ID, so no user data travels in it. The Reading List can use stateless sessions with a short expiry. A bank should use database sessions (plus a library, multi-factor authentication and short idle timeouts), because instant revocation matters more than one database read per request.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/guides/environment-variables">Guide: Environment Variables</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/authentication">Guide: Authentication</a> (sessions, DAL, DTOs, auth libraries)</li>
+  <li><a href="https://nextjs.org/docs/app/guides/data-security">Guide: Data Security</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/cookies">cookies</a> · <a href="https://github.com/panva/jose">jose</a></li>
+  <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html">OWASP: Password Storage Cheat Sheet</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

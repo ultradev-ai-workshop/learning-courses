@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📜&lt;/text&gt;&lt;/svg&gt;">
+<title>B. Pages Router &amp; Migrating · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B · Reference</div>
+<h1>Pages Router &amp; Migrating</h1>
+<p class="lead">Next.js has two routers. This book teaches the <strong>App Router</strong>, which the docs recommend for new apps. But many existing projects, tutorials and Stack Overflow answers use the original <strong>Pages Router</strong>, which is still supported and still being improved. This appendix explains enough of it to read and maintain such code, maps each concept to its App Router equivalent, and summarises the docs' migration guides from the Pages Router, Create React App and Vite. The Pages Router examples were built and run in a separate app.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How routing works in <code>pages/</code>, and what <code>_app.tsx</code> and <code>_document.tsx</code> are.</li>
+  <li>The Pages Router's data functions: <code>getStaticProps</code>, <code>getStaticPaths</code>, <code>getServerSideProps</code>.</li>
+  <li>API Routes, <code>next/router</code> and <code>next/head</code>.</li>
+  <li>A side-by-side map from Pages Router to App Router.</li>
+  <li>How to migrate incrementally, and how to move a Create React App or Vite project to Next.js.</li>
+</ul>
+</div>
+
+<h2 id="routing">Routing in pages/</h2>
+<p>In the Pages Router, <strong>every file</strong> in <code>pages/</code> is a route (not only files named <code>page</code>): <code>pages/index.tsx</code> is <code>/</code>, <code>pages/about.tsx</code> is <code>/about</code>, <code>pages/posts/[id].tsx</code> is <code>/posts/1</code>. All components are what the App Router calls Client Components: they're prerendered on the server and hydrated, but there are no Server Components.</p>
+<p>The examples below are a small Pages Router app (without <code>cacheComponents</code>, an App Router feature):</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="pages">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="pages/_app.tsx" data-app="pages">
+import type { AppProps } from "next/app";
+
+// wraps every page: the Pages Router's "root layout"
+export default function App({ Component, pageProps }: AppProps) {
+  return (
+    <>
+      <header>📚 Reading List (Pages Router)</header>
+      <Component {...pageProps} />
+    </>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="pages">
+export type Book = { id: string; title: string; author: string };
+
+export const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien" },
+  { id: "2", title: "Dune", author: "Frank Herbert" },
+];
+</script>
+
+<h2 id="data">Data fetching functions</h2>
+<p>Pages Router components can't be <code>async</code>. Instead, a page file exports a special function that Next.js runs on the server, and its result is passed to the component as <code>props</code>:</p>
+<div class="table-wrap"><table>
+<tr><th>Function</th><th>Runs</th><th>App Router equivalent</th></tr>
+<tr><td><code>getStaticProps</code></td><td>At build time (and on revalidation with <code>revalidate</code>)</td><td>An <code>async</code> Server Component with cached data (<code>"use cache"</code>)</td></tr>
+<tr><td><code>getStaticPaths</code></td><td>At build time: which dynamic paths to prerender</td><td><code>generateStaticParams</code></td></tr>
+<tr><td><code>getServerSideProps</code></td><td>On every request</td><td>An <code>async</code> Server Component reading uncached or request data (inside <code>&lt;Suspense&gt;</code>)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="pages/index.tsx" data-app="pages">
+import type { GetStaticProps, InferGetStaticPropsType } from "next";
+import Link from "next/link";
+import Head from "next/head";
+import { books, type Book } from "@/lib/books";
+
+export const getStaticProps = (async () => {
+  return { props: { books }, revalidate: 3600 };          // rebuild at most once an hour (ISR)
+}) satisfies GetStaticProps<{ books: Book[] }>;
+
+export default function Home({ books }: InferGetStaticPropsType<typeof getStaticProps>) {
+  return (
+    <main>
+      <Head><title>Books · Pages Router</title></Head>
+      <ul>
+        {books.map((b) => <li key={b.id}><Link href={`/books/${b.id}`}>{b.title}</Link></li>)}
+      </ul>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="pages" data-eval="document.title + '\n' + document.body.innerText">
+Books · Pages Router
+📚 Reading List (Pages Router)
+The Hobbit
+Dune
+</script>
+<p><code>next/head</code> sets <code>&lt;title&gt;</code> and meta tags in the Pages Router; the App Router uses the Metadata API instead (Chapter 13).</p>
+<script type="text/plain" class="code" data-file="pages/books/[id].tsx" data-app="pages">
+import type { GetStaticPaths, GetStaticProps } from "next";
+import { useRouter } from "next/router";
+import { books, type Book } from "@/lib/books";
+
+export const getStaticPaths: GetStaticPaths = async () => ({
+  paths: books.map((b) => ({ params: { id: b.id } })),
+  fallback: false,                     // other ids → 404 (like dynamicParams = false)
+});
+
+export const getStaticProps: GetStaticProps<{ book: Book }> = async ({ params }) => {
+  const book = books.find((b) => b.id === params?.id);
+  if (!book) return { notFound: true };
+  return { props: { book } };
+};
+
+export default function BookPage({ book }: { book: Book }) {
+  const router = useRouter();          // next/router, not next/navigation
+  return (
+    <article>
+      <h1>{book.title}</h1>
+      <p>by {book.author}</p>
+      <p>path: {router.asPath}</p>
+    </article>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-app="pages">
+📚 Reading List (Pages Router)
+Dune
+by Frank Herbert
+path: /books/2
+</script>
+<script type="text/plain" class="code" data-file="pages/time.tsx" data-app="pages">
+import type { GetServerSideProps } from "next";
+
+export const getServerSideProps: GetServerSideProps<{ agent: string }> = async ({ req }) => {
+  return { props: { agent: req.headers["user-agent"] ?? "unknown" } };
+};
+
+export default function Time({ agent }: { agent: string }) {
+  return <p>Your browser says: {agent.startsWith("Mozilla") ? "Mozilla/…" : agent}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/time" data-app="pages">
+📚 Reading List (Pages Router)
+Your browser says: Mozilla/…
+</script>
+
+<h2 id="api-routes">API Routes</h2>
+<p>Files in <code>pages/api/</code> are <strong>API Routes</strong>, the Pages Router's Route Handlers. They use a Node.js-style <code>req</code>/<code>res</code> pair instead of <code>Request</code>/<code>Response</code>:</p>
+<script type="text/plain" class="code" data-file="pages/api/books.ts" data-app="pages">
+import type { NextApiRequest, NextApiResponse } from "next";
+import { books } from "@/lib/books";
+
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "GET") return res.status(405).json({ error: "method not allowed" });
+  res.status(200).json(books.map((b) => b.title));
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="pages">
+$ curl -s localhost:3000/api/books
+["The Hobbit","Dune"]
+$ curl -s -w " %{http_code}\n" -X POST localhost:3000/api/books
+{"error":"method not allowed"} 405
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="pages">
+$ npm run build
+...
+Route (pages)    Revalidate  Expire
+┌ ● /                    1h      1y
+├   /_app
+├ ○ /404
+├ ƒ /api/books
+├   /books/[id]
+│ ├ ● /books/1
+│ └ ● /books/2
+└ ƒ /time
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses getStaticProps)
+ƒ  (Dynamic)  server-rendered on demand
+</script>
+<p>The build lists <code>Route (pages)</code>: <code>●</code> for <code>getStaticProps</code> pages (with the 1-hour revalidation), <code>ƒ</code> for <code>getServerSideProps</code> and the API Route.</p>
+
+<h2 id="map">Pages Router → App Router</h2>
+<div class="table-wrap"><table>
+<tr><th>Pages Router</th><th>App Router</th></tr>
+<tr><td><code>pages/about.tsx</code></td><td><code>app/about/page.tsx</code></td></tr>
+<tr><td><code>pages/_app.tsx</code>, <code>pages/_document.tsx</code></td><td><code>app/layout.tsx</code> (root layout with <code>&lt;html&gt;</code>/<code>&lt;body&gt;</code>)</td></tr>
+<tr><td>Shared UI per section: manual wrappers</td><td>Nested <code>layout.tsx</code> files</td></tr>
+<tr><td><code>getStaticProps</code> / <code>getServerSideProps</code></td><td><code>async</code> Server Components; <code>"use cache"</code> or <code>&lt;Suspense&gt;</code></td></tr>
+<tr><td><code>getStaticPaths</code> (<code>fallback</code>)</td><td><code>generateStaticParams</code></td></tr>
+<tr><td><code>revalidate: 60</code></td><td><code>cacheLife({ revalidate: 60 })</code>, tags + <code>updateTag</code>/<code>revalidateTag</code></td></tr>
+<tr><td><code>pages/api/*.ts</code> (<code>req</code>, <code>res</code>)</td><td><code>app/**/route.ts</code> (<code>Request</code>, <code>Response</code>); or Server Functions for your own forms</td></tr>
+<tr><td><code>next/router</code>: <code>useRouter().query</code>, <code>.asPath</code></td><td><code>next/navigation</code>: <code>useRouter</code>, <code>useParams</code>, <code>useSearchParams</code>, <code>usePathname</code></td></tr>
+<tr><td><code>next/head</code></td><td>The Metadata API: <code>metadata</code>, <code>generateMetadata</code></td></tr>
+<tr><td><code>pages/404.tsx</code>, <code>pages/500.tsx</code></td><td><code>not-found.tsx</code>, <code>error.tsx</code>, <code>global-error.tsx</code></td></tr>
+<tr><td><code>middleware.ts</code></td><td><code>proxy.ts</code> (renamed in 16; works with both routers)</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the Pages Router is a house where every room has its own front door (every file is a route) and a single entrance hall (<code>_app</code>). The App Router is a building of corridors (folders) with wallpaper per corridor (layouts), doors only where you put them (<code>page</code> files), and kitchens inside the walls (Server Components) instead of a delivery hatch at each door (<code>getServerSideProps</code>).</p>
+</div>
+
+<h2 id="incremental">Migrating incrementally</h2>
+<p>Both routers can live in one project, so the docs' <em>App Router migration</em> guide moves one route at a time:</p>
+<ol>
+  <li>Upgrade Next.js and React; keep everything in <code>pages/</code> working.</li>
+  <li>Create <code>app/layout.tsx</code> from your <code>_app.tsx</code> and <code>_document.tsx</code> (global CSS imports, providers, <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>).</li>
+  <li>Move a page: create <code>app/&lt;route&gt;/page.tsx</code>, turn its <code>getStaticProps</code>/<code>getServerSideProps</code> into an <code>async</code> Server Component, move interactive parts into Client Components, then delete the old file. (A route can't exist in both folders.)</li>
+  <li>Replace <code>next/router</code> with <code>next/navigation</code> and <code>next/head</code> with metadata in moved pages.</li>
+  <li>Move API Routes to Route Handlers (or Server Actions) when convenient.</li>
+</ol>
+<p>Navigation between a Pages Router page and an App Router page is a full page load, so migrate related routes together.</p>
+
+<h2 id="cra-vite">Migrating from Create React App or Vite</h2>
+<p>The docs have step-by-step guides for both. The shape is the same:</p>
+<ol>
+  <li>Install <code>next</code> and add the <code>dev</code>/<code>build</code>/<code>start</code> scripts; add <code>next.config.ts</code>.</li>
+  <li>Create <code>app/layout.tsx</code> from your <code>index.html</code> (title and meta tags become metadata).</li>
+  <li>Start as a <strong>single-page app</strong>: one catch-all route, <code>app/[[...slug]]/page.tsx</code>, that renders your existing app as a Client Component (loaded with <code>next/dynamic</code> and <code>ssr: false</code> if it uses browser APIs at the top level). Your app runs unchanged, now built by Next.js.</li>
+  <li>Replace <code>import.meta.env.VITE_*</code> or <code>process.env.REACT_APP_*</code> with <code>NEXT_PUBLIC_*</code>.</li>
+  <li>Then adopt Next.js features step by step: move routes out of React Router into the file system, fetch data in Server Components, use <code>&lt;Image&gt;</code> and <code>next/font</code>.</li>
+</ol>
+
+<h2 id="recap-table">Recap</h2>
+<div class="recap">
+<ul>
+  <li>In <code>pages/</code>, every file is a route; <code>_app.tsx</code> wraps all pages; all components are client components.</li>
+  <li>Data comes from <code>getStaticProps</code> (build time, ISR with <code>revalidate</code>), <code>getStaticPaths</code> and <code>getServerSideProps</code> (per request).</li>
+  <li>API Routes in <code>pages/api</code> use <code>req</code>/<code>res</code>; <code>next/router</code> and <code>next/head</code> are Pages Router APIs.</li>
+  <li>Both routers can coexist; migrate route by route, and start CRA/Vite migrations as a single-page app.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recognise</span></h3>
+<p>You open a project and see <code>pages/</code>, <code>getServerSideProps</code> and <code>import { useRouter } from "next/router"</code>. Which router is it? What about <code>app/</code>, <code>"use client"</code> and <code>next/navigation</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The first is the Pages Router; the second is the App Router.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">map</span></h3>
+<p>Give the App Router file for: <code>pages/index.tsx</code>, <code>pages/blog/[slug].tsx</code>, <code>pages/api/books.ts</code>, <code>pages/_app.tsx</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>app/page.tsx</code>, <code>app/blog/[slug]/page.tsx</code>, <code>app/api/books/route.ts</code>, <code>app/layout.tsx</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">match</span></h3>
+<p>Match each Pages Router function to its App Router equivalent: <code>getStaticPaths</code>, <code>getServerSideProps</code>, <code>getStaticProps</code> with <code>revalidate</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>getStaticPaths</code> → <code>generateStaticParams</code>. <code>getServerSideProps</code> → an async Server Component that reads request or uncached data inside <code>&lt;Suspense&gt;</code>. <code>getStaticProps</code> + <code>revalidate</code> → an async Server Component whose data is cached with <code>"use cache"</code> and <code>cacheLife</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) Pages Router components can be <code>async</code>. (2) <code>app/</code> and <code>pages/</code> can coexist. (3) The same URL can be defined in both. (4) <code>proxy.ts</code> works with both routers.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False. (2) True. (3) False. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">migrate</span></h3>
+<p>Migrate this page to the App Router with Cache Components:</p>
+<script type="text/plain" class="code" data-file="pages/books.tsx" data-norun>
+export const getStaticProps = async () => {
+  const books = await db.books.findAll();
+  return { props: { books }, revalidate: 600 };
+};
+export default function Books({ books }) {
+  return <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-norun>
+import { cacheLife } from "next/cache";
+
+async function getBooks() {
+  "use cache";
+  cacheLife({ revalidate: 600 });
+  return db.books.findAll();
+}
+
+export default async function Books() {
+  const books = await getBooks();
+  return <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>;
+}
+</script>
+<p>Then delete <code>pages/books.tsx</code>. Add a <code>cacheTag("books")</code> if an action changes the list, so you can revalidate on demand.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">migrate</span></h3>
+<p>Migrate a <code>getServerSideProps</code> page that reads a <code>theme</code> cookie and passes it to the component.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/settings/page.tsx" data-norun>
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+
+async function Theme() {
+  const theme = (await cookies()).get("theme")?.value ?? "light";
+  return <p>Theme: {theme}</p>;
+}
+
+export default function Settings() {
+  return <main><h1>Settings</h1><Suspense fallback={<p>…</p>}><Theme /></Suspense></main>;
+}
+</script>
+<p>The heading is now prerendered; only the cookie-dependent part is rendered per request.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">router hooks</span></h3>
+<p>Rewrite <code>const { query, asPath, push } = useRouter()</code> (from <code>next/router</code>) for the App Router, for a page at <code>/books/[id]?tab=reviews</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>const { id } = useParams()</code>; <code>const tab = useSearchParams().get("tab")</code>; <code>const pathname = usePathname()</code> (no query string; add <code>useSearchParams().toString()</code> for <code>asPath</code>); <code>const router = useRouter(); router.push(…)</code>, all from <code>next/navigation</code>, in a Client Component (inside <code>&lt;Suspense&gt;</code> because of <code>useSearchParams</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">API route</span></h3>
+<p>Convert the <code>pages/api/books.ts</code> handler from this appendix to a Route Handler.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/api/books/route.ts" data-norun>
+import { books } from "@/lib/books";
+
+export async function GET() {
+  return Response.json(books.map((b) => b.title));
+}
+// POST and other methods automatically get 405 because they aren't exported.
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">plan</span></h3>
+<p>Plan the migration of a 40-page Pages Router e-commerce app to the App Router. In what order would you move things, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Upgrade Next.js; create <code>app/layout.tsx</code> from <code>_app</code>/<code>_document</code>; ensure shared providers work in both trees.</li>
+  <li>Move simple, mostly static pages first (about, help, legal): low risk, quick wins.</li>
+  <li>Move product listing and product pages together (they link to each other a lot; cross-router navigation is a full reload), converting <code>getStaticProps</code> to cached Server Components with tags.</li>
+  <li>Move account and cart pages, converting <code>getServerSideProps</code> and API calls to Server Components and Server Actions with proper auth checks.</li>
+  <li>Move API Routes last, keeping the ones external clients use stable.</li>
+</ol>
+<p>After each step: build, run E2E tests, deploy.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">Vite</span></h3>
+<p>A Vite + React Router SPA reads <code>import.meta.env.VITE_API_URL</code> and uses <code>window.localStorage</code> at module level. Describe the first, minimal step to run it on Next.js.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Create <code>app/layout.tsx</code> and a catch-all <code>app/[[...slug]]/page.tsx</code>. In a Client Component, load the old app entry with <code>dynamic(() =&gt; import("../../src/App"), { ssr: false })</code>, so module-level <code>localStorage</code> access never runs on the server. Rename the variable to <code>NEXT_PUBLIC_API_URL</code> and update its uses. Run <code>next dev</code>; React Router keeps handling routes inside the SPA until you move them to the file system.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/pages">Pages Router documentation</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/migrating/app-router-migration">Guide: Migrating from the Pages Router to the App Router</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/migrating/from-create-react-app">Guide: Migrating from Create React App</a> · <a href="https://nextjs.org/docs/app/guides/migrating/from-vite">from Vite</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/single-page-applications">Guide: Single-Page Applications</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

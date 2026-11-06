@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔗&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Linking, Navigating &amp; Dynamic Routes · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Foundations</div>
+<h1>Linking, Navigating &amp; Dynamic Routes</h1>
+<p class="lead">Real apps have routes made from data: <code>/books/1</code>, <code>/books/2</code>, and so on. This chapter covers <strong>dynamic segments</strong>, then follows the docs' <em>Linking and Navigating</em> page: how <code>&lt;Link&gt;</code> makes server-rendered pages feel instant through prefetching, streaming and client-side transitions. You'll also meet the first rule of Cache Components: data from the request must sit inside <code>&lt;Suspense&gt;</code>, unless it's known at build time.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Dynamic segments <code>[id]</code>, catch-all <code>[...slug]</code> and optional catch-all <code>[[...slug]]</code>.</li>
+  <li>Two ways to render a dynamic page with Cache Components: <code>generateStaticParams</code> or <code>&lt;Suspense&gt;</code>.</li>
+  <li><code>notFound()</code> for IDs that don't exist.</li>
+  <li><code>&lt;Link&gt;</code>, prefetching, streaming with <code>loading.tsx</code>, and client-side transitions.</li>
+  <li>Search params on the server (<code>searchParams</code>) and in the browser (<code>useSearchParams</code>).</li>
+  <li>Navigating from code with <code>useRouter</code>, and showing progress with <code>useLinkStatus</code>.</li>
+</ul>
+</div>
+
+<h2 id="dynamic">Dynamic segments</h2>
+<p>Wrap a folder name in square brackets to make a <strong>dynamic segment</strong>: <code>app/books/[id]/page.tsx</code> matches <code>/books/1</code>, <code>/books/42</code>, <code>/books/dune</code>… The value arrives in the page's <code>params</code> prop. <code>params</code> is a <strong>promise</strong>, so you <code>await</code> it.</p>
+<p>All examples in this chapter use this data module:</p>
+<script type="text/plain" class="code" data-file="lib/books.ts">
+export type Book = { id: string; title: string; author: string; genre: string };
+
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", genre: "fantasy" },
+  { id: "2", title: "Dune", author: "Frank Herbert", genre: "sci-fi" },
+  { id: "3", title: "Beloved", author: "Toni Morrison", genre: "literary" },
+  { id: "4", title: "Neuromancer", author: "William Gibson", genre: "sci-fi" },
+];
+
+export async function getBooks(): Promise<Book[]> {
+  return books;
+}
+
+export async function getBook(id: string): Promise<Book | undefined> {
+  return books.find((b) => b.id === id);
+}
+</script>
+
+<h3 id="first-try">A first try, and a build error</h3>
+<p>The obvious version awaits <code>params</code> at the top of the page:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="naive">
+import { getBook } from "@/lib/books";
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const { id } = await params;
+  const book = await getBook(id);
+  return <h1>{book?.title}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="naive">
+export async function getBook(id: string) {
+  return { id, title: `Book ${id}` };
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="naive">
+...
+Error: Route "/books/[id]": Next.js encountered uncached or runtime data during prerendering.
+
+`fetch(...)`, `cookies()`, `headers()`, `params`, `searchParams`, or `connection()` accessed outside of `<Suspense>` prevents the route from being prerendered, blocking the page load and leading to a slower user experience.
+
+Ways to fix this:
+  - [stream] Provide a placeholder with `<Suspense fallback={...}>` around the data access
+  - [cache] For uncached data (`fetch`, database calls): cache the access with `"use cache"` (does not apply to `connection()`)
+  - [block] Set `export const instant = false` to allow a blocking route
+...
+</script>
+<p>This is Cache Components at work. At build time, Next.js tries to prerender a <strong>static shell</strong> for every route: the parts of the page that are the same for everyone. It doesn't know which <code>id</code> a visitor will ask for, so <code>params</code> is <strong>runtime data</strong>. Reading it at the top of the page would leave nothing to prerender, and every visitor would wait for the server. Next.js refuses to build that by accident, and the error lists three fixes. The first two are the normal ones:</p>
+<ol>
+  <li><strong>Tell Next.js the IDs in advance</strong> with <code>generateStaticParams</code>, so they're no longer unknown.</li>
+  <li><strong>Stream</strong>: put the code that reads <code>params</code> inside <code>&lt;Suspense&gt;</code>, so the rest of the page can be prerendered.</li>
+</ol>
+<p>The third, <code>export const instant = false</code>, accepts a page that blocks. Use it only when you've decided that's acceptable.</p>
+
+<h3 id="gsp">Fix 1: generateStaticParams</h3>
+<p>Export <code>generateStaticParams</code> from the page. It returns the list of params to prerender at build time:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx">
+import { notFound } from "next/navigation";
+import { getBook, getBooks } from "@/lib/books";
+
+export async function generateStaticParams() {
+  const books = await getBooks();
+  return books.map((b) => ({ id: b.id }));
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const { id } = await params;
+  const book = await getBook(id);
+  if (!book) notFound();
+
+  return (
+    <article>
+      <h1>{book.title}</h1>
+      <p>by {book.author} · {book.genre}</p>
+    </article>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2">
+Dune
+by Frank Herbert · sci-fi
+</script>
+<p>The build output (for the whole example app of this chapter) shows the result:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+...
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├   /authors/[name]
+│ └ ◐ /authors/[name]
+├ ◐ /books
+├   /books/[id]
+│ ├ ◐ /books/[id]
+│ ├ ○ /books/1
+│ ├ ○ /books/2
+│ └ ◐ [+2 more paths]
+└ ○ /pick
+
+
+○  (Static)             prerendered as static content
+◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+</script>
+<p>Read the <code>/books/[id]</code> group like this: <code>/books/1</code> and <code>/books/2</code> are prerendered (<code>○</code>), the other two generated paths are folded into <code>[+2 more paths]</code>, and the generic <code>◐ /books/[id]</code> entry is the shell used for IDs that weren't listed. (You'll also meet <code>●</code> (SSG), "prerendered as static HTML (uses generateStaticParams)". In this version it appears for routes such as the per-book Open Graph images of Chapter 19, and older versions and articles use it for pages like these too.) Two more things to notice:</p>
+<ul>
+  <li><strong><code>notFound()</code></strong> (from <code>next/navigation</code>) stops rendering and shows the 404 page. TypeScript also knows that <code>book</code> can't be <code>undefined</code> after that line.</li>
+  <li>An ID that isn't in the list still works: it's rendered on its first request and then saved. Here, <code>/books/99</code> finds no book:</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/books/3
+200
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/books/99
+200
+$ curl -s localhost:3000/books/99 | grep -o '<meta name="robots" content="noindex"/>'
+<meta name="robots" content="noindex"/>
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/books/99
+404
+</script>
+<p>The <em>first</em> request for <code>/books/99</code> gets status 200. That isn't a bug. For an unlisted ID, Next.js starts <strong>streaming</strong> the static shell right away, and once streaming starts the status line has been sent and can't change. When <code>notFound()</code> runs, the 404 UI is streamed in, together with <code>&lt;meta name="robots" content="noindex"&gt;</code> so search engines don't index it. The result is saved, and later requests get a real 404. Chapter 10 comes back to status codes and streaming.</p>
+<p>In apps without Cache Components, <code>export const dynamicParams = false</code> allows <em>only</em> the listed params. With Cache Components it's one of the old route segment options that the build rejects:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="dynparams">
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+  return [{ id: "1" }];
+}
+
+export default async function Page({ params }: PageProps<"/books/[id]">) {
+  return <p>Book {(await params).id}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="dynparams">
+...
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+…/app/books/[id]/page.tsx:1:14
+Error: Route segment config "dynamicParams" is not compatible with `nextConfig.cacheComponents`. Please remove it.
+> 1 | export const dynamicParams = false;
+...
+</script>
+<p>Instead, check the value in your page and call <code>notFound()</code> for anything you don't want to serve, as in the <code>[lang]</code> example in <a href="#more-examples">More examples</a>.</p>
+
+<h3 id="suspense">Fix 2: Suspense around the param</h3>
+<p>When the set of IDs is too large or unknown (user names, search results), don't list them. Instead, keep the page's frame static and move the param-dependent part into a component inside <code>&lt;Suspense&gt;</code>. This is the docs' pattern: pass the <code>params</code> <em>promise</em> down, and await it inside the boundary:</p>
+<script type="text/plain" class="code" data-file="app/authors/[name]/page.tsx">
+import { Suspense } from "react";
+import { getBooks } from "@/lib/books";
+
+export default function AuthorPage({ params }: PageProps<"/authors/[name]">) {
+  return (
+    <main>
+      <h1>Author</h1>
+      <Suspense fallback={<p>Loading books…</p>}>
+        <AuthorBooks params={params} />
+      </Suspense>
+    </main>
+  );
+}
+
+async function AuthorBooks({ params }: { params: Promise<{ name: string }> }) {
+  const { name } = await params;
+  const author = decodeURIComponent(name);
+  const books = (await getBooks()).filter((b) => b.author === author);
+  return (
+    <>
+      <h2>{author}</h2>
+      <p>{books.length} book(s): {books.map((b) => b.title).join(", ")}</p>
+    </>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/authors/Frank%20Herbert">
+Author
+Frank Herbert
+1 book(s): Dune
+</script>
+<p>At build time, Next.js prerenders the shell, here the <code>&lt;h1&gt;</code> and the fallback "Loading books…". On a request, the server sends that shell at once and <strong>streams</strong> the <code>AuthorBooks</code> HTML into the same response when it's ready. The build marks such routes with <code>◐</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+...
+├   /authors/[name]
+│ └ ◐ /authors/[name]
+...
+◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a hotel restaurant. <code>generateStaticParams</code> is the buffet: the dishes are known, so they're cooked before guests arrive. <code>&lt;Suspense&gt;</code> is ordering à la carte: you get the table, bread and water at once (the static shell), and your dish arrives when the kitchen finishes it (streaming). The build error is the head waiter refusing to seat guests at an empty table with no bread while the kitchen waits for orders.</p>
+</div>
+<div class="tip">
+<p>💡 Which fix to use? If the list of values is known and not huge (product IDs, blog slugs, a few hundred categories), use <code>generateStaticParams</code>: visitors get finished HTML. If values are unbounded or personal, use <code>&lt;Suspense&gt;</code>. You can also combine them: list the most popular IDs and let the rest render on demand.</p>
+</div>
+
+<h3 id="catch-all">Catch-all and optional catch-all segments</h3>
+<div class="table-wrap"><table>
+<tr><th>Folder</th><th>Matches</th><th><code>params</code></th></tr>
+<tr><td><code>[slug]</code></td><td><code>/docs/a</code></td><td><code>{ slug: "a" }</code></td></tr>
+<tr><td><code>[...slug]</code></td><td><code>/docs/a</code>, <code>/docs/a/b/c</code> (not <code>/docs</code>)</td><td><code>{ slug: ["a", "b", "c"] }</code></td></tr>
+<tr><td><code>[[...slug]]</code></td><td><code>/docs</code> as well</td><td><code>{ slug: undefined }</code> for <code>/docs</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="app/docs/[[...slug]]/page.tsx" data-app="catch">
+import { Suspense } from "react";
+
+export default function DocsPage({ params }: PageProps<"/docs/[[...slug]]">) {
+  return (
+    <Suspense fallback={<p>…</p>}>
+      <Breadcrumb params={params} />
+    </Suspense>
+  );
+}
+
+async function Breadcrumb({ params }: { params: Promise<{ slug?: string[] }> }) {
+  const { slug } = await params;
+  return <p>Docs {slug ? "› " + slug.join(" › ") : "(home)"}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/docs" data-app="catch">
+Docs (home)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/docs/guides/caching/tags" data-app="catch">
+Docs › guides › caching › tags
+</script>
+<p>The types follow the folder: <code>string</code> for <code>[slug]</code>, <code>string[]</code> for <code>[...slug]</code>, and <code>string[] | undefined</code> for <code>[[...slug]]</code>. Values are always strings: a user can type anything into the address bar, so validate params before trusting them.</p>
+
+<h2 id="link">The Link component</h2>
+<p><code>&lt;Link&gt;</code> renders an <code>&lt;a&gt;</code> tag with extra behaviour. Use it for every link inside your app; use a plain <code>&lt;a&gt;</code> for external sites.</p>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import Link from "next/link";
+import { getBooks } from "@/lib/books";
+
+export default async function Home() {
+  const books = await getBooks();
+  return (
+    <main>
+      <h1>Books</h1>
+      <ul>
+        {books.map((b) => (
+          <li key={b.id}>
+            <Link href={`/books/${b.id}`}>{b.title}</Link>
+          </li>
+        ))}
+      </ul>
+      <a href="https://nextjs.org">Next.js website</a>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-steps="click:a[href='/books/4']; wait:300">
+Neuromancer
+by William Gibson · sci-fi
+</script>
+<p>Clicking <em>Neuromancer</em> moved to <code>/books/4</code> without a full page reload. Useful props:</p>
+<div class="table-wrap"><table>
+<tr><th>Prop</th><th>Example</th><th>Effect</th></tr>
+<tr><td><code>href</code></td><td><code>"/books/1"</code> or <code>{ pathname: "/books", query: { genre: "sci-fi" } }</code></td><td>Where to go; the object form builds <code>/books?genre=sci-fi</code>.</td></tr>
+<tr><td><code>replace</code></td><td><code>replace</code></td><td>Replace the current history entry instead of adding one.</td></tr>
+<tr><td><code>scroll</code></td><td><code>scroll={false}</code></td><td>Don't scroll to the top after navigating.</td></tr>
+<tr><td><code>prefetch</code></td><td><code>prefetch={false}</code></td><td>Don't prefetch (for very long lists of links).</td></tr>
+</table></div>
+
+<h2 id="how">How navigation works</h2>
+<p>Pages are rendered on the server, so in principle every click waits for a server response. Next.js hides that wait with four techniques:</p>
+<ol>
+  <li><strong>Server rendering.</strong> The server produces the next page, either ahead of time (<em>prerendering</em>, cached) or on request (<em>dynamic rendering</em>).</li>
+  <li><strong>Prefetching.</strong> When a <code>&lt;Link&gt;</code> scrolls into view, Next.js loads its route in the background. Static routes are prefetched completely. For dynamic routes, the static shell is prefetched (with <code>partialPrefetching</code>, on in new apps) or the <code>loading.tsx</code> skeleton is.</li>
+  <li><strong>Streaming.</strong> The server sends parts of a dynamic page as they're ready, so the user sees the shell at once.</li>
+  <li><strong>Client-side transitions.</strong> Instead of a full reload, <code>&lt;Link&gt;</code> swaps the changed part of the page and keeps shared layouts and their state (Chapter 3).</li>
+</ol>
+<div class="note">
+<p>📝 Prefetching only happens in production (<code>next build</code> + <code>next start</code>), not in <code>next dev</code>. Judge navigation speed on a production build.</p>
+</div>
+
+<h3 id="loading">loading.tsx: instant feedback for dynamic routes</h3>
+<p>A <code>loading.tsx</code> file next to a page wraps it in a <code>&lt;Suspense&gt;</code> boundary, with your component as the fallback. Navigation then happens immediately: the skeleton shows, and the page replaces it when ready. Chapter 6 covers <code>loading.tsx</code> and streaming in depth.</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/loading.tsx" data-norun>
+export default function Loading() {
+  return <p>Loading book…</p>;
+}
+</script>
+
+<h3 id="link-status">useLinkStatus: feedback on slow networks</h3>
+<p>On a slow connection, a prefetch may not finish before the click. <code>useLinkStatus()</code>, used in a Client Component <em>inside</em> a <code>&lt;Link&gt;</code>, reports whether that link's navigation is pending:</p>
+<script type="text/plain" class="code" data-file="app/ui/pending-hint.tsx" data-norun>
+"use client";
+
+import { useLinkStatus } from "next/link";
+
+export function PendingHint() {
+  const { pending } = useLinkStatus();
+  return <span aria-hidden className={pending ? "spinner" : ""} />;
+}
+
+// usage: <Link href="/books/2">Dune <PendingHint /></Link>
+</script>
+
+<h2 id="search-params">Search params</h2>
+<p>The query string (<code>?genre=sci-fi</code>) can be read in two places:</p>
+<ul>
+  <li><strong>On the server</strong>, with the page's <code>searchParams</code> prop. Use this to <em>load data</em> (filtering, pagination). Like <code>params</code>, it's a promise and it's runtime data, so read it inside <code>&lt;Suspense&gt;</code>.</li>
+  <li><strong>In the browser</strong>, with <code>useSearchParams()</code> in a Client Component, for UI that only reacts on the client.</li>
+</ul>
+<script type="text/plain" class="code" data-file="app/books/page.tsx">
+import Link from "next/link";
+import { Suspense } from "react";
+import { getBooks } from "@/lib/books";
+
+export default function BooksPage({ searchParams }: PageProps<"/books">) {
+  return (
+    <main>
+      <h1>All books</h1>
+      <nav>
+        <Link href="/books">All</Link> · <Link href="/books?genre=sci-fi">Sci-fi</Link> ·{" "}
+        <Link href={{ pathname: "/books", query: { genre: "fantasy" } }}>Fantasy</Link>
+      </nav>
+      <Suspense fallback={<p>Loading…</p>}>
+        <BookList searchParams={searchParams} />
+      </Suspense>
+    </main>
+  );
+}
+
+async function BookList({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { genre } = await searchParams;
+  const all = await getBooks();
+  const books = typeof genre === "string" ? all.filter((b) => b.genre === genre) : all;
+  return (
+    <ul>
+      {books.map((b) => <li key={b.id}>{b.title}</li>)}
+    </ul>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books?genre=sci-fi">
+All books
+All · Sci-fi · Fantasy
+Dune
+Neuromancer
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books?genre=sci-fi" data-steps="click:a[href='/books?genre=fantasy']; wait:300">
+All books
+All · Sci-fi · Fantasy
+The Hobbit
+</script>
+<p>A query value can be a string, an array (<code>?genre=a&amp;genre=b</code>) or missing, hence the <code>typeof genre === "string"</code> check.</p>
+
+<h2 id="router">Navigating from code: useRouter</h2>
+<p>Sometimes you navigate after an event rather than from a link: after a form is validated, when a select changes. In a Client Component, <code>useRouter()</code> from <code>next/navigation</code> gives you:</p>
+<ul>
+  <li><code>router.push(href)</code>: navigate, adding a history entry. <code>router.replace(href)</code> replaces it instead.</li>
+  <li><code>router.back()</code> and <code>router.forward()</code>.</li>
+  <li><code>router.refresh()</code>: re-render the current route on the server, keeping client state.</li>
+  <li><code>router.prefetch(href)</code>: prefetch by hand.</li>
+</ul>
+<script type="text/plain" class="code" data-file="app/genre-picker.tsx">
+"use client";
+
+import { useRouter, useSearchParams } from "next/navigation";
+
+export function GenrePicker() {
+  const router = useRouter();
+  const current = useSearchParams().get("genre") ?? "";
+  return (
+    <select
+      aria-label="Genre"
+      value={current}
+      onChange={(e) => router.push(e.target.value ? `/pick?genre=${e.target.value}` : "/pick")}
+    >
+      <option value="">All genres</option>
+      <option value="sci-fi">Sci-fi</option>
+      <option value="fantasy">Fantasy</option>
+    </select>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/pick/page.tsx">
+import { Suspense } from "react";
+import { GenrePicker } from "../genre-picker";
+import { CurrentGenre } from "./current-genre";
+
+export default function PickPage() {
+  return (
+    <main>
+      <Suspense fallback={null}>
+        <GenrePicker />
+        <CurrentGenre />
+      </Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/pick/current-genre.tsx">
+"use client";
+
+import { useSearchParams } from "next/navigation";
+
+export function CurrentGenre() {
+  return <p>Selected: {useSearchParams().get("genre") ?? "none"}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/pick" data-steps="fill:select=sci-fi; wait:400" data-eval="location.pathname + location.search + ' | ' + document.querySelector('p').textContent">
+/pick?genre=sci-fi | Selected: sci-fi
+</script>
+<p>Choosing "Sci-fi" pushed <code>/pick?genre=sci-fi</code>, and both components re-rendered with the new value. Note the <code>&lt;Suspense&gt;</code>: during prerendering the search params are unknown, so a component that calls <code>useSearchParams()</code> must be inside a boundary too. Without one, the build fails with a "missing Suspense boundary" error.</p>
+<div class="pitfall">
+<p>⚠️ Import <code>useRouter</code> from <code>next/navigation</code>, not <code>next/router</code>. The latter belongs to the Pages Router (Appendix B) and doesn't work in <code>app/</code>. In Server Components and Server Functions, use <code>redirect()</code> instead (Chapters 7 and 10).</p>
+</div>
+
+<h2 id="advanced-routing">Parallel and intercepting routes (overview)</h2>
+<p>Two advanced conventions build on what you know. They're useful for specific UI patterns, and you can skip them on a first read:</p>
+<ul>
+  <li><strong>Parallel routes</strong>: a folder named <code>@slot</code> becomes an extra prop of the parent layout, so a layout can render two pages side by side (a dashboard with <code>@analytics</code> and <code>@team</code>). A <code>default.tsx</code> file gives a slot its fallback.</li>
+  <li><strong>Intercepting routes</strong>: folders like <code>(.)photo</code> or <code>(..)photo</code> show another route inside the current layout, for example a photo opening as a modal over a feed while the URL changes to <code>/photo/1</code>. Reloading shows the full photo page.</li>
+</ul>
+<p>See the docs' <em>Parallel Routes</em> and <em>Intercepting Routes</em> references for complete examples.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Several dynamic segments.</strong> <code>app/[genre]/[id]/page.tsx</code> gives <code>params</code> type <code>{ genre: string; id: string }</code>. With <code>generateStaticParams</code>, return objects with both keys:</p>
+<script type="text/plain" class="code" data-file="app/shelf/[genre]/[id]/page.tsx" data-app="multi">
+export function generateStaticParams() {
+  return [{ genre: "sci-fi", id: "2" }, { genre: "fantasy", id: "1" }];
+}
+
+export default async function Page({ params }: PageProps<"/shelf/[genre]/[id]">) {
+  const { genre, id } = await params;
+  return <p>Shelf {genre}, book #{id}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/shelf/fantasy/1" data-app="multi">
+Shelf fantasy, book #1
+Share fantasy/1
+</script>
+
+<p>(The "Share" button comes from the layout in the next example, which is part of the same app.)</p>
+<p><strong>Reading params in a Client Component.</strong> Client Components can't be <code>async</code>. Use the <code>useParams()</code> hook instead:</p>
+<script type="text/plain" class="code" data-file="app/shelf/[genre]/[id]/share.tsx" data-app="multi">
+"use client";
+
+import { useParams } from "next/navigation";
+
+export function Share() {
+  const { genre, id } = useParams<{ genre: string; id: string }>();
+  return <button>Share {genre}/{id}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shelf/[genre]/[id]/layout.tsx" data-app="multi">
+import { Share } from "./share";
+
+export default function Layout({ children }: LayoutProps<"/shelf/[genre]/[id]">) {
+  return <div>{children}<Share /></div>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/shelf/sci-fi/2" data-app="multi">
+Shelf sci-fi, book #2
+Share sci-fi/2
+</script>
+
+<p><strong>Validating a param.</strong> A <code>[lang]</code> segment with a fixed set of values can be narrowed with an assertion function that calls <code>notFound()</code>, the docs' pattern for typed params:</p>
+<script type="text/plain" class="code" data-file="app/hello/[lang]/page.tsx" data-app="multi">
+import { notFound } from "next/navigation";
+
+const greetings = { en: "Hello", fr: "Bonjour", es: "Hola" } as const;
+type Lang = keyof typeof greetings;
+
+function assertLang(value: string): asserts value is Lang {
+  if (!(value in greetings)) notFound();
+}
+
+export function generateStaticParams() {
+  return Object.keys(greetings).map((lang) => ({ lang }));
+}
+
+export default async function Hello({ params }: PageProps<"/hello/[lang]">) {
+  const { lang } = await params;
+  assertLang(lang);
+  return <h1>{greetings[lang]}!</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/hello/fr" data-app="multi">
+Bonjour!
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/hello/de" data-app="multi">
+404
+This page could not be found.
+</script>
+<p>Inside <code>if</code>, TypeScript narrows <code>lang</code> from <code>string</code> to <code>"en" | "fr" | "es"</code>, so <code>greetings[lang]</code> type-checks.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>[id]</code>, <code>[...slug]</code> and <code>[[...slug]]</code> create dynamic segments; <code>params</code> is a promise of strings.</li>
+  <li>With Cache Components, unknown params are runtime data. Either list values with <code>generateStaticParams</code> (prerendered, <code>○</code>), or read them inside <code>&lt;Suspense&gt;</code> (<code>◐</code>, static shell + streamed content).</li>
+  <li><code>notFound()</code> shows the 404 page; once a response is streaming, the status stays 200 and a <code>noindex</code> tag is added. <code>dynamicParams</code> isn't compatible with Cache Components; validate and call <code>notFound()</code> instead.</li>
+  <li><code>&lt;Link&gt;</code> prefetches routes in view and navigates client-side; <code>loading.tsx</code> gives instant feedback.</li>
+  <li><code>searchParams</code> (server, in Suspense) loads data; <code>useSearchParams</code> (client, in Suspense) drives UI.</li>
+  <li><code>useRouter()</code> from <code>next/navigation</code> navigates from event handlers.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">params</span></h3>
+<p>What is <code>params</code> for each URL? (a) <code>app/u/[user]/page.tsx</code> at <code>/u/ada</code>; (b) <code>app/files/[...path]/page.tsx</code> at <code>/files/a/b.txt</code>; (c) <code>app/shop/[[...cat]]/page.tsx</code> at <code>/shop</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>{ user: "ada" }</code>. (b) <code>{ path: ["a", "b.txt"] }</code>. (c) <code>{ cat: undefined }</code>. In each case you get it with <code>await params</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">symbols</span></h3>
+<p>What do <code>○</code> and <code>◐</code> mean in the route table of <code>next build</code>? In this chapter's table, why does <code>/books/[id]</code> appear with both?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>○</code> Static: prerendered as static content. <code>◐</code> Partial Prerender: a static HTML shell with dynamic content streamed from the server. The IDs returned by <code>generateStaticParams</code> are fully prerendered (<code>○ /books/1</code>…); the <code>◐ /books/[id]</code> entry is the shell used for any other ID, which is rendered on its first request.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">Link or a?</span></h3>
+<p>Which should use <code>&lt;Link&gt;</code> and which <code>&lt;a&gt;</code>? (a) <code>/books/2</code>, (b) <code>https://github.com</code>, (c) <code>/about</code>, (d) <code>mailto:hi@example.com</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;Link&gt;</code> for (a) and (c), routes inside your app. <code>&lt;a&gt;</code> for (b) and (d), which leave the app.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">imports</span></h3>
+<p>Where do you import each from? <code>Link</code>, <code>notFound</code>, <code>useRouter</code>, <code>usePathname</code>, <code>Suspense</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Link</code> from <code>next/link</code>; <code>notFound</code>, <code>useRouter</code> and <code>usePathname</code> from <code>next/navigation</code>; <code>Suspense</code> from <code>react</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, make <code>/books</code> list every book from <code>lib/books.ts</code> as a <code>&lt;Link&gt;</code> to <code>/books/[id]</code>. Create the detail page with <code>generateStaticParams</code> and <code>notFound()</code>. Run <code>npm run build</code> and check that the books appear under <code>/books/[id]</code> in the route table.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+export type Book = { id: string; title: string; author: string; year: number };
+
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+  { id: "2", title: "Dune", author: "Frank Herbert", year: 1965 },
+  { id: "3", title: "Beloved", author: "Toni Morrison", year: 1987 },
+];
+
+export async function getBooks() { return books; }
+export async function getBook(id: string) { return books.find((b) => b.id === id); }
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex5">
+import Link from "next/link";
+import { getBooks } from "@/lib/books";
+
+export default async function Books() {
+  const books = await getBooks();
+  return (
+    <ul>
+      {books.map((b) => (
+        <li key={b.id}><Link href={`/books/${b.id}`}>{b.title}</Link> ({b.year})</li>
+      ))}
+    </ul>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import { notFound } from "next/navigation";
+import { getBook, getBooks } from "@/lib/books";
+
+export async function generateStaticParams() {
+  return (await getBooks()).map((b) => ({ id: b.id }));
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const book = await getBook((await params).id);
+  if (!book) notFound();
+  return <h1>{book.title} — {book.author}, {book.year}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex5" data-steps="click:a[href='/books/3']; wait:300">
+Beloved — Toni Morrison, 1987
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the build</span></h3>
+<p>This page fails to build with "Next.js encountered uncached or runtime data during prerendering". Fix it <em>without</em> <code>generateStaticParams</code>, keeping the heading in the static shell.</p>
+<script type="text/plain" class="code" data-file="app/users/[name]/page.tsx" data-norun>
+export default async function UserPage({ params }: PageProps<"/users/[name]">) {
+  const { name } = await params;
+  return (
+    <main>
+      <h1>Profile</h1>
+      <p>Hello, {name}</p>
+    </main>
+  );
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/users/[name]/page.tsx" data-app="ex6">
+import { Suspense } from "react";
+
+export default function UserPage({ params }: PageProps<"/users/[name]">) {
+  return (
+    <main>
+      <h1>Profile</h1>
+      <Suspense fallback={<p>Loading…</p>}>
+        <Greeting params={params} />
+      </Suspense>
+    </main>
+  );
+}
+
+async function Greeting({ params }: { params: Promise<{ name: string }> }) {
+  const { name } = await params;
+  return <p>Hello, {name}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/users/ada" data-app="ex6">
+Profile
+Hello, ada
+</script>
+<p>The page itself is no longer <code>async</code>; it passes the promise to a child inside <code>&lt;Suspense&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">search params</span></h3>
+<p>Add a <code>?sort=title</code> option to the playground's <code>/books</code> page. With it, books are sorted by title; without it, by year. Provide two links to switch.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex7">
+import Link from "next/link";
+import { Suspense } from "react";
+
+const books = [
+  { id: "2", title: "Dune", year: 1965 },
+  { id: "1", title: "The Hobbit", year: 1937 },
+  { id: "3", title: "Beloved", year: 1987 },
+];
+
+export default function Books({ searchParams }: PageProps<"/books">) {
+  return (
+    <main>
+      <Link href="/books">By year</Link> · <Link href="/books?sort=title">By title</Link>
+      <Suspense fallback={<p>Loading…</p>}>
+        <List searchParams={searchParams} />
+      </Suspense>
+    </main>
+  );
+}
+
+async function List({ searchParams }: { searchParams: Promise<{ sort?: string | string[] }> }) {
+  const { sort } = await searchParams;
+  const sorted = books.toSorted((a, b) => (sort === "title" ? a.title.localeCompare(b.title) : a.year - b.year));
+  return <ol>{sorted.map((b) => <li key={b.id}>{b.title} ({b.year})</li>)}</ol>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books?sort=title" data-app="ex7">
+By year · By title
+Beloved (1987)
+Dune (1965)
+The Hobbit (1937)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>A page has <code>generateStaticParams</code> returning IDs 1–3, and calls <code>notFound()</code> for unknown IDs. What happens for <code>/books/2</code>, and for the first and second requests of <code>/books/abc</code>? What happens if a teammate adds <code>export const dynamicParams = false</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>/books/2</code> serves the prerendered HTML. The first request for <code>/books/abc</code> streams the shell with status 200, then the not-found UI with a <code>noindex</code> meta tag. The result is saved, so the second request gets a 404 status. With <code>dynamicParams = false</code>, the build fails: that option isn't compatible with Cache Components.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Explain why Next.js reports a build error, rather than silently rendering on every request, when a page reads <code>params</code> outside <code>&lt;Suspense&gt;</code> and has no <code>generateStaticParams</code>. What would the user experience be without the error?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without a boundary, nothing on the page can render before the param is known, so there'd be no static shell: every navigation would wait for a full server render, with no instant feedback, and prefetching couldn't help. Older Next.js versions did this silently, and it was easy to make a whole site slow by accident. Cache Components makes the trade-off explicit: prerender (list the params), stream (Suspense), or opt in to blocking (<code>instant = false</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Build a <code>&lt;SearchBox&gt;</code> Client Component for <code>/books</code>: an input whose value is kept in <code>?q=</code>. Typing updates the URL with <code>router.replace</code> (no new history entry per key), and the server list filters by title. Where does each piece run, and why does it need <code>&lt;Suspense&gt;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/search-box.tsx" data-app="ex10">
+"use client";
+
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+export function SearchBox() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  return (
+    <input
+      placeholder="Search titles"
+      defaultValue={params.get("q") ?? ""}
+      onChange={(e) => {
+        const next = new URLSearchParams(params);
+        if (e.target.value) next.set("q", e.target.value); else next.delete("q");
+        router.replace(`${pathname}?${next}`);
+      }}
+    />
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex10">
+import { Suspense } from "react";
+import { SearchBox } from "./search-box";
+
+const titles = ["The Hobbit", "Dune", "Beloved", "Neuromancer"];
+
+export default function Books({ searchParams }: PageProps<"/books">) {
+  return (
+    <main>
+      <Suspense fallback={null}><SearchBox /></Suspense>
+      <Suspense fallback={<p>Loading…</p>}><Results searchParams={searchParams} /></Suspense>
+    </main>
+  );
+}
+
+async function Results({ searchParams }: { searchParams: Promise<{ q?: string | string[] }> }) {
+  const { q } = await searchParams;
+  const term = typeof q === "string" ? q.toLowerCase() : "";
+  return <ul>{titles.filter((t) => t.toLowerCase().includes(term)).map((t) => <li key={t}>{t}</li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex10" data-steps="fill:input=ne; wait:600">
+Dune
+Neuromancer
+</script>
+<p><code>SearchBox</code> runs in the browser (it reacts to typing); <code>Results</code> runs on the server (it filters data). Both depend on the query string, which is unknown at build time, so each needs a <code>&lt;Suspense&gt;</code> boundary. The heading and layout stay in the static shell. Chapter 6 adds debouncing so you don't send a request per key.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/linking-and-navigating">Getting Started: Linking and Navigating</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes">File conventions: Dynamic Segments</a> (including "With Cache Components")</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/generate-static-params">generateStaticParams</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/route-segment-config/dynamicParams">dynamicParams</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/route-segment-config/instant">instant</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/components/link">Components: Link</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/use-router">useRouter</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/use-search-params">useSearchParams</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/use-link-status">useLinkStatus</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/prefetching">Guide: Prefetching</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/parallel-routes">Parallel Routes</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/intercepting-routes">Intercepting Routes</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

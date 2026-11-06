@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🖼️&lt;/text&gt;&lt;/svg&gt;">
+<title>12. Images &amp; Fonts · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 12 · Styling &amp; Assets</div>
+<h1>Images &amp; Fonts</h1>
+<p class="lead">Images and fonts are usually the heaviest things on a page, and the most common cause of content jumping around while it loads. Next.js has two built-in tools for them: the <code>&lt;Image&gt;</code> component and <code>next/font</code>. This chapter follows the docs' <em>Image Optimization</em> and <em>Font Optimization</em> pages and checks, with real requests, what each one does.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What <code>&lt;Image&gt;</code> adds to <code>&lt;img&gt;</code>: sizes, formats, lazy loading and no layout shift.</li>
+  <li>Local images, statically imported images, and remote images with <code>remotePatterns</code>.</li>
+  <li><code>width</code>, <code>height</code>, <code>fill</code>, <code>sizes</code>, <code>loading</code>/<code>fetchPriority</code> and <code>placeholder</code>.</li>
+  <li>Self-hosted Google Fonts and local fonts with <code>next/font</code>.</li>
+  <li>Applying fonts with <code>className</code> or CSS variables, and with Tailwind.</li>
+</ul>
+</div>
+
+<h2 id="image">The Image component</h2>
+<p><code>&lt;Image&gt;</code> (from <code>next/image</code>) extends the HTML <code>&lt;img&gt;</code> element with:</p>
+<ul>
+  <li><strong>Size optimization</strong>: it serves an image resized for each device, in a modern format such as WebP.</li>
+  <li><strong>Visual stability</strong>: it reserves the image's space before it loads, so content doesn't jump (no <em>layout shift</em>).</li>
+  <li><strong>Faster page loads</strong>: images load only when they come into view (native lazy loading), optionally with a blurred placeholder.</li>
+  <li><strong>Asset flexibility</strong>: images are resized on demand, including images on remote servers.</li>
+</ul>
+<p>Put an image in <code>public/</code> and reference it from the site root. A local image given as a string needs <code>width</code> and <code>height</code>: the image's intrinsic size, used for the aspect ratio:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import Image from "next/image";
+
+export default function Page() {
+  return (
+    <main>
+      <h1>Dune</h1>
+      <Image src="/cover.png" alt="Cover of Dune" width={600} height={900} style={{ width: 200, height: "auto" }} />
+    </main>
+  );
+}
+</script>
+<p>Look at the <code>&lt;img&gt;</code> tag it produced:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-eval="(function () { var i = document.querySelector('img'); return ['alt=' + i.alt, 'width=' + i.getAttribute('width') + ' height=' + i.getAttribute('height'), 'loading=' + i.getAttribute('loading'), 'src=' + i.getAttribute('src'), 'srcset=' + i.getAttribute('srcset')].join('\n'); })()">
+alt=Cover of Dune
+width=600 height=900
+loading=lazy
+src=/_next/image?url=%2Fcover.png&w=1200&q=75
+srcset=/_next/image?url=%2Fcover.png&w=640&q=75 1x, /_next/image?url=%2Fcover.png&w=1200&q=75 2x
+</script>
+<p>The <code>src</code> doesn't point at <code>/cover.png</code> but at <code>/_next/image</code>, Next.js's image optimizer, with the wanted width (<code>w</code>) and quality (<code>q</code>). The <code>srcset</code> gives the browser a 1× and a 2× version to choose from, <code>width</code>/<code>height</code> reserve the space, and <code>loading="lazy"</code> delays the download until the image is near the viewport. Ask the optimizer for an image the way a browser does, and you get WebP:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "%{content_type}\n" -H "Accept: image/webp,image/png" "localhost:3000/_next/image?url=%2Fcover.png&w=640&q=75"
+image/webp
+$ curl -s -o /dev/null -w "%{size_download} bytes\n" localhost:3000/cover.png
+2794 bytes
+</script>
+<p>The optimizer resizes and converts on the first request and caches the result (in <code>.next/cache/images</code> when self-hosting). It only accepts the widths in its configuration, so it can't be used to generate arbitrary sizes.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a photo lab next to the shop. You hand in one big original photo. Each customer asks for "a print that fits my frame", and the lab makes it in the right size and the best paper for their album (format), and keeps a copy for the next customer who asks for the same size.</p>
+</div>
+
+<h3 id="static-import">Statically imported images</h3>
+<p>Import the image file instead, and Next.js reads its <code>width</code> and <code>height</code> at build time, and can generate a tiny blurred placeholder:</p>
+<script type="text/plain" class="code" data-file="app/imported/page.tsx">
+import Image from "next/image";
+import cover from "@/public/cover.png";
+
+export default function Page() {
+  return <Image src={cover} alt="Cover" placeholder="blur" style={{ width: 200, height: "auto" }} />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/imported" data-eval="(function () { var i = document.querySelector('img'); return 'width=' + i.getAttribute('width') + ' height=' + i.getAttribute('height'); })()">
+width=600 height=900
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/imported | grep -o 'background-image:url(&quot;data:image/svg+xml' | head -1
+background-image:url(&quot;data:image/svg+xml
+</script>
+<p>No <code>width</code> or <code>height</code> was written: they came from the file. <code>placeholder="blur"</code> puts a tiny blurred version (an inline SVG data URL) in the server HTML as the image's background; Next.js removes it once the real image has loaded.</p>
+
+<h3 id="remote">Remote images</h3>
+<p>For an image on another server, give the full URL. Next.js can't read remote files during the build, so you must provide <code>width</code> and <code>height</code>. And to stop anyone using your optimizer for arbitrary sites, you must allow the host in <code>next.config.ts</code> with <code>images.remotePatterns</code>. Be as specific as possible:</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="remote">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  partialPrefetching: true,
+  images: {
+    remotePatterns: [new URL("https://covers.example.com/books/**")],
+  },
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="remote">
+import Image from "next/image";
+
+export default function Page() {
+  return <Image src="https://covers.example.com/books/dune.jpg" alt="Dune" width={300} height={450} />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="remote">
+$ curl -s -o /dev/null -w "%{http_code}\n" "localhost:3000/_next/image?url=https%3A%2F%2Fevil.example.net%2Fx.jpg&w=640&q=75"
+400
+</script>
+<p>A URL that doesn't match the patterns is refused with status 400. (<code>covers.example.com</code> doesn't exist, so this example only checks the refusal.) An image with a non-allowed <code>src</code> also fails in development with a clear error naming the missing host.</p>
+
+<h3 id="props">Sizing props</h3>
+<div class="table-wrap"><table>
+<tr><th>Prop</th><th>Use</th></tr>
+<tr><td><code>width</code>, <code>height</code></td><td>The intrinsic size in pixels (for the aspect ratio), not necessarily the displayed size. Style the displayed size with CSS.</td></tr>
+<tr><td><code>fill</code></td><td>Fill the parent element instead (the parent must be <code>position: relative</code>, <code>fixed</code> or <code>absolute</code>). Use with <code>object-fit</code> in CSS.</td></tr>
+<tr><td><code>sizes</code></td><td>How wide the image is at different screen widths, e.g. <code>"(max-width: 640px) 100vw, 33vw"</code>. It lets the browser pick a smaller file. Important with <code>fill</code>.</td></tr>
+<tr><td><code>loading="eager"</code>, <code>fetchPriority="high"</code></td><td>For the main image above the fold (the "Largest Contentful Paint" image): don't lazy-load it, and download it first. (<code>preload</code> also adds a preload link; <code>priority</code> is deprecated since Next.js 16.)</td></tr>
+<tr><td><code>placeholder</code></td><td><code>"blur"</code> (with static imports or <code>blurDataURL</code>) or <code>"empty"</code>.</td></tr>
+<tr><td><code>quality</code></td><td>1–100; the allowed values are set by <code>images.qualities</code> in the config (default 75).</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <code>alt</code> is required. Describe the image for people who can't see it ("Cover of Dune"), or use <code>alt=""</code> for purely decorative images.</p>
+</div>
+
+<h2 id="fonts">Fonts with next/font</h2>
+<p><code>next/font</code> loads web fonts with no layout shift and no requests to a third party. It <strong>self-hosts</strong> every font: the font files are downloaded at build time and served from your own domain, so a visitor's browser never contacts Google. It also generates a size-adjusted fallback font, so text doesn't jump when the web font arrives.</p>
+<h3 id="google">Google Fonts</h3>
+<p>Import a font from <code>next/font/google</code> and call it at module level. Variable fonts, which contain all weights in one file, are recommended; otherwise pass the <code>weight</code>s you need. Apply it with its <code>className</code>:</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="fonts">
+import { Geist } from "next/font/google";
+
+const geist = Geist({
+  subsets: ["latin"],
+});
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en" className={geist.className}>
+      <body>{children}</body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="fonts">
+export default function Page() {
+  return <p>Set in Geist, served from this site.</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="fonts" data-eval="getComputedStyle(document.querySelector('p')).fontFamily">
+Geist, "Geist Fallback"
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="fonts">
+$ curl -s localhost:3000/ | grep -c "fonts.googleapis.com\|fonts.gstatic.com"
+0
+$ cat .next/static/chunks/*.css | grep -o "src:url([^)]*woff2)" | head -1
+src:url(../media/….woff2)
+</script>
+<p>The page uses the family <code>Geist</code> with an automatic <code>"Geist Fallback"</code>, the HTML contains no link to Google's servers, and the generated <code>@font-face</code> rule loads the font file from your own <code>/_next/static/media/</code> folder. Fonts are scoped to where you apply them; put them in the root layout to cover the whole app.</p>
+
+<h3 id="variables">CSS variables and Tailwind</h3>
+<p>Instead of <code>className</code>, the <code>variable</code> option exposes the font as a CSS variable. This is how <code>create-next-app</code> does it (Chapter 2): the layout adds <code>geistSans.variable</code> to <code>&lt;html&gt;</code>, and <code>globals.css</code> maps it into Tailwind's theme with <code>--font-sans: var(--font-geist-sans)</code>, so the <code>font-sans</code> utility uses Geist. Use this when you need several fonts (one for headings, one for code).</p>
+
+<h3 id="local">Local fonts</h3>
+<p>For a font file you have (a licensed brand font, say), use <code>next/font/local</code>. The <code>src</code> path is relative to the file that calls it. Several files for one family go in an array:</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-norun>
+import localFont from "next/font/local";
+
+const brand = localFont({
+  src: [
+    { path: "./fonts/Brand-Regular.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/Brand-Bold.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-brand",
+});
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A responsive cover with fill and sizes.</strong> Cards in a grid don't have a fixed pixel width, so let the image fill its box and tell the browser how wide the box is:</p>
+<script type="text/plain" class="code" data-file="app/grid/page.tsx">
+import Image from "next/image";
+
+export default function Page() {
+  return (
+    <div style={{ position: "relative", width: 300, aspectRatio: "2 / 3" }}>
+      <Image src="/cover.png" alt="Cover" fill sizes="(max-width: 640px) 50vw, 300px" style={{ objectFit: "cover" }} />
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/grid" data-eval="(function () { var i = document.querySelector('img'); return 'sizes=' + i.getAttribute('sizes') + '\ncandidates=' + i.getAttribute('srcset').split(', ').length + '\nrendered ' + i.clientWidth + 'x' + i.clientHeight; })()">
+sizes=(max-width: 640px) 50vw, 300px
+candidates=…
+rendered 300x450
+</script>
+<p>With <code>sizes</code>, the <code>srcset</code> lists widths (<code>640w</code>, <code>750w</code>…) instead of 1×/2×, and the browser downloads the smallest file that's big enough for the box.</p>
+
+<p><strong>The hero image.</strong> For the big image at the top of a page, turn lazy loading off and raise its priority. Older code uses <code>priority</code>, deprecated since Next.js 16; the docs recommend <code>loading="eager"</code> or <code>fetchPriority="high"</code> in most cases:</p>
+<script type="text/plain" class="code" data-file="app/hero/page.tsx">
+import Image from "next/image";
+
+export default function Page() {
+  return <Image src="/cover.png" alt="Featured book" width={600} height={900} loading="eager" fetchPriority="high" />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/hero" data-eval="'loading=' + document.querySelector('img').getAttribute('loading') + ' fetchpriority=' + document.querySelector('img').getAttribute('fetchpriority')">
+loading=eager fetchpriority=high
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>&lt;Image&gt;</code> serves resized, modern-format images through <code>/_next/image</code>, lazy-loads them and reserves their space.</li>
+  <li>Local string paths need <code>width</code>/<code>height</code>; static imports provide them and a blur placeholder.</li>
+  <li>Remote images need <code>width</code>/<code>height</code> and an allow-list in <code>images.remotePatterns</code>; other hosts get a 400.</li>
+  <li>Use <code>fill</code> + <code>sizes</code> for responsive boxes, and <code>loading="eager"</code>/<code>fetchPriority="high"</code> for the main image above the fold. Always write <code>alt</code>.</li>
+  <li><code>next/font</code> self-hosts Google and local fonts, adds a fallback to avoid layout shift, and never contacts Google from the browser.</li>
+  <li>Apply fonts with <code>className</code>, or with <code>variable</code> + CSS/Tailwind for several fonts.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Name four things <code>&lt;Image&gt;</code> does that a plain <code>&lt;img&gt;</code> doesn't.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Serves correctly sized images per device (via <code>srcset</code>), converts to modern formats like WebP, prevents layout shift by reserving space, lazy-loads by default (with optional blur placeholders), and resizes remote images on demand.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">which props?</span></h3>
+<p>Which props are required for (a) <code>src="/logo.png"</code>, (b) <code>src={logo}</code> from <code>import logo from "./logo.png"</code>, (c) <code>src="https://cdn.example.com/a.jpg"</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>All need <code>alt</code>. (a) <code>width</code> and <code>height</code> (or <code>fill</code>). (b) Nothing else: the size comes from the import. (c) <code>width</code> and <code>height</code> (or <code>fill</code>), plus a matching <code>remotePatterns</code> entry in the config.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) With <code>next/font/google</code>, visitors' browsers download the font from Google. (2) <code>width</code> sets the displayed width. (3) Images are lazy-loaded by default. (4) Any remote host can be used with <code>&lt;Image&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: fonts are self-hosted. (2) False: it's the intrinsic size for the aspect ratio; CSS sets the displayed size. (3) True. (4) False: only hosts in <code>remotePatterns</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">alt text</span></h3>
+<p>Write good <code>alt</code> text for: (a) a book cover on its detail page, (b) a decorative background swirl, (c) a chart showing books read per month.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>"Cover of Dune by Frank Herbert"</code>. (b) <code>""</code> (decorative, so screen readers skip it). (c) A short summary of what the chart shows, e.g. <code>"Bar chart: 3 books read in January, 5 in February, 2 in March"</code>, or describe it in nearby text.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Give each book in the playground a <code>cover</code> field (a path in <code>public/covers/</code>), and show it on the detail page with <code>&lt;Image&gt;</code> (200&nbsp;px wide, <code>fetchPriority="high"</code>) and as a 64&nbsp;px thumbnail in the list. Use the book title in the <code>alt</code> text.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import Image from "next/image";
+
+const book = { id: "2", title: "Dune", author: "Frank Herbert", cover: "/cover.png" };
+
+export function generateStaticParams() {
+  return [{ id: "2" }];
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  await params;
+  return (
+    <article>
+      <Image src={book.cover} alt={`Cover of ${book.title} by ${book.author}`} width={600} height={900}
+        style={{ width: 200, height: "auto" }} loading="eager" fetchPriority="high" />
+      <h1>{book.title}</h1>
+    </article>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-app="ex5" data-eval="document.querySelector('img').alt + ' | ' + document.querySelector('img').clientWidth + 'px'">
+Cover of Dune by Frank Herbert | 200px
+</script>
+<p>In the list, use <code>width={600} height={900} style={{ width: 64, height: "auto" }}</code> and leave the default lazy loading.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">config</span></h3>
+<p>Your covers come from <code>https://images.openlibrary.example/covers/*</code> and avatars from <code>https://avatars.example.com/u/*</code>. Write the <code>images.remotePatterns</code> config, as specific as possible.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="next.config.ts" data-norun>
+images: {
+  remotePatterns: [
+    new URL("https://images.openlibrary.example/covers/**"),
+    { protocol: "https", hostname: "avatars.example.com", pathname: "/u/**" },
+  ],
+},
+</script>
+<p>Both forms are accepted. Avoid patterns like <code>{ hostname: "**" }</code>, which would let anyone use your server to optimize any image on the internet.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">fonts</span></h3>
+<p>Use two Google fonts in the playground: <code>Geist</code> for text and <code>Geist_Mono</code> for ISBN numbers. Expose both as CSS variables and use Tailwind's <code>font-mono</code> for ISBNs.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>That's exactly the <code>create-next-app</code> setup from Chapter 2: call <code>Geist({ variable: "--font-geist-sans", subsets: ["latin"] })</code> and <code>Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })</code>, add both <code>.variable</code> class names to <code>&lt;html&gt;</code>, and in <code>globals.css</code> map <code>--font-sans: var(--font-geist-sans)</code> and <code>--font-mono: var(--font-geist-mono)</code> inside <code>@theme inline</code>. Then write <code>&lt;span className="font-mono"&gt;{book.isbn}&lt;/span&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">investigate</span></h3>
+<p>Open the playground's book list in Chrome DevTools, Network tab, filtered to "Img", and scroll slowly. When are covers downloaded? What format and size are they?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only covers near the viewport are downloaded at first; others load as you scroll (lazy loading). Each request goes to <code>/_next/image?url=…&amp;w=…&amp;q=75</code>, and the response type is <code>image/webp</code> (or AVIF if enabled). The <code>w</code> depends on the displayed size and your screen's pixel density.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does Next.js refuse <code>/_next/image</code> requests for hosts not in <code>remotePatterns</code>, and widths not in its configuration? What could an attacker do otherwise?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Image optimization costs CPU, memory and storage. Without an allow-list, anyone could use your server as a free image-resizing service for any site (costing you money), and as a proxy to fetch arbitrary URLs from your server's network. Without fixed widths, an attacker could request thousands of unique sizes to fill your image cache and exhaust resources.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">layout shift</span></h3>
+<p>A page shows a grid of covers with plain <code>&lt;img src&gt;</code> tags and a font from a <code>&lt;link&gt;</code> to Google Fonts. Users complain that "everything jumps" while loading. Explain both causes and how <code>&lt;Image&gt;</code> and <code>next/font</code> fix them.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Images without dimensions take no space until they load, then push content down. <code>&lt;Image&gt;</code> always has a width and height (or <code>fill</code> in a sized box), so the space is reserved. The web font arrives after the text is drawn in a fallback font with different metrics, so lines re-wrap. <code>next/font</code> preloads the self-hosted file and generates a fallback font adjusted to the same size, so the swap barely moves anything.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/images">Getting Started: Image Optimization</a> · <a href="https://nextjs.org/docs/app/api-reference/components/image">Components: Image</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started/fonts">Getting Started: Font Optimization</a> · <a href="https://nextjs.org/docs/app/api-reference/components/font">Components: Font</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/public-folder">File conventions: public</a></li>
+  <li><a href="https://web.dev/articles/cls">web.dev: Cumulative Layout Shift</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

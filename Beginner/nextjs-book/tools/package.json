@@ -1,0 +1,29 @@
+{
+  "name": "nextjs-book-tools",
+  "private": true,
+  "type": "module",
+  "description": "Pinned Next.js toolchain used by the checkers (same versions create-next-app 16.4.5 installs). Run `npm install` here once.",
+  "dependencies": {
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1",
+    "@tailwindcss/turbopack": "^4",
+    "@testing-library/dom": "^10",
+    "@testing-library/react": "^16",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "jose": "^6.2.15",
+    "jsdom": "^26",
+    "server-only": "^0.0.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3",
+    "zod": "^4"
+  }
+}

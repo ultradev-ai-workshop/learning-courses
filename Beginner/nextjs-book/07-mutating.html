@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;✍️&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Mutating Data: Server Actions &amp; Forms · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Rendering &amp; Data</div>
+<h1>Mutating Data: Server Actions &amp; Forms</h1>
+<p class="lead">Reading data is half of an app; the other half is changing it. In a classic React app you'd write an API endpoint and call it with <code>fetch</code>. In Next.js you write a <strong>Server Function</strong>: an <code>async</code> function marked <code>"use server"</code> that the browser can call. This chapter follows the docs' <em>Mutating Data</em> page and the <em>Forms</em> guide: creating Server Functions, calling them from forms and event handlers, validation, pending states, refreshing and redirecting, cookies, and the security rule you must never forget.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What Server Functions and Server Actions are, and how they're called (a <code>POST</code> request).</li>
+  <li>Defining them inline in a Server Component, or in a <code>"use server"</code> file for Client Components.</li>
+  <li>Forms with <code>action</code>, progressive enhancement, and <code>FormData</code>.</li>
+  <li>Validation errors and pending UI with <code>useActionState</code> and <code>useFormStatus</code>.</li>
+  <li>Calling a Server Function from an event handler.</li>
+  <li>Updating the UI after a change: <code>revalidatePath</code>, <code>refresh</code>, <code>redirect</code>; and setting cookies.</li>
+  <li>Why every Server Function must check its input and the user's permissions.</li>
+</ul>
+</div>
+
+<h2 id="what">What are Server Functions?</h2>
+<p>A <strong>Server Function</strong> is an asynchronous function that runs on the server and can be called from the client through a network request. When it's used to handle a form submission or another mutation, it's also called a <strong>Server Action</strong>. Server Function is the broader term; you'll see both in the docs.</p>
+<ul>
+  <li>You mark one with the <code>"use server"</code> directive: at the top of the function body, or at the top of a file to mark all its exports.</li>
+  <li>Calling it from the browser sends a <code>POST</code> request to the current page. Next.js routes it to your function, and can send back the updated UI and data in the same response.</li>
+  <li>When passed to a form's <code>action</code> (or a button's <code>formAction</code>), it runs inside a React <em>transition</em> automatically.</li>
+</ul>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a Server Function is a <em>letterbox in the server's door</em>. The browser doesn't need to know the address of an API or the shape of a request: it drops a form in the slot (calls the function), and the server reads it inside. But anyone walking past can post a letter into that slot too, which is why the function must check every letter it receives.</p>
+</div>
+
+<p>The examples in this chapter use an in-memory "database": a module that keeps a list in a variable. It lives as long as the server process, which is enough for learning here. It isn't a real database, though: every server instance has its own copy, and a module isn't guaranteed to be shared between different routes (Chapter 9 runs into this with a Route Handler and switches to a JSON file). Real apps use a database.</p>
+<script type="text/plain" class="code" data-file="lib/store.ts">
+export type Book = { id: number; title: string };
+
+const books: Book[] = [{ id: 1, title: "The Hobbit" }];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function listBooks(): Promise<Book[]> {
+  await sleep(50);                    // a real query takes time: this is uncached data
+  return [...books];
+}
+
+export async function addBook(title: string): Promise<Book> {
+  await sleep(50);
+  const book = { id: books.length + 1, title };
+  books.push(book);
+  return book;
+}
+</script>
+
+<h2 id="inline">Inline Server Actions in a Server Component</h2>
+<p>In a Server Component, define the action right next to the form that uses it. Add <code>"use server"</code> as the first line of its body. When a form calls an action, the action receives the form's fields as a <a href="https://developer.mozilla.org/en-US/docs/Web/API/FormData"><code>FormData</code></a> object:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import { Suspense } from "react";
+import { revalidatePath } from "next/cache";
+import { addBook, listBooks } from "@/lib/store";
+
+async function BookList() {
+  const books = await listBooks();
+  return <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>;
+}
+
+export default function Page() {
+  async function createBook(formData: FormData) {
+    "use server";
+    const title = String(formData.get("title") ?? "").trim();
+    if (!title) return;
+    await addBook(title);
+    revalidatePath("/");              // re-render this page with the new data
+  }
+
+  return (
+    <main>
+      <h1>Reading list</h1>
+      <Suspense fallback={<p>Loading…</p>}>
+        <BookList />
+      </Suspense>
+      <form action={createBook}>
+        <input name="title" placeholder="Title" />
+        <button type="submit">Add</button>
+      </form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-steps="fill:input[name=title]=Dune; click:button[type=submit]; wait:600">
+Reading list
+The Hobbit
+Dune
+Add
+</script>
+<p>Type "Dune", press <em>Add</em>, and the list updates without a page reload. Behind the scenes:</p>
+<ol>
+  <li>React sends a <code>POST</code> to <code>/</code> with the form data and an ID that identifies <code>createBook</code>.</li>
+  <li>Next.js runs <code>createBook</code> on the server.</li>
+  <li><code>revalidatePath("/")</code> tells Next.js that the page's data changed, so the response includes the re-rendered page (Chapter 9 explains revalidation in full).</li>
+  <li>React merges the new UI into the page, keeping client state such as focus and scroll position.</li>
+</ol>
+
+<h3 id="progressive">Progressive enhancement</h3>
+<p>A form whose <code>action</code> is a Server Action works <strong>before JavaScript has loaded, or with it switched off</strong>. The browser then does a normal HTML form submission (a <code>POST</code> with the fields and a hidden <code>$ACTION_ID_…</code> input that Next.js adds), and the server runs the action. Here the form is submitted with JavaScript disabled in Chrome:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-nojs>
+Reading list
+Loading…
+Add
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-nojs data-steps="fill:input[name=title]=Beloved; click:button[type=submit]; wait:800" data-eval="'submitted, now at ' + location.pathname">
+submitted, now at /
+</script>
+<p>The first block is the page with JavaScript off: the form is there, but the list shows its fallback (see the note below). The second block typed "Beloved" and pressed <em>Add</em>: the browser posted the form like any HTML form and got the page back. Loading the page again, now with JavaScript on, shows that the server ran the action and saved the book. ("Dune" is still there from the previous example: it's the same running server.)</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+Reading list
+The Hobbit
+Dune
+Beloved
+Add
+</script>
+<div class="note">
+<p>📝 Why "Loading…"? Streamed <code>&lt;Suspense&gt;</code> content arrives in the HTML, but a small inline script swaps it in. The form keeps working without JavaScript, but content inside boundaries needs it. Content that must be visible without JavaScript belongs in the static shell, for example cached with <code>"use cache"</code> (Chapter 8).</p>
+</div>
+<p>In Client Components, submissions made before hydration are queued and sent once React is ready.</p>
+
+<h2 id="file">Server Functions in their own file</h2>
+<p>Client Components can't <em>define</em> Server Functions, but they can <em>import</em> them from a file that starts with <code>"use server"</code>. Every export of that file becomes a Server Function. This is the usual structure in real apps: one <code>actions.ts</code> per feature.</p>
+<script type="text/plain" class="code" data-file="app/likes/actions.ts">
+"use server";
+
+let likes = 10;
+
+export async function incrementLike(): Promise<number> {
+  likes += 1;
+  return likes;
+}
+</script>
+<h3 id="event-handlers">Calling one from an event handler</h3>
+<p>A Server Function is just an <code>async</code> function to the client: call it in <code>onClick</code> and use what it returns:</p>
+<script type="text/plain" class="code" data-file="app/likes/like-button.tsx">
+"use client";
+
+import { useState } from "react";
+import { incrementLike } from "./actions";
+
+export default function LikeButton({ initialLikes }: { initialLikes: number }) {
+  const [likes, setLikes] = useState(initialLikes);
+  return (
+    <>
+      <p>Total Likes: {likes}</p>
+      <button
+        onClick={async () => {
+          const updatedLikes = await incrementLike();
+          setLikes(updatedLikes);
+        }}
+      >
+        Like
+      </button>
+    </>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/likes/page.tsx">
+import LikeButton from "./like-button";
+
+export default function Page() {
+  return <LikeButton initialLikes={10} />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/likes" data-steps="click:button; wait:300; click:button; wait:300">
+Total Likes: 12
+Like
+</script>
+<div class="note">
+<p>📝 Server Functions are designed for mutations. The client sends them <strong>one at a time</strong>, in order, so don't use them to load data in parallel (use Server Components for reading, Chapter 6).</p>
+</div>
+
+<h3 id="as-props">Passing actions as props</h3>
+<p>A Server Function is one of the few kinds of function that <em>can</em> cross the server/client boundary (Chapter 5). A Server Component can pass it to a Client Component as a prop:</p>
+<script type="text/plain" class="code" data-lang="text" data-title="pattern" data-norun>
+// page.tsx (server)
+<RenameForm renameAction={renameBook} />
+
+// rename-form.tsx (client)
+export function RenameForm({ renameAction }: { renameAction: (formData: FormData) => Promise<void> }) {
+  return <form action={renameAction}>…</form>;
+}
+</script>
+
+<h2 id="validation">Validation and pending state: useActionState</h2>
+<p>Real forms need to tell the user what went wrong and show that something is happening. React's <strong><code>useActionState</code></strong> hook wraps an action and gives you three things: the last <strong>state</strong> the action returned, a wrapped <strong>action</strong> to pass to the form, and a <strong>pending</strong> flag.</p>
+<p>The action's signature changes: it receives the <em>previous state</em> first, then the <code>FormData</code>, and returns the next state. The docs' Forms guide validates with <a href="https://zod.dev/">Zod</a>, a schema library:</p>
+<script type="text/plain" class="code" data-file="app/signup/actions.ts">
+"use server";
+
+import { z } from "zod";
+
+const schema = z.object({
+  email: z.email({ error: "Enter a valid email address." }),
+  name: z.string().trim().min(2, { error: "Name must be at least 2 characters." }),
+});
+
+export type SignupState = { ok: boolean; errors?: { email?: string[]; name?: string[] }; message?: string };
+
+export async function signup(_prev: SignupState, formData: FormData): Promise<SignupState> {
+  const parsed = schema.safeParse({ email: formData.get("email"), name: formData.get("name") });
+  if (!parsed.success) {
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  }
+  // …save the user here…
+  return { ok: true, message: `Welcome, ${parsed.data.name}!` };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/signup/form.tsx">
+"use client";
+
+import { useActionState } from "react";
+import { signup, type SignupState } from "./actions";
+
+const initialState: SignupState = { ok: false };
+
+export function SignupForm() {
+  const [state, formAction, pending] = useActionState(signup, initialState);
+  return (
+    <form action={formAction}>
+      <input name="email" placeholder="Email" />
+      {state.errors?.email && <p role="alert">{state.errors.email[0]}</p>}
+      <input name="name" placeholder="Name" />
+      {state.errors?.name && <p role="alert">{state.errors.name[0]}</p>}
+      <button disabled={pending}>{pending ? "Signing up…" : "Sign up"}</button>
+      {state.message && <p>{state.message}</p>}
+    </form>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/signup/page.tsx">
+import { SignupForm } from "./form";
+
+export default function Page() {
+  return <SignupForm />;
+}
+</script>
+<p>Submitting bad values returns the field errors:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/signup" data-steps="fill:input[name=email]=not-an-email; fill:input[name=name]=A; click:button; wait:500">
+Enter a valid email address.
+Name must be at least 2 characters.
+Sign up
+</script>
+<p>Correct values return the success message:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/signup" data-steps="fill:input[name=email]=ada@example.com; fill:input[name=name]=Ada; click:button; wait:500">
+Sign up
+Welcome, Ada!
+</script>
+<p>Validation runs <strong>on the server</strong>, where it can't be bypassed. You can add HTML attributes like <code>required</code> or <code>type="email"</code> for instant feedback in the browser, but never rely on them alone.</p>
+<div class="tip">
+<p>💡 <strong><code>useFormStatus</code></strong> (from <code>react-dom</code>) gives the pending state of the <em>parent form</em> to any component inside it, which is handy for a reusable <code>&lt;SubmitButton&gt;</code>:</p>
+<script type="text/plain" class="code" data-file="app/ui/submit-button.tsx" data-norun>
+"use client";
+
+import { useFormStatus } from "react-dom";
+
+export function SubmitButton({ label }: { label: string }) {
+  const { pending } = useFormStatus();
+  return <button type="submit" disabled={pending}>{pending ? "Saving…" : label}</button>;
+}
+</script>
+</div>
+
+<h2 id="after">After a mutation: refresh, revalidate, redirect</h2>
+<p>A Server Action usually ends by making the UI show the new data. There are three tools, all called inside the action:</p>
+<div class="table-wrap"><table>
+<tr><th>Call</th><th>From</th><th>Effect</th></tr>
+<tr><td><code>refresh()</code></td><td><code>next/cache</code></td><td>Re-renders the current page on the server and updates the client. Doesn't touch cached data.</td></tr>
+<tr><td><code>revalidatePath("/books")</code></td><td><code>next/cache</code></td><td>Marks a path's cached data and pages as stale, so they're rebuilt, and refreshes the UI.</td></tr>
+<tr><td><code>updateTag("books")</code>, <code>revalidateTag(…)</code></td><td><code>next/cache</code></td><td>Expire cached data by tag: precise invalidation (Chapter 9).</td></tr>
+<tr><td><code>redirect("/books")</code></td><td><code>next/navigation</code></td><td>Sends the user to another page. It throws, so code after it never runs: revalidate <em>before</em> redirecting.</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="app/new/page.tsx">
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { addBook } from "@/lib/store";
+
+export default function NewBookPage() {
+  async function create(formData: FormData) {
+    "use server";
+    const book = await addBook(String(formData.get("title")));
+    revalidatePath("/");
+    redirect(`/?added=${book.id}`);
+  }
+  return (
+    <form action={create}>
+      <input name="title" defaultValue="Neuromancer" />
+      <button>Create and go back</button>
+    </form>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/new" data-steps="click:button; wait:800" data-eval="location.pathname + location.search + '\n' + document.body.innerText">
+/?added=4
+Reading list
+The Hobbit
+Dune
+Beloved
+Neuromancer
+Add
+</script>
+<p>After the action ran, the browser was on <code>/?added=4</code>, showing the updated list.</p>
+
+<h2 id="cookies">Cookies in Server Actions</h2>
+<p>The <code>cookies()</code> function from <code>next/headers</code> can read, set and delete cookies in a Server Action. When an action sets or deletes a cookie, Next.js re-renders the current page and its layouts, so the UI reflects the new value. A theme switch:</p>
+<script type="text/plain" class="code" data-file="app/theme/page.tsx">
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+
+async function CurrentTheme() {
+  const theme = (await cookies()).get("theme")?.value ?? "light";
+  return <p>Current theme: {theme}</p>;
+}
+
+export default function ThemePage() {
+  async function setTheme(formData: FormData) {
+    "use server";
+    (await cookies()).set("theme", String(formData.get("theme")));
+  }
+  return (
+    <main>
+      <Suspense fallback={<p>…</p>}>
+        <CurrentTheme />
+      </Suspense>
+      <form action={setTheme}>
+        <button name="theme" value="dark">Dark</button>{" "}
+        <button name="theme" value="light">Light</button>
+      </form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/theme" data-steps="click:button[value=dark]; wait:600">
+Current theme: dark
+Dark Light
+</script>
+<p>Reading <code>cookies()</code> is <strong>runtime data</strong>: it depends on the request, so it needs a <code>&lt;Suspense&gt;</code> boundary just like <code>params</code> and uncached fetches. The clicked button's <code>name</code>/<code>value</code> pair is included in the form data, which is a neat way to have several actions in one form.</p>
+
+<h2 id="security">Security: Server Functions are public endpoints</h2>
+<div class="pitfall">
+<p>⚠️ <strong>The most important rule in this chapter.</strong> A Server Function can be called by <em>anyone</em> who sends the right <code>POST</code> request, not only through your form. Hiding the button doesn't protect the action. Inside <strong>every</strong> Server Function:</p>
+<ol>
+  <li><strong>Authenticate</strong>: is there a logged-in user?</li>
+  <li><strong>Authorize</strong>: is this user allowed to change <em>this</em> record?</li>
+  <li><strong>Validate</strong> all input: <code>FormData</code> values are untrusted strings (or files).</li>
+</ol>
+</div>
+<p>The docs' examples all start like this:</p>
+<script type="text/plain" class="code" data-file="app/lib/actions.ts" data-norun>
+"use server";
+
+import { auth } from "@/lib/auth";
+
+export async function deletePost(formData: FormData) {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error("Unauthorized");
+  }
+  const id = formData.get("id");
+  // Verify the user owns this resource before deleting
+  // Mutate data
+  // Revalidate cache
+}
+</script>
+<p>Next.js adds some protections of its own: actions only accept <code>POST</code>, the request's <code>Origin</code> must match the host (against cross-site request forgery), and unused actions are removed from the build and get unguessable IDs. But only your code can know who may do what. Chapter 16 adds sessions and a data access layer.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Optimistic updates with useOptimistic.</strong> For actions that almost always succeed, show the result before the server confirms it. React's <code>useOptimistic</code> holds a temporary value that's replaced by the real one when the action finishes:</p>
+<script type="text/plain" class="code" data-file="app/todo/actions.ts">
+"use server";
+
+const items: string[] = ["Read Dune"];
+
+export async function getItems() { return [...items]; }
+
+export async function addItem(formData: FormData) {
+  await new Promise((r) => setTimeout(r, 800));        // a slow server
+  items.push(String(formData.get("item")));
+}
+</script>
+<script type="text/plain" class="code" data-file="app/todo/list.tsx">
+"use client";
+
+import { useOptimistic, useState } from "react";
+import { addItem } from "./actions";
+
+export function TodoList({ initial }: { initial: string[] }) {
+  const [items, setItems] = useState(initial);
+  const [optimistic, addOptimistic] = useOptimistic(items, (state, item: string) => [...state, item + " (saving…)"]);
+  return (
+    <form action={async (formData) => {
+      const item = String(formData.get("item"));
+      addOptimistic(item);
+      await addItem(formData);
+      setItems((prev) => [...prev, item]);
+    }}>
+      <ul>{optimistic.map((i) => <li key={i}>{i}</li>)}</ul>
+      <input name="item" />
+      <button>Add</button>
+    </form>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/todo/page.tsx">
+import { TodoList } from "./list";
+import { getItems } from "./actions";
+
+export default async function Page() {
+  return <TodoList initial={await getItems()} />;
+}
+</script>
+<p>Right after clicking (200 ms in), the new item shows with "(saving…)". After the server finishes, it's a normal item:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/todo" data-steps="fill:input[name=item]=Read Beloved; tap:button; wait:200">
+Read Dune
+Read Beloved (saving…)
+Add
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/todo" data-steps="fill:input[name=item]=Read Beloved; click:button; wait:1500">
+Read Dune
+Read Beloved
+Add
+</script>
+<p>One catch: <code>getItems()</code> returns without real I/O, so this page was prerendered at build time with only "Read Dune", and the list after a save lives in client state. Reload the page and it shows "Read Dune" again, although the server has saved more items. A real app would read the list inside <code>&lt;Suspense&gt;</code> (like the first example) or cache it and revalidate (Chapters 8–9).</p>
+
+<p><strong>A delete button per row with a hidden input.</strong> Use a hidden field (or <code>.bind</code>) to pass the record's ID to the action:</p>
+<script type="text/plain" class="code" data-file="app/delete/page.tsx" data-app="delete">
+import { Suspense } from "react";
+import { revalidatePath } from "next/cache";
+
+const rows = new Map([["1", "The Hobbit"], ["2", "Dune"], ["3", "Beloved"]]);
+
+async function Rows() {
+  await new Promise((r) => setTimeout(r, 20));
+  async function remove(id: string) {
+    "use server";
+    rows.delete(id);
+    revalidatePath("/delete");
+  }
+  return (
+    <ul>
+      {[...rows].map(([id, title]) => (
+        <li key={id}>
+          {title} <form action={remove.bind(null, id)} style={{ display: "inline" }}><button>Delete</button></form>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export default function Page() {
+  return <Suspense fallback={<p>…</p>}><Rows /></Suspense>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/delete" data-app="delete" data-steps="click:li:nth-of-type(2) button; wait:600">
+The Hobbit Delete
+Beloved Delete
+</script>
+<p><code>remove.bind(null, id)</code> creates a new Server Action with <code>id</code> as its first argument; the form's <code>FormData</code> would come second. Bound arguments are serialized into the page, so the user can see (and change) them: the action must still check that the user may delete that ID.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A Server Function is an <code>async</code> function marked <code>"use server"</code>; called from the client, it runs on the server via a <code>POST</code> request. Used for mutations, it's a Server Action.</li>
+  <li>Define actions inline in Server Components, or in a <code>"use server"</code> file to import them into Client Components; they can also be passed as props.</li>
+  <li><code>&lt;form action={action}&gt;</code> passes <code>FormData</code> and works without JavaScript (progressive enhancement).</li>
+  <li><code>useActionState</code> gives returned state (errors, messages) and a pending flag; <code>useFormStatus</code> and <code>useOptimistic</code> help with feedback.</li>
+  <li>After a change, call <code>revalidatePath</code>/<code>updateTag</code> or <code>refresh()</code>; <code>redirect()</code> throws, so call it last.</li>
+  <li>Always authenticate, authorize and validate inside every Server Function: they're public endpoints.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">definitions</span></h3>
+<p>What's the difference between a Server Function and a Server Action? Which HTTP method calls them?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A Server Function is any <code>async</code> function marked <code>"use server"</code> that the client can call. A Server Action is a Server Function used for a mutation, typically passed to a form's <code>action</code> or a button's <code>formAction</code> (it then runs in a transition). Both are invoked with <code>POST</code>, and only <code>POST</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">where does "use server" go?</span></h3>
+<p>Where do you put <code>"use server"</code> (a) for an action defined inside a Server Component, (b) for actions a Client Component imports? Can you define a Server Function inside a Client Component?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) As the first statement of the function body. (b) As the first line of a separate file; every export becomes a Server Function. You can't define one inside a Client Component, only import it or receive it as a prop.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What does this log, and why? <code>revalidatePath("/"); redirect("/"); console.log("done");</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p>Nothing: <code>redirect()</code> throws a special exception that Next.js catches to perform the redirect, so <code>console.log</code> never runs. That's why you revalidate before redirecting. (Don't wrap <code>redirect</code> in a <code>try/catch</code> that swallows errors, or the redirect won't happen.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) A form with a Server Action needs JavaScript to submit. (2) Hiding a "Delete" button for non-admins secures the delete action. (3) <code>useActionState</code>'s action receives the previous state as its first argument. (4) Server Functions are a good way to load data for a page.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: it works without JS. (2) False: the action can be called directly; check permissions inside it. (3) True. (4) False: they're dispatched one at a time and meant for mutations; read data in Server Components.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add an "Add a book" form to the playground's <code>/books</code> page: fields <code>title</code>, <code>author</code> and <code>year</code>. Put the action in <code>app/books/actions.ts</code>. It should validate (title and author required, year a whole number between 1450 and 2100), add the book to the in-memory list, and call <code>revalidatePath("/books")</code>. Show errors with <code>useActionState</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+export type Book = { id: string; title: string; author: string; year: number };
+
+const books: Book[] = [{ id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 }];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function getBooks() { await sleep(50); return [...books]; }
+export async function createBook(data: Omit<Book, "id">) {
+  await sleep(50);
+  const book = { ...data, id: String(books.length + 1) };
+  books.push(book);
+  return book;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/actions.ts" data-app="ex5">
+"use server";
+
+import { z } from "zod";
+import { revalidatePath } from "next/cache";
+import { createBook } from "@/lib/books";
+
+const BookInput = z.object({
+  title: z.string().trim().min(1, { error: "Title is required." }),
+  author: z.string().trim().min(1, { error: "Author is required." }),
+  year: z.coerce.number().int().min(1450).max(2100, { error: "Year must be between 1450 and 2100." }),
+});
+
+export type AddBookState = { errors?: Partial<Record<"title" | "author" | "year", string[]>>; message?: string };
+
+export async function addBook(_prev: AddBookState, formData: FormData): Promise<AddBookState> {
+  const parsed = BookInput.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { errors: z.flattenError(parsed.error).fieldErrors };
+  const book = await createBook(parsed.data);
+  revalidatePath("/books");
+  return { message: `Added “${book.title}”.` };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/add-book-form.tsx" data-app="ex5">
+"use client";
+
+import { useActionState } from "react";
+import { addBook, type AddBookState } from "./actions";
+
+export function AddBookForm() {
+  const [state, action, pending] = useActionState(addBook, {} as AddBookState);
+  const err = (f: "title" | "author" | "year") => state.errors?.[f]?.[0];
+  return (
+    <form action={action}>
+      <p><input name="title" placeholder="Title" /> {err("title")}</p>
+      <p><input name="author" placeholder="Author" /> {err("author")}</p>
+      <p><input name="year" placeholder="Year" /> {err("year")}</p>
+      <button disabled={pending}>Add book</button>
+      <p>{state.message}</p>
+    </form>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex5">
+import { Suspense } from "react";
+import { getBooks } from "@/lib/books";
+import { AddBookForm } from "./add-book-form";
+
+async function List() {
+  const books = await getBooks();
+  return <ul>{books.map((b) => <li key={b.id}>{b.title} ({b.year})</li>)}</ul>;
+}
+
+export default function BooksPage() {
+  return (
+    <main>
+      <Suspense fallback={<p>Loading…</p>}><List /></Suspense>
+      <AddBookForm />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex5" data-steps="fill:input[name=title]=Dune; fill:input[name=year]=65000; click:button; wait:500">
+The Hobbit (1937)
+Author is required.
+Year must be between 1450 and 2100.
+Add book
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex5" data-steps="fill:input[name=title]=Dune; fill:input[name=author]=Frank Herbert; fill:input[name=year]=1965; click:button; wait:600">
+The Hobbit (1937)
+Dune (1965)
+Add book
+Added “Dune”.
+</script>
+<p><code>z.coerce.number()</code> turns the form's string into a number before checking it. Chapter 9 replaces <code>revalidatePath</code> with tags once the book list is cached.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">bind</span></h3>
+<p>Write a Server Component that lists books with a "Mark as read" button per book. Pass the book's ID to the action with <code>.bind</code>, not a hidden input. What must the action still check?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-norun>
+async function markRead(id: string) {
+  "use server";
+  // 1. who is the user?  2. is `id` one of *their* books?  3. is `id` a valid ID?
+  await db.markRead(id);
+  revalidatePath("/books");
+}
+
+// in the list:
+<form action={markRead.bind(null, book.id)}><button>Mark as read</button></form>
+</script>
+<p>The bound ID is serialized into the page, so a user can change it. The action must still check that the ID exists and belongs to the current user.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">pending</span></h3>
+<p>Write a reusable <code>&lt;SubmitButton label="Save" /&gt;</code> that disables itself and says "Saving…" while its form is submitting, without receiving any props about the pending state.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Use <code>useFormStatus()</code> from <code>react-dom</code>, as in the tip in this chapter. It reads the status of the closest parent <code>&lt;form&gt;</code>, so it must be rendered <em>inside</em> the form, and the file needs <code>"use client"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">choose</span></h3>
+<p>Which would you call after each action: <code>refresh()</code>, <code>revalidatePath</code>, or <code>redirect</code>? (a) "Save and close" on an edit page. (b) Toggling a "favourite" star on the current page, where the data isn't cached. (c) Adding a comment to a page whose comments list is cached.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>revalidatePath</code> for the pages that show the book, then <code>redirect</code> to the detail page. (b) <code>refresh()</code>: nothing cached needs invalidating, just re-render. (c) <code>revalidatePath</code> for that page (or, better, <code>updateTag</code> on the comments' cache tag, Chapter 9).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">security review</span></h3>
+<p>Review this action and list every problem:</p>
+<script type="text/plain" class="code" data-file="app/admin/actions.ts" data-norun>
+"use server";
+export async function setRole(formData: FormData) {
+  const userId = formData.get("userId") as string;
+  const role = formData.get("role") as "admin" | "user";
+  await db.users.update(userId, { role });
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>No authentication: anyone can call it.</li>
+  <li>No authorization: even a logged-in normal user could make themselves admin. Check that the caller is an admin.</li>
+  <li>No validation: <code>as</code> is a type assertion, not a check. <code>role</code> could be any string, and <code>userId</code> could be missing (<code>null</code>) or a <code>File</code>. Validate with Zod (<code>z.enum(["admin", "user"])</code>).</li>
+  <li>No revalidation, so the admin UI won't show the change.</li>
+  <li>Nothing is returned or logged; consider returning a result for the UI and logging role changes for auditing.</li>
+</ol>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design a "rate this book" widget for the playground with five star buttons. It should show the new average immediately (optimistic), save it with a Server Action, and work without JavaScript. Sketch the components and the action signature.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><strong>Server:</strong> the book page loads the average and renders <code>&lt;RateForm bookId={id} average={avg} /&gt;</code>.</li>
+  <li><strong>Action</strong> (<code>app/books/[id]/actions.ts</code>): <code>rate(bookId: string, formData: FormData)</code>, bound with <code>rate.bind(null, id)</code>. It validates <code>stars</code> as an integer 1–5, checks the user, saves, and calls <code>updateTag(`book-${bookId}`)</code> or <code>revalidatePath</code>.</li>
+  <li><strong>Client</strong> <code>RateForm</code>: a <code>&lt;form action={…}&gt;</code> with five <code>&lt;button name="stars" value="1…5"&gt;</code>. Without JS, a click is a normal form post with <code>stars</code> in the body, so it still works. With JS, <code>useOptimistic</code> shows the expected new average while the action runs.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/mutating-data">Getting Started: Mutating Data</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/forms">Guide: Forms</a> · <a href="https://nextjs.org/docs/app/guides/server-actions">Guide: Server Actions</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/directives/use-server">Directives: use server</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/refresh">refresh</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/revalidatePath">revalidatePath</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/redirect">redirect</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/cookies">cookies</a></li>
+  <li><a href="https://react.dev/reference/react/useActionState">react.dev: useActionState</a> · <a href="https://react.dev/reference/react-dom/hooks/useFormStatus">useFormStatus</a> · <a href="https://react.dev/reference/react/useOptimistic">useOptimistic</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/data-security">Guide: Data Security</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
