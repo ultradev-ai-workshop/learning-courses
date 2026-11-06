@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;▶️&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here · How-to</div>
+<h1>Using the TypeScript Playground</h1>
+<p class="lead">The playground is a ready-made TypeScript project for practising: one starter file per playground exercise, the JavaScript app you'll migrate in the capstone, and the finished reference. This page shows how to set it up once and how to work in it every day. You can also try any example in the official online Playground, with no install at all.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What the playground contains.</li>
+  <li>How to install Node, clone the project and install TypeScript.</li>
+  <li>The everyday loop: edit, check, run, test.</li>
+  <li>How to use the official online Playground alongside it.</li>
+  <li>How to fix the most common problems.</li>
+</ul>
+</div>
+
+<h2 id="what">What is the playground?</h2>
+<p>A small Node + TypeScript project, published on GitHub as <a href="https://github.com/coderhop-learning/typescript-playground">coderhop-learning/typescript-playground</a>:</p>
+<script type="text/plain" class="code" data-lang="text">
+typescript-playground/
+├── package.json        ← TypeScript 7.0.2, @types/node, npm scripts
+├── tsconfig.json       ← strict settings for exercises/
+├── exercises/
+│   ├── ch01/hello.ts   ← one starter file per playground exercise
+│   ├── ch02/mini/      ← Chapter 2's own mini project
+│   └── …
+├── capstone-start/     ← the plain-JavaScript app Chapter 19 migrates (with 3 hidden bugs)
+├── reference/          ← the FINISHED TypeScript capstone (compare, don't copy too early)
+└── scripts/run.mjs     ← compiles, then runs one exercise
+</script>
+
+<h2 id="setup">One-time setup</h2>
+<h3>1. Install Node.js 22 or newer</h3>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --version
+v22.13.0
+</script>
+<p>Any Node 22+ works. Get it from <a href="https://nodejs.org/">nodejs.org</a> or a version manager such as <code>fnm</code> or <code>nvm</code>. From Node 22.18 and 23.6, Node can also run <code>.ts</code> files directly (Appendix B), but the playground uses <code>tsc</code>, so that every run is type-checked.</p>
+<h3>2. Clone and install</h3>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ git clone https://github.com/coderhop-learning/typescript-playground.git
+$ cd typescript-playground
+$ npm install
+</script>
+<p><code>npm install</code> installs the pinned compiler (<code>typescript@7.0.2</code>) and Node's types into <code>node_modules/</code>. Nothing is installed globally.</p>
+<h3>3. Check it works</h3>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx tsc --version
+Version 7.0.2
+$ npm run check
+
+> typescript-playground@1.0.0 check
+> tsc --noEmit
+
+</script>
+<p>No output after the script name means no errors.</p>
+<h3>4. Open it in an editor</h3>
+<p>Open the <code>typescript-playground</code> folder (not a subfolder) in VS Code or another editor with TypeScript support. In VS Code, run <em>TypeScript: Select TypeScript Version → Use Workspace Version</em> once, so the editor uses the same 7.0.2 compiler as <code>npm run check</code>.</p>
+
+<h2 id="loop">The everyday loop</h2>
+<ol>
+  <li><strong>Read</strong> the exercise in the book. Playground exercises name their file, e.g. <code>exercises/ch05/fees.ts</code>.</li>
+  <li><strong>Edit</strong> the starter file. Watch the red squiggles in the editor: they're the same errors <code>tsc</code> reports.</li>
+  <li><strong>Check</strong> with <code>npm run check</code> (all exercises), or keep <code>npx tsc --noEmit --watch</code> running in a terminal.</li>
+  <li><strong>Run</strong> one exercise: <code>npm run ex -- exercises/ch05/fees.ts</code>. It compiles everything to <code>dist/</code> and runs the file's JavaScript. If there are type errors, it shows them and runs anyway, so you can see what JavaScript would do (Chapter 2).</li>
+  <li><strong>Compare</strong> with the book's <em>Show solution</em>, and for the capstone pieces, with <code>reference/src/</code>.</li>
+</ol>
+<div class="table-wrap"><table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>npm run check</code></td><td>Type-check <code>exercises/</code>.</td></tr>
+<tr><td><code>npm run ex -- &lt;file.ts&gt;</code></td><td>Compile, then run one exercise.</td></tr>
+<tr><td><code>npx tsc -p exercises/ch02/mini</code></td><td>Build Chapter 2's mini project with its own <code>tsconfig.json</code>.</td></tr>
+<tr><td><code>npm run start:js</code> / <code>npm run test:js</code></td><td>Run the JavaScript capstone / its tests (Chapter 19, step 0).</td></tr>
+<tr><td><code>npm run check:start</code></td><td>Type-check the JavaScript capstone with <code>checkJs</code> (step 1).</td></tr>
+<tr><td><code>npm run reference</code></td><td>Build and run the finished TypeScript capstone.</td></tr>
+<tr><td><code>npm test</code></td><td>Build the reference and run its 5 tests with <code>node:test</code>.</td></tr>
+</table></div>
+
+<h2 id="online">The official online Playground</h2>
+<p>At <a href="https://www.typescriptlang.org/play/">typescriptlang.org/play</a> you can paste any example from this book and see:</p>
+<ul>
+  <li>errors as you type (hover them for details),</li>
+  <li>the emitted JavaScript (<em>.JS</em> tab) and declarations (<em>.D.TS</em> tab),</li>
+  <li>the effect of compiler options (<em>TS Config</em> menu), and different TypeScript versions.</li>
+</ul>
+<p>Use it to experiment with a single idea; use the local playground for exercises that span files and for the capstone.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a whiteboard and a workshop.</strong> The online Playground is a whiteboard: quick sketches, easy to share, wiped clean tomorrow. The local playground is your workshop: real tools, saved work, and projects that grow over many sessions.</p>
+</div>
+
+<h2 id="capstone">How the exercises lead to the capstone</h2>
+<p>Exercise 8 of most chapters builds one piece of the library-loans system you finish in <a href="19-project.html">Chapter 19</a>:</p>
+<div class="table-wrap"><table>
+<tr><th>Chapter</th><th>Playground file</th><th>Becomes in <code>reference/src/</code></th></tr>
+<tr><td>3, 6</td><td><code>catalog-types.ts</code>, <code>member-types.ts</code></td><td><code>types.ts</code></td></tr>
+<tr><td>4</td><td><code>parse-book.ts</code></td><td><code>parseBook</code> in <code>catalog.ts</code></td></tr>
+<tr><td>5</td><td><code>fees.ts</code></td><td><code>fees.ts</code></td></tr>
+<tr><td>7</td><td><code>catalog.ts</code></td><td><code>catalog.ts</code></td></tr>
+<tr><td>8</td><td><code>repository.ts</code></td><td><code>repository.ts</code></td></tr>
+<tr><td>9</td><td><code>policy.ts</code></td><td><code>LOAN_POLICY</code> in <code>types.ts</code></td></tr>
+<tr><td>10, 16</td><td><code>events.ts</code>, <code>audit.ts</code></td><td><code>audit.ts</code></td></tr>
+<tr><td>11</td><td><code>report-columns.ts</code></td><td><code>report.ts</code></td></tr>
+<tr><td>13</td><td><code>status.ts</code></td><td><code>LoanStatus</code> in <code>loans.ts</code></td></tr>
+<tr><td>14</td><td><code>ids.ts</code></td><td><code>ids.ts</code></td></tr>
+<tr><td>15</td><td>(splitting into modules)</td><td><code>index.ts</code></td></tr>
+</table></div>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Cause and fix</th></tr>
+<tr><td><code>tsc: command not found</code></td><td>Run <code>npm install</code> first, then use <code>npx tsc</code> or the npm scripts (they find the local compiler).</td></tr>
+<tr><td><code>Cannot find name 'console'</code> or <code>'process'</code></td><td><code>@types/node</code> isn't installed or <code>"types": ["node"]</code> is missing from the <code>tsconfig.json</code> you're using.</td></tr>
+<tr><td>TS2835 "Relative import paths need explicit file extensions"</td><td>Write <code>./fees.js</code>, not <code>./fees</code>, when importing <code>fees.ts</code> (Chapter 15).</td></tr>
+<tr><td>TS1484 "… is a type and must be imported using a type-only import"</td><td><code>verbatimModuleSyntax</code> is on: write <code>import { type Book } from …</code>.</td></tr>
+<tr><td>TS5112 "tsconfig.json is present but will not be loaded…"</td><td>You ran <code>tsc file.ts</code> in a folder with a config. Run <code>tsc</code> or <code>npm run check</code> instead (or add <code>--ignoreConfig</code>).</td></tr>
+<tr><td>The editor shows different errors from <code>npm run check</code></td><td>The editor uses another TypeScript version or another <code>tsconfig.json</code>. Select the workspace version, and open the playground's root folder.</td></tr>
+<tr><td><code>npm run ex</code> says "Cannot find module …/dist/…"</td><td>Pass the path of a <code>.ts</code> file under <code>exercises/</code>, e.g. <code>npm run ex -- exercises/ch01/hello.ts</code>.</td></tr>
+<tr><td>Node prints <code>ExperimentalWarning: Type Stripping…</code></td><td>You ran a <code>.ts</code> file with plain <code>node</code> on an older Node 22. Use <code>npm run ex</code>, or upgrade Node.</td></tr>
+<tr><td>The <code>reference</code> or <code>capstone-start</code> folder doesn't exist</td><td>You downloaded only part of the repository. Clone <a href="https://github.com/coderhop-learning/typescript-playground">typescript-playground</a> again.</td></tr>
+</table></div>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Clone <code>coderhop-learning/typescript-playground</code>, run <code>npm install</code>, then <code>npm run check</code>.</li>
+  <li>Edit an exercise file, check it, run it with <code>npm run ex -- &lt;file&gt;</code>, compare with the solution.</li>
+  <li>Use the online Playground for quick experiments and to see emitted JavaScript.</li>
+  <li>The playground exercises build towards the Chapter 19 capstone in <code>reference/</code>.</li>
+</ul>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/download/">Download TypeScript</a> · <a href="https://www.typescriptlang.org/play/">TypeScript Playground</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-tooling-in-5-minutes.html">TypeScript Tooling in 5 minutes</a></li>
+  <li><a href="https://nodejs.org/en/download">Download Node.js</a></li>
+  <li><a href="https://github.com/coderhop-learning/typescript-playground">typescript-playground on GitHub</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

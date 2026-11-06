@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚙️&lt;/text&gt;&lt;/svg&gt;">
+<title>5. More on Functions · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Functions, Objects &amp; Classes</div>
+<h1>More on Functions</h1>
+<p class="lead">Functions are the main building block of any JavaScript program, so TypeScript has many ways to describe them. Following the Handbook's <em>More on Functions</em> page, this chapter covers function types, optional and rest parameters, overloads, typing <code>this</code>, and the special types <code>void</code>, <code>unknown</code> and <code>never</code> as they apply to functions.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Function type expressions, call signatures and construct signatures.</li>
+  <li>A first look at <strong>generic functions</strong> and constraints.</li>
+  <li>Optional, default and rest parameters, and destructured parameters.</li>
+  <li><strong>Function overloads</strong>: when to use them and when a union is better.</li>
+  <li>Declaring <code>this</code>, and what <code>void</code> really means for callbacks.</li>
+</ul>
+</div>
+
+<h2 id="types">Function type expressions</h2>
+<p>The simplest way to describe a function is a <strong>function type expression</strong>. It looks like an arrow function: <code>(a: string) =&gt; void</code> means "a function with one string parameter that returns nothing useful". The parameter <em>name</em> is required, but only the type matters.</p>
+<script type="text/plain" class="code" data-file="fn-types.ts">
+type Notify = (message: string) => void;
+
+function runWith(notify: Notify) {
+  notify("Your loan is due tomorrow");
+}
+runWith((m) => console.log("EMAIL:", m));
+runWith(console.log);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+EMAIL: Your loan is due tomorrow
+Your loan is due tomorrow
+</script>
+<div class="pitfall">
+<p>⚠️ <code>(string) =&gt; void</code> doesn't mean what you think: it's a function with one parameter <em>named</em> <code>string</code>, of type <code>any</code>. Always write a name: <code>(s: string) =&gt; void</code>.</p>
+</div>
+
+<h3>Call signatures: functions with properties</h3>
+<p>In JavaScript a function is an object and can have properties. To describe both, write a <strong>call signature</strong> inside an object type: the parameter list, then <code>:</code> (not <code>=&gt;</code>) and the return type.</p>
+<script type="text/plain" class="code" data-file="call-signature.ts">
+type Formatter = {
+  label: string;
+  (cents: number): string;          // call signature
+};
+const euro = ((c: number) => `€${(c / 100).toFixed(2)}`) as Formatter;
+euro.label = "Euro";
+console.log(euro.label, euro(1299));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Euro €12.99
+</script>
+<h3>Construct signatures</h3>
+<p>A function you call with <code>new</code> has a <strong>construct signature</strong>: <code>new (...) =&gt; T</code>. You'll mostly see it when passing a class as a value:</p>
+<script type="text/plain" class="code" data-file="construct.ts">
+class Book { constructor(public title: string) {} }
+class Dvd { constructor(public title: string) {} }
+
+function make<T>(Kind: new (title: string) => T, title: string): T {
+  return new Kind(title);
+}
+console.log(make(Book, "Dune"), make(Dvd, "Arrival"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book { title: 'Dune' } Dvd { title: 'Arrival' }
+</script>
+
+<h2 id="generics">Generic functions, briefly</h2>
+<p>A function that works for <em>any</em> type, but relates its input type to its output type, uses a <strong>type parameter</strong>, written in angle brackets. TypeScript usually infers it from the arguments:</p>
+<script type="text/plain" class="code" data-file="generic-fn.ts">
+function firstElement<T>(arr: T[]): T | undefined {
+  return arr[0];
+}
+const s = firstElement(["Dune", "Emma"]);   // T = string, so s: string | undefined
+const n = firstElement([1965, 1815]);       // T = number
+console.log(s?.toUpperCase(), n?.toFixed(0));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE 1965
+</script>
+<p>A <strong>constraint</strong> (<code>T extends …</code>) limits which types are allowed, so you can use what they have in common:</p>
+<script type="text/plain" class="code" data-file="constraint.ts">
+function longest<T extends { length: number }>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+console.log(longest("Dune", "Hamlet"), longest([1, 2], [1, 2, 3]));
+longest(10, 100);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+constraint.ts(5,9): error TS2345: Argument of type 'number' is not assignable to parameter of type '{ length: number; }'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hamlet [ 1, 2, 3 ]
+</script>
+<p>Chapter 8 covers generics fully. For now: <strong>if a type parameter appears only once, you probably don't need it.</strong> Its job is to connect two places.</p>
+
+<h2 id="optional">Optional, default and rest parameters</h2>
+<p><code>x?: T</code> makes a parameter optional; inside the function its type is <code>T | undefined</code>. A <strong>default value</strong> makes it optional too, and TypeScript infers its type from the default:</p>
+<script type="text/plain" class="code" data-file="optional.ts">
+function loanPeriod(days?: number): string {
+  return `${days ?? 21} days`;
+}
+function renew(id: string, extra = 7) {        // extra: number, optional for callers
+  return `${id} +${extra}`;
+}
+console.log(loanPeriod(), loanPeriod(14), renew("L1"), renew("L2", 14));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+21 days 14 days L1 +7 L2 +14
+</script>
+<p><strong>Rest parameters</strong> collect the remaining arguments into an array; their type is always an array (or tuple) type:</p>
+<script type="text/plain" class="code" data-file="rest.ts">
+function tag(label: string, ...ids: string[]): string {
+  return `${label}: ${ids.join(", ")}`;
+}
+console.log(tag("overdue", "b1", "b7", "b9"));
+
+const range = [1, 5] as const;                 // a readonly tuple [1, 5]
+console.log(Math.max(...range));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+overdue: b1, b7, b9
+5
+</script>
+<h3>Destructured parameters</h3>
+<p>The type goes after the whole pattern, not inside it (inside, <code>{ a: number }</code> would <em>rename</em> <code>a</code>):</p>
+<script type="text/plain" class="code" data-file="destructure.ts">
+type SearchOptions = { query: string; limit?: number };
+function search({ query, limit = 10 }: SearchOptions): string {
+  return `"${query}" (max ${limit})`;
+}
+console.log(search({ query: "dune" }), search({ query: "emma", limit: 3 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+"dune" (max 10) "emma" (max 3)
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Don't make callback parameters optional</strong> "because callers might not use them". Callers can always ignore extra parameters. <code>?</code> on a callback parameter means <em>your code</em> might call the callback without it, so the callback must handle <code>undefined</code>.</p>
+</div>
+
+<h2 id="overloads">Function overloads</h2>
+<p>Some functions accept different argument combinations. <strong>Overloads</strong> list the allowed call shapes (the <em>overload signatures</em>), followed by one <em>implementation signature</em> with a body. Callers only see the overloads.</p>
+<script type="text/plain" class="code" data-file="overloads.ts">
+function makeDate(timestamp: number): Date;
+function makeDate(year: number, month: number, day: number): Date;
+function makeDate(yOrTs: number, month?: number, day?: number): Date {
+  return month !== undefined && day !== undefined ? new Date(yOrTs, month - 1, day) : new Date(yOrTs);
+}
+console.log(makeDate(2026, 11, 5).toDateString());
+console.log(makeDate(0).toISOString());
+makeDate(2026, 11);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+overloads.ts(8,1): error TS2575: No overload expects 2 arguments, but overloads do exist that expect either 1 or 3 arguments.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Thu Nov 05 2026
+1970-01-01T00:00:00.000Z
+</script>
+<p>The implementation signature (<code>yOrTs, month?, day?</code>) is <em>not</em> callable from outside, which is why <code>makeDate(2026, 11)</code> fails even though the implementation would accept it.</p>
+<div class="tip">
+<p>💡 <strong>Prefer unions over overloads when you can.</strong> <code>len(x: string | any[])</code> is simpler than two overloads, and it also accepts a value whose type is already <code>string | any[]</code>, which overloads can't.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> in Java and C#, overloads are separate methods with separate bodies, and the compiler picks one. In TypeScript there is <strong>only one body</strong> at runtime (JavaScript has no overloading); the overload signatures are just a typed list of the ways to call it. Your one implementation must check the arguments itself.</p>
+</div>
+
+<h2 id="this">Declaring this</h2>
+<p>JavaScript decides <code>this</code> by how a function is called. TypeScript lets you declare the expected <code>this</code> as a fake first parameter named <code>this</code>. It's erased in the output, and it makes wrong calls an error:</p>
+<script type="text/plain" class="code" data-file="this-param.ts">
+interface Counter { count: number }
+function increment(this: Counter, by: number) {
+  this.count += by;
+  return this.count;
+}
+const c: Counter = { count: 0 };
+console.log(increment.call(c, 5));
+increment(1);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+this-param.ts(8,1): error TS2684: The 'this' context of type 'void' is not assignable to method's 'this' of type 'Counter'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5
+TypeError: Cannot read properties of undefined (reading 'count')
+</script>
+<p>The emitted JavaScript still ran the bad call, and crashed exactly as the checker predicted: in a module, a plain call gets <code>this === undefined</code>. With <code>strict</code>, using <code>this</code> in a plain function without declaring it is an error (<code>noImplicitThis</code>). Arrow functions don't have their own <code>this</code>, so they can't declare one.</p>
+
+<h2 id="special">void, unknown, never and Function</h2>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>As a return type it means</th></tr>
+<tr><td><code>void</code></td><td>The function's return value isn't meant to be used. (At runtime it's <code>undefined</code>.)</td></tr>
+<tr><td><code>undefined</code></td><td>The function really returns <code>undefined</code>, and callers may rely on it.</td></tr>
+<tr><td><code>unknown</code></td><td>It returns something; callers must check it before use.</td></tr>
+<tr><td><code>never</code></td><td>It never returns normally: it always throws, or loops forever.</td></tr>
+<tr><td><code>Function</code></td><td>"Some function". Calls on it return <code>any</code>. Avoid it; write <code>() =&gt; void</code> instead.</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="never-return.ts">
+function fail(message: string): never {
+  throw new Error(message);
+}
+function priceOf(id: string): number {
+  if (id === "b1") return 1299;
+  fail(`no price for ${id}`);          // TypeScript knows nothing runs after this
+}
+console.log(priceOf("b1"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1299
+</script>
+<h3>A void callback can return a value</h3>
+<p>A function <em>type</em> with a <code>void</code> return accepts functions that return something; the value is just ignored. That's what makes this common code legal (<code>push</code> returns a number, <code>forEach</code> expects <code>void</code>):</p>
+<script type="text/plain" class="code" data-file="void-callback.ts">
+const src = ["Dune", "Emma"];
+const dst: string[] = [];
+src.forEach((t) => dst.push(t));        // the callback returns a number: fine
+console.log(dst);
+
+function noReturn(): void {
+  return 42;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+void-callback.ts(7,3): error TS2322: Type 'number' is not assignable to type 'void'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Emma' ]
+</script>
+<p>The rule is relaxed only for function <em>types</em> (contextual typing). A function <em>declaration</em> that says <code>: void</code> may not return a value.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A higher-order function with full types</h3>
+<script type="text/plain" class="code" data-file="retry.ts">
+async function retry<T>(attempts: number, task: () => Promise<T>): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await task(); }
+    catch (e) { if (i >= attempts) throw e; console.log(`attempt ${i} failed`); }
+  }
+}
+let calls = 0;
+retry(3, async () => { if (++calls < 3) throw new Error("busy"); return `ok after ${calls}`; })
+  .then(console.log);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+attempt 1 failed
+attempt 2 failed
+ok after 3
+</script>
+<h3>Overloads based on a literal argument</h3>
+<script type="text/plain" class="code" data-file="overload-literal.ts">
+function getField(book: { title: string; year: number }, f: "title"): string;
+function getField(book: { title: string; year: number }, f: "year"): number;
+function getField(book: { title: string; year: number }, f: "title" | "year") {
+  return book[f];
+}
+const dune = { title: "Dune", year: 1965 };
+const t = getField(dune, "title");     // string
+const y = getField(dune, "year");      // number
+console.log(t.toUpperCase(), y + 1);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE 1966
+</script>
+<p>Chapter 9 shows a cleaner way to write this with <code>keyof</code> and indexed access types.</p>
+<h3>Assigning functions: fewer parameters is fine</h3>
+<script type="text/plain" class="code" data-file="fewer-params.ts">
+type Handler = (event: string, at: Date) => void;
+const quiet: Handler = () => console.log("ignored both arguments");
+const loud: Handler = (event) => console.log("event:", event);
+quiet("borrow", new Date());
+loud("return", new Date());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ignored both arguments
+event: return
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Describe functions with <code>(a: A) =&gt; R</code>; use a call signature <code>{ (a: A): R; prop: P }</code> when the function has properties, and <code>new (…) =&gt; T</code> for constructors.</li>
+  <li>Generic functions relate input and output types; constraints (<code>T extends …</code>) say what <code>T</code> must have.</li>
+  <li><code>x?</code> and defaults make parameters optional; <code>...rest: T[]</code> collects the rest. Type destructured parameters after the pattern.</li>
+  <li>Overloads list call shapes over one implementation. Prefer a union parameter when it works.</li>
+  <li>Declare <code>this</code> as a first parameter. <code>void</code> means "ignore the result"; <code>never</code> means "doesn't return".</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write the type</span></h3>
+<p>Write a type for a function that takes a book id and a number of days and returns a <code>Date</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type DueDateFn = (bookId: string, days: number) =&gt; Date;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">optional</span></h3>
+<p>Write <code>greet(name: string, greeting?: string)</code> that defaults to <code>"Hello"</code>, and call it with and without the second argument.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="greet.ts">
+function greet(name: string, greeting?: string): string {
+  return `${greeting ?? "Hello"}, ${name}!`;
+}
+console.log(greet("Ana"), greet("Ben", "Welcome back"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello, Ana! Welcome back, Ben!
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What's the return type of <code>function oops(msg: string) { throw new Error(msg); }</code> when you don't annotate it? What about an arrow function that only throws?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A function <em>declaration</em> that only throws is inferred as <code>void</code> (for historical reasons); annotate <code>: never</code> if you want control flow analysis to use it. A function <em>expression</em> or arrow that only throws is inferred as <code>never</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">rest</span></h3>
+<p>Write <code>sum(...cents: number[]): number</code> and print <code>sum(1299, 899, 2450)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="sum.ts">
+function sum(...cents: number[]): number {
+  return cents.reduce((a, b) => a + b, 0);
+}
+console.log(sum(1299, 899, 2450));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4648
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">generic</span></h3>
+<p>Write a generic <code>last&lt;T&gt;(items: T[]): T | undefined</code>, and a generic <code>pluck&lt;T, K extends keyof T&gt;(items: T[], key: K): T[K][]</code>. (Peek at Chapter 9 for <code>keyof</code>, or just trust the signature.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="pluck.ts">
+function last<T>(items: T[]): T | undefined {
+  return items[items.length - 1];
+}
+function pluck<T, K extends keyof T>(items: T[], key: K): T[K][] {
+  return items.map((i) => i[key]);
+}
+const books = [{ title: "Dune", year: 1965 }, { title: "Emma", year: 1815 }];
+console.log(last(books)?.title, pluck(books, "year"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Emma [ 1965, 1815 ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">overloads</span></h3>
+<p>Write overloads so that <code>parse("42")</code> returns <code>number</code> and <code>parse(["1","2"])</code> returns <code>number[]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="parse.ts">
+function parse(input: string): number;
+function parse(input: string[]): number[];
+function parse(input: string | string[]): number | number[] {
+  return Array.isArray(input) ? input.map(Number) : Number(input);
+}
+const one = parse("42");
+const many = parse(["1", "2"]);
+console.log(one + 1, many.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+43 2
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">this</span></h3>
+<p>Write <code>function describe(this: { title: string })</code> and attach it as a method to a book object. What happens if you call it on its own?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="describe-this.ts">
+function describe(this: { title: string }) {
+  return `«${this.title}»`;
+}
+const book = { title: "Dune", describe };
+console.log(book.describe());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+«Dune»
+</script>
+<p>Calling <code>describe()</code> alone is error TS2684: the <code>this</code> context of type <code>void</code> isn't assignable to <code>{ title: string }</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch05/fees.ts</code>, write <code>lateFee(daysLate: number, options?: { perDay?: number; cap?: number }): number</code> with defaults of 25 per day and a cap of 500. The capstone's fee calculation starts here.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="fees.ts">
+export function lateFee(daysLate: number, { perDay = 25, cap = 500 }: { perDay?: number; cap?: number } = {}): number {
+  if (daysLate <= 0) return 0;
+  return Math.min(daysLate * perDay, cap);
+}
+console.log(lateFee(0), lateFee(3), lateFee(40), lateFee(3, { perDay: 50 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 75 500 150
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does TypeScript accept <code>[1, 2].forEach((n) =&gt; arr.push(n))</code> even though <code>forEach</code>'s callback returns <code>void</code>, while <code>function f(): void { return 1; }</code> is an error?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A <em>function type</em> with a <code>void</code> return means "the caller will ignore the result", so any function can be assigned to it; this keeps common code such as <code>push</code> inside <code>forEach</code> legal. A function <em>declaration</em> with an explicit <code>: void</code> annotation is a promise about the body itself, so returning a value breaks it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write a typed <code>debounce&lt;A extends unknown[]&gt;(fn: (...args: A) =&gt; void, ms: number): (...args: A) =&gt; void</code>. Call the debounced function three times quickly with different titles; only the last should print.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="debounce.ts">
+function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): (...args: A) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+const search = debounce((query: string, limit: number) => console.log(`search "${query}" (${limit})`), 20);
+search("d", 5);
+search("du", 5);
+search("dune", 5);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+search "dune" (5)
+</script>
+<p><code>A extends unknown[]</code> captures the whole parameter list as a tuple, so the returned function has exactly the same parameters as <code>fn</code>, with names and types.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/functions.html">Handbook: More on Functions</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/functions.html#function-overloads">Function overloads</a> · <a href="https://www.typescriptlang.org/docs/handbook/2/functions.html#declaring-this-in-a-function">Declaring this</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/functions.html#assignability-of-functions">Assignability of functions (void)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

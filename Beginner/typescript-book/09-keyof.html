@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔑&lt;/text&gt;&lt;/svg&gt;">
+<title>9. keyof, typeof &amp; Indexed Access · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Type Manipulation</div>
+<h1>keyof, typeof &amp; Indexed Access</h1>
+<p class="lead">Three small operators let you derive types from other types, and from values. Instead of writing the same list of names twice (once as data, once as a type), you write it once and let TypeScript compute the rest. This chapter covers the Handbook pages <em>Keyof Type Operator</em>, <em>Typeof Type Operator</em> and <em>Indexed Access Types</em>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The idea of <strong>type-level code</strong>: operators that work on types instead of values.</li>
+  <li><code>keyof T</code>: the union of a type's property names.</li>
+  <li><code>typeof value</code> in a type position: the type of a variable.</li>
+  <li><code>T["prop"]</code> and <code>T[number]</code>: indexed access types.</li>
+  <li>The "single source of truth" pattern with <code>as const</code>.</li>
+</ul>
+</div>
+
+<h2 id="intro">Creating types from types</h2>
+<p>So far you've written types by hand. TypeScript's type system is also a small language of its own: you can take a type, apply an operator, and get a new type. The Handbook's <em>Creating Types from Types</em> section lists the tools: generics (Chapter 8), <code>keyof</code>, <code>typeof</code> and indexed access (this chapter), conditional types (Chapter 10), and mapped and template literal types (Chapter 11).</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: spreadsheet formulas.</strong> Instead of typing a total by hand, you write <code>=SUM(A1:A9)</code>, and it updates when the data changes. Derived types are formulas: change the source type and every type computed from it follows.</p>
+</div>
+
+<h2 id="keyof">keyof</h2>
+<p><code>keyof T</code> produces a union of the property names (keys) of <code>T</code> as literal types:</p>
+<script type="text/plain" class="code" data-file="keyof.ts">
+interface Book { id: string; title: string; year: number }
+type BookKey = keyof Book;             // "id" | "title" | "year"
+
+const sortKey: BookKey = "year";
+const bad: BookKey = "pages";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+keyof.ts(5,7): error TS2322: Type '"pages"' is not assignable to type 'keyof Book'.
+</script>
+<p>With an index signature, <code>keyof</code> gives the index type. For <code>string</code> keys it's <code>string | number</code>, because JavaScript turns <code>obj[1]</code> into <code>obj["1"]</code>:</p>
+<script type="text/plain" class="code" data-file="keyof-index.ts">
+type Dict = { [k: string]: boolean };
+type Arr = { [n: number]: unknown };
+const k1: keyof Dict = 42;            // string | number
+const k2: keyof Arr = 7;              // number
+console.log(typeof k1, typeof k2);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+number number
+</script>
+
+<h2 id="typeof">typeof in types</h2>
+<p>JavaScript already has a <code>typeof</code> operator that runs at runtime and returns a string. In a <strong>type position</strong> (after <code>:</code>, in a <code>type</code> alias, inside <code>&lt;…&gt;</code>), TypeScript's <code>typeof</code> means "the type of this variable or property":</p>
+<script type="text/plain" class="code" data-file="typeof.ts">
+const defaults = { loanDays: 21, maxRenewals: 2, notify: true };
+type Settings = typeof defaults;      // { loanDays: number; maxRenewals: number; notify: boolean }
+
+function configure(s: Partial<Settings>): Settings {
+  return { ...defaults, ...s };
+}
+console.log(configure({ loanDays: 14 }));
+console.log(typeof defaults);         // this one is JavaScript's typeof, at runtime
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ loanDays: 14, maxRenewals: 2, notify: true }
+object
+</script>
+<p><code>typeof</code> only works on identifiers and their properties (<code>typeof defaults.loanDays</code>), not on arbitrary expressions such as function calls. To get a function's return type, combine it with the <code>ReturnType</code> utility (Chapter 12):</p>
+<script type="text/plain" class="code" data-file="returntype.ts">
+function makeLoan(bookId: string) {
+  return { bookId, due: new Date(2026, 10, 19), renewals: 0 };
+}
+type Loan = ReturnType<typeof makeLoan>;    // the object type the function returns
+const l: Loan = makeLoan("b1");
+console.log(Object.keys(l));
+type Wrong = ReturnType<makeLoan>;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+returntype.ts(7,25): error TS2749: 'makeLoan' refers to a value, but is being used as a type here. Did you mean 'typeof makeLoan'?
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'bookId', 'due', 'renewals' ]
+</script>
+<div class="note">
+<p>📝 <strong>Values and types live in different worlds.</strong> <code>makeLoan</code> is a value (it exists at runtime); <code>Loan</code> is a type (erased). Some names, like classes and enums, are both. <code>typeof</code> is the bridge from the value world to the type world.</p>
+</div>
+
+<h2 id="indexed">Indexed access types</h2>
+<p><code>T["prop"]</code> looks up the type of a property, using the same bracket syntax as JavaScript, but on types. The index can be a union or <code>keyof</code>:</p>
+<script type="text/plain" class="code" data-file="indexed.ts">
+interface Member {
+  id: string;
+  name: string;
+  type: "student" | "staff" | "guest";
+  address: { city: string; zip: string };
+}
+type MemberType = Member["type"];                 // "student" | "staff" | "guest"
+type City = Member["address"]["city"];             // string
+type IdOrName = Member["id" | "name"];             // string
+type AnyValue = Member[keyof Member];              // union of all property types
+
+const t: MemberType = "staff";
+const c: City = "Lisbon";
+console.log(t, c);
+type Missing = Member["email"];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+indexed.ts(15,23): error TS2339: Property 'email' does not exist on type 'Member'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+staff Lisbon
+</script>
+<h3>T[number]: the element type of an array</h3>
+<p>Index an array type with <code>number</code> to get the type of its elements. With a <code>readonly</code> tuple from <code>as const</code>, that's a union of the literals:</p>
+<script type="text/plain" class="code" data-file="element.ts">
+const FORMATS = ["hardcover", "paperback", "ebook"] as const;
+type Format = (typeof FORMATS)[number];        // "hardcover" | "paperback" | "ebook"
+
+function isFormat(s: string): s is Format {
+  return (FORMATS as readonly string[]).includes(s);
+}
+for (const s of ["ebook", "scroll"]) console.log(s, isFormat(s));
+
+const books = [{ title: "Dune", year: 1965 }];
+type BookRow = (typeof books)[number];         // { title: string; year: number }
+const row: BookRow = { title: "Emma", year: 1815 };
+console.log(row.title);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ebook true
+scroll false
+Emma
+</script>
+<p>This is the <strong>single source of truth</strong> pattern: the runtime array (for menus, validation, loops) and the type (for checking) come from one place. Add <code>"audiobook"</code> to the array and the <code>Format</code> type updates itself.</p>
+
+<h2 id="keyof-typeof">keyof typeof: keys of an object value</h2>
+<p>Put the two together to get the keys of a constant object:</p>
+<script type="text/plain" class="code" data-file="keyof-typeof.ts">
+const LOAN_DAYS = { book: 21, dvd: 7, magazine: 3 } as const;
+type ItemKind = keyof typeof LOAN_DAYS;              // "book" | "dvd" | "magazine"
+type Days = (typeof LOAN_DAYS)[ItemKind];            // 21 | 7 | 3
+
+function daysFor(kind: ItemKind): Days { return LOAN_DAYS[kind]; }
+console.log(daysFor("dvd"), daysFor("book"));
+daysFor("laptop");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+keyof-typeof.ts(7,9): error TS2345: Argument of type '"laptop"' is not assignable to parameter of type '"book" | "dvd" | "magazine"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7 21
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> there's no equivalent in Java's or C#'s type systems. The closest is reflection (<code>Book.class.getDeclaredFields()</code>), but that happens at runtime and gives you strings, not checked types. In TypeScript, <code>keyof Book</code> is checked at compile time: rename a field, and every <code>"title"</code> string typed as <code>keyof Book</code> becomes an error. It's like having <code>nameof(Book.Title)</code> from C#, built into the types.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A typed getter that follows the property</h3>
+<script type="text/plain" class="code" data-file="pick-field.ts">
+function field<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+const member = { id: "m1", name: "Ana", maxLoans: 3 };
+const max = field(member, "maxLoans");   // number
+const name = field(member, "name");      // string
+console.log(max * 2, name.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+6 ANA
+</script>
+<h3>Typing Object.keys yourself</h3>
+<p><code>Object.keys</code> returns <code>string[]</code>, not <code>(keyof T)[]</code>, because an object may have more keys at runtime than its type lists (structural typing!). When you know it doesn't, a small helper is fine:</p>
+<script type="text/plain" class="code" data-file="keys.ts">
+function keysOf<T extends object>(obj: T): (keyof T)[] {
+  return Object.keys(obj) as (keyof T)[];
+}
+const limits = { student: 3, staff: 10 };
+for (const k of keysOf(limits)) console.log(k, limits[k]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+student 3
+staff 10
+</script>
+<h3>Deriving an event map from handlers</h3>
+<script type="text/plain" class="code" data-file="handlers.ts">
+const handlers = {
+  borrowed: (bookId: string) => `borrowed ${bookId}`,
+  fined: (cents: number) => `fined ${cents}`,
+};
+type EventName = keyof typeof handlers;                          // "borrowed" | "fined"
+type Arg<E extends EventName> = Parameters<(typeof handlers)[E]>[0];
+function fire<E extends EventName>(e: E, arg: Arg<E>): string {
+  return (handlers[e] as (a: Arg<E>) => string)(arg);
+}
+console.log(fire("borrowed", "b1"), fire("fined", 250));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+borrowed b1 fined 250
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Types can be computed from other types; change the source and derived types follow.</li>
+  <li><code>keyof T</code> → union of T's keys (index signatures give <code>string | number</code> or <code>number</code>).</li>
+  <li><code>typeof x</code> in a type position → the type of a value; use <code>ReturnType&lt;typeof fn&gt;</code> for results.</li>
+  <li><code>T["k"]</code>, <code>T["a" | "b"]</code>, <code>T[keyof T]</code>, <code>T[number]</code> look up property and element types.</li>
+  <li><code>as const</code> + <code>typeof</code> + <code>[number]</code>/<code>keyof</code> = one source of truth for values and types.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What is <code>keyof { a: 1; b: 2 }</code>? And <code>{ a: 1; b: "x" }["b"]</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"a" | "b"</code>, and <code>"x"</code> (the literal type of property <code>b</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">typeof</span></h3>
+<p>Given <code>const theme = { color: "blue", size: 14 };</code>, write a type <code>Theme</code> without repeating the properties.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="theme.ts">
+const theme = { color: "blue", size: 14 };
+type Theme = typeof theme;
+const dark: Theme = { color: "black", size: 16 };
+console.log(dark);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ color: 'black', size: 16 }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">indexed access</span></h3>
+<p>From <code>interface Loan { id: string; status: "open" | "closed"; fee: { cents: number } }</code>, write types for the status and for <code>cents</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type Status = Loan["status"];</code> and <code>type Cents = Loan["fee"]["cents"];</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">fix it</span></h3>
+<p>Why is <code>type T = typeof makeLoan("b1");</code> an error? Write the correct version.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>typeof</code> in types accepts only names (and property paths), not calls. Write <code>type T = ReturnType&lt;typeof makeLoan&gt;;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">single source of truth</span></h3>
+<p>Define <code>const ROLES = ["student", "staff", "guest"] as const</code>, derive a <code>Role</code> type, and write a guard <code>isRole(s: string): s is Role</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="roles.ts">
+const ROLES = ["student", "staff", "guest"] as const;
+type Role = (typeof ROLES)[number];
+const isRole = (s: string): s is Role => (ROLES as readonly string[]).includes(s);
+const input = "staff";
+if (isRole(input)) console.log(`${input} is a role; there are ${ROLES.length} roles`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+staff is a role; there are 3 roles
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">keyof typeof</span></h3>
+<p>Given <code>const FEES = { book: 25, dvd: 100 } as const</code>, write <code>feeFor(kind, days)</code> where <code>kind</code> can only be a key of <code>FEES</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="fees-for.ts">
+const FEES = { book: 25, dvd: 100 } as const;
+function feeFor(kind: keyof typeof FEES, days: number): number {
+  return FEES[kind] * days;
+}
+console.log(feeFor("book", 3), feeFor("dvd", 2));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+75 200
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">T[keyof T]</span></h3>
+<p>Write a type <code>ValueOf&lt;T&gt;</code> and use it on <code>{ a: string; b: number }</code>. What does it give for an <code>as const</code> object of HTTP status codes?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="valueof.ts">
+type ValueOf<T> = T[keyof T];
+type V = ValueOf<{ a: string; b: number }>;     // string | number
+const STATUS = { ok: 200, notFound: 404 } as const;
+type Code = ValueOf<typeof STATUS>;              // 200 | 404
+const c: Code = 404;
+const v: V = "x";
+console.log(c, v);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+404 x
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch09/policy.ts</code>, define <code>LOAN_POLICY</code> as a const object keyed by member type (<code>student</code>, <code>staff</code>, <code>guest</code>) with <code>maxLoans</code> and <code>days</code>. Derive <code>MemberType</code> from it, and write <code>policyFor(type)</code>. The capstone's members module uses this.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="policy.ts">
+export const LOAN_POLICY = {
+  student: { maxLoans: 3, days: 21 },
+  staff: { maxLoans: 10, days: 42 },
+  guest: { maxLoans: 1, days: 7 },
+} as const;
+export type MemberType = keyof typeof LOAN_POLICY;
+export type Policy = (typeof LOAN_POLICY)[MemberType];
+export const policyFor = (t: MemberType): Policy => LOAN_POLICY[t];
+console.log(policyFor("staff"), Object.keys(LOAN_POLICY));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ maxLoans: 10, days: 42 } [ 'student', 'staff', 'guest' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does TypeScript type <code>Object.keys(book)</code> as <code>string[]</code> instead of <code>(keyof Book)[]</code>? When is the <code>keysOf</code> helper from this chapter unsafe?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Because of structural typing, a value of type <code>Book</code> may have extra properties at runtime (it might be a subclass, or an object with more fields). <code>keysOf</code> would claim those extra keys are <code>keyof Book</code>, and indexing with them could give values of unexpected types. It's safe for objects you created yourself with exactly those keys, such as <code>as const</code> configuration objects.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write <code>updateField&lt;T, K extends keyof T&gt;(obj: T, key: K, value: T[K]): T</code> returning a copy. Show that <code>updateField(book, "year", "1965")</code> is an error, and print a valid update.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="update-field.ts">
+function updateField<T, K extends keyof T>(obj: T, key: K, value: T[K]): T {
+  return { ...obj, [key]: value };
+}
+const book = { title: "Dune", year: 1965 };
+console.log(updateField(book, "year", 1966));
+updateField(book, "year", "1965");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+update-field.ts(6,27): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ title: 'Dune', year: 1966 }
+</script>
+<p>The value's type depends on the key: <code>T[K]</code> is <code>number</code> when <code>K</code> is <code>"year"</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/types-from-types.html">Handbook: Creating Types from Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/keyof-types.html">Keyof Type Operator</a> · <a href="https://www.typescriptlang.org/docs/handbook/2/typeof-types.html">Typeof Type Operator</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/indexed-access-types.html">Indexed Access Types</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

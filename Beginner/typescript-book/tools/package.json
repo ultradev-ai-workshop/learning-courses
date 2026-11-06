@@ -1,0 +1,10 @@
+{
+  "name": "typescript-book-tools",
+  "private": true,
+  "type": "module",
+  "description": "Pinned compiler used by the checkers. Run `npm install` here once.",
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/node": "^22.13.0"
+  }
+}

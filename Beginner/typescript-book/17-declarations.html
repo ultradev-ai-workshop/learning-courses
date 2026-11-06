@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📜&lt;/text&gt;&lt;/svg&gt;">
+<title>17. Declaration Files &amp; JSDoc · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 17 · Real Projects</div>
+<h1>Declaration Files &amp; JSDoc</h1>
+<p class="lead">Most of the code you call isn't yours: npm packages, Node itself, the browser. TypeScript knows their types from <strong>declaration files</strong> (<code>.d.ts</code>), which hold types but no code. This chapter follows the Handbook's <em>Declaration Files</em> and <em>JavaScript</em> sections: how to read, consume, generate and write <code>.d.ts</code> files, and how to type-check plain JavaScript with JSDoc comments.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a <code>.d.ts</code> file is, and the <code>declare</code> keyword.</li>
+  <li>Where types come from: bundled types, <code>@types/*</code> from DefinitelyTyped, and <code>lib</code>.</li>
+  <li>Generating declarations from your own code with <code>declaration</code>.</li>
+  <li>Writing a declaration file for an untyped JavaScript module.</li>
+  <li>The official <em>Do's and Don'ts</em> for declarations.</li>
+  <li>Type-checking <code>.js</code> files with <code>// @ts-check</code>, <code>checkJs</code> and JSDoc.</li>
+</ul>
+</div>
+
+<h2 id="what">What is a declaration file?</h2>
+<p>A <code>.d.ts</code> file describes the shape of JavaScript that exists somewhere else. It has only type information: no function bodies, no values. The <code>declare</code> keyword says "this exists at runtime; trust me about its type":</p>
+<script type="text/plain" class="code" data-file="example.d.ts" data-norun>
+declare function greet(name: string): string;     // a function defined in some .js file
+declare const VERSION: string;                    // a global variable set by a <script> tag
+declare namespace Library {                       // a global object with members
+  function open(): void;
+  let name: string;
+}
+export interface Book { id: string; title: string }   // types need no `declare`
+</script>
+<p>You already use declaration files all the time: <code>lib.es2024.d.ts</code> describes <code>Array</code>, <code>Map</code> and <code>Promise</code>; <code>@types/node</code> describes <code>process</code> and <code>node:fs</code>; <code>lib.dom.d.ts</code> describes <code>document</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a menu without a kitchen.</strong> A declaration file lists every dish (function), what goes into it (parameters) and what comes out (return type). The cooking happens in the JavaScript file. TypeScript only ever reads the menu.</p>
+</div>
+
+<h2 id="consume">Where types come from</h2>
+<ol>
+  <li><strong>Bundled with the package.</strong> Many packages ship <code>.d.ts</code> files and point to them with a <code>"types"</code> field (or <code>exports</code> conditions) in their <code>package.json</code>. Nothing to install.</li>
+  <li><strong>DefinitelyTyped.</strong> For packages written in plain JavaScript, the community maintains types in the DefinitelyTyped repository, published as <code>@types/<em>name</em></code>. Install them as a dev dependency: <code>npm install -D @types/node</code>.</li>
+  <li><strong>The <code>lib</code> option.</strong> Built-in JavaScript and DOM APIs come from the <code>lib.*.d.ts</code> files inside the <code>typescript</code> package, chosen by <code>target</code> and <code>lib</code>.</li>
+</ol>
+<p>A package with no types at all gives an error under <code>strict</code> (<em>"Could not find a declaration file for module…"</em>). Install its <code>@types</code> package if one exists, or write a small declaration yourself (below).</p>
+<div class="tip">
+<p>💡 The <code>types</code> compiler option limits which <code>@types</code> packages are loaded <em>globally</em>. Since TypeScript 6.0 it defaults to <code>[]</code> (none), so a Node project needs <code>"types": ["node"]</code>, as <code>tsc --init</code> shows in a comment. Imported packages are always found, whatever <code>types</code> says.</p>
+</div>
+
+<h2 id="generate">Generating declarations from TypeScript</h2>
+<p>When you publish a library written in TypeScript, you ship JavaScript <em>plus</em> generated <code>.d.ts</code> files, so users get your types. Turn on <code>declaration</code>:</p>
+<script type="text/plain" class="code" data-file="money.ts" data-save>
+export type Cents = number;
+/** Formats cents as a euro amount, e.g. 1299 → "€12.99". */
+export function format(cents: Cents, symbol = "€"): string {
+  return `${symbol}${(cents / 100).toFixed(2)}`;
+}
+export class Wallet {
+  #cents = 0;
+  add(c: Cents): this { this.#cents += c; return this; }
+  get total(): string { return format(this.#cents); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --declaration --emitDeclarationOnly money.ts && cat money.d.ts
+export type Cents = number;
+/** Formats cents as a euro amount, e.g. 1299 → "€12.99". */
+export declare function format(cents: Cents, symbol?: string): string;
+export declare class Wallet {
+    #private;
+    add(c: Cents): this;
+    get total(): string;
+}
+</script>
+<p>Bodies are gone, the default parameter became optional (<code>symbol?: string</code>), the hard-private field is just <code>#private</code>, and the JSDoc comment is kept, so editors show it on hover. <code>--emitDeclarationOnly</code> skips the <code>.js</code> output, for builds where another tool emits JavaScript.</p>
+
+<h2 id="write">Writing a declaration for a JavaScript module</h2>
+<p>Suppose a project has an old, untyped JavaScript helper. You don't want to rewrite it yet, but you want TypeScript callers to be checked. Put a <code>.d.ts</code> file with the same name next to it:</p>
+<script type="text/plain" class="code" data-file="legacy/src/slugify.js" data-save>
+// Old JavaScript, written before the project used TypeScript.
+export function slugify(text, separator) {
+  return text.toLowerCase().trim().replace(/[^a-z0-9]+/g, separator || "-").replace(/^-|-$/g, "");
+}
+export const MAX_SLUG = 60;
+</script>
+<script type="text/plain" class="code" data-file="legacy/src/slugify.d.ts" data-save>
+/** Turns a title into a URL-friendly slug: "Dune: Messiah" → "dune-messiah". */
+export declare function slugify(text: string, separator?: string): string;
+export declare const MAX_SLUG: number;
+</script>
+<script type="text/plain" class="code" data-file="legacy/src/main.ts" data-save>
+import { slugify, MAX_SLUG } from "./slugify.js";
+console.log(slugify("Dune: Messiah"), slugify("The Left Hand of Darkness", "_"), MAX_SLUG);
+slugify(42);
+</script>
+<script type="text/plain" class="code" data-file="legacy/tsconfig.json" data-save>
+{
+  "compilerOptions": {
+    "target": "es2024", "module": "nodenext", "types": ["node"],
+    "rootDir": "src", "outDir": "dist", "strict": true
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="legacy">
+$ tsc
+src/main.ts(3,9): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+$ sed -i.bak '$d' src/main.ts && tsc && cp src/slugify.js dist/ && node dist/main.js
+dune-messiah the_left_hand_of_darkness 60
+</script>
+<p>TypeScript found <code>slugify.d.ts</code> for the import <code>"./slugify.js"</code> and used its types; it never reads the <code>.js</code> file. After removing the bad call (the <code>sed</code> line deletes the last line of <code>main.ts</code>), the program builds. We copy <code>slugify.js</code> into <code>dist/</code> because <code>tsc</code> only emits files it compiles.</p>
+<h3>Declaring a whole package</h3>
+<p>For an npm package without types, an <strong>ambient module declaration</strong> in any <code>.d.ts</code> file of your project works too:</p>
+<script type="text/plain" class="code" data-file="types/vendor.d.ts" data-norun>
+declare module "tiny-isbn" {
+  export function isValid(isbn: string): boolean;
+  export function hyphenate(isbn: string): string;
+}
+declare module "legacy-analytics";     // shorthand: everything from it is `any`
+</script>
+
+<h2 id="dos">Do's and Don'ts</h2>
+<p>The Handbook's <em>Do's and Don'ts</em> page, in short:</p>
+<div class="table-wrap"><table>
+<tr><th>Don't</th><th>Do</th><th>Why</th></tr>
+<tr><td><code>Number</code>, <code>String</code>, <code>Boolean</code>, <code>Object</code></td><td><code>number</code>, <code>string</code>, <code>boolean</code>, <code>object</code></td><td>The capitalised ones are wrapper objects.</td></tr>
+<tr><td><code>Function</code> as a type</td><td><code>(x: T) =&gt; R</code></td><td>Keeps parameter and return types.</td></tr>
+<tr><td><code>any</code> as a callback's return type</td><td><code>void</code></td><td><code>void</code> stops callers from using the result by accident.</td></tr>
+<tr><td>optional parameters in callbacks</td><td>required parameters</td><td>Callers may always pass fewer arguments.</td></tr>
+<tr><td>overloads that differ only in callback arity</td><td>one overload with the maximum arity</td><td>Fewer parameters are always allowed.</td></tr>
+<tr><td>general overloads before specific ones</td><td>specific overloads first</td><td>TypeScript picks the first that matches.</td></tr>
+<tr><td>overloads differing in one parameter's type</td><td>a union type</td><td>Callers with a union value can call it.</td></tr>
+<tr><td>an unused type parameter</td><td>no type parameter</td><td>A generic must relate at least two places.</td></tr>
+</table></div>
+
+<h2 id="jsdoc">Type-checking JavaScript with JSDoc</h2>
+<p>You can get most of TypeScript's checking <strong>without changing your files to <code>.ts</code></strong>. Add <code>// @ts-check</code> at the top of a <code>.js</code> file (or turn on <code>checkJs</code> for the whole project), and write types in JSDoc comments. Your editor and <code>tsc</code> then check it, and the file still runs unchanged in Node:</p>
+<script type="text/plain" class="code" data-file="fees.js" data-tsc="checkJs">
+/**
+ * @typedef {object} Loan
+ * @property {string} bookId
+ * @property {number} daysLate
+ */
+
+/**
+ * @param {Loan} loan
+ * @param {number} [perDay] cents per day (optional, defaults to 25)
+ * @returns {number}
+ */
+export function lateFee(loan, perDay = 25) {
+  return Math.max(0, loan.daysLate) * perDay;
+}
+
+/** @type {Loan[]} */
+const loans = [{ bookId: "b1", daysLate: 3 }, { bookId: "b2", daysLate: 0 }];
+console.log(loans.map((l) => lateFee(l)));
+lateFee({ bookId: "b3", daysLate: "two" });
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+fees.js(19,25): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 75, 0 ]
+</script>
+<p>The JSDoc tags you'll use most:</p>
+<div class="table-wrap"><table>
+<tr><th>Tag</th><th>Means</th></tr>
+<tr><td><code>@type {T}</code></td><td>the type of a variable</td></tr>
+<tr><td><code>@param {T} name</code>, <code>@param {T} [name]</code></td><td>a parameter, an optional parameter</td></tr>
+<tr><td><code>@returns {T}</code></td><td>the return type</td></tr>
+<tr><td><code>@typedef {object} Name</code> + <code>@property</code></td><td>a named object type (like an interface)</td></tr>
+<tr><td><code>@template T</code></td><td>a type parameter</td></tr>
+<tr><td><code>@import { Book } from "./types.js"</code></td><td>import a type into a JS file (TS 5.5+)</td></tr>
+<tr><td><code>@satisfies {T}</code>, <code>@ts-expect-error</code></td><td><code>satisfies</code>, and "the next line must have an error"</td></tr>
+</table></div>
+<p>And you can generate <code>.d.ts</code> files from the JSDoc, so JavaScript libraries can ship real types:</p>
+<script type="text/plain" class="code" data-file="price.js" data-save>
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => number} priceOf
+ * @returns {number}
+ */
+export function total(items, priceOf) {
+  return items.reduce((sum, i) => sum + priceOf(i), 0);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --allowJs --declaration --emitDeclarationOnly price.js && cat price.d.ts
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => number} priceOf
+ * @returns {number}
+ */
+export declare function total<T>(items: T[], priceOf: (item: T) => number): number;
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> a <code>.d.ts</code> file is like a C header file, or like compiling against a JAR's class signatures without its source: the compiler needs the API, not the implementation. DefinitelyTyped has no real Java equivalent: imagine a community repository of type signatures for libraries whose authors never wrote any. JSDoc types are like Javadoc that the compiler actually enforces.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A global declaration for a value injected at build time</h3>
+<script type="text/plain" class="code" data-file="globals.ts">
+declare global {
+  var __BUILD_DATE__: string;               // e.g. defined by a bundler's "define" option
+}
+globalThis.__BUILD_DATE__ = "2026-11-05";   // simulate the build tool here
+console.log(`built on ${__BUILD_DATE__}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+built on 2026-11-05
+</script>
+<h3>@ts-expect-error documents a known error</h3>
+<script type="text/plain" class="code" data-file="expect-error.ts">
+function parseYear(s: string) { return Number(s); }
+// @ts-expect-error: testing what happens with bad input on purpose
+console.log(parseYear(1965));
+// @ts-expect-error
+console.log(parseYear("1965"));
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+expect-error.ts(4,1): error TS2578: Unused '@ts-expect-error' directive.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1965
+1965
+</script>
+<p>Prefer <code>@ts-expect-error</code> over <code>@ts-ignore</code>: when the error is fixed, it tells you the comment can go.</p>
+<h3>JSDoc generics and @import</h3>
+<script type="text/plain" class="code" data-file="types.ts" data-save>
+export interface Member { id: string; name: string }
+</script>
+<script type="text/plain" class="code" data-file="members.js" data-tsc="checkJs">
+/** @import { Member } from "./types.js" */
+
+/**
+ * @template {{ id: string }} T
+ * @param {T[]} items
+ * @returns {Map<string, T>}
+ */
+function byId(items) { return new Map(items.map((i) => [i.id, i])); }
+
+/** @type {Member[]} */
+const members = [{ id: "m1", name: "Ana" }];
+console.log(byId(members).get("m1")?.name);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>.d.ts</code> files contain only types; <code>declare</code> describes values that exist at runtime.</li>
+  <li>Types come from the package itself, from <code>@types/*</code> (DefinitelyTyped), or from <code>lib</code>. Set <code>"types": ["node"]</code> for Node globals.</li>
+  <li><code>declaration</code> (+ <code>emitDeclarationOnly</code>) generates <code>.d.ts</code> from TS, or from JS with JSDoc.</li>
+  <li>A <code>.d.ts</code> next to a <code>.js</code> file, or a <code>declare module "pkg"</code>, types untyped code.</li>
+  <li>Follow the Do's and Don'ts: lowercase primitives, <code>void</code> callbacks, unions over overloads.</li>
+  <li><code>// @ts-check</code> / <code>checkJs</code> + JSDoc gives type checking in plain <code>.js</code> files.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"A <code>.d.ts</code> file can contain a function body." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> Declaration files hold types only. A body is an error: "An implementation cannot be declared in ambient contexts."</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">commands</span></h3>
+<p>Which command installs the types for Node.js, and which compiler option makes its globals (<code>process</code>, <code>Buffer</code>) visible?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>npm install -D @types/node</code>, and <code>"types": ["node"]</code> in <code>compilerOptions</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write a declaration for a global function <code>track(event: string, data?: object): void</code> added by an analytics <code>&lt;script&gt;</code> tag.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In a <code>.d.ts</code> file that is a script (no imports/exports): <code>declare function track(event: string, data?: object): void;</code>. Inside a module, wrap it in <code>declare global { function track(…): void; }</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">JSDoc</span></h3>
+<p>Write the JSDoc for <code>function greet(name, times)</code> where <code>times</code> is an optional number and the result is a string.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="greet.js" data-tsc="checkJs">
+/**
+ * @param {string} name
+ * @param {number} [times]
+ * @returns {string}
+ */
+export function greet(name, times = 1) {
+  return `Hello ${name}! `.repeat(times).trim();
+}
+console.log(greet("Ana", 2));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hello Ana! Hello Ana!
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">do's and don'ts</span></h3>
+<p>Fix this declaration using the Do's and Don'ts: <code>declare function each(items: Object[], cb: (item: any, index?: Number) =&gt; any): Function;</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>declare function each&lt;T&gt;(items: T[], cb: (item: T, index: number) =&gt; void): void;</code>: a type parameter instead of <code>Object</code>/<code>any</code>, lowercase <code>number</code>, a required callback parameter, a <code>void</code> callback return, and a real return type instead of <code>Function</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">generate</span></h3>
+<p>What does <code>tsc --declaration</code> generate for <code>export const LIMITS = { student: 3, staff: 10 } as const;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="limits.ts" data-save>
+export const LIMITS = { student: 3, staff: 10 } as const;
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --declaration --emitDeclarationOnly limits.ts && cat limits.d.ts
+export declare const LIMITS: {
+    readonly student: 3;
+    readonly staff: 10;
+};
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">checkJs</span></h3>
+<p>Add <code>@ts-check</code> types to <code>function average(nums) { return nums.reduce((a, b) =&gt; a + b, 0) / nums.length; }</code> and show the error when it's called with strings.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="average.js">
+// @ts-check
+/** @param {number[]} nums */
+function average(nums) {
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+console.log(average([4, 5, 3]));
+console.log(average(["4", "5"]));
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+average.js(7,22): error TS2322: Type 'string' is not assignable to type 'number'.
+average.js(7,27): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4
+22.5
+</script>
+<p>The return type <code>number</code> is inferred. The second line shows why the check matters: <code>"0" + "4" + "5"</code> is the string <code>"045"</code>, divided by 2 gives <code>22.5</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>The playground's <code>capstone-start/</code> folder is the plain-JavaScript library app you'll migrate in Chapter 19. Run <code>npm run check:start</code> (it uses <code>checkJs</code>), then add JSDoc types to <code>src/fees.js</code> and <code>src/loans.js</code> until the errors are gone. This is step 1 of the official migration path.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The typed version is in <a href="19-project.html#step1">Chapter 19, step 1</a>. Most of the first errors come from default parameter values (<code>filter = () =&gt; true</code>) fixing a parameter's type too narrowly; a JSDoc <code>@param</code> fixes them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why do the types you install from <code>@types/express</code> have their own version number, and what can go wrong when it doesn't match the <code>express</code> version you use?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>DefinitelyTyped types are written separately from the library, by different people, so they're versioned and published separately (usually matching the library's major and minor version). If they drift, the types may describe functions that don't exist in your version, or miss new ones: the code type-checks but fails at runtime, or works but doesn't type-check. Pin both together and upgrade them together.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write a declaration file for a JavaScript module <code>events.js</code> that exports <code>createBus()</code>, returning an object with <code>on(name, fn)</code> and <code>emit(name, payload)</code>. Make it generic so that <code>createBus&lt;{ borrowed: string }&gt;()</code> checks event names and payload types.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="events.d.ts" data-save>
+export interface Bus<E extends Record<string, unknown>> {
+  on<K extends keyof E>(name: K, fn: (payload: E[K]) => void): void;
+  emit<K extends keyof E>(name: K, payload: E[K]): void;
+}
+export declare function createBus<E extends Record<string, unknown>>(): Bus<E>;
+</script>
+<script type="text/plain" class="code" data-file="use-bus.ts" data-norun>
+import { createBus } from "./events.js";
+const bus = createBus<{ borrowed: string; fined: number }>();
+bus.on("fined", (cents) => console.log(cents.toFixed(0)));
+bus.emit("borrowed", 42);   // error: number is not assignable to string
+</script>
+<p>The declaration is all TypeScript needs; the JavaScript implementation can stay untyped.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/declaration-files/introduction.html">Declaration Files: Introduction</a> · <a href="https://www.typescriptlang.org/docs/handbook/declaration-files/do-s-and-don-ts.html">Do's and Don'ts</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/declaration-files/consumption.html">Consumption</a> · <a href="https://www.typescriptlang.org/docs/handbook/declaration-files/publishing.html">Publishing</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/intro-to-js-ts.html">JS Projects Utilizing TypeScript</a> · <a href="https://www.typescriptlang.org/docs/handbook/jsdoc-supported-types.html">JSDoc Reference</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/declaration-files/dts-from-js.html">Creating .d.ts Files from .js files</a></li>
+  <li><a href="https://github.com/DefinitelyTyped/DefinitelyTyped">DefinitelyTyped</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

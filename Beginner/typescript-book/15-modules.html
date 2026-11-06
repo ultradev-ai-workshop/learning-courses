@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📚&lt;/text&gt;&lt;/svg&gt;">
+<title>15. Modules, Namespaces &amp; Merging · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 15 · Reference Topics</div>
+<h1>Modules, Namespaces &amp; Merging</h1>
+<p class="lead">Real programs are split into files. TypeScript uses JavaScript's own module system (ES modules) and adds a few things on top: type-only imports, rules for how import paths are resolved, and <strong>declaration merging</strong>, which lets several declarations with one name combine into one. This chapter follows the Handbook's <em>Modules</em> page, the <em>Modules Reference</em>, and the reference pages on namespaces and declaration merging.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Which files are modules, and the <code>import</code>/<code>export</code> forms in TypeScript.</li>
+  <li><strong>Type-only</strong> imports and exports, and <code>verbatimModuleSyntax</code>.</li>
+  <li>Why you write <code>./catalog.js</code> when importing <code>catalog.ts</code> (<code>module: "nodenext"</code>).</li>
+  <li>ES modules vs CommonJS from TypeScript's point of view.</li>
+  <li>Namespaces: what they are and why you rarely need them now.</li>
+  <li>Declaration merging and <strong>module augmentation</strong>.</li>
+</ul>
+</div>
+
+<h2 id="what">What is a module?</h2>
+<p>In JavaScript, a file with a top-level <code>import</code> or <code>export</code> is a module: its variables are private unless exported. A file without them is a <em>script</em>, and its top-level declarations are global. TypeScript follows the same rule, and the option <code>moduleDetection: "force"</code> (set by <code>tsc --init</code> and used in this book) treats every non-declaration file as a module, so there's no accidental global code.</p>
+<p>Here's a small module with named exports, a default export and a type export:</p>
+<script type="text/plain" class="code" data-file="catalog.ts" data-save>
+export interface Book { id: string; title: string; year: number }
+export type Format = "paperback" | "ebook";
+
+export const books: Book[] = [
+  { id: "b1", title: "Dune", year: 1965 },
+  { id: "b2", title: "Emma", year: 1815 },
+];
+export function find(id: string): Book | undefined {
+  return books.find((b) => b.id === id);
+}
+export default function count(): number { return books.length; }
+</script>
+<script type="text/plain" class="code" data-file="main.ts">
+import count, { find, books, type Book } from "./catalog.js";
+import * as catalog from "./catalog.js";
+
+const dune: Book | undefined = find("b1");
+console.log(count(), dune?.title, catalog.books === books);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 Dune true
+</script>
+
+<h2 id="type-only">Type-only imports and exports</h2>
+<p><code>Book</code> is only a type; it doesn't exist at runtime. Marking it with <code>type</code> (either <code>import { type Book }</code> or <code>import type { Book }</code>) tells every tool that this import can be deleted when compiling. With the option <strong><code>verbatimModuleSyntax</code></strong> (recommended, and set by <code>tsc --init</code>), the rule is simple: imports without <code>type</code> are kept in the output, imports with <code>type</code> are removed, and importing a type without <code>type</code> is an error:</p>
+<script type="text/plain" class="code" data-file="verbatim.ts" data-tsc="verbatimModuleSyntax">
+import { Book } from "./catalog.js";
+const b: Book = { id: "b3", title: "Hamlet", year: 1603 };
+console.log(b.title);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+verbatim.ts(1,10): error TS1484: 'Book' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+SyntaxError: The requested module './catalog.js' does not provide an export named 'Book'
+</script>
+<p>This is exactly the bug the error warns about. The import has no <code>type</code> marker, so it was kept in the JavaScript output, and at runtime <code>catalog.js</code> has no export called <code>Book</code>: interfaces don't exist there. Writing <code>import { type Book }</code> fixes both the error and the crash. Why does this matter so much? A file-by-file transpiler (esbuild, Babel, Node's type stripping) can't look into <code>catalog.ts</code> to see whether <code>Book</code> is a type or a value. The <code>type</code> keyword tells it, so it never emits an import of something that doesn't exist.</p>
+<div class="tip">
+<p>💡 Exports work the same way: <code>export type { Book } from "./catalog.js";</code> re-exports only the type.</p>
+</div>
+
+<h2 id="resolution">Import paths and module resolution</h2>
+<p>Look at the import again: <code>from "./catalog.js"</code>, although the file is <code>catalog.ts</code>. With <code>module: "nodenext"</code> (the right setting for Node), TypeScript checks imports the way Node will run them. Node runs the <em>emitted</em> <code>catalog.js</code>, and Node's ES module loader requires full file names with extensions. TypeScript doesn't rewrite import paths, so you write the path that will be correct at runtime, and TypeScript maps it back to the <code>.ts</code> file for checking:</p>
+<script type="text/plain" class="code" data-file="no-ext.ts">
+import { find } from "./catalog";
+console.log(find("b2")?.title);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+no-ext.ts(1,22): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './catalog.js'?
+</script>
+<div class="table-wrap"><table>
+<tr><th>Your code runs in…</th><th>Set</th><th>Import paths</th></tr>
+<tr><td>Node (with <code>tsc</code> output)</td><td><code>"module": "nodenext"</code></td><td><code>"./catalog.js"</code></td></tr>
+<tr><td>A bundler (Vite, webpack, esbuild)</td><td><code>"module": "preserve"</code>, <code>"moduleResolution": "bundler"</code></td><td><code>"./catalog"</code> is fine</td></tr>
+<tr><td>Node with type stripping (<code>node file.ts</code>)</td><td><code>nodenext</code> + <code>allowImportingTsExtensions</code>, <code>rewriteRelativeImportExtensions</code></td><td><code>"./catalog.ts"</code></td></tr>
+</table></div>
+<p>The Modules Reference's guide <em>Choosing Compiler Options</em> has the full decision table. The key idea: <strong>tell TypeScript where the code will run</strong>, and its import checks will match reality.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: addressing a letter for the destination country.</strong> You write the address in the format the <em>receiving</em> post office understands (the <code>.js</code> file Node will load), not the format of the country you're writing from (your <code>.ts</code> source).</p>
+</div>
+
+<h2 id="cjs">ES modules and CommonJS</h2>
+<p>Node has two module systems: ES modules (<code>import</code>/<code>export</code>) and the older CommonJS (<code>require</code>/<code>module.exports</code>). With <code>nodenext</code>, TypeScript decides per file, exactly like Node: <code>.mts</code> → ESM, <code>.cts</code> → CommonJS, and <code>.ts</code> follows the nearest <code>package.json</code>'s <code>"type"</code> field. This book's work folder has <code>"type": "module"</code>, so every <code>.ts</code> file is ESM.</p>
+<p>Importing a CommonJS package from ESM gives you its <code>module.exports</code> as the default import. TypeScript models this with the <code>esModuleInterop</code> behaviour, which is always on in TypeScript 7 (turning it off was removed):</p>
+<script type="text/plain" class="code" data-file="cjs-import.ts">
+import fs from "node:fs";                  // CommonJS-style module, default import works
+import { readFileSync } from "node:fs";    // named imports work too
+console.log(typeof fs.readFileSync, fs.readFileSync === readFileSync);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+function true
+</script>
+
+<h2 id="namespaces">Namespaces</h2>
+<p>Before ES modules existed, TypeScript had <strong>namespaces</strong> (originally "internal modules") to group code under one global name:</p>
+<script type="text/plain" class="code" data-file="namespace.ts">
+namespace Validation {
+  export interface Validator { check(s: string): boolean }
+  const digits = /^\d+$/;                         // not exported: private to the namespace
+  export const zip: Validator = { check: (s) => s.length === 5 && digits.test(s) };
+}
+console.log(Validation.zip.check("12345"), Validation.zip.check("abc"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true false
+</script>
+<p>A namespace compiles to an object built by a function (an IIFE). In new code, <strong>use modules instead</strong>: every file is already its own namespace, and tools understand modules better. Namespaces aren't erasable (they generate code), so <code>erasableSyntaxOnly</code> rejects them. You'll still meet them in older code and in declaration files (Chapter 17), where <code>declare namespace</code> describes global libraries.</p>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> a TypeScript namespace looks like a C# <code>namespace</code> or a Java package, but it's really an object at runtime. The Java "package = folder" idea maps better onto <em>modules</em>: one file, one module, and imports by path. There's no <code>package-private</code> visibility; anything not exported from a module is private to that file.</p>
+</div>
+
+<h2 id="merging">Declaration merging</h2>
+<p>When TypeScript sees two declarations with the same name in the same scope, some kinds <strong>merge</strong> into one. You met interface merging in Chapter 3:</p>
+<div class="table-wrap"><table>
+<tr><th>Declaration</th><th>Creates a namespace?</th><th>a type?</th><th>a value?</th></tr>
+<tr><td><code>namespace</code></td><td>✅</td><td></td><td>✅</td></tr>
+<tr><td><code>class</code></td><td></td><td>✅</td><td>✅</td></tr>
+<tr><td><code>enum</code></td><td></td><td>✅</td><td>✅</td></tr>
+<tr><td><code>interface</code>, <code>type</code></td><td></td><td>✅</td><td></td></tr>
+<tr><td><code>function</code>, <code>const</code>/<code>let</code></td><td></td><td></td><td>✅</td></tr>
+</table></div>
+<p>Interfaces merge with interfaces, and namespaces can merge with classes, functions and enums to add static-like members:</p>
+<script type="text/plain" class="code" data-file="merge.ts">
+function money(cents: number) { return `€${(cents / 100).toFixed(2)}`; }
+namespace money {                                  // adds properties to the function
+  export const zero = money(0);
+}
+interface Loan { id: string }
+interface Loan { days: number }                    // merged: Loan has id and days
+const l: Loan = { id: "L1", days: 14 };
+console.log(money(1299), money.zero, l);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+€12.99 €0.00 { id: 'L1', days: 14 }
+</script>
+
+<h2 id="augmentation">Module and global augmentation</h2>
+<p>The most useful kind of merging in modern code: <strong>adding</strong> to types declared by someone else. You can't edit a library's types, but you can re-open its interfaces with <code>declare module "name"</code> (module augmentation), or add to global types with <code>declare global</code>:</p>
+<script type="text/plain" class="code" data-file="augment.ts">
+import { books } from "./catalog.js";
+
+declare module "./catalog.js" {
+  interface Book { rating?: number }             // merged into catalog's Book interface
+}
+declare global {
+  interface Array<T> { second(): T | undefined }  // merged into the built-in Array
+}
+Array.prototype.second = function () { return this[1]; };
+
+const first = books[0]!;
+first.rating = 5;                                 // allowed thanks to the augmentation
+console.log(first.rating, books.second()?.title);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+5 Emma
+</script>
+<div class="pitfall">
+<p>⚠️ Augmenting built-ins like <code>Array</code> changes them for the whole program, and patching prototypes is fragile. It's shown to explain how libraries extend types (for example, a framework adding a <code>user</code> property to its <code>Request</code> type). In your own code, prefer a plain function.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A barrel file</h3>
+<p>An <code>index.ts</code> that re-exports the public parts of a folder gives callers one import path:</p>
+<script type="text/plain" class="code" data-file="lib/fees.ts" data-save>
+export const lateFee = (days: number) => Math.min(days * 25, 500);
+</script>
+<script type="text/plain" class="code" data-file="lib/index.ts" data-save>
+export { lateFee } from "./fees.js";
+export type { Book, Format } from "../catalog.js";
+export { find as findBook } from "../catalog.js";
+</script>
+<script type="text/plain" class="code" data-file="use-barrel.ts">
+import { lateFee, findBook, type Format } from "./lib/index.js";
+const f: Format = "ebook";
+console.log(lateFee(3), findBook("b1")?.year, f);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+75 1965 ebook
+</script>
+<h3>Dynamic import is typed</h3>
+<script type="text/plain" class="code" data-file="dynamic.ts">
+const mod = await import("./catalog.js");      // typeof import("./catalog.js")
+console.log(mod.default(), mod.find("b2")?.title);
+type CatalogModule = typeof import("./catalog.js");
+const fn: CatalogModule["find"] = mod.find;
+console.log(fn("b1")?.title);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 Emma
+Dune
+</script>
+<h3>import type for a value used only as a type</h3>
+<script type="text/plain" class="code" data-file="typeof-import.ts">
+import type { books } from "./catalog.js";
+type Row = (typeof books)[number];             // OK: used only in a type position
+const r: Row = { id: "b9", title: "Beloved", year: 1987 };
+console.log(r.title);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Beloved
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Files with <code>import</code>/<code>export</code> are modules; <code>moduleDetection: "force"</code> makes every file one.</li>
+  <li>Mark type-only imports with <code>type</code>; <code>verbatimModuleSyntax</code> makes this a rule and keeps tools honest.</li>
+  <li>With <code>module: "nodenext"</code>, write runtime paths (<code>./x.js</code>); for bundlers use <code>preserve</code> + <code>bundler</code>.</li>
+  <li>TypeScript follows Node's ESM/CommonJS rules per file (<code>.mts</code>, <code>.cts</code>, <code>"type"</code>).</li>
+  <li>Namespaces are legacy grouping objects; use modules in new code.</li>
+  <li>Interfaces and namespaces merge; <code>declare module</code> and <code>declare global</code> augment other people's types.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>With <code>module: "nodenext"</code>, which import is correct for a file <code>src/fees.ts</code>, from <code>src/app.ts</code>: <code>"./fees"</code>, <code>"./fees.ts"</code> or <code>"./fees.js"</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"./fees.js"</code>: the path of the emitted file that Node will load. (<code>"./fees.ts"</code> works only with <code>allowImportingTsExtensions</code>, for runtimes that execute <code>.ts</code> directly.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">type-only</span></h3>
+<p>Rewrite <code>import { Book, find } from "./catalog.js";</code> for <code>verbatimModuleSyntax</code>, given that <code>Book</code> is an interface.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>import { type Book, find } from "./catalog.js";</code>, or two lines: <code>import type { Book } from …</code> and <code>import { find } from …</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"A non-exported <code>const</code> in a module is visible to other modules as a global." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> Module scope is private. Only exports are visible, and only to files that import them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">merging</span></h3>
+<p>Two files in the same <em>global script</em> both declare <code>interface Settings</code> with different properties. What happens? What if they were <code>type Settings = …</code> instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The interfaces merge into one with all properties. Two <code>type</code> aliases with the same name are an error: "Duplicate identifier 'Settings'".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">modules</span></h3>
+<p>Write a module <code>money.ts</code> exporting a <code>Cents</code> type and a <code>format</code> function, and a <code>main.ts</code> that imports both correctly under <code>verbatimModuleSyntax</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="money.ts" data-save>
+export type Cents = number;
+export const format = (c: Cents) => `€${(c / 100).toFixed(2)}`;
+</script>
+<script type="text/plain" class="code" data-file="money-main.ts" data-tsc="verbatimModuleSyntax">
+import { format, type Cents } from "./money.js";
+const price: Cents = 1299;
+console.log(format(price));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+€12.99
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">augmentation</span></h3>
+<p>Add an optional <code>isbn</code> property to <code>catalog.ts</code>'s <code>Book</code> through module augmentation, and set it on a book.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="augment-isbn.ts">
+import { find } from "./catalog.js";
+declare module "./catalog.js" {
+  interface Book { isbn?: string }
+}
+const b = find("b2")!;
+b.isbn = "978-0141439587";
+console.log(b);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'b2', title: 'Emma', year: 1815, isbn: '978-0141439587' }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor</span></h3>
+<p>Convert the <code>Validation</code> namespace from this chapter into a module <code>validation.ts</code>. What replaces the non-exported <code>digits</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="validation.ts" data-save>
+export interface Validator { check(s: string): boolean }
+const digits = /^\d+$/;            // module-private: simply not exported
+export const zip: Validator = { check: (s) => s.length === 5 && digits.test(s) };
+</script>
+<script type="text/plain" class="code" data-file="use-validation.ts">
+import * as Validation from "./validation.js";
+console.log(Validation.zip.check("12345"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true
+</script>
+<p><code>import * as Validation</code> even keeps the <code>Validation.zip</code> call style.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Split the playground's capstone code into modules: <code>src/types.ts</code> (only types), <code>src/catalog.ts</code>, <code>src/members.ts</code>, <code>src/loans.ts</code> and <code>src/index.ts</code> (a barrel). Run <code>npm run check</code> with <code>verbatimModuleSyntax</code> on and fix every TS1484.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The finished layout is in <code>playground/reference/src/</code> and shown in <a href="19-project.html">Chapter 19</a>. Every import of something from <code>types.ts</code> becomes <code>import type { … }</code>, and the barrel re-exports types with <code>export type { … }</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why doesn't TypeScript simply rewrite <code>"./catalog"</code> to <code>"./catalog.js"</code> in its output, so you could write paths without extensions?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>One of TypeScript's design rules is that it doesn't change the meaning of JavaScript expressions it emits; it only removes types. An import specifier is a runtime string: rewriting it would be easy for <code>./catalog</code> but ambiguous for package paths, dynamic imports with variables, or folders. Instead, TypeScript checks that the path you wrote will work where the code runs. (Since TS 5.7, <code>rewriteRelativeImportExtensions</code> rewrites <code>.ts</code> → <code>.js</code> for relative paths only, for code that also runs directly as <code>.ts</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>A library exports <code>interface Config { url: string }</code> from <code>"./config.js"</code> and a function <code>connect(c: Config)</code>. Using augmentation, add a required <code>timeoutMs: number</code> for your app, and show that calling <code>connect({ url })</code> is now an error.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="config.ts" data-save>
+export interface Config { url: string }
+export function connect(c: Config) { return `connecting to ${c.url}`; }
+</script>
+<script type="text/plain" class="code" data-file="config-augment.ts">
+import { connect } from "./config.js";
+declare module "./config.js" {
+  interface Config { timeoutMs: number }
+}
+console.log(connect({ url: "https://lib.example", timeoutMs: 500 }));
+connect({ url: "https://lib.example" });
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+config-augment.ts(6,9): error TS2741: Property 'timeoutMs' is missing in type '{ url: string; }' but required in type 'Config'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+connecting to https://lib.example
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/modules.html">Handbook: Modules</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/modules/introduction.html">Modules Reference</a> · <a href="https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html">Choosing Compiler Options</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/namespaces.html">Reference: Namespaces</a> · <a href="https://www.typescriptlang.org/docs/handbook/namespaces-and-modules.html">Namespaces and Modules</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/declaration-merging.html">Reference: Declaration Merging</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#verbatimModuleSyntax">TSConfig: verbatimModuleSyntax</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "library-loans-start",
+  "private": true,
+  "description": "The plain-JavaScript starting point that Chapter 19 migrates to TypeScript.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "check": "tsc"
+  }
+}

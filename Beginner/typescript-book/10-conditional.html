@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔀&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Conditional Types &amp; infer · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Type Manipulation</div>
+<h1>Conditional Types &amp; infer</h1>
+<p class="lead">A <strong>conditional type</strong> is an <code>if</code> for types: <code>A extends B ? X : Y</code>. With it, and with <code>infer</code> to pull types out of other types, you can describe functions whose return type depends on their input, and build most of the utility types in Chapter 12 yourself. This chapter follows the Handbook's <em>Conditional Types</em> page.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The syntax <code>T extends U ? X : Y</code> and when it's useful.</li>
+  <li>Conditional types in generic functions, instead of overloads.</li>
+  <li><code>infer</code>: extracting element types, return types and promise results.</li>
+  <li><strong>Distributive</strong> conditional types over unions, and how to switch it off.</li>
+  <li>How to "unit test" types with a tiny <code>Expect</code>/<code>Equal</code> helper.</li>
+</ul>
+</div>
+
+<h2 id="basics">The basic form</h2>
+<p><code>SomeType extends OtherType ? TrueType : FalseType</code>. When the type on the left is assignable to the one on the right, you get the first branch, otherwise the second. It's the same <code>extends</code> as in constraints: "fits into".</p>
+<script type="text/plain" class="code" data-file="basic.ts">
+type IsString<T> = T extends string ? "yes" : "no";
+
+const a: IsString<"Dune"> = "yes";
+const b: IsString<number> = "no";
+const c: IsString<number> = "yes";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+basic.ts(5,7): error TS2322: Type '"yes"' is not assignable to type '"no"'.
+</script>
+<p>On their own, conditional types with concrete types aren't very useful: you already know the answer. Their power comes with generics.</p>
+
+<h2 id="generic">Conditional types with generics</h2>
+<p>Here's the Handbook's example. A <code>createLabel</code> function takes an id (number) or a name (string). Overloads would need one signature per case, and a third for the union. A conditional type says it once:</p>
+<script type="text/plain" class="code" data-file="labels.ts">
+interface IdLabel { id: number }
+interface NameLabel { name: string }
+
+type NameOrId<T extends number | string> = T extends number ? IdLabel : NameLabel;
+
+function createLabel<T extends number | string>(idOrName: T): NameOrId<T> {
+  return (typeof idOrName === "number" ? { id: idOrName } : { name: idOrName }) as NameOrId<T>;
+}
+const a = createLabel("Dune");          // NameLabel
+const b = createLabel(42);              // IdLabel
+const c = createLabel(Math.random() > 2 ? "x" : 1);   // IdLabel | NameLabel
+console.log(a.name, b.id, c);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 42 { id: 1 }
+</script>
+<div class="pitfall">
+<p>⚠️ Notice the <code>as NameOrId&lt;T&gt;</code>. Inside the function, TypeScript can't check that each branch matches the unresolved conditional type, so you assert it. Keep these functions small and test them.</p>
+</div>
+
+<h3>Constraints inside conditional types</h3>
+<p>The true branch knows the check passed, so it can use the narrower type:</p>
+<script type="text/plain" class="code" data-file="message-of.ts">
+type MessageOf<T> = T extends { message: unknown } ? T["message"] : never;
+
+interface Email { message: string }
+interface Dog { bark(): void }
+type EmailMessage = MessageOf<Email>;     // string
+type DogMessage = MessageOf<Dog>;         // never
+const m: EmailMessage = "Your book is ready";
+console.log(m);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Your book is ready
+</script>
+
+<h2 id="infer">infer: extracting types</h2>
+<p>Inside the <code>extends</code> clause, <code>infer X</code> declares a new type variable and lets TypeScript fill it in from the matched type. Then the true branch can use <code>X</code>. It's like pattern matching or destructuring for types:</p>
+<script type="text/plain" class="code" data-file="infer.ts">
+type ElementOf<T> = T extends (infer Item)[] ? Item : T;
+type Awaited1<T> = T extends Promise<infer V> ? V : T;
+type ReturnOf<F> = F extends (...args: any[]) => infer R ? R : never;
+type FirstArg<F> = F extends (first: infer A, ...rest: any[]) => any ? A : never;
+
+function borrow(bookId: string, days: number) { return { bookId, days, ok: true }; }
+
+const e: ElementOf<string[]> = "Dune";                 // string
+const v: Awaited1<Promise<number>> = 7;                // number
+const r: ReturnOf<typeof borrow> = { bookId: "b1", days: 7, ok: true };
+const f: FirstArg<typeof borrow> = "b2";               // string
+console.log(e, v, r.ok, f);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 7 true b2
+</script>
+<p>You don't need to write these: <code>ReturnType</code>, <code>Parameters</code> and <code>Awaited</code> are built in (Chapter 12). But now you know they're just conditional types with <code>infer</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a stencil.</strong> <code>Promise&lt;infer V&gt;</code> is a stencil with a hole labelled <code>V</code>. Hold it over a type: if the shape matches, whatever shows through the hole becomes <code>V</code>. If it doesn't match, you take the "false" branch.</p>
+</div>
+<h3>infer with constraints</h3>
+<p><code>infer X extends string</code> only matches when the inferred part is a string. Combined with template literal types (Chapter 11), it can pick strings apart:</p>
+<script type="text/plain" class="code" data-file="infer-extends.ts">
+type IdNumber<T> = T extends `b${infer N extends number}` ? N : never;
+const n: IdNumber<"b42"> = 42;        // 42 as a number type
+const x: IdNumber<"m7"> = 7;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+infer-extends.ts(3,7): error TS2322: Type '7' is not assignable to type 'never'.
+</script>
+
+<h2 id="distributive">Distributive conditional types</h2>
+<p>When the checked type is a bare type parameter and you pass a <strong>union</strong>, the conditional type is applied to each member separately, and the results are joined again. This is called <strong>distribution</strong>:</p>
+<script type="text/plain" class="code" data-file="distributive.ts">
+type ToArray<T> = T extends any ? T[] : never;
+type A = ToArray<string | number>;          // string[] | number[]   (distributed)
+
+type ToArrayNonDist<T> = [T] extends [any] ? T[] : never;
+type B = ToArrayNonDist<string | number>;   // (string | number)[]   (not distributed)
+
+const a: A = ["Dune", "Emma"];
+const b: B = ["Dune", 1965];
+const bad: A = ["Dune", 1965];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+distributive.ts(9,7): error TS2322: Type '(string | number)[]' is not assignable to type 'A'.
+  Type '(string | number)[]' is not assignable to type 'string[]'.
+    Type 'string | number' is not assignable to type 'string'.
+      Type 'number' is not assignable to type 'string'.
+</script>
+<p>Wrapping both sides in <code>[ ]</code> (a one-element tuple) turns distribution off. Distribution is what makes the built-in <code>Exclude</code> and <code>Extract</code> work:</p>
+<script type="text/plain" class="code" data-file="exclude.ts">
+type MyExclude<T, U> = T extends U ? never : T;     // drop members that fit U
+type MyExtract<T, U> = T extends U ? T : never;     // keep members that fit U
+
+type Status = "active" | "overdue" | "returned" | "lost";
+type Open = MyExclude<Status, "returned" | "lost">;      // "active" | "overdue"
+type Problem = MyExtract<Status, "overdue" | "lost">;    // "overdue" | "lost"
+const o: Open = "overdue";
+const p: Problem = "lost";
+console.log(o, p);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+overdue lost
+</script>
+<p>(<code>never</code> disappears in a union: <code>"a" | never</code> is just <code>"a"</code>. That's how a member gets dropped.)</p>
+
+<h2 id="testing">Testing types</h2>
+<p>Type-level code has no output to print. The common trick is a helper that only compiles when two types are identical. If a test fails, the build fails:</p>
+<script type="text/plain" class="code" data-file="type-tests.ts">
+type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
+type Expect<T extends true> = T;
+
+type ElementOf<T> = T extends readonly (infer I)[] ? I : never;
+
+type Tests = [
+  Expect<Equal<ElementOf<string[]>, string>>,
+  Expect<Equal<ElementOf<readonly [1, 2]>, 1 | 2>>,
+  Expect<Equal<ElementOf<number>, never>>,
+  Expect<Equal<ElementOf<boolean[]>, string>>,
+];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+type-tests.ts(10,10): error TS2344: Type 'false' does not satisfy the constraint 'true'.
+</script>
+<p>The first three pass; the fourth was a deliberately wrong test. The <code>Equal</code> definition looks magical; it compares two types exactly (so <code>any</code> doesn't equal everything). Libraries like <code>expect-type</code> and Vitest's <code>expectTypeOf</code> wrap the same idea.</p>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> Java and C# generics can't compute a type from another type. There's no "if T is a string, the result is X". The nearest Java idea is overloading, and the nearest C# idea is a set of generic overloads with different constraints, both resolved per call. TypeScript's conditional types are closer to C++ template metaprogramming or Scala's match types. Use them for <em>library-level</em> typing; most application code needs very few.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Unwrapping nested promises and arrays recursively</h3>
+<script type="text/plain" class="code" data-file="deep.ts">
+type Unwrap<T> = T extends Promise<infer V> ? Unwrap<V> : T extends (infer I)[] ? Unwrap<I> : T;
+type Deep = Unwrap<Promise<Promise<number[][]>>>;   // number
+const d: Deep = 42;
+async function load(): Promise<string[][]> { return [["Dune"]]; }
+type Loaded = Unwrap<ReturnType<typeof load>>;      // string
+console.log(d);
+load().then((rows) => {
+  const t: Loaded = rows[0]![0]!;
+  console.log(t);
+});
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+Dune
+</script>
+<h3>Return type depends on a flag</h3>
+<script type="text/plain" class="code" data-file="flag.ts">
+type Lookup<Strict extends boolean> = Strict extends true ? string : string | undefined;
+
+function title<S extends boolean>(id: string, strict: S): Lookup<S> {
+  const found = ({ b1: "Dune" } as Record<string, string>)[id];
+  if (strict && found === undefined) throw new Error(`no book ${id}`);
+  return found as Lookup<S>;
+}
+const t1 = title("b1", true);         // string
+const t2 = title("b9", false);        // string | undefined
+console.log(t1.toUpperCase(), t2 ?? "(none)");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE (none)
+</script>
+<h3>Picking the function-valued keys of a type</h3>
+<script type="text/plain" class="code" data-file="method-keys.ts">
+type MethodKeys<T> = { [K in keyof T]: T[K] extends (...a: any[]) => any ? K : never }[keyof T];
+class Loan { id = "L1"; days = 14; renew() {} close() {} }
+type LoanMethods = MethodKeys<Loan>;          // "renew" | "close"
+const m: LoanMethods = "renew";
+console.log(m);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+renew
+</script>
+<p>This one combines a mapped type (next chapter) with a conditional type and an indexed access.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>T extends U ? X : Y</code> picks a type based on assignability; it's most useful with generics.</li>
+  <li>A conditional return type can replace a set of overloads (with an <code>as</code> inside the body).</li>
+  <li><code>infer X</code> captures part of a matched type; <code>infer X extends C</code> adds a constraint.</li>
+  <li>Over a bare type parameter, conditional types <strong>distribute</strong> across unions; wrap in <code>[T]</code> to stop it.</li>
+  <li><code>never</code> vanishes from unions, which is how <code>Exclude</code>/<code>Extract</code> filter members.</li>
+  <li>Test type-level code with <code>Expect&lt;Equal&lt;A, B&gt;&gt;</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What is <code>IsNumber&lt;42&gt;</code> and <code>IsNumber&lt;"42"&gt;</code> if <code>type IsNumber&lt;T&gt; = T extends number ? true : false</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>true</code> (the literal <code>42</code> is a number) and <code>false</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write <code>NonNullish&lt;T&gt;</code> that removes <code>null</code> and <code>undefined</code> from a union.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="nonnullish.ts">
+type NonNullish<T> = T extends null | undefined ? never : T;
+type T1 = NonNullish<string | null | undefined>;   // string
+const s: T1 = "Dune";
+console.log(s);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune
+</script>
+<p>It's the built-in <code>NonNullable&lt;T&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">infer</span></h3>
+<p>Write <code>PromiseValue&lt;T&gt;</code> that gives <code>string</code> for <code>Promise&lt;string&gt;</code> and <code>T</code> itself otherwise.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type PromiseValue&lt;T&gt; = T extends Promise&lt;infer V&gt; ? V : T;</code> (the built-in <code>Awaited</code> also unwraps nested promises and "thenables").</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">distribution</span></h3>
+<p>Is <code>ToArray&lt;"a" | "b"&gt;</code> equal to <code>("a" | "b")[]</code> or to <code>"a"[] | "b"[]</code>, with <code>type ToArray&lt;T&gt; = T extends any ? T[] : never</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"a"[] | "b"[]</code>: <code>T</code> is a bare type parameter, so the conditional distributes over the union.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">type tests</span></h3>
+<p>Write <code>Last&lt;T extends unknown[]&gt;</code> (the type of the last tuple element) and test it with <code>Expect&lt;Equal&lt;…&gt;&gt;</code> for <code>[1, 2, 3]</code> and <code>[]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="last.ts">
+type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
+type Expect<T extends true> = T;
+type Last<T extends unknown[]> = T extends [...unknown[], infer L] ? L : never;
+type Tests = [Expect<Equal<Last<[1, 2, 3]>, 3>>, Expect<Equal<Last<[]>, never>>];
+const ok: Last<["b1", "b2"]> = "b2";
+console.log(ok);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b2
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">Extract</span></h3>
+<p>Given a discriminated union of loan events, use <code>Extract</code> to get the type of the <code>"returned"</code> event only, and write a function that accepts only that.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="extract-event.ts">
+type LoanEvent =
+  | { type: "borrowed"; bookId: string }
+  | { type: "returned"; bookId: string; lateDays: number };
+type Returned = Extract<LoanEvent, { type: "returned" }>;
+function onReturn(e: Returned) { return `${e.bookId}: ${e.lateDays} late`; }
+console.log(onReturn({ type: "returned", bookId: "b1", lateDays: 0 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1: 0 late
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">infer</span></h3>
+<p>Write <code>ArgsOf&lt;F&gt;</code> (like the built-in <code>Parameters</code>) and use it to type a <code>logCall</code> wrapper that logs the arguments before calling.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="argsof.ts">
+type ArgsOf<F> = F extends (...args: infer A) => any ? A : never;
+function logCall<F extends (...args: any[]) => any>(name: string, fn: F) {
+  return (...args: ArgsOf<F>): ReturnType<F> => {
+    console.log(`${name}(${args.join(", ")})`);
+    return fn(...args);
+  };
+}
+const fee = logCall("fee", (days: number, perDay: number) => days * perDay);
+console.log(fee(3, 25));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+fee(3, 25)
+75
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch10/events.ts</code>, write <code>type EventOf&lt;T extends LoanEvent["type"]&gt; = Extract&lt;LoanEvent, { type: T }&gt;</code> and a <code>handle&lt;T&gt;(type: T, fn: (e: EventOf&lt;T&gt;) =&gt; void)</code> registry. The capstone's audit log uses it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="events.ts">
+export type LoanEvent =
+  | { type: "borrowed"; loanId: string; bookId: string }
+  | { type: "returned"; loanId: string; lateDays: number }
+  | { type: "fined"; loanId: string; cents: number };
+export type EventOf<T extends LoanEvent["type"]> = Extract<LoanEvent, { type: T }>;
+
+const handlers: { [T in LoanEvent["type"]]?: ((e: EventOf<T>) => void)[] } = {};
+export function handle<T extends LoanEvent["type"]>(type: T, fn: (e: EventOf<T>) => void) {
+  (handlers[type] ??= [] as never[]).push(fn as never);
+}
+export function dispatch(e: LoanEvent) {
+  (handlers[e.type] as ((e: LoanEvent) => void)[] | undefined)?.forEach((fn) => fn(e));
+}
+handle("fined", (e) => console.log(`fine of ${e.cents} on ${e.loanId}`));
+dispatch({ type: "fined", loanId: "L1", cents: 75 });
+dispatch({ type: "borrowed", loanId: "L2", bookId: "b1" });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+fine of 75 on L1
+</script>
+<p>The casts inside the registry are where the type-level guarantees meet untyped storage. The public API (<code>handle</code>, <code>dispatch</code>) stays fully typed.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why is <code>IsString&lt;never&gt;</code> equal to <code>never</code> instead of <code>"no"</code>, with <code>type IsString&lt;T&gt; = T extends string ? "yes" : "no"</code>? How do you get <code>"no"</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>never</code> is the empty union. A distributive conditional type maps over each member, and there are none, so the result is the empty union, <code>never</code>. Write <code>[T] extends [string] ? "yes" : "no"</code> to avoid distribution; then <code>[never]</code> is assignable to <code>[string]</code> and you get <code>"yes"</code> (never fits everything). To answer "no" for <code>never</code>, check <code>[T] extends [never]</code> first.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write <code>DeepReadonly&lt;T&gt;</code> using a conditional type: functions stay as they are, arrays become <code>readonly</code> arrays of deep-readonly items, objects get <code>readonly</code> deep-readonly properties. Show that nested assignment fails.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="deep-readonly.ts">
+type DeepReadonly<T> =
+  T extends (...args: any[]) => any ? T
+  : T extends readonly (infer I)[] ? readonly DeepReadonly<I>[]
+  : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+  : T;
+
+const config: DeepReadonly<{ limits: { student: number }; tags: string[] }> = {
+  limits: { student: 3 },
+  tags: ["sci-fi"],
+};
+console.log(config.limits.student, config.tags[0]);
+config.limits.student = 4;
+config.tags.push("poetry");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+deep-readonly.ts(12,15): error TS2540: Cannot assign to 'student' because it is a read-only property.
+deep-readonly.ts(13,13): error TS2339: Property 'push' does not exist on type 'readonly string[]'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 sci-fi
+</script>
+<p>Both mutations are compile errors. At runtime, though, nothing is frozen: the emitted JavaScript happily changes <code>student</code> and pushes to <code>tags</code>, because types never change behaviour. Pair <code>DeepReadonly</code> with <code>Object.freeze</code> (recursively) if you need a runtime guarantee as well.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/conditional-types.html">Handbook: Conditional Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#inferring-within-conditional-types">Inferring within conditional types</a> · <a href="https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types">Distributive conditional types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/utility-types.html">Reference: Utility Types</a> (many are conditional types)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

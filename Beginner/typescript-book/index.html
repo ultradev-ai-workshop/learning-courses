@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🟦&lt;/text&gt;&lt;/svg&gt;">
+<title>TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Beginner · TypeScript 7.0 · following the official TypeScript Handbook</div>
+<h1>🟦 TypeScript Study Book</h1>
+<p class="lead">A chapter-by-chapter course through the <a href="https://www.typescriptlang.org/docs/">official TypeScript documentation</a>: the Handbook, its reference pages, declaration files and project configuration. It's written for developers who already know JavaScript, with ☕ boxes that compare every idea with Java and C#, and it ends the way the TypeScript team recommends adopting the language: by migrating a real JavaScript project to strict TypeScript.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 19 chapters follow the Handbook, grouped into five parts. Each uses only ideas from earlier chapters, or says where an idea is explained.</li>
+  <li><strong>Read the errors.</strong> Most examples show what the compiler says, in the exact format <code>tsc</code> prints it: <code>file.ts(line,col): error TSxxxx: …</code>. Learning to read these is half of learning TypeScript.</li>
+  <li><strong>Type the examples.</strong> Every example was compiled with TypeScript 7.0.2 in <code>strict</code> mode and run with Node, and every output and error on these pages is the real one. Use the <em>Copy</em> button, or paste into the <a href="https://www.typescriptlang.org/play/">online Playground</a>.</li>
+  <li><strong>Coming from Java or C#?</strong> Look for the ☕ boxes, and keep <a href="appendix-java-csharp.html">Appendix A</a> open: it maps every Java/C# concept to TypeScript. 🧠 boxes give an everyday analogy for each hard idea.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. <em>Playground</em> exercises build the pieces of the Chapter 19 capstone.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000 and scores you per chapter.</li>
+  <li><strong>Questions?</strong> The <a href="faq.html">FAQ</a> answers "why TypeScript if I know JavaScript?" and "what should I focus on?"; the <a href="glossary.html">Glossary</a> defines every term.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>New to JavaScript itself?</strong> The Handbook assumes you know JavaScript. Work through the <a href="../../Intermediate/javascript-book/index.html">JavaScript Study Book</a> first (at least its first 12 chapters), then come back. Already comfortable? Start with <a href="playground-howto.html">Using the Playground</a> and <a href="01-why.html">Chapter 1</a>.</p>
+</div>
+
+<div class="tip">
+<p>⚛️ <strong>Next step:</strong> the <a href="../react-book/index.html">React Beginner Book</a> and the <a href="../../Intermediate/nodejs-book/index.html">Node.js Study Book</a> both get easier with types: typed props and state, typed API responses, typed configuration.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Node 22 or newer (<code>node --version</code>), then clone the practice project, <a href="https://github.com/coderhop-learning/typescript-playground">coderhop-learning/typescript-playground</a>, with <code>git clone https://github.com/coderhop-learning/typescript-playground.git</code>, and run <code>npm install</code> inside it. That installs the same compiler this book uses, TypeScript 7.0.2.</p>
+</div>
+
+<div class="pitfall">
+<p>⚠️ <strong>Facts that change.</strong> TypeScript releases a new minor version about every three months. Version-specific details (TypeScript 7's defaults, which tools still need TypeScript 6, when Node strips types by default) were checked in November 2026. <a href="appendix-tooling.html">Appendix B</a> lists them; check the <a href="https://devblogs.microsoft.com/typescript/">TypeScript blog</a> for newer releases.</p>
+</div>
+
+<div id="cards"></div>
+
+<h2>Keep practising</h2>
+<div class="cards">
+  <a class="card" href="../../problems/index.html"><div class="num">Problem Set · any language</div><h3>🧩 100 Practice Problems</h3><p>25 easy, 25 medium, 25 hard and 25 object-oriented problems with exact test cases. Solve them in TypeScript: start the easy set after Chapter 5 and the OOP set after Chapter 7. Compile with <code>tsc</code>, then check with <code>node runner/run-tests.mjs E01 -- node e01.js</code>.</p></a>
+  <a class="card" href="../../problems/guide.html"><div class="num">Problem Set guide</div><h3>🛠️ How to Solve &amp; Test</h3><p>Reading stdin and printing stdout, the OOP command-loop template, and the test runner.</p></a>
+</div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Install Node, clone the playground, and learn the edit → check → run → test loop. Plus the online Playground and a troubleshooting table.",
+  "faq.html": "Why TypeScript if you know JavaScript, what to focus on first, interface vs type, any vs unknown, TypeScript 7, AI assistants and more.",
+  "01-why.html": "Static checking, the golden rule (types are erased), inference, defining and composing types, structural typing, TypeScript 7.",
+  "02-basics.html": "Installing and running tsc, what it emits, errors still emit, target and downleveling, noImplicitAny, strictNullChecks, a first tsconfig.",
+  "03-everyday.html": "Primitives, arrays, any, functions, object types, unions, type aliases vs interfaces, assertions, literal types and as const.",
+  "04-narrowing.html": "typeof, truthiness, equality, in, instanceof, control flow analysis, type predicates, unknown and validation, discriminated unions, never.",
+  "05-functions.html": "Function types, call and construct signatures, generic functions, optional and rest parameters, overloads, this, void and never.",
+  "06-objects.html": "readonly and optional properties, index signatures, the excess property check, extends vs &, generic object types, tuples.",
+  "07-classes.html": "Fields, parameter properties, implements, extends and override, private vs #private, static, abstract, generic classes, structural classes.",
+  "08-generics.html": "Type parameters vs any, generic types and classes, constraints, keyof constraints, defaults, const type parameters and NoInfer.",
+  "09-keyof.html": "keyof, typeof in types, indexed access types, T[number], and the single-source-of-truth pattern with as const.",
+  "10-conditional.html": "T extends U ? X : Y, conditional return types, infer, distributive conditional types, Exclude/Extract, and testing types.",
+  "11-mapped.html": "Mapped types, + and - modifiers, key remapping with as, template literal types and intrinsic string types.",
+  "12-utility.html": "Partial, Required, Readonly, Record, Pick, Omit, Exclude, Extract, Parameters, ReturnType, Awaited, and DTOs from one model.",
+  "13-enums.html": "Numeric and string enums, const enums, erasable syntax, literal unions and as const objects, symbols, iterators and generators.",
+  "14-compat.html": "Structural compatibility, contravariant parameters, any/unknown/never, inference, satisfies, and branded types for nominal typing.",
+  "15-modules.html": "ES modules in TypeScript, import type and verbatimModuleSyntax, nodenext paths, ESM vs CommonJS, namespaces, merging, augmentation.",
+  "16-decorators.html": "Standard decorators for classes, methods, fields and accessors, decorator factories, typed decorators, legacy decorators, mixins.",
+  "17-declarations.html": ".d.ts files, @types and DefinitelyTyped, generating declarations, typing JavaScript modules, Do's and Don'ts, JSDoc and checkJs.",
+  "18-config.html": "tsconfig structure, what tsc --init sets, the option groups, debugging configs, project references and tsc -b, recommended configs.",
+  "19-project.html": "Migrate a JavaScript library-loans app to strict TypeScript the official way, and watch the compiler find three bugs the tests missed.",
+  "appendix-java-csharp.html": "Every Java and C# concept mapped to TypeScript, the four mental shifts, and the most common first-project mistakes.",
+  "appendix-tooling.html": "TypeScript 7 and TypeScript 6 side by side, running .ts files, editors, linting, testing, formatting and choosing versions.",
+  "glossary.html": "Every TypeScript term used in the book, in plain words, with a link to the chapter that explains it.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

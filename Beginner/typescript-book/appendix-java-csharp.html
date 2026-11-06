@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;☕&lt;/text&gt;&lt;/svg&gt;">
+<title>A. TS for Java &amp; C# Developers · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A</div>
+<h1>TypeScript for Java &amp; C# Developers</h1>
+<p class="lead">If you know Java or C#, TypeScript's syntax looks familiar from day one: classes, interfaces, generics, <code>public</code>, <code>private</code>. The traps are in the <em>semantics</em>. This appendix follows the official <em>TypeScript for Java/C# Programmers</em> page and collects every ☕ box from the book into one mapping, plus the habits worth unlearning.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>A side-by-side mapping of Java/C# concepts to TypeScript.</li>
+  <li>The four big mental shifts: structural typing, erased types, functions as values, and unions.</li>
+  <li>Which OOP patterns translate directly, and which have simpler TypeScript equivalents.</li>
+  <li>Common mistakes Java and C# developers make in their first TypeScript project.</li>
+</ul>
+</div>
+
+<h2 id="mapping">The mapping</h2>
+<div class="table-wrap"><table>
+<tr><th>Java</th><th>C#</th><th>TypeScript</th><th>Note</th></tr>
+<tr><td><code>int</code>, <code>long</code>, <code>double</code></td><td><code>int</code>, <code>long</code>, <code>double</code>, <code>decimal</code></td><td><code>number</code>, <code>bigint</code></td><td>one float type; no <code>decimal</code> (use integer cents)</td></tr>
+<tr><td><code>String</code>, <code>char</code></td><td><code>string</code>, <code>char</code></td><td><code>string</code></td><td>no char type</td></tr>
+<tr><td><code>Object</code></td><td><code>object</code></td><td><code>unknown</code> (or <code>object</code>)</td><td>narrow before use (Ch. 4)</td></tr>
+<tr><td>—</td><td><code>dynamic</code></td><td><code>any</code></td><td>turns checking off</td></tr>
+<tr><td><code>void</code> method</td><td><code>void</code></td><td><code>void</code></td><td>also usable in function types</td></tr>
+<tr><td><code>@Nullable String</code>, <code>Optional&lt;String&gt;</code></td><td><code>string?</code></td><td><code>string | null</code> / <code>string | undefined</code></td><td>with <code>strictNullChecks</code> (Ch. 2)</td></tr>
+<tr><td><code>interface</code></td><td><code>interface</code></td><td><code>interface</code> or <code>type</code></td><td>structural; no <code>implements</code> needed (Ch. 3, 7)</td></tr>
+<tr><td><code>record Book(String id, …)</code></td><td><code>record Book(string Id, …)</code></td><td><code>interface Book { readonly id: string … }</code></td><td>plain objects; no generated equals</td></tr>
+<tr><td><code>enum</code> (with fields)</td><td><code>enum</code></td><td>literal union, <code>as const</code> object, or <code>enum</code></td><td>TS enums have no methods (Ch. 13)</td></tr>
+<tr><td>sealed interface + records</td><td>records + <code>switch</code></td><td>discriminated union</td><td>exhaustive with <code>never</code> (Ch. 4)</td></tr>
+<tr><td><code>&lt;T extends Comparable&lt;T&gt;&gt;</code></td><td><code>where T : IComparable&lt;T&gt;</code></td><td><code>&lt;T extends …&gt;</code></td><td>erased; no <code>new T()</code> (Ch. 8)</td></tr>
+<tr><td><code>List&lt;? extends Animal&gt;</code></td><td><code>IEnumerable&lt;out T&gt;</code></td><td><code>readonly Animal[]</code></td><td>no wildcards; variance is inferred (Ch. 14)</td></tr>
+<tr><td><code>Function&lt;A, R&gt;</code>, lambdas</td><td><code>Func&lt;A, R&gt;</code>, delegates</td><td><code>(a: A) =&gt; R</code></td><td>functions are values everywhere</td></tr>
+<tr><td>overloaded methods</td><td>overloaded methods</td><td>overload signatures + one body, or a union</td><td>one implementation (Ch. 5)</td></tr>
+<tr><td><code>@Override</code></td><td><code>override</code></td><td><code>override</code></td><td>enable <code>noImplicitOverride</code></td></tr>
+<tr><td><code>final</code> field</td><td><code>readonly</code> / <code>init</code></td><td><code>readonly</code></td><td>compile time only, shallow (Ch. 6)</td></tr>
+<tr><td><code>private</code></td><td><code>private</code></td><td><code>#field</code> (runtime) or <code>private</code> (compile time)</td><td>(Ch. 7)</td></tr>
+<tr><td>package</td><td>namespace</td><td>module (one file)</td><td>import by path (Ch. 15)</td></tr>
+<tr><td>annotations</td><td>attributes</td><td>decorators</td><td>active code, not metadata (Ch. 16)</td></tr>
+<tr><td>checked exceptions</td><td>exceptions</td><td>exceptions (untyped), or a <code>Result</code> union</td><td><code>catch (e)</code> is <code>unknown</code></td></tr>
+<tr><td><code>CompletableFuture&lt;T&gt;</code></td><td><code>Task&lt;T&gt;</code></td><td><code>Promise&lt;T&gt;</code></td><td><code>async</code>/<code>await</code> like C#</td></tr>
+<tr><td>Maven/Gradle modules</td><td>projects in a solution</td><td>project references (<code>tsc -b</code>)</td><td>(Ch. 18)</td></tr>
+<tr><td>JAR with class files</td><td>assembly</td><td>npm package with <code>.js</code> + <code>.d.ts</code></td><td>(Ch. 17)</td></tr>
+</table></div>
+
+<h2 id="shifts">The four mental shifts</h2>
+<h3>1. Types are sets of values, compared by shape</h3>
+<p>In Java and C#, a type is a <em>declared name</em> in a hierarchy. In TypeScript, a type is a <em>set of values</em>, and a value belongs to every type whose shape it fits. That's why unions (<code>A | B</code>, set union), intersections (<code>A &amp; B</code>) and literal types (<code>"overdue"</code>, a set with one value) feel natural in TypeScript and have no Java equivalent.</p>
+<script type="text/plain" class="code" data-file="sets.ts">
+class Point2D { constructor(public x: number, public y: number) {} }
+interface HasX { x: number }
+const p: HasX = new Point2D(1, 2);          // no `implements` anywhere
+const q: Point2D = { x: 3, y: 4 };          // a plain object is a "Point2D"
+console.log(p.x, q instanceof Point2D);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 false
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a guest list versus a dress code.</strong> Java checks the guest list (is your class's name on it?). TypeScript checks the dress code (are you wearing the right things?). Anyone who meets the dress code gets in, whatever their name.</p>
+</div>
+<h3>2. Types are erased</h3>
+<p>Nothing about types survives compilation: no reflection on generics, no runtime casts, no <code>instanceof</code> on interfaces. Validate data at runtime yourself, at the edges (Chapter 4).</p>
+<script type="text/plain" class="code" data-file="erased.ts">
+interface Book { title: string }
+const data = JSON.parse('{"titel": "typo"}') as Book;   // no runtime check happens
+console.log(data.title?.length ?? "title is missing at runtime");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+title is missing at runtime
+</script>
+<h3>3. Functions are first-class; classes are optional</h3>
+<p>You don't need a class to hold a function. Modules export functions directly. Many Java patterns become plain functions: Strategy → a function parameter, Factory → a function, Singleton → a module-level <code>const</code>, Builder → an options object with defaults.</p>
+<script type="text/plain" class="code" data-file="patterns.ts">
+// Strategy: just pass a function
+type FeeRule = (days: number) => number;
+const standard: FeeRule = (d) => d * 25;
+const capped = (rule: FeeRule, cap: number): FeeRule => (d) => Math.min(rule(d), cap);
+
+// Builder: an options object with defaults
+function createLoan({ bookId, days = 21, renewals = 0 }: { bookId: string; days?: number; renewals?: number }) {
+  return { bookId, days, renewals };
+}
+console.log(capped(standard, 100)(10), createLoan({ bookId: "b1" }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+100 { bookId: 'b1', days: 21, renewals: 0 }
+</script>
+<h3>4. Unions replace many hierarchies</h3>
+<p>Where Java would create an abstract class and subclasses, TypeScript often uses a discriminated union of plain objects plus functions that <code>switch</code> on the tag. It's less code, the data is JSON-friendly, and the compiler checks exhaustiveness.</p>
+<div class="compare">
+<div class="bad">
+<p>☕ <strong>Java-style hierarchy</strong></p>
+<script type="text/plain" class="code" data-file="hierarchy.ts">
+abstract class Payment { abstract describe(): string }
+class Card extends Payment {
+  constructor(private last4: string) { super(); }
+  describe() { return `card •••• ${this.last4}`; }
+}
+class Cash extends Payment { describe() { return "cash"; } }
+const ps: Payment[] = [new Card("4242"), new Cash()];
+console.log(ps.map((p) => p.describe()));
+</script>
+</div>
+<div class="good">
+<p>✅ <strong>TypeScript-style union</strong></p>
+<script type="text/plain" class="code" data-file="union.ts">
+type Payment = { kind: "card"; last4: string } | { kind: "cash" };
+const describe = (p: Payment) =>
+  p.kind === "card" ? `card •••• ${p.last4}` : "cash";
+const ps: Payment[] = [{ kind: "card", last4: "4242" }, { kind: "cash" }];
+console.log(ps.map(describe));
+</script>
+</div>
+</div>
+<p>Both are valid TypeScript. Classes are still the right tool when you have behaviour plus private state that belong together (like the capstone's <code>Catalog</code> and <code>LoanService</code>).</p>
+
+<h2 id="mistakes">Common first-project mistakes</h2>
+<div class="table-wrap"><table>
+<tr><th>Mistake</th><th>Instead</th></tr>
+<tr><td>Using <code>as</code> like a Java cast to "convert" JSON into a class</td><td>Validate with a type guard or a schema library; use plain interfaces for data</td></tr>
+<tr><td>Writing <code>I</code>-prefixed interfaces and a class for every interface</td><td>Name types by what they are (<code>Book</code>); add a class only when you need behaviour</td></tr>
+<tr><td>Getters/setters for every field</td><td>Public (often <code>readonly</code>) properties; add an accessor only when logic is needed</td></tr>
+<tr><td>Static utility classes (<code>class StringUtils { static … }</code>)</td><td>Exported functions in a module</td></tr>
+<tr><td>Expecting <code>==</code>/<code>equals</code> on objects to compare contents</td><td>Objects compare by reference; write an <code>equals</code> function or compare ids</td></tr>
+<tr><td>Expecting <code>private</code> to hide data at runtime</td><td>Use <code>#private</code> when it must be hidden</td></tr>
+<tr><td>Fighting <code>undefined</code> with <code>!</code> everywhere</td><td>Model optionality honestly, narrow, or return a <code>Result</code></td></tr>
+<tr><td>Using <code>number</code> for money as if it were <code>BigDecimal</code></td><td>Integer cents (or <code>bigint</code>), formatted with <code>Intl.NumberFormat</code></td></tr>
+</table></div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>equals and hashCode don't exist</h3>
+<script type="text/plain" class="code" data-file="equality.ts">
+const a = { id: "b1" }, b = { id: "b1" };
+console.log(a === b, new Set([a, b]).size);          // reference equality
+const byId = new Map([[a.id, a], [b.id, b]]);         // key by a primitive instead
+console.log(byId.size);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+false 2
+1
+</script>
+<h3>A "static class" becomes a module</h3>
+<script type="text/plain" class="code" data-file="text-utils.ts">
+export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+export const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join("");
+console.log(slug("The Left Hand of Darkness"), initials("Ursula K. Le Guin"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+the-left-hand-of-darkness UKLG
+</script>
+<h3>Checked exceptions become Result values</h3>
+<script type="text/plain" class="code" data-file="result.ts">
+type Result<T, E extends string = string> = { ok: true; value: T } | { ok: false; error: E };
+function parseDays(s: string): Result<number, "not a number" | "out of range"> {
+  const n = Number(s);
+  if (Number.isNaN(n)) return { ok: false, error: "not a number" };
+  if (n < 1 || n > 60) return { ok: false, error: "out of range" };
+  return { ok: true, value: n };
+}
+for (const s of ["14", "x", "99"]) {
+  const r = parseDays(s);
+  console.log(r.ok ? `${r.value} days` : `error: ${r.error}`);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+14 days
+error: not a number
+error: out of range
+</script>
+<p>Like a checked exception, the possible failures are part of the signature; unlike one, they're values the caller can't forget to look at.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Most Java/C# syntax carries over; the semantics differ: structural typing, erased types, one number type, nullability in the type.</li>
+  <li>Types are sets of values: unions, intersections and literal types follow naturally.</li>
+  <li>Prefer functions, modules, plain data and discriminated unions; use classes for behaviour plus private state.</li>
+  <li>Validate at runtime at the edges; don't "cast" JSON.</li>
+  <li>The official <em>TS for Java/C# Programmers</em> page is a short, worthwhile read after this appendix.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">map it</span></h3>
+<p>What is the TypeScript equivalent of C#'s <code>string? Phone { get; init; }</code> in an interface?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>readonly phone?: string</code>, or <code>readonly phone: string | null</code> if the property is always present.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">map it</span></h3>
+<p>Translate <code>Function&lt;String, Integer&gt; len = String::length;</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="len.ts">
+const len: (s: string) => number = (s) => s.length;
+console.log(len("Dune"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Is <code>x instanceof Book</code> allowed when <code>Book</code> is an <code>interface</code>? When it's a <code>class</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Interface: no. It's an error, because interfaces don't exist at runtime ("'Book' only refers to a type, but is being used as a value here"). Class: yes, but it only tells you the object was created with <code>new Book</code>, not whether it has a <code>Book</code>'s shape.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">money</span></h3>
+<p>Why does <code>0.1 + 0.2 === 0.3</code> print <code>false</code>, and how do you store prices instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="money.ts">
+console.log(0.1 + 0.2 === 0.3, 0.1 + 0.2);
+const cents = 10 + 20;
+console.log(cents === 30, new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(cents / 100));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+false 0.30000000000000004
+true €0.30
+</script>
+<p><code>number</code> is a binary double, like Java's <code>double</code>. Store integer cents and format only for display.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">translate</span></h3>
+<p>Translate this Java enum into TypeScript in two ways (a union with a lookup object, and a class with static instances): <code>enum Format { HARDCOVER(599), EBOOK(0); final int shipping; … }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="format-enum.ts">
+// 1. union + lookup object
+const SHIPPING = { hardcover: 599, ebook: 0 } as const;
+type Format = keyof typeof SHIPPING;
+const ship = (f: Format) => SHIPPING[f];
+
+// 2. class with static instances
+class FormatK {
+  static readonly HARDCOVER = new FormatK("hardcover", 599);
+  static readonly EBOOK = new FormatK("ebook", 0);
+  private constructor(readonly name: string, readonly shipping: number) {}
+}
+console.log(ship("hardcover"), FormatK.EBOOK.shipping);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+599 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">translate</span></h3>
+<p>Rewrite a Java <code>interface Shape { double area(); }</code> with <code>Circle</code> and <code>Square</code> implementations as a TypeScript discriminated union with an <code>area</code> function.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="shapes-union.ts">
+type Shape = { kind: "circle"; r: number } | { kind: "square"; side: number };
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle": return Math.PI * s.r * s.r;
+    case "square": return s.side * s.side;
+  }
+}
+console.log(area({ kind: "square", side: 3 }), area({ kind: "circle", r: 1 }).toFixed(3));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+9 3.142
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>A C# developer writes <code>class BookService { private readonly repo: BookRepo; constructor(repo: BookRepo) { this.repo = repo; } }</code> and asks how to do dependency injection "properly". What would you suggest?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Constructor injection works the same way: pass dependencies in, typed by an <em>interface</em>, and wire them up in one place (the "composition root", like the capstone's <code>cli.ts</code>). No container is required; because typing is structural, tests can pass a plain object literal that fits the interface, with no mocking library. Frameworks like NestJS or Angular add containers with decorators if you want one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Write a structural test double: given <code>interface Clock { now(): Date }</code> and a function <code>isOverdue(due: Date, clock: Clock)</code>, test it with an object literal instead of a mocking library.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="clock.ts">
+interface Clock { now(): Date }
+const isOverdue = (due: Date, clock: Clock) => clock.now() > due;
+const fixed = (d: Date): Clock => ({ now: () => d });
+const due = new Date(2026, 10, 19);
+console.log(isOverdue(due, fixed(new Date(2026, 10, 20))), isOverdue(due, fixed(new Date(2026, 10, 1))));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true false
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why can TypeScript accept <code>Dog[]</code> where <code>Animal[]</code> is expected, when Java rejects <code>List&lt;Dog&gt;</code> for <code>List&lt;Animal&gt;</code>? Which bug does that allow?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>TypeScript compares arrays structurally and treats method parameters (like <code>push</code>) bivariantly, so arrays are covariant (Chapter 14). Java's generics are invariant to prevent exactly this bug: code holding the <code>Animal[]</code> reference can <code>push</code> a <code>Cat</code> into what is really a <code>Dog[]</code>. Use <code>readonly Animal[]</code> parameters to make the covariance safe.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Translate a Java <code>Optional&lt;Member&gt; findById(String id)</code> API into idiomatic TypeScript. Show the caller side, and compare it with using a branded <code>MemberId</code> parameter.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="find-by-id.ts">
+type MemberId = string & { readonly __brand: "MemberId" };
+interface Member { id: MemberId; name: string }
+const members = new Map<MemberId, Member>([["m1" as MemberId, { id: "m1" as MemberId, name: "Ana" }]]);
+
+function findById(id: MemberId): Member | undefined { return members.get(id); }
+
+const found = findById("m1" as MemberId);
+console.log(found?.name ?? "not found", findById("m9" as MemberId)?.name ?? "not found");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana not found
+</script>
+<p><code>Member | undefined</code> plus <code>?.</code> and <code>??</code> replaces <code>Optional</code> with less ceremony, and <code>strictNullChecks</code> forces the caller to handle the missing case, like <code>Optional</code> does by convention only. The brand makes it impossible to pass a book id by mistake, something a Java <code>String</code> parameter can't prevent.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-oop.html">TypeScript for Java/C# Programmers</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/type-compatibility.html">Type Compatibility</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/classes.html">Handbook: Classes</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-func.html">TypeScript for Functional Programmers</a> (unions and type-level thinking)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+[
+  { "id": "m1", "name": "Ana Lima", "type": "student" },
+  { "id": "m2", "name": "Ben Okafor", "type": "staff", "email": "ben@example.com" },
+  { "id": "m3", "name": "Chen Wei", "type": "guest" }
+]

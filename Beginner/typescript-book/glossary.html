@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📖&lt;/text&gt;&lt;/svg&gt;">
+<title>Glossary · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+<style>
+  dl.gloss dt { font-weight: 700; margin-top: 1em; }
+  dl.gloss dd { margin: .2em 0 0 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Glossary</h1>
+<p class="lead">The TypeScript terms used in this book, in plain words, each with the chapter where it's explained.</p>
+
+<dl class="gloss">
+<dt id="any"><code>any</code></dt><dd>A type that turns checking off for a value and everything derived from it. Use rarely; prefer <a href="#unknown"><code>unknown</code></a>. <a href="03-everyday.html#any">Ch. 3</a></dd>
+<dt id="annotation">Annotation</dt><dd><code>: Type</code> written after a name to state its type explicitly. <a href="02-basics.html#annotations">Ch. 2</a></dd>
+<dt id="assertion">Type assertion</dt><dd><code>value as Type</code>: tells the checker to treat a value as a type. Unchecked; not a conversion. <a href="03-everyday.html#assertions">Ch. 3</a></dd>
+<dt id="assertion-fn">Assertion function</dt><dd>A function returning <code>asserts x is T</code>: if it returns, <code>x</code> is a <code>T</code>. <a href="04-narrowing.html#predicates">Ch. 4</a></dd>
+<dt id="brand">Branded type</dt><dd>A primitive type made incompatible with others by intersecting it with a fake property, e.g. <code>string &amp; { __brand: "BookId" }</code>. <a href="14-compat.html#brands">Ch. 14</a></dd>
+<dt id="cfa">Control flow analysis</dt><dd>How TypeScript tracks a variable's narrowed type through <code>if</code>s, <code>return</code>s and assignments. <a href="04-narrowing.html#cfa">Ch. 4</a></dd>
+<dt id="composite">Composite project</dt><dd>A project with <code>composite: true</code> that other projects can reference; built with <code>tsc -b</code>. <a href="18-config.html#references">Ch. 18</a></dd>
+<dt id="conditional">Conditional type</dt><dd><code>A extends B ? X : Y</code>: a type chosen by assignability. <a href="10-conditional.html">Ch. 10</a></dd>
+<dt id="contextual">Contextual typing</dt><dd>Inferring a type from where an expression is used, e.g. a callback's parameters. <a href="03-everyday.html#functions">Ch. 3</a></dd>
+<dt id="contravariance">Contravariance</dt><dd>The "reverse" rule for function parameters: a function accepting more can replace one accepting less. <a href="14-compat.html#functions">Ch. 14</a></dd>
+<dt id="d-ts">Declaration file (<code>.d.ts</code>)</dt><dd>A file with only type information describing JavaScript that exists elsewhere. <a href="17-declarations.html">Ch. 17</a></dd>
+<dt id="declaration-merging">Declaration merging</dt><dd>Combining several declarations with the same name (e.g. two <code>interface</code>s) into one. <a href="15-modules.html#merging">Ch. 15</a></dd>
+<dt id="decorator">Decorator</dt><dd>A function applied with <code>@name</code> to a class or member at definition time, able to wrap or replace it. <a href="16-decorators.html">Ch. 16</a></dd>
+<dt id="definitelytyped">DefinitelyTyped</dt><dd>The community repository of types for JavaScript packages, published as <code>@types/*</code>. <a href="17-declarations.html#consume">Ch. 17</a></dd>
+<dt id="discriminated">Discriminated union</dt><dd>A union whose members share a literal property (the discriminant, e.g. <code>kind</code>) used to tell them apart. <a href="04-narrowing.html#discriminated">Ch. 4</a></dd>
+<dt id="distributive">Distributive conditional type</dt><dd>A conditional type over a bare type parameter that is applied to each union member separately. <a href="10-conditional.html#distributive">Ch. 10</a></dd>
+<dt id="downleveling">Downleveling</dt><dd>Rewriting newer JavaScript syntax for an older <code>target</code>. <a href="02-basics.html#downlevel">Ch. 2</a></dd>
+<dt id="emit">Emit</dt><dd>The JavaScript (and <code>.d.ts</code>, source maps) that <code>tsc</code> writes. Independent of type errors unless <code>noEmitOnError</code>. <a href="02-basics.html#errors">Ch. 2</a></dd>
+<dt id="enum"><code>enum</code></dt><dd>A named set of constants that compiles to a runtime object. Not erasable. <a href="13-enums.html">Ch. 13</a></dd>
+<dt id="erasable">Erasable syntax</dt><dd>TypeScript syntax that can be deleted to get valid JavaScript; <code>erasableSyntaxOnly</code> enforces it. <a href="13-enums.html#const-enum">Ch. 13</a></dd>
+<dt id="erasure">Type erasure</dt><dd>Types are removed by the compiler and don't exist at runtime. <a href="01-why.html#erased">Ch. 1</a></dd>
+<dt id="excess">Excess property check</dt><dd>The error for unknown properties in a fresh object literal. <a href="06-objects.html#excess">Ch. 6</a></dd>
+<dt id="generic">Generic</dt><dd>A function, type or class with type parameters, e.g. <code>Box&lt;T&gt;</code>. <a href="08-generics.html">Ch. 8</a></dd>
+<dt id="index-signature">Index signature</dt><dd><code>[key: string]: T</code>: describes an object used as a dictionary. <a href="06-objects.html#index">Ch. 6</a></dd>
+<dt id="indexed-access">Indexed access type</dt><dd><code>T["prop"]</code> or <code>T[number]</code>: the type of a property or element. <a href="09-keyof.html#indexed">Ch. 9</a></dd>
+<dt id="infer"><code>infer</code></dt><dd>Declares a type variable inside a conditional type's <code>extends</code> clause, filled from the matched type. <a href="10-conditional.html#infer">Ch. 10</a></dd>
+<dt id="inference">Type inference</dt><dd>TypeScript working out a type from values and context, without an annotation. <a href="14-compat.html#inference">Ch. 14</a></dd>
+<dt id="interface"><code>interface</code></dt><dd>A named object shape; can be extended and merged. <a href="03-everyday.html#interfaces">Ch. 3</a></dd>
+<dt id="intersection">Intersection type</dt><dd><code>A &amp; B</code>: a value that is both <code>A</code> and <code>B</code>. <a href="06-objects.html#extends">Ch. 6</a></dd>
+<dt id="keyof"><code>keyof</code></dt><dd>The union of a type's property names. <a href="09-keyof.html#keyof">Ch. 9</a></dd>
+<dt id="literal">Literal type</dt><dd>A type with exactly one value, such as <code>"overdue"</code> or <code>42</code>. <a href="03-everyday.html#literals">Ch. 3</a></dd>
+<dt id="mapped">Mapped type</dt><dd><code>{ [K in Keys]: T }</code>: an object type built by looping over keys. <a href="11-mapped.html">Ch. 11</a></dd>
+<dt id="mixin">Mixin</dt><dd>A function that takes a class and returns a subclass with extra members. <a href="16-decorators.html#mixins">Ch. 16</a></dd>
+<dt id="module-resolution">Module resolution</dt><dd>How the compiler finds the file behind an import path (<code>nodenext</code>, <code>bundler</code>). <a href="15-modules.html#resolution">Ch. 15</a></dd>
+<dt id="narrowing">Narrowing</dt><dd>Refining a wide type to a specific one with a runtime check. <a href="04-narrowing.html">Ch. 4</a></dd>
+<dt id="never"><code>never</code></dt><dd>The type with no values: impossible branches, functions that never return. <a href="04-narrowing.html#never">Ch. 4</a></dd>
+<dt id="nominal">Nominal typing</dt><dd>Compatibility by declared name (Java, C#). TypeScript is structural, except for classes with private members and brands. <a href="14-compat.html#brands">Ch. 14</a></dd>
+<dt id="overload">Overload</dt><dd>One of several call signatures listed above a single function implementation. <a href="05-functions.html#overloads">Ch. 5</a></dd>
+<dt id="param-prop">Parameter property</dt><dd>A constructor parameter with a modifier (<code>private x: T</code>) that also declares a field. <a href="07-classes.html#param-props">Ch. 7</a></dd>
+<dt id="predicate">Type predicate</dt><dd>A return type <code>x is T</code> that makes a function a custom type guard. <a href="04-narrowing.html#predicates">Ch. 4</a></dd>
+<dt id="project-references">Project references</dt><dd>Links between tsconfig projects for ordered, incremental builds. <a href="18-config.html#references">Ch. 18</a></dd>
+<dt id="satisfies"><code>satisfies</code></dt><dd>Checks a value against a type without changing the value's inferred type. <a href="14-compat.html#satisfies">Ch. 14</a></dd>
+<dt id="strict"><code>strict</code></dt><dd>The option family that enables the strongest checks; on by default in TS 7. <a href="18-config.html#groups">Ch. 18</a></dd>
+<dt id="structural">Structural typing</dt><dd>Compatibility by shape: a value fits a type if it has the required members. <a href="01-why.html#structural">Ch. 1</a></dd>
+<dt id="template-literal">Template literal type</dt><dd>A string type built with backticks, e.g. <code>`on${Capitalize&lt;E&gt;}`</code>. <a href="11-mapped.html#template">Ch. 11</a></dd>
+<dt id="tsconfig"><code>tsconfig.json</code></dt><dd>The file that marks a TypeScript project and holds its compiler options. <a href="18-config.html">Ch. 18</a></dd>
+<dt id="tuple">Tuple</dt><dd>An array type with a fixed length and a type per position. <a href="06-objects.html#tuples">Ch. 6</a></dd>
+<dt id="type-alias">Type alias</dt><dd><code>type Name = …</code>: a name for any type. <a href="03-everyday.html#aliases">Ch. 3</a></dd>
+<dt id="type-stripping">Type stripping</dt><dd>Running TypeScript by deleting the types without checking them (Node 22.18+/23.6+, esbuild). <a href="appendix-tooling.html#running">App. B</a></dd>
+<dt id="union">Union type</dt><dd><code>A | B</code>: a value that is one of several types. <a href="03-everyday.html#unions">Ch. 3</a></dd>
+<dt id="unknown"><code>unknown</code></dt><dd>The type of any value, usable only after narrowing. The safe counterpart of <code>any</code>. <a href="04-narrowing.html#unknown">Ch. 4</a></dd>
+<dt id="utility">Utility type</dt><dd>A built-in generic type such as <code>Partial</code>, <code>Pick</code>, <code>Omit</code>, <code>Record</code>, <code>ReturnType</code>. <a href="12-utility.html">Ch. 12</a></dd>
+<dt id="verbatim"><code>verbatimModuleSyntax</code></dt><dd>An option requiring <code>import type</code> for type-only imports, so imports are emitted exactly as written. <a href="15-modules.html#type-only">Ch. 15</a></dd>
+<dt id="void"><code>void</code></dt><dd>The return type of a function whose result shouldn't be used. <a href="05-functions.html#special">Ch. 5</a></dd>
+<dt id="widening">Widening</dt><dd>Turning a literal type into its general type (<code>"a"</code> → <code>string</code>) when stored in a mutable place. <a href="14-compat.html#inference">Ch. 14</a></dd>
+</dl>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

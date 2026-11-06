@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;❓&lt;/text&gt;&lt;/svg&gt;">
+<title>FAQ · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Frequently Asked Questions</h1>
+<p class="lead">Short answers to the questions people ask before and during the course, with links to the chapters that go deeper.</p>
+
+<div class="learn">
+<h2>Questions</h2>
+<ol>
+  <li><a href="#why">Why do I need to learn TypeScript if I already know JavaScript?</a></li>
+  <li><a href="#focus">Which concepts should I focus on if I'm coming from JavaScript?</a></li>
+  <li><a href="#runtime">Does TypeScript make my code faster, or check it at runtime?</a></li>
+  <li><a href="#oop">Is TypeScript object-oriented, like Java or C#?</a></li>
+  <li><a href="#interface-type">Should I use <code>interface</code> or <code>type</code>?</a></li>
+  <li><a href="#any">When is <code>any</code> OK, and why is <code>unknown</code> better?</a></li>
+  <li><a href="#node">Can Node.js run <code>.ts</code> files directly now?</a></li>
+  <li><a href="#ts7">What changed in TypeScript 7?</a></li>
+  <li><a href="#migrate">How do I add TypeScript to an existing JavaScript project?</a></li>
+  <li><a href="#react">Should I learn TypeScript before React (or Node, or Angular)?</a></li>
+  <li><a href="#ai">If an AI assistant writes much of my code, do types still matter?</a></li>
+  <li><a href="#time">How long does it take to learn TypeScript?</a></li>
+</ol>
+</div>
+
+<h2 id="why">1. Why do I need to learn TypeScript if I already know JavaScript?</h2>
+<p>Because TypeScript <em>is</em> JavaScript, plus a checker that reads your code before it runs. You don't throw away anything you know; you add one skill on top. What you get for it:</p>
+<ul>
+  <li><strong>Bugs found while you type, not in production.</strong> Typos in property names, a missing <code>await</code>, a forgotten <code>null</code> check, a wrong argument order. The capstone (<a href="19-project.html#step2">Chapter 19</a>) shows a JavaScript app with passing tests in which the compiler found three real bugs in a few seconds.</li>
+  <li><strong>An editor that knows your code.</strong> Accurate autocomplete, "go to definition", and renames across hundreds of files that you can trust.</li>
+  <li><strong>Documentation that can't go stale.</strong> A signature like <code>borrow(bookId: BookId, memberId: MemberId): Result&lt;Loan&gt;</code> tells the next reader (and you, in six months) what goes in, what comes out, and that it can fail, and the compiler keeps it true.</li>
+  <li><strong>Safe refactoring.</strong> Change a type and the compiler lists every place that must follow. In plain JavaScript, you search and hope.</li>
+  <li><strong>The job market and the ecosystem.</strong> Most new JavaScript projects, frameworks and libraries are written in TypeScript, and many job descriptions list it. Even if you write plain JavaScript, your editor uses TypeScript's type information from libraries to help you.</li>
+</ul>
+<script type="text/plain" class="code" data-file="why.ts">
+async function getTitle(id: string): Promise<string> { return id === "b1" ? "Dune" : "?"; }
+
+const title = getTitle("b1");          // forgot `await`
+console.log(title.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+why.ts(4,19): error TS2339: Property 'toUpperCase' does not exist on type 'Promise<string>'.
+</script>
+<p>In JavaScript, this missing <code>await</code> becomes "<code>title.toUpperCase is not a function</code>" at runtime, maybe on a code path your tests don't cover. TypeScript catches it at the line where it happens.</p>
+<div class="tip">
+<p>💡 The cost is real but small: you write types at the edges (function parameters, data shapes) and learn to read compiler errors. Chapters 1–4 are enough to start using TypeScript productively.</p>
+</div>
+
+<h2 id="focus">2. Which concepts should I focus on if I'm coming from JavaScript?</h2>
+<p>Roughly in this order. The first five give you 80% of everyday TypeScript:</p>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>Concept</th><th>Why it matters</th><th>Where</th></tr>
+<tr><td>1</td><td><strong>Types are erased</strong>: TS checks code, not data</td><td>The mental model behind everything else</td><td><a href="01-why.html#erased">Ch. 1</a></td></tr>
+<tr><td>2</td><td>Annotations on parameters, and <strong>inference</strong> everywhere else</td><td>Write few types, get full checking</td><td><a href="02-basics.html#annotations">Ch. 2</a>, <a href="03-everyday.html">3</a></td></tr>
+<tr><td>3</td><td><strong><code>strictNullChecks</code></strong>: <code>T | null | undefined</code></td><td>The most common JavaScript crash, gone</td><td><a href="02-basics.html#strict">Ch. 2</a></td></tr>
+<tr><td>4</td><td>Object types, <code>interface</code>/<code>type</code>, optional properties</td><td>Describing the data you already pass around</td><td><a href="03-everyday.html#objects">Ch. 3</a>, <a href="06-objects.html">6</a></td></tr>
+<tr><td>5</td><td><strong>Unions and narrowing</strong> (<code>typeof</code>, <code>in</code>, discriminated unions)</td><td>How JavaScript's "this or that" values become safe</td><td><a href="04-narrowing.html">Ch. 4</a></td></tr>
+<tr><td>6</td><td><code>unknown</code> and validating JSON</td><td>Data from outside is never typed for free</td><td><a href="04-narrowing.html#unknown">Ch. 4</a></td></tr>
+<tr><td>7</td><td>Function types, callbacks, <code>async</code> return types</td><td>JavaScript is full of callbacks and promises</td><td><a href="05-functions.html">Ch. 5</a></td></tr>
+<tr><td>8</td><td><strong>Generics</strong></td><td>Reading library types (<code>Array&lt;T&gt;</code>, <code>Promise&lt;T&gt;</code>, React hooks)</td><td><a href="08-generics.html">Ch. 8</a></td></tr>
+<tr><td>9</td><td><code>keyof</code>, <code>typeof</code>, utility types (<code>Partial</code>, <code>Pick</code>, <code>Omit</code>)</td><td>Deriving types instead of copying them</td><td><a href="09-keyof.html">Ch. 9</a>, <a href="12-utility.html">12</a></td></tr>
+<tr><td>10</td><td><code>tsconfig.json</code> and modules</td><td>Setting up real projects</td><td><a href="15-modules.html">Ch. 15</a>, <a href="18-config.html">18</a></td></tr>
+</table></div>
+<p>What you can postpone: conditional and mapped types (Chapters 10–11) are mostly for library authors; decorators (Chapter 16) only if your framework uses them; namespaces and enums (Chapters 13, 15) mainly to read older code.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: learning to drive in a new car.</strong> You already know how to drive (JavaScript). First learn the dashboard warnings (errors), the mirrors (types on parameters) and the brakes (null checks). The sport mode buttons (type-level programming) can wait until you need them.</p>
+</div>
+
+<h2 id="runtime">3. Does TypeScript make my code faster, or check it at runtime?</h2>
+<p><strong>Neither.</strong> The emitted JavaScript is your code without the types, so it runs at the same speed, and no checks are added. If you need runtime validation (for API input, files, forms), write type guards or use a validation library (<a href="04-narrowing.html#unknown">Chapter 4</a>). The one indirect speed benefit: TypeScript makes it safer to refactor towards faster code.</p>
+
+<h2 id="oop">4. Is TypeScript object-oriented, like Java or C#?</h2>
+<p>It <em>supports</em> OOP well (classes, interfaces, access modifiers, abstract classes, generics), and its syntax was designed to feel familiar to Java and C# developers. But it doesn't force OOP: functions, plain objects and unions are just as idiomatic, and the type system is <strong>structural</strong>, not nominal. See <a href="07-classes.html">Chapter 7</a> and <a href="appendix-java-csharp.html">Appendix A</a>, which maps every Java and C# concept to TypeScript.</p>
+
+<h2 id="interface-type">5. Should I use <code>interface</code> or <code>type</code>?</h2>
+<p>For object shapes, both work and the difference rarely matters. The Handbook suggests <code>interface</code> until you need a feature only <code>type</code> has (unions, tuples, mapped and conditional types). Interfaces can be merged and extended with <code>extends</code>; type aliases can name any type. Pick one style for object shapes and be consistent (<a href="03-everyday.html#interfaces">Chapter 3</a>).</p>
+
+<h2 id="any">6. When is <code>any</code> OK, and why is <code>unknown</code> better?</h2>
+<p><code>any</code> turns checking off for a value <em>and everything it touches</em>. It's acceptable as a temporary step during a migration, or deep inside a small, well-tested helper. <code>unknown</code> also accepts any value but forces you to check it before use, so it's the right type for "I don't know yet": parsed JSON, <code>catch</code> variables, untyped inputs (<a href="04-narrowing.html#unknown">Chapter 4</a>). typescript-eslint can flag accidental <code>any</code> (<a href="appendix-tooling.html#quality">Appendix B</a>).</p>
+<script type="text/plain" class="code" data-file="unknown.ts">
+const fromApi: unknown = JSON.parse('{"count": 3}');
+if (typeof fromApi === "object" && fromApi !== null && "count" in fromApi && typeof fromApi.count === "number") {
+  console.log(fromApi.count * 2);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+6
+</script>
+
+<h2 id="node">7. Can Node.js run <code>.ts</code> files directly now?</h2>
+<p>Yes: since Node 22.18 and 23.6, <code>node app.ts</code> works by <strong>stripping</strong> the types. It doesn't type-check, doesn't read <code>tsconfig.json</code>, and supports only erasable syntax (no enums, namespaces or parameter properties). Use it for scripts and quick runs, and keep <code>tsc --noEmit</code> in your editor and CI (<a href="appendix-tooling.html#running">Appendix B</a>).</p>
+
+<h2 id="ts7">8. What changed in TypeScript 7?</h2>
+<p>The compiler was ported to Go: about 10× faster with the same language rules. <code>strict</code> is on by default, several old options were removed, and tools that use the compiler's JavaScript API (like typescript-eslint) keep using TypeScript 6 until the new API is ready. For learning, nothing changes: everything in the Handbook applies (<a href="01-why.html#ts7">Chapter 1</a>, <a href="appendix-tooling.html#ts7">Appendix B</a>).</p>
+
+<h2 id="migrate">9. How do I add TypeScript to an existing JavaScript project?</h2>
+<p>Gradually, the way the official guide describes: add a <code>tsconfig.json</code> with <code>allowJs</code> and <code>checkJs</code>, fix what it finds, add JSDoc or rename files to <code>.ts</code> one at a time, then turn on <code>strict</code> step by step. Your app keeps running throughout, because TypeScript always emits JavaScript. <a href="19-project.html">Chapter 19</a> walks through all of it on a real project.</p>
+
+<h2 id="react">10. Should I learn TypeScript before React (or Node, or Angular)?</h2>
+<p>You need solid JavaScript first. After that, learning TypeScript before (or alongside) a framework pays off: React and Node documentation now show TypeScript examples, Angular requires TypeScript, and typed props and API responses remove a whole class of framework bugs. Chapters 1–8 cover what you need to read typed framework code. The <a href="../react-book/index.html">React Beginner Book</a> and the <a href="../../Intermediate/nodejs-book/index.html">Node.js Study Book</a> are good next steps.</p>
+
+<h2 id="ai">11. If an AI assistant writes much of my code, do types still matter?</h2>
+<p>More than before. Types are a precise, machine-checked description of what code should do, which helps in both directions: assistants generate better code when the surrounding types tell them the shapes, and the compiler immediately rejects generated code that doesn't fit (wrong property names, missing cases in a <code>switch</code>, ignored <code>null</code>). You still need to <em>read</em> TypeScript fluently to review what was generated, and types make that review much faster.</p>
+
+<h2 id="time">12. How long does it take to learn TypeScript?</h2>
+<p>If you know JavaScript well, a few days gets you productive (Chapters 1–7), and a few weeks of real use makes generics and narrowing feel natural (Chapters 8–14). Type-level programming (Chapters 10–11) is a separate, optional skill you can grow into. Doing the playground exercises and the capstone is the fastest route: reading types is learned by writing them.</p>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

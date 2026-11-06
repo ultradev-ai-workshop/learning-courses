@@ -1,0 +1,22 @@
+{
+  "name": "typescript-playground",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Practice project for the TypeScript Study Book (learn.coderhop.com): chapter exercises, the JavaScript capstone to migrate, and the finished TypeScript reference.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "ex": "node scripts/run.mjs",
+    "check:start": "tsc -p capstone-start",
+    "start:js": "node capstone-start/src/cli.js",
+    "test:js": "node --test \"capstone-start/test/**/*.test.js\"",
+    "reference": "cd reference && tsc && node --enable-source-maps dist/src/cli.js",
+    "test": "cd reference && tsc && node --test \"dist/test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "7.0.2"
+  },
+  "engines": { "node": ">=22" }
+}

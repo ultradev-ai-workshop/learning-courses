@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎀&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Decorators &amp; Mixins · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · Reference Topics</div>
+<h1>Decorators &amp; Mixins</h1>
+<p class="lead">Two ways to add behaviour to classes without changing their source. <strong>Decorators</strong> (<code>@logged</code>) are functions that wrap or replace a class or its members when the class is defined. <strong>Mixins</strong> build classes from small reusable pieces. Java and C# developers will recognise the <code>@</code> syntax; this chapter shows where the similarity ends. It covers the reference pages <em>Decorators</em> and <em>Mixins</em>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Standard (ECMAScript) decorators, supported since <span class="es">TS 5.0</span>: class, method, field, getter and <code>accessor</code> decorators.</li>
+  <li>The <code>context</code> object, <code>addInitializer</code>, and decorator factories (<code>@retry(3)</code>).</li>
+  <li>Typing decorators so they only apply where they make sense.</li>
+  <li>Legacy <code>experimentalDecorators</code>, still used by Angular and NestJS.</li>
+  <li>The mixin pattern: functions that take a class and return an extended class.</li>
+</ul>
+</div>
+
+<h2 id="what">What a decorator is</h2>
+<p>A decorator is a function. You put <code>@name</code> before a class or class member, and when the class is <strong>defined</strong> (not when it's instantiated), JavaScript calls the function with the thing being decorated and a <strong>context</strong> object. A method decorator can return a new function to replace the method:</p>
+<script type="text/plain" class="code" data-file="logged.ts">
+function logged<This, Args extends unknown[], R>(
+  target: (this: This, ...args: Args) => R,
+  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => R>,
+) {
+  const name = String(context.name);
+  return function (this: This, ...args: Args): R {
+    console.log(`→ ${name}(${args.join(", ")})`);
+    const result = target.call(this, ...args);
+    console.log(`← ${name} = ${String(result)}`);
+    return result;
+  };
+}
+
+class Loans {
+  @logged
+  fee(days: number, perDay: number) { return days * perDay; }
+}
+new Loans().fee(3, 25);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+→ fee(3, 25)
+← fee = 75
+</script>
+<p>The generic parameters make the replacement function keep the exact signature of the method: <code>This</code> is the class, <code>Args</code> the parameter tuple, <code>R</code> the return type.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: gift wrapping.</strong> The method is the gift. A decorator wraps it: callers still receive "the method", but opening it first runs the wrapper (logging, timing, checking). You can wrap the same gift several times.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> they look like Java annotations or C# attributes, but they work differently. An annotation is <strong>passive metadata</strong>: nothing happens until a framework reads it with reflection. A decorator is <strong>active code</strong> that runs once, at class definition, and can replace the member. The closest Java idea is a Spring AOP aspect or a dynamic proxy, applied explicitly per member.</p>
+</div>
+
+<h2 id="kinds">Kinds of decorators</h2>
+<p>Each kind receives a different first argument and context type:</p>
+<div class="table-wrap"><table>
+<tr><th>Applied to</th><th>Receives</th><th>Can return</th><th>Context type</th></tr>
+<tr><td>class</td><td>the class</td><td>a replacement class</td><td><code>ClassDecoratorContext</code></td></tr>
+<tr><td>method</td><td>the method</td><td>a replacement method</td><td><code>ClassMethodDecoratorContext</code></td></tr>
+<tr><td>getter / setter</td><td>the accessor function</td><td>a replacement</td><td><code>ClassGetterDecoratorContext</code> / <code>…Setter…</code></td></tr>
+<tr><td>field</td><td><code>undefined</code></td><td>an initializer <code>(initial) =&gt; value</code></td><td><code>ClassFieldDecoratorContext</code></td></tr>
+<tr><td><code>accessor</code> field</td><td><code>{ get, set }</code></td><td><code>{ get?, set?, init? }</code></td><td><code>ClassAccessorDecoratorContext</code></td></tr>
+</table></div>
+<h3>Class decorators and addInitializer</h3>
+<script type="text/plain" class="code" data-file="class-decorator.ts">
+const registry = new Map<string, Function>();
+
+function register(name: string) {                      // a decorator factory: returns the decorator
+  return function (cls: Function, context: ClassDecoratorContext) {
+    context.addInitializer(() => registry.set(name, cls));   // runs once the class is defined
+  };
+}
+
+@register("book")
+class Book { constructor(public title: string) {} }
+@register("dvd")
+class Dvd { constructor(public title: string) {} }
+
+console.log([...registry.keys()], registry.get("dvd") === Dvd);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'book', 'dvd' ] true
+</script>
+<p><code>@register("book")</code> is a <strong>decorator factory</strong>: a function called with your arguments that returns the actual decorator.</p>
+<h3>Field decorators</h3>
+<p>A field decorator can't see the value directly, but it can return an <strong>initializer</strong> that transforms the initial value of each instance:</p>
+<script type="text/plain" class="code" data-file="field-decorator.ts">
+function trimmed(_: undefined, context: ClassFieldDecoratorContext<unknown, string>) {
+  return (initial: string) => initial.trim();
+}
+class Member {
+  @trimmed name = "   Ana Lima  ";
+}
+console.log(`[${new Member().name}]`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Ana Lima]
+</script>
+<h3>accessor fields</h3>
+<p>The <code>accessor</code> keyword turns a field into a getter/setter pair backed by a private slot. Decorators on it can intercept every read and write, which is how validation or change tracking is done:</p>
+<script type="text/plain" class="code" data-file="accessor.ts">
+function min(limit: number) {
+  return function <This>(target: ClassAccessorDecoratorTarget<This, number>, context: ClassAccessorDecoratorContext<This, number>) {
+    return {
+      set(this: This, value: number) {
+        if (value < limit) throw new RangeError(`${String(context.name)} must be ≥ ${limit}`);
+        target.set.call(this, value);
+      },
+    };
+  };
+}
+class Loan {
+  @min(1) accessor days = 14;
+}
+const loan = new Loan();
+loan.days = 7;
+console.log(loan.days);
+try { loan.days = 0; } catch (e) { console.log((e as Error).message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7
+days must be ≥ 1
+</script>
+
+<h2 id="typing">Typed decorators catch misuse</h2>
+<p>Because decorators are typed functions, TypeScript checks where you put them. A decorator typed for <code>number</code> accessors can't go on a <code>string</code> one, and a method decorator can't go on a field:</p>
+<script type="text/plain" class="code" data-file="misuse.ts">
+function positive<This>(target: ClassAccessorDecoratorTarget<This, number>, ctx: ClassAccessorDecoratorContext<This, number>) {}
+function logged(target: Function, ctx: ClassMethodDecoratorContext) {}
+
+class Book {
+  @positive accessor title = "Dune";
+  @logged pages = 412;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+misuse.ts(5,4): error TS1240: Unable to resolve signature of property decorator when called as an expression.
+  Argument of type 'ClassAccessorDecoratorTarget<Book, string>' is not assignable to parameter of type 'ClassAccessorDecoratorTarget<Book, number>'.
+    Type 'string' is not assignable to type 'number'.
+misuse.ts(6,4): error TS1240: Unable to resolve signature of property decorator when called as an expression.
+  Argument of type 'undefined' is not assignable to parameter of type 'Function'.
+</script>
+<p>Each error says what didn't fit: the first decorator wants a <code>number</code> accessor but got a <code>string</code> one, and the second wants a method (a <code>Function</code>) but a field decorator receives <code>undefined</code> as its first argument.</p>
+
+<h2 id="legacy">Legacy decorators: experimentalDecorators</h2>
+<p>Long before the JavaScript standard, TypeScript had its own decorator design, turned on with <code>"experimentalDecorators": true</code>. It has a different signature (<code>(target, propertyKey, descriptor)</code>), supports <strong>parameter decorators</strong>, and, with <code>emitDecoratorMetadata</code>, emits runtime type information. Angular, NestJS and TypeORM are built on it.</p>
+<script type="text/plain" class="code" data-file="legacy.ts" data-tsc="experimentalDecorators">
+function readonlyMethod(target: object, key: string, descriptor: PropertyDescriptor) {
+  descriptor.writable = false;
+}
+class Shelf {
+  @readonlyMethod
+  label() { return "A1"; }
+}
+const s = new Shelf();
+try { (Shelf.prototype as any).label = () => "hacked"; } catch (e) { console.log((e as Error).constructor.name); }
+console.log(s.label());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TypeError
+A1
+</script>
+<div class="note">
+<p>📝 <strong>Which one should I use?</strong> If your framework requires <code>experimentalDecorators</code> (Angular, NestJS), use it as its docs say. For everything else, use standard decorators (no flag needed). The two can't be mixed in one project, and their decorator functions aren't interchangeable.</p>
+</div>
+
+<h2 id="mixins">Mixins</h2>
+<p>A class can extend only one class. A <strong>mixin</strong> is a function that takes a class and returns a new class extending it, so you can stack behaviours: <code>Timestamped(Activatable(Book))</code>. The TypeScript pattern needs a constructor type:</p>
+<script type="text/plain" class="code" data-file="mixins.ts">
+type Constructor<T = {}> = new (...args: any[]) => T;
+
+function Timestamped<TBase extends Constructor>(Base: TBase) {
+  return class extends Base {
+    createdAt = new Date(Date.UTC(2026, 10, 5));
+  };
+}
+function Taggable<TBase extends Constructor>(Base: TBase) {
+  return class extends Base {
+    tags = new Set<string>();
+    tag(...t: string[]) { t.forEach((x) => this.tags.add(x)); return this; }
+  };
+}
+
+class Book { constructor(public title: string) {} }
+const SmartBook = Timestamped(Taggable(Book));
+
+const b = new SmartBook("Dune").tag("sci-fi", "classic");
+console.log(b.title, [...b.tags], b.createdAt.toISOString().slice(0, 10));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune [ 'sci-fi', 'classic' ] 2026-11-05
+</script>
+<h3>Constrained mixins</h3>
+<p>A mixin can require the base class to have certain members, by constraining <code>TBase</code>:</p>
+<script type="text/plain" class="code" data-file="constrained-mixin.ts">
+type Constructor<T = {}> = new (...args: any[]) => T;
+type Titled = Constructor<{ title: string }>;
+
+function Shoutable<TBase extends Titled>(Base: TBase) {
+  return class extends Base {
+    shout() { return this.title.toUpperCase() + "!"; }
+  };
+}
+class Book { constructor(public title: string) {} }
+class Laptop { constructor(public serial: string) {} }
+console.log(new (Shoutable(Book))("Dune").shout());
+Shoutable(Laptop);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+constrained-mixin.ts(12,11): error TS2345: Argument of type 'typeof Laptop' is not assignable to parameter of type 'Titled'.
+  Property 'title' is missing in type 'Laptop' but required in type '{ title: string; }'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE!
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> mixins fill the gap that Java fills with <code>default</code> methods in interfaces and C# with default interface methods or extension methods. A mixin can add <em>state</em> (fields) too, which Java interfaces can't. Many TypeScript developers prefer plain composition (an object that <em>has</em> a <code>tags</code> helper) over mixins; use mixins for small, orthogonal behaviours.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A memoizing getter</h3>
+<script type="text/plain" class="code" data-file="memo.ts">
+function memo<This, V>(getter: (this: This) => V, context: ClassGetterDecoratorContext<This, V>) {
+  const cache = new WeakMap<object, V>();
+  return function (this: This): V {
+    const key = this as object;
+    if (!cache.has(key)) { console.log(`computing ${String(context.name)}`); cache.set(key, getter.call(this)); }
+    return cache.get(key)!;
+  };
+}
+class Report {
+  constructor(private loans: number[]) {}
+  @memo get total() { return this.loans.reduce((a, b) => a + b, 0); }
+}
+const r = new Report([75, 0, 150]);
+console.log(r.total, r.total);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+computing total
+225 225
+</script>
+<h3>Binding methods with addInitializer</h3>
+<script type="text/plain" class="code" data-file="bound.ts">
+function bound<This, T extends (this: This, ...a: any[]) => any>(method: T, context: ClassMethodDecoratorContext<This, T>) {
+  context.addInitializer(function (this: This) {
+    (this as any)[context.name] = method.bind(this);
+  });
+}
+class Counter {
+  count = 0;
+  @bound inc() { this.count++; return this.count; }
+}
+const c = new Counter();
+const { inc } = c;                      // detached, but still bound
+inc(); inc();
+console.log(c.count);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2
+</script>
+<h3>Decorators run in order: bottom-up</h3>
+<script type="text/plain" class="code" data-file="order.ts">
+const tag = (name: string) => (m: Function, ctx: ClassMethodDecoratorContext) => {
+  console.log("applying", name);
+};
+class A {
+  @tag("outer") @tag("inner") run() {}
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+applying inner
+applying outer
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Standard decorators (TS 5.0+, no flag) are functions called at class definition with <code>(value, context)</code>.</li>
+  <li>Method/getter decorators return replacements; field decorators return initializers; <code>accessor</code> decorators return <code>{ get, set, init }</code>.</li>
+  <li>Factories (<code>@retry(3)</code>) return decorators; <code>context.addInitializer</code> runs setup code.</li>
+  <li>Type decorators with the <code>Class…DecoratorContext</code> types so misuse is a compile error.</li>
+  <li><code>experimentalDecorators</code> is the older, different design used by Angular/NestJS.</li>
+  <li>Mixins are class factories; constrain <code>TBase</code> to require base members.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"A method decorator runs every time the method is called." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> The decorator runs once, when the class is defined. The <em>replacement function it returns</em> runs on every call.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>In <code>@a @b method() {}</code>, which decorator is applied first?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>b</code>, the one closest to the method. Decorators are applied bottom-up (inside-out), so <code>a</code> wraps the result of <code>b</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write a class decorator <code>@sealed</code> that calls <code>Object.seal</code> on the class and its prototype, and show that adding a static property afterwards fails silently or throws.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="sealed.ts">
+function sealed(cls: Function, _ctx: ClassDecoratorContext) {
+  Object.seal(cls);
+  Object.seal(cls.prototype);
+}
+@sealed
+class Library { name = "City Library" }
+try { (Library as any).extra = 1; } catch (e) { console.log((e as Error).constructor.name); }
+console.log("extra" in Library);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TypeError
+false
+</script>
+<p>It throws because module code is strict mode; in sloppy mode the assignment would be ignored silently.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">mixin</span></h3>
+<p>Write a mixin <code>Named</code> that adds a <code>name = "unnamed"</code> field, and apply it to an empty class.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="named-mixin.ts">
+type Constructor<T = {}> = new (...args: any[]) => T;
+const Named = <T extends Constructor>(Base: T) => class extends Base { name = "unnamed"; };
+class Thing {}
+console.log(new (Named(Thing))().name);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+unnamed
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">decorator factory</span></h3>
+<p>Write <code>@retry(times)</code> for async methods: it re-runs the method when it throws, up to <code>times</code> attempts, logging each failure.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="retry-decorator.ts">
+function retry(times: number) {
+  return function <This, A extends unknown[], R>(
+    method: (this: This, ...a: A) => Promise<R>,
+    ctx: ClassMethodDecoratorContext<This, (this: This, ...a: A) => Promise<R>>,
+  ) {
+    return async function (this: This, ...args: A): Promise<R> {
+      for (let i = 1; ; i++) {
+        try { return await method.call(this, ...args); }
+        catch (e) {
+          console.log(`${String(ctx.name)} failed (${i}/${times})`);
+          if (i >= times) throw e;
+        }
+      }
+    };
+  };
+}
+class Catalog {
+  calls = 0;
+  @retry(3) async load() { if (++this.calls < 3) throw new Error("timeout"); return "loaded"; }
+}
+new Catalog().load().then(console.log);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+load failed (1/3)
+load failed (2/3)
+loaded
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">field decorator</span></h3>
+<p>Write a field decorator <code>@defaultTo(value)</code> that replaces an <code>undefined</code> initial value.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="default-to.ts">
+function defaultTo<V>(fallback: V) {
+  return (_: undefined, _ctx: ClassFieldDecoratorContext<unknown, V | undefined>) =>
+    (initial: V | undefined) => initial ?? fallback;
+}
+class Settings {
+  @defaultTo(21) loanDays: number | undefined = undefined;
+  @defaultTo("EUR") currency: string | undefined = "USD";
+}
+console.log(new Settings());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Settings { loanDays: 21, currency: 'USD' }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>A NestJS project has <code>"experimentalDecorators": true</code>. A colleague copies a standard <code>(value, context)</code> decorator from this chapter into it. What happens, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It fails to type-check (and would misbehave at runtime): with <code>experimentalDecorators</code>, TypeScript calls method decorators as <code>(target, propertyKey, descriptor)</code>, so the second argument is a string, not a context object. The two decorator systems have different calling conventions; a project uses one or the other.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch16/audit.ts</code>, write a method decorator <code>@audited</code> that pushes <code>{ method, args, at }</code> into an exported <code>auditLog</code> array. The capstone uses the same idea in its <code>@traced</code> decorator on <code>LoanService.borrow</code> and <code>LoanService.giveBack</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="audit.ts">
+export const auditLog: { method: string; args: unknown[]; at: string }[] = [];
+let clock = () => new Date(Date.UTC(2026, 10, 5, 9)).toISOString();
+
+export function audited<This, A extends unknown[], R>(
+  method: (this: This, ...a: A) => R,
+  ctx: ClassMethodDecoratorContext<This, (this: This, ...a: A) => R>,
+) {
+  return function (this: This, ...args: A): R {
+    auditLog.push({ method: String(ctx.name), args, at: clock() });
+    return method.call(this, ...args);
+  };
+}
+class LoanService {
+  @audited borrow(bookId: string, memberId: string) { return `L-${bookId}-${memberId}`; }
+}
+new LoanService().borrow("b1", "m1");
+console.log(auditLog);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[
+  {
+    method: 'borrow',
+    args: [ 'b1', 'm1' ],
+    at: '2026-11-05T09:00:00.000Z'
+  }
+]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does the <code>logged</code> decorator in this chapter use three type parameters instead of <code>(target: Function, context: ClassMethodDecoratorContext)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>Function</code>, the replacement method's type would be unknown, so callers of <code>fee</code> would lose its parameter and return types, and the decorator couldn't call <code>target</code> with typed arguments. The type parameters capture <code>this</code>, the argument tuple and the return type from the decorated method, so the replacement has exactly the same signature and the decorated class stays fully typed.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write a mixin <code>Observable</code> that adds <code>on(listener)</code> and a protected-style <code>emit(event)</code>, constrained to bases that have an <code>id: string</code>. Apply it to a <code>Loan</code> class whose <code>close()</code> emits <code>"closed"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="observable-mixin.ts">
+type Constructor<T = {}> = new (...args: any[]) => T;
+function Observable<TBase extends Constructor<{ id: string }>>(Base: TBase) {
+  return class extends Base {
+    #listeners: ((id: string, event: string) => void)[] = [];
+    on(fn: (id: string, event: string) => void) { this.#listeners.push(fn); }
+    emit(event: string) { this.#listeners.forEach((fn) => fn(this.id, event)); }
+  };
+}
+class LoanBase { constructor(public id: string) {} }
+class Loan extends Observable(LoanBase) {
+  close() { this.emit("closed"); }
+}
+const loan = new Loan("L1");
+loan.on((id, e) => console.log(`${id}: ${e}`));
+loan.close();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+L1: closed
+</script>
+<p>A class can extend a mixin's result directly (<code>extends Observable(LoanBase)</code>), and it gets both the base's and the mixin's members, fully typed.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/decorators.html">Reference: Decorators</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html#decorators">TS 5.0: Decorators</a></li>
+  <li><a href="https://github.com/tc39/proposal-decorators">TC39 decorators proposal</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/mixins.html">Reference: Mixins</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

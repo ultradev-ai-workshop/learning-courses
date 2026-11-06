@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏛️&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Classes · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Functions, Objects &amp; Classes</div>
+<h1>Classes</h1>
+<p class="lead">TypeScript adds types and a few keywords to JavaScript's <code>class</code> syntax. If you know Java or C#, most of this chapter will feel familiar, and the differences are what matter: access modifiers are checked only at compile time, <code>implements</code> is optional, and classes are compared by shape. This chapter follows the Handbook's <em>Classes</em> page and the official <em>TS for Java/C# Programmers</em> guide.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Typed fields, <code>strictPropertyInitialization</code> and the definite-assignment <code>!</code>.</li>
+  <li>Constructors, methods, getters/setters and <strong>parameter properties</strong>.</li>
+  <li><code>implements</code> and <code>extends</code>, and the <code>override</code> keyword.</li>
+  <li><code>public</code>, <code>protected</code>, <code>private</code> vs JavaScript's <code>#private</code>.</li>
+  <li><code>static</code> members, <code>abstract</code> classes and generic classes.</li>
+  <li>Why two unrelated classes with the same shape are interchangeable.</li>
+</ul>
+</div>
+
+<h2 id="fields">Fields</h2>
+<p>Declare fields in the class body with a type, an initializer, or both. With <code>strict</code>, every field must be definitely assigned by the constructor (<code>strictPropertyInitialization</code>):</p>
+<script type="text/plain" class="code" data-file="fields.ts">
+class Book {
+  title: string;
+  copies = 1;                 // type inferred from the initializer: number
+  isbn: string;
+
+  constructor(title: string) {
+    this.title = title;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+fields.ts(4,3): error TS2564: Property 'isbn' has no initializer and is not definitely assigned in the constructor.
+</script>
+<p>Fix it by assigning it, making it optional (<code>isbn?: string</code>), or, if something outside the constructor sets it (a framework, an <code>init()</code> method), with the <strong>definite assignment assertion</strong> <code>isbn!: string</code>. That last one is unchecked, like every <code>!</code>.</p>
+<p><code>readonly</code> fields can only be set in the declaration or the constructor:</p>
+<script type="text/plain" class="code" data-file="readonly-field.ts">
+class Member {
+  readonly id: string;
+  constructor(id: string) { this.id = id; }
+  rename() { this.id = "m2"; }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+readonly-field.ts(4,19): error TS2540: Cannot assign to 'id' because it is a read-only property.
+</script>
+
+<h2 id="param-props">Parameter properties</h2>
+<p>Declaring a field, taking a constructor parameter and assigning one to the other is so common that TypeScript has a shortcut. Put a modifier (<code>public</code>, <code>private</code>, <code>protected</code> or <code>readonly</code>) in front of a constructor parameter, and it becomes a field:</p>
+<script type="text/plain" class="code" data-file="param-props.ts">
+class Loan {
+  constructor(
+    readonly id: string,
+    public bookId: string,
+    private days: number,
+  ) {}
+  describe() { return `${this.id}: ${this.bookId} for ${this.days} days`; }
+}
+const loan = new Loan("L1", "b1", 14);
+console.log(loan.describe(), loan.id);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+L1: b1 for 14 days L1
+</script>
+<div class="note">
+<p>📝 Parameter properties are one of the few TypeScript features that <em>generate</em> JavaScript (the <code>this.id = id</code> assignments). Node's built-in type stripping and the <code>erasableSyntaxOnly</code> option reject them for that reason. They're still widely used; Chapter 18 discusses <code>erasableSyntaxOnly</code>.</p>
+</div>
+
+<h2 id="methods">Methods, getters and setters</h2>
+<script type="text/plain" class="code" data-file="accessors.ts">
+class Account {
+  private _balance = 0;
+  get balance(): number { return this._balance; }
+  set balance(cents: number) {
+    if (cents < 0) throw new RangeError("balance can't be negative");
+    this._balance = cents;
+  }
+  charge(cents: number): this {           // returning `this` allows chaining
+    this.balance = this._balance + cents;
+    return this;
+  }
+}
+const acc = new Account().charge(250).charge(100);
+console.log(acc.balance);
+try { acc.balance = -1; } catch (e) { console.log((e as Error).message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+350
+balance can't be negative
+</script>
+<p>A getter without a setter makes the property read-only to the checker. The return type <code>this</code> means "the type of the current instance", which stays correct in subclasses.</p>
+
+<h2 id="implements">implements</h2>
+<p><code>class C implements I</code> asks the compiler to check that the class fits interface <code>I</code>. That's all it does. It doesn't change the class's type, and it isn't needed for an instance to be used as an <code>I</code>:</p>
+<script type="text/plain" class="code" data-file="implements.ts">
+interface Lendable {
+  id: string;
+  lend(memberId: string): string;
+}
+class Book implements Lendable {
+  constructor(public id: string) {}
+  lend(memberId: string) { return `${this.id} → ${memberId}`; }
+}
+class Laptop {                                  // no `implements`, same shape
+  constructor(public id: string) {}
+  lend(memberId: string) { return `laptop ${this.id} → ${memberId}`; }
+}
+const items: Lendable[] = [new Book("b1"), new Laptop("lt-4")];
+items.forEach((i) => console.log(i.lend("m1")));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1 → m1
+laptop lt-4 → m1
+</script>
+<script type="text/plain" class="code" data-file="implements-bad.ts">
+interface Lendable { id: string; lend(memberId: string): string }
+class Dvd implements Lendable {
+  constructor(public id: string) {}
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+implements-bad.ts(2,7): error TS2420: Class 'Dvd' incorrectly implements interface 'Lendable'.
+  Property 'lend' is missing in type 'Dvd' but required in type 'Lendable'.
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> in Java, <code>Laptop</code> could never go into a <code>List&lt;Lendable&gt;</code> without <code>implements Lendable</code>. In TypeScript it can, because typing is structural. Use <code>implements</code> anyway on classes that are <em>meant</em> to fit an interface: the error then points at the class, where the mistake is, instead of at some distant call site.</p>
+</div>
+
+<h2 id="extends">extends and override</h2>
+<p>Inheritance works as in JavaScript: <code>extends</code>, and <code>super(...)</code> must be called before using <code>this</code> in a subclass constructor. Mark overriding methods with <code>override</code>. With <code>noImplicitOverride</code> on (recommended), forgetting it is an error, and <code>override</code> on a method that doesn't exist in the base class is always an error, which catches renames:</p>
+<script type="text/plain" class="code" data-file="override.ts" data-tsc="noImplicitOverride">
+class Item {
+  constructor(public title: string) {}
+  loanDays(): number { return 21; }
+  label(): string { return this.title; }
+}
+class Dvd extends Item {
+  constructor(title: string, public minutes: number) {
+    super(title);
+  }
+  override loanDays(): number { return 7; }
+  label(): string { return `${this.title} (${this.minutes} min)`; }
+  override describe(): string { return "?"; }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+override.ts(11,3): error TS4114: This member must have an 'override' modifier because it overrides a member in the base class 'Item'.
+override.ts(12,12): error TS4113: This member cannot have an 'override' modifier because it is not declared in the base class 'Item'.
+</script>
+<script type="text/plain" class="code" data-file="override-ok.ts" data-tsc="noImplicitOverride">
+class Item {
+  constructor(public title: string) {}
+  loanDays(): number { return 21; }
+}
+class Dvd extends Item {
+  constructor(title: string, public minutes: number) { super(title); }
+  override loanDays(): number { return Math.min(super.loanDays(), 7); }
+}
+const shelf: Item[] = [new Item("Dune"), new Dvd("Arrival", 116)];
+console.log(shelf.map((i) => `${i.title}: ${i.loanDays()} days`));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune: 21 days', 'Arrival: 7 days' ]
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> <code>override</code> is Java's <code>@Override</code>, made a keyword like in C#. Unlike C#, every method is "virtual": there's no <code>virtual</code>/<code>sealed</code>, and no <code>final</code> methods. Like Java, a class can extend only one class but implement many interfaces.</p>
+</div>
+
+<h2 id="visibility">Member visibility</h2>
+<div class="table-wrap"><table>
+<tr><th>Modifier</th><th>Accessible from</th><th>Enforced</th></tr>
+<tr><td><code>public</code> (default)</td><td>anywhere</td><td>—</td></tr>
+<tr><td><code>protected</code></td><td>the class and its subclasses</td><td>compile time only</td></tr>
+<tr><td><code>private</code></td><td>the class only</td><td>compile time only ("soft private")</td></tr>
+<tr><td><code>#name</code> (JavaScript)</td><td>the class only</td><td><strong>at runtime</strong> ("hard private")</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="private.ts">
+class Card {
+  private pin = "1234";
+  #secret = "s3cr3t";
+  check(pin: string) { return pin === this.pin; }
+}
+const card = new Card();
+console.log(card.pin);
+console.log((card as any).pin);         // soft private: still there at runtime
+console.log(card["pin"]);               // bracket access is allowed on purpose (an escape hatch)
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+private.ts(7,18): error TS2341: Property 'pin' is private and only accessible within class 'Card'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1234
+1234
+1234
+</script>
+<p>After compilation, <code>private pin</code> is an ordinary property, visible to <code>console.log(card)</code>, <code>JSON.stringify</code> and any JavaScript code. <code>#secret</code> really can't be read from outside the class, not even with <code>as any</code>. Use <code>#</code> when privacy must hold at runtime (security, library internals); <code>private</code> is fine for keeping your own code tidy.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a "Staff only" sign versus a locked door.</strong> <code>private</code> is the sign: everyone who reads the rules (the type checker) stays out, but nothing physically stops them. <code>#private</code> is the lock.</p>
+</div>
+
+<h2 id="static">Static members</h2>
+<script type="text/plain" class="code" data-file="static.ts">
+class LoanPolicy {
+  static readonly DEFAULT_DAYS = 21;
+  static #issued = 0;
+  static nextId(): string { return `L${++LoanPolicy.#issued}`; }
+}
+console.log(LoanPolicy.DEFAULT_DAYS, LoanPolicy.nextId(), LoanPolicy.nextId());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+21 L1 L2
+</script>
+<p>Static members belong to the class object itself. They can't use the class's type parameters (each instance may have a different <code>T</code>, but there's only one class).</p>
+
+<h2 id="abstract">Abstract classes</h2>
+<p>An <code>abstract</code> class can't be instantiated. It can declare <code>abstract</code> members that subclasses must implement, and share real code with them:</p>
+<script type="text/plain" class="code" data-file="abstract.ts">
+abstract class Notifier {
+  abstract send(to: string, text: string): string;
+  remind(to: string, title: string) {
+    return this.send(to, `Reminder: "${title}" is due soon`);
+  }
+}
+class EmailNotifier extends Notifier {
+  send(to: string, text: string) { return `EMAIL ${to}: ${text}`; }
+}
+console.log(new EmailNotifier().remind("ana@example.com", "Dune"));
+const n = new Notifier();
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+abstract.ts(11,11): error TS2511: Cannot create an instance of an abstract class.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+EMAIL ana@example.com: Reminder: "Dune" is due soon
+</script>
+<p>Here the abstract class turns into a normal JavaScript class, so <code>new Notifier()</code> actually runs. That's why there's no crash: <code>abstract</code> is erased.</p>
+
+<h2 id="generic-classes">Generic classes</h2>
+<script type="text/plain" class="code" data-file="generic-class.ts">
+class Shelf<T extends { id: string }> {
+  #items = new Map<string, T>();
+  add(item: T): this { this.#items.set(item.id, item); return this; }
+  get(id: string): T | undefined { return this.#items.get(id); }
+  get size() { return this.#items.size; }
+}
+const books = new Shelf<{ id: string; title: string }>()
+  .add({ id: "b1", title: "Dune" })
+  .add({ id: "b2", title: "Emma" });
+console.log(books.size, books.get("b2")?.title);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 Emma
+</script>
+
+<h2 id="structural">Classes are structural too</h2>
+<p>The type of a class instance is its shape, so two unrelated classes with the same public members are interchangeable. Even an empty class accepts anything:</p>
+<script type="text/plain" class="code" data-file="structural.ts">
+class Point { x = 0; y = 0 }
+class Pixel { x = 0; y = 0 }
+const p: Point = new Pixel();           // OK: same shape
+const q: Point = { x: 1, y: 2 };        // a plain object works too
+class Empty {}
+const e: Empty = "anything at all";     // no members required, so everything fits
+console.log(p instanceof Point, q instanceof Point);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+false false
+</script>
+<p>The exception: a class with a <code>private</code>/<code>protected</code> or <code>#</code> member is only compatible with itself and its subclasses. That's a common trick to get nominal behaviour when you need it.</p>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> this is the biggest mental shift. In Java, <code>Point p = new Pixel()</code> is impossible unless <code>Pixel extends Point</code>. In TypeScript a class is "a constructor function plus an interface for its instances", and the interface is matched by shape. Also note: no method overloading by signature (Chapter 5), no <code>final</code>/<code>sealed</code>, and no runtime generics (<code>new T()</code> doesn't work, because <code>T</code> is erased).</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Arrow-function fields keep this</h3>
+<script type="text/plain" class="code" data-file="arrow-field.ts">
+class Counter {
+  count = 0;
+  inc = () => { this.count++; };      // a field holding an arrow: `this` is fixed
+  incMethod() { this.count++; }
+}
+const c = new Counter();
+const { inc } = c;
+inc(); inc();
+console.log(c.count);
+const m = c.incMethod;
+try { m(); } catch (e) { console.log((e as Error).constructor.name); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2
+TypeError
+</script>
+<p>The trade-off: each instance gets its own copy of an arrow field, while methods are shared on the prototype.</p>
+<h3>A class as a nominal type via a private brand</h3>
+<script type="text/plain" class="code" data-file="nominal-class.ts">
+class MemberId {
+  #brand = true;
+  constructor(readonly value: string) {}
+}
+function lookup(id: MemberId) { return `member ${id.value}`; }
+console.log(lookup(new MemberId("m1")));
+lookup({ value: "m2" });
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+nominal-class.ts(7,8): error TS2741: Property '#brand' is missing in type '{ value: string; }' but required in type 'MemberId'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+member m1
+</script>
+<h3>Protected members in a template method</h3>
+<script type="text/plain" class="code" data-file="protected.ts">
+abstract class Report {
+  print() { return [this.header(), ...this.rows(), "--"].join("\n"); }
+  protected header() { return "== Library report =="; }
+  protected abstract rows(): string[];
+}
+class OverdueReport extends Report {
+  constructor(private overdue: string[]) { super(); }
+  protected rows() { return this.overdue.map((t) => `overdue: ${t}`); }
+}
+console.log(new OverdueReport(["Dune", "Emma"]).print());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+== Library report ==
+overdue: Dune
+overdue: Emma
+--
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Fields need types or initializers; strict mode requires them to be assigned (or use <code>?</code> / <code>!</code>).</li>
+  <li>Parameter properties (<code>constructor(private x: T)</code>) declare and assign in one step, but they emit code.</li>
+  <li><code>implements</code> only checks; any value with the right shape fits an interface.</li>
+  <li><code>extends</code> + <code>super</code>; mark overrides with <code>override</code> and enable <code>noImplicitOverride</code>.</li>
+  <li><code>private</code>/<code>protected</code> are compile-time only; <code>#private</code> is enforced at runtime.</li>
+  <li><code>abstract</code> classes can't be <code>new</code>-ed; generic classes take type parameters; statics can't use them.</li>
+  <li>Instances are compared structurally, unless the class has private members.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">parameter properties</span></h3>
+<p>Rewrite with parameter properties: <code>class Author { name: string; born: number; constructor(name: string, born: number) { this.name = name; this.born = born; } }</code></p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="author.ts">
+class Author {
+  constructor(public name: string, public born: number) {}
+}
+console.log(new Author("Jane Austen", 1775));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Author { name: 'Jane Austen', born: 1775 }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Which line is an error? <code>class A { private x = 1 }</code>, then (1) <code>new A().x</code>, (2) <code>(new A() as any).x</code>, (3) <code>JSON.stringify(new A())</code>. What does (3) print?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only (1) is a compile error. (2) compiles and returns 1. (3) prints <code>{"x":1}</code>: TypeScript's <code>private</code> doesn't hide anything at runtime.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">implements</span></h3>
+<p>Write an interface <code>Priced { price(): number }</code> and a class <code>Ebook</code> that implements it with a constructor taking cents.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="priced.ts">
+interface Priced { price(): number }
+class Ebook implements Priced {
+  constructor(private cents: number) {}
+  price() { return this.cents; }
+}
+console.log(new Ebook(899).price());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+899
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">static</span></h3>
+<p>Add a static counter to a <code>Member</code> class so each new member gets ids <code>m1</code>, <code>m2</code>, …</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="member-id.ts">
+class Member {
+  static #count = 0;
+  readonly id = `m${++Member.#count}`;
+  constructor(public name: string) {}
+}
+console.log(new Member("Ana").id, new Member("Ben").id);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+m1 m2
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">abstract</span></h3>
+<p>Write an abstract class <code>LibraryItem</code> with a <code>title</code>, an abstract <code>loanDays()</code> and a concrete <code>dueDate(from: Date)</code>. Implement <code>Book</code> (21 days) and <code>Magazine</code> (7 days).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="library-item.ts">
+abstract class LibraryItem {
+  constructor(readonly title: string) {}
+  abstract loanDays(): number;
+  dueDate(from: Date): Date {
+    const d = new Date(from);
+    d.setDate(d.getDate() + this.loanDays());
+    return d;
+  }
+}
+class Book extends LibraryItem { loanDays() { return 21; } }
+class Magazine extends LibraryItem { loanDays() { return 7; } }
+const start = new Date(2026, 10, 5);
+for (const item of [new Book("Dune"), new Magazine("Wired")]) {
+  console.log(item.title, item.dueDate(start).toDateString());
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune Thu Nov 26 2026
+Wired Thu Nov 12 2026
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">override</span></h3>
+<p>With <code>noImplicitOverride</code>, a base class method is renamed from <code>fee()</code> to <code>lateFee()</code>. What happens to a subclass that declared <code>override fee()</code>? What would happen without the <code>override</code> keyword?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>override</code>: error TS4113 ("cannot have an 'override' modifier because it is not declared in the base class"), so the rename is caught. Without it, the subclass silently gets a new, unused <code>fee()</code> method, and the base <code>lateFee()</code> is no longer customised: a quiet bug.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">generic class</span></h3>
+<p>Write a generic <code>Queue&lt;T&gt;</code> with <code>enqueue</code>, <code>dequeue(): T | undefined</code> and a <code>length</code> getter. Use it for a waiting list of member names.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="queue.ts">
+class Queue<T> {
+  #items: T[] = [];
+  enqueue(item: T): void { this.#items.push(item); }
+  dequeue(): T | undefined { return this.#items.shift(); }
+  get length(): number { return this.#items.length; }
+}
+const waiting = new Queue<string>();
+waiting.enqueue("Ana");
+waiting.enqueue("Ben");
+console.log(waiting.dequeue(), waiting.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana 1
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch07/catalog.ts</code>, write a class <code>Catalog</code> that stores books in a private <code>Map</code>, with <code>add(book)</code>, <code>find(id)</code>, <code>search(text)</code> (case-insensitive on title and author) and a <code>size</code> getter. This becomes <code>src/catalog.ts</code> in the capstone.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="catalog.ts">
+interface Book { id: string; title: string; author: string; year: number }
+
+export class Catalog {
+  #books = new Map<string, Book>();
+  add(book: Book): this {
+    if (this.#books.has(book.id)) throw new Error(`duplicate id ${book.id}`);
+    this.#books.set(book.id, book);
+    return this;
+  }
+  find(id: string): Book | undefined { return this.#books.get(id); }
+  search(text: string): Book[] {
+    const q = text.toLowerCase();
+    return [...this.#books.values()].filter((b) => `${b.title} ${b.author}`.toLowerCase().includes(q));
+  }
+  get size(): number { return this.#books.size; }
+}
+const c = new Catalog()
+  .add({ id: "b1", title: "Dune", author: "Frank Herbert", year: 1965 })
+  .add({ id: "b2", title: "Emma", author: "Jane Austen", year: 1815 });
+console.log(c.size, c.search("austen").map((b) => b.title), c.find("b9"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 [ 'Emma' ] undefined
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>A Java developer writes <code>class Repo&lt;T&gt; { create(): T { return new T(); } }</code>. Why can't this work in TypeScript, and what is the usual fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="repo.ts">
+class Repo<T> {
+  constructor(private make: new () => T) {}
+  create(): T { return new this.make(); }
+}
+class Book { title = "untitled" }
+console.log(new Repo(Book).create());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book { title: 'untitled' }
+</script>
+<p><code>T</code> is erased, so at runtime there's nothing to call <code>new</code> on. Pass the constructor in as a value, typed with a construct signature (<code>new () =&gt; T</code>), just as you'd pass a <code>Class&lt;T&gt;</code> or <code>Supplier&lt;T&gt;</code> in Java.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design <code>Money</code> as a class with a hard-private <code>#cents</code>, a static <code>of(amount: number)</code> factory, <code>add(other: Money): Money</code> returning a new object, and <code>toString()</code>. Show that a plain object <code>{ add() {}, toString() {} }</code> is <em>not</em> accepted where a <code>Money</code> is expected.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="money.ts">
+class Money {
+  readonly #cents: number;
+  private constructor(cents: number) { this.#cents = cents; }
+  static of(amount: number): Money { return new Money(Math.round(amount * 100)); }
+  add(other: Money): Money { return new Money(this.#cents + other.#cents); }
+  toString(): string { return `€${(this.#cents / 100).toFixed(2)}`; }
+}
+const total = Money.of(12.99).add(Money.of(0.5));
+console.log(String(total));
+const fake: Money = { add: () => total, toString: () => "€0" };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+money.ts(10,7): error TS2741: Property '#cents' is missing in type '{ add: () => Money; toString: () => string; }' but required in type 'Money'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+€13.49
+</script>
+<p>The <code>#cents</code> member makes <code>Money</code> nominal. A <code>private constructor</code> forces callers to use <code>Money.of</code>. Values are immutable: <code>add</code> returns a new instance, like Java's <code>BigDecimal</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/classes.html">Handbook: Classes</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-oop.html">TypeScript for Java/C# Programmers</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#noImplicitOverride">TSConfig: noImplicitOverride</a> · <a href="https://www.typescriptlang.org/tsconfig/#strictPropertyInitialization">strictPropertyInitialization</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Private_elements">MDN: Private elements (#)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

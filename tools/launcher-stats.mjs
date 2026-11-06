@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const COURSES = {
-  python: "Beginner/python-book", react: "Beginner/react-book", javascript: "Intermediate/javascript-book",
+  python: "Beginner/python-book", typescript: "Beginner/typescript-book", react: "Beginner/react-book", javascript: "Intermediate/javascript-book",
   nodejs: "Intermediate/nodejs-book", aidev: "Intermediate/ai-dev-book", springboot: "Advanced/spring-boot-book", problems: "problems",
 };
 // Minutes per unit — the model explained on the launcher page.
