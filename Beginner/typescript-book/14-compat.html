@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Type Compatibility &amp; Inference · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · Reference Topics</div>
+<h1>Type Compatibility &amp; Inference</h1>
+<p class="lead">When is a value of type <code>A</code> allowed where type <code>B</code> is expected? And how does TypeScript work out a type you didn't write? This chapter covers the reference pages <em>Type Compatibility</em> and <em>Type Inference</em>, plus two tools that build on them: the <code>satisfies</code> operator and branded types, which give you nominal typing when you need it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The rules of <strong>structural compatibility</strong> for objects, functions, classes and generics.</li>
+  <li>Why function parameters are checked "in reverse" (<code>strictFunctionTypes</code>).</li>
+  <li>The special roles of <code>any</code>, <code>unknown</code> and <code>never</code> in assignability.</li>
+  <li>Inference: best common type, contextual typing and widening.</li>
+  <li><code>satisfies</code>: check a value against a type without losing its precise type.</li>
+  <li><strong>Branded types</strong>: making <code>BookId</code> and <code>MemberId</code> incompatible.</li>
+</ul>
+</div>
+
+<h2 id="objects">Objects: at least these properties</h2>
+<p>The basic rule: <code>x</code> is assignable to type <code>T</code> if <code>x</code> has <strong>at least</strong> the properties <code>T</code> requires, with compatible types. Extra properties are fine (apart from the fresh-literal excess check of Chapter 6). The check is recursive, member by member.</p>
+<script type="text/plain" class="code" data-file="objects.ts">
+interface Pet { name: string }
+interface Dog { name: string; owner: string; walk(): void }
+
+const dog: Dog = { name: "Rex", owner: "Ana", walk() {} };
+const pet: Pet = dog;                  // Dog has everything Pet needs
+console.log(pet.name);
+const back: Dog = pet;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+objects.ts(7,7): error TS2739: Type 'Pet' is missing the following properties from type 'Dog': owner, walk
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Rex
+</script>
+<p>Think of it as sets: every <code>Dog</code> value is also a <code>Pet</code> value, so <code>Dog</code> is a <strong>subtype</strong> of <code>Pet</code>. More properties means a smaller set of values, so a <em>narrower</em> type.</p>
+
+<h2 id="functions">Functions: parameters in reverse</h2>
+<p>For functions, the <strong>return type</strong> works like objects: the source may return something more specific. <strong>Parameters</strong> are the other way round. A function that accepts <em>more</em> (or fewer parameters) can stand in for one that accepts less, never the opposite:</p>
+<script type="text/plain" class="code" data-file="functions.ts">
+type Handler = (dog: { name: string; owner: string }) => void;
+
+const anyPet = (p: { name: string }) => console.log("pet", p.name);          // accepts more values
+const needsChip = (d: { name: string; owner: string; chip: string }) => {};  // accepts fewer
+
+const h1: Handler = anyPet;          // OK: it can handle every dog
+const h2: Handler = needsChip;
+h1({ name: "Rex", owner: "Ana" });
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+functions.ts(7,7): error TS2322: Type '(d: { name: string; owner: string; chip: string; }) => void' is not assignable to type 'Handler'.
+  Types of parameters 'd' and 'dog' are incompatible.
+    Property 'chip' is missing in type '{ name: string; owner: string; }' but required in type '{ name: string; owner: string; chip: string; }'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+pet Rex
+</script>
+<p>Whoever calls a <code>Handler</code> will pass a dog without a chip. <code>needsChip</code> would read a missing property. This "reverse" rule is called <strong>contravariance</strong>, and <code>strictFunctionTypes</code> (part of <code>strict</code>) enforces it for function types.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: hiring a vet.</strong> The job says "treats dogs". A vet who treats <em>all animals</em> can take the job. A vet who treats <em>only microchipped dogs</em> can't, because some dogs that walk in won't have a chip. Returning results is the opposite: if the job says "writes a report", writing a <em>detailed</em> report is fine.</p>
+</div>
+<div class="pitfall">
+<p>⚠️ For compatibility with old code, parameters of <strong>methods</strong> (written <code>m(x: T): void</code> in an interface) are still checked both ways ("bivariantly"). Declare callbacks as properties, <code>m: (x: T) =&gt; void</code>, to get the strict check.</p>
+</div>
+<p>Fewer parameters is always fine (that's why <code>arr.forEach((x) =&gt; …)</code> works although <code>forEach</code> passes three arguments). Optional and rest parameters are treated loosely in both directions.</p>
+
+<h2 id="classes">Classes, generics and enums</h2>
+<ul>
+  <li><strong>Classes</strong>: only the instance members are compared. Static members and constructors don't matter. <code>private</code>, <code>protected</code> and <code>#</code> members must come from the same declaration (Chapter 7).</li>
+  <li><strong>Generics</strong>: compared after substitution, by the members that actually use the type parameter. An empty <code>interface Box&lt;T&gt; {}</code> makes <code>Box&lt;string&gt;</code> and <code>Box&lt;number&gt;</code> compatible, because nothing uses <code>T</code>.</li>
+  <li><strong>Enums</strong>: values of different enums are never compatible with each other; numeric enums are compatible with <code>number</code>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="generics-compat.ts">
+interface Empty<T> {}
+interface Full<T> { value: T }
+let e1: Empty<string> = {};
+let e2: Empty<number> = e1;          // OK: T isn't used
+let f1: Full<string> = { value: "a" };
+let f2: Full<number> = f1;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+generics-compat.ts(6,5): error TS2322: Type 'Full<string>' is not assignable to type 'Full<number>'.
+  Type 'string' is not assignable to type 'number'.
+</script>
+
+<h2 id="top-bottom">any, unknown and never</h2>
+<p>Three types sit at the edges of the "type sets" picture:</p>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Values</th><th>Assign <em>to</em> it</th><th>Assign it <em>to</em> others</th></tr>
+<tr><td><code>unknown</code></td><td>all values (top type)</td><td>anything</td><td>only <code>unknown</code> and <code>any</code></td></tr>
+<tr><td><code>never</code></td><td>no values (bottom type)</td><td>only <code>never</code></td><td>anything</td></tr>
+<tr><td><code>any</code></td><td>turns checking off</td><td>anything</td><td>anything (except <code>never</code>)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="top-bottom.ts">
+const u: unknown = 42;
+const a: any = "x";
+declare const nothing: never;
+
+const n1: number = a;            // any: allowed both ways (unsafe)
+const s: string = nothing;       // never fits everywhere
+const n2: number = u;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+top-bottom.ts(7,7): error TS2322: Type 'unknown' is not assignable to type 'number'.
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> <code>unknown</code> is TypeScript's <code>Object</code>/<code>object</code>: everything is one, but you must cast (here: narrow) to use it. <code>never</code> is like Kotlin's <code>Nothing</code>; Java has no direct equivalent (a method that always throws). <code>any</code> is like C#'s <code>dynamic</code>: the compiler steps aside completely.</p>
+</div>
+
+<h2 id="inference">How inference works</h2>
+<h3>Best common type</h3>
+<p>For an array literal, TypeScript looks at all elements and picks a type that fits them all, usually a union:</p>
+<script type="text/plain" class="code" data-file="best-common.ts">
+const mixed = [1, "b2", null];                 // (string | number | null)[]
+class Item { constructor(public id: string) {} }
+class Book extends Item { pages = 0 }
+class Dvd extends Item { minutes = 0 }
+const shelf = [new Book("b1"), new Dvd("d1")]; // (Book | Dvd)[], not Item[]
+const items: Item[] = [new Book("b1"), new Dvd("d1")];   // annotate to get the base type
+console.log(mixed.length, shelf.length, items[1]?.id);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 2 d1
+</script>
+<h3>Contextual typing</h3>
+<p>Inference also goes "from the outside in": the expected type of a position types the expression put there (Chapter 3). That works for callbacks, return statements, and object literals assigned to annotated variables.</p>
+<h3>Widening</h3>
+<p>A literal is <strong>widened</strong> to its general type when it's stored somewhere mutable: <code>let x = "a"</code> is <code>string</code>, <code>const x = "a"</code> is <code>"a"</code>, and properties of a <code>const</code> object are widened, unless you use <code>as const</code>.</p>
+
+<h2 id="satisfies">The satisfies operator <span class="es">TS 4.9</span></h2>
+<p>Annotating a variable checks the value, but also <em>replaces</em> its type with the annotation, losing detail. <code>value satisfies Type</code> checks the value against the type and <strong>keeps</strong> the precise inferred type:</p>
+<script type="text/plain" class="code" data-file="satisfies.ts">
+type Colors = "red" | "green" | "blue";
+type RGB = [red: number, green: number, blue: number];
+
+const annotated: Record<Colors, string | RGB> = { red: [255, 0, 0], green: "#00ff00", blue: [0, 0, 255] };
+const checked = { red: [255, 0, 0], green: "#00ff00", blue: [0, 0, 255] } satisfies Record<Colors, string | RGB>;
+
+console.log(checked.green.toUpperCase(), checked.red.at(0));   // precise: green is a string, red an array
+console.log(annotated.green.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+satisfies.ts(8,29): error TS2339: Property 'toUpperCase' does not exist on type 'string | RGB'.
+  Property 'toUpperCase' does not exist on type 'RGB'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+#00FF00 255
+#00FF00
+</script>
+<p>And a typo is still caught, because <code>satisfies</code> runs the excess property check:</p>
+<script type="text/plain" class="code" data-file="satisfies-typo.ts">
+type Colors = "red" | "green" | "blue";
+const palette = { red: "#f00", green: "#0f0", bleu: "#00f" } satisfies Record<Colors, string>;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+satisfies-typo.ts(2,47): error TS2353: Object literal may only specify known properties, and 'bleu' does not exist in type 'Record<Colors, string>'.
+</script>
+<div class="tip">
+<p>💡 Use <code>satisfies</code> for configuration objects, lookup tables and route maps: you get the check <em>and</em> autocompletion of the exact keys and values.</p>
+</div>
+
+<h2 id="brands">Branded types: nominal typing on demand</h2>
+<p>Structural typing means <code>type BookId = string</code> and <code>type MemberId = string</code> are interchangeable, so you can pass a member id where a book id is expected. A <strong>brand</strong> is a fake property that exists only in the type, making the two incompatible:</p>
+<script type="text/plain" class="code" data-file="brands.ts">
+declare const brand: unique symbol;
+type Brand<T, B extends string> = T & { readonly [brand]: B };
+
+type BookId = Brand<string, "BookId">;
+type MemberId = Brand<string, "MemberId">;
+
+const bookId = (s: string) => s as BookId;           // the only places that "mint" ids
+const memberId = (s: string) => s as MemberId;
+
+function borrow(book: BookId, member: MemberId) { return `${member} borrows ${book}`; }
+
+const b = bookId("b1");
+const m = memberId("m1");
+console.log(borrow(b, m), b.toUpperCase());          // still a string at runtime
+borrow(m, b);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+brands.ts(15,8): error TS2345: Argument of type 'MemberId' is not assignable to parameter of type 'BookId'.
+  Type 'MemberId' is not assignable to type '{ readonly [brand]: "BookId"; }'.
+    Types of property '[brand]' are incompatible.
+      Type '"MemberId"' is not assignable to type '"BookId"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+m1 borrows b1 B1
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> in Java you'd write <code>record BookId(String value)</code>; in C#, <code>readonly record struct BookId(string Value)</code>. Those wrappers exist at runtime. A TypeScript brand has <strong>zero runtime cost</strong>: the value is still a plain string, and the brand is erased. The minting functions (<code>bookId(...)</code>) are where you'd validate the format.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Methods vs function properties</h3>
+<script type="text/plain" class="code" data-file="method-bivariance.ts">
+interface WithMethod { handle(x: string | number): void }
+interface WithProp { handle: (x: string | number) => void }
+const onlyStrings = { handle(x: string) { console.log(x.length); } };
+
+const a: WithMethod = onlyStrings;      // allowed: method parameters are bivariant
+const b: WithProp = onlyStrings;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+method-bivariance.ts(6,7): error TS2322: Type '{ handle(x: string): void; }' is not assignable to type 'WithProp'.
+  Types of property 'handle' are incompatible.
+    Type '(x: string) => void' is not assignable to type '(x: string | number) => void'.
+      Types of parameters 'x' and 'x' are incompatible.
+        Type 'string | number' is not assignable to type 'string'.
+          Type 'number' is not assignable to type 'string'.
+</script>
+<h3>satisfies with as const</h3>
+<script type="text/plain" class="code" data-file="routes.ts">
+type Route = { path: `/${string}`; auth: boolean };
+const routes = {
+  home: { path: "/", auth: false },
+  loans: { path: "/loans", auth: true },
+} as const satisfies Record<string, Route>;
+type RouteName = keyof typeof routes;               // "home" | "loans": keys kept exactly
+const r: RouteName = "loans";
+console.log(routes[r].path, routes.home.auth);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+/loans false
+</script>
+<h3>Validating while branding</h3>
+<script type="text/plain" class="code" data-file="isbn-brand.ts">
+type Isbn = string & { readonly __brand: "Isbn" };
+function parseIsbn(s: string): Isbn | null {
+  const digits = s.replaceAll("-", "");
+  return /^\d{13}$/.test(digits) ? (digits as Isbn) : null;
+}
+console.log(parseIsbn("978-0-441-01359-3"), parseIsbn("12-34"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+9780441013593 null
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Objects: the source needs at least the target's properties. More properties = subtype.</li>
+  <li>Functions: returns may be more specific; parameters must accept at least as much (contravariance, <code>strictFunctionTypes</code>). Method-style declarations are checked loosely.</li>
+  <li>Classes compare instance members; generics compare the members that use <code>T</code>.</li>
+  <li><code>unknown</code> is the top type, <code>never</code> the bottom type, <code>any</code> turns checking off.</li>
+  <li>Inference: best common type, contextual typing, literal widening.</li>
+  <li><code>satisfies</code> checks without widening. Brands make structurally identical types incompatible, at zero runtime cost.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Is <code>{ id: string; title: string }</code> assignable to <code>{ id: string }</code>? And the other way round?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes; no (the second has no <code>title</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Can <code>(a: string) =&gt; void</code> be assigned to <code>(a: string, b: number) =&gt; void</code>? And the reverse?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes: ignoring extra arguments is fine. No: the second function needs <code>b</code>, which callers of the first type won't pass.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">satisfies</span></h3>
+<p>Rewrite <code>const limits: Record&lt;string, number&gt; = { student: 3, staff: 10 };</code> so that <code>limits.staf</code> is an error.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="limits-satisfies.ts">
+const limits = { student: 3, staff: 10 } satisfies Record<string, number>;
+console.log(limits.staff);
+console.log(limits.staf);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+limits-satisfies.ts(3,20): error TS2551: Property 'staf' does not exist on type '{ student: number; staff: number; }'. Did you mean 'staff'?
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10
+undefined
+</script>
+<p>With the annotation, any string key is allowed (and <code>limits.staf</code> is <code>number</code>). With <code>satisfies</code>, the type keeps its exact keys.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"<code>never</code> can be assigned to any type, and no type (except <code>never</code>) can be assigned to <code>never</code>." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>True.</strong> It's the empty set: it's a subset of every set, and nothing else is a subset of it. (<code>any</code> also can't be assigned to <code>never</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">brands</span></h3>
+<p>Create branded <code>Cents</code> and <code>Euros</code> number types, a <code>toEuros(c: Cents): Euros</code> function, and show that passing a <code>Euros</code> to a function expecting <code>Cents</code> fails.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="money-brands.ts">
+type Cents = number & { readonly __unit: "cents" };
+type Euros = number & { readonly __unit: "euros" };
+const cents = (n: number) => n as Cents;
+const toEuros = (c: Cents) => (c / 100) as Euros;
+function lateFee(c: Cents) { return `fee: ${c} cents`; }
+const e = toEuros(cents(1299));
+console.log(e, lateFee(cents(75)));
+lateFee(e);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+money-brands.ts(8,9): error TS2345: Argument of type 'Euros' is not assignable to parameter of type 'Cents'.
+  Type 'Euros' is not assignable to type '{ readonly __unit: "cents"; }'.
+    Types of property '__unit' are incompatible.
+      Type '"euros"' is not assignable to type '"cents"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+12.99 fee: 75 cents
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">inference</span></h3>
+<p>What is the inferred type of <code>[new Date(), "today"]</code>? How do you make it a tuple <code>[Date, string]</code> without writing the type?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>(string | Date)[]</code>. Use <code>as const</code> (giving <code>readonly [Date, "today"]</code>) or annotate. A function with a tuple-typed rest or a <code>const</code> type parameter also infers tuples.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">contravariance</span></h3>
+<p>Explain why this is an error, using the vet analogy: <code>const sort: (cmp: (a: string | number, b: string | number) =&gt; number) =&gt; void = …; sort((a: string, b: string) =&gt; a.localeCompare(b));</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>sort</code> will call the comparator with numbers too. A comparator that only "treats strings" can't take a job that says "treats strings and numbers": it would call <code>localeCompare</code> on a number. Parameters must accept at least what callers pass.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch14/ids.ts</code>, create branded <code>BookId</code>, <code>MemberId</code> and <code>LoanId</code> types with validating constructors (<code>b…</code>, <code>m…</code>, <code>L…</code> followed by digits) that throw on bad input. The capstone uses them everywhere.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ids.ts">
+declare const brand: unique symbol;
+type Brand<T, B> = T & { readonly [brand]: B };
+export type BookId = Brand<string, "BookId">;
+export type MemberId = Brand<string, "MemberId">;
+export type LoanId = Brand<string, "LoanId">;
+
+function maker<T extends string>(prefix: string, kind: string) {
+  const re = new RegExp(`^${prefix}\\d+$`);
+  return (s: string): T => {
+    if (!re.test(s)) throw new TypeError(`invalid ${kind}: ${s}`);
+    return s as T;
+  };
+}
+export const BookId = maker<BookId>("b", "book id");
+export const MemberId = maker<MemberId>("m", "member id");
+export const LoanId = maker<LoanId>("L", "loan id");
+
+console.log(BookId("b12"), MemberId("m3"));
+try { BookId("m3"); } catch (e) { console.log((e as Error).message); }
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b12 m3
+invalid book id: m3
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why are method parameters still checked bivariantly, even under <code>strict</code>? Give a built-in example where strict checking would break.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Many built-in types are written with methods, and are used covariantly. The classic example is <code>Array&lt;T&gt;</code>: <code>push(...items: T[])</code> is a method, and people expect <code>Dog[]</code> to be assignable to <code>Animal[]</code>. With strict parameter checks, <code>Dog[]</code> wouldn't be an <code>Animal[]</code> (because <code>push</code> on an <code>Animal[]</code> accepts any animal). TypeScript chose to keep that convenient (but technically unsound) behaviour for methods.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write a <code>config</code> object of fee rules that <code>satisfies Record&lt;string, { perDay: number; cap?: number }&gt;</code>, then a function <code>fee(kind: keyof typeof config, days: number)</code>. Show that <code>config.dvd.cap</code> is known to exist when you wrote it, and that a misspelled key fails.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="fee-config.ts">
+const config = {
+  book: { perDay: 25 },
+  dvd: { perDay: 100, cap: 1000 },
+} satisfies Record<string, { perDay: number; cap?: number }>;
+
+function fee(kind: keyof typeof config, days: number): number {
+  const rule: { perDay: number; cap?: number } = config[kind];
+  return Math.min(rule.perDay * days, rule.cap ?? Infinity);
+}
+console.log(config.dvd.cap + 0, fee("book", 3), fee("dvd", 30));
+fee("magazine", 1);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+fee-config.ts(11,5): error TS2345: Argument of type '"magazine"' is not assignable to parameter of type '"book" | "dvd"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1000 75 1000
+TypeError: Cannot read properties of undefined (reading 'perDay')
+</script>
+<p>The checker rejects <code>"magazine"</code>; the emitted JavaScript runs anyway and crashes on that call, as predicted.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/type-compatibility.html">Reference: Type Compatibility</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/type-inference.html">Reference: Type Inference</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator">TS 4.9: The satisfies operator</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#strictFunctionTypes">TSConfig: strictFunctionTypes</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

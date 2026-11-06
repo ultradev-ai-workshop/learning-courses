@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧱&lt;/text&gt;&lt;/svg&gt;">
+<title>3. Everyday Types · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 3 · Getting Started</div>
+<h1>Everyday Types</h1>
+<p class="lead">These are the types you'll write every day. Following the Handbook's <em>Everyday Types</em> page, this chapter goes from primitives and arrays to object types, unions, type aliases, interfaces, literal types and type assertions. Most of TypeScript is these pieces combined.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The primitives <code>string</code>, <code>number</code>, <code>boolean</code> (and why not <code>String</code>).</li>
+  <li>Arrays, <code>any</code>, and annotations on functions, including async functions.</li>
+  <li>Object types with optional properties.</li>
+  <li>Union types, type aliases and interfaces, and how to choose between the last two.</li>
+  <li>Literal types, <code>as const</code>, type assertions and the non-null <code>!</code> operator.</li>
+</ul>
+</div>
+
+<h2 id="primitives">The primitives</h2>
+<p>JavaScript has three very common primitive values, and TypeScript names their types the same way <code>typeof</code> does:</p>
+<script type="text/plain" class="code" data-file="primitives.ts">
+const title: string = "Dune";
+const pages: number = 412;        // integers and decimals are both `number`
+const available: boolean = true;
+console.log(typeof title, typeof pages, typeof available);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+string number boolean
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Lowercase only.</strong> <code>String</code>, <code>Number</code> and <code>Boolean</code> (capital letter) are the wrapper <em>objects</em> you get from <code>new String("x")</code>. You almost never want them as types. Always write <code>string</code>, <code>number</code>, <code>boolean</code>.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> there is no <code>int</code>, <code>long</code>, <code>float</code> or <code>double</code>. JavaScript has one number type (a 64-bit floating-point value, like <code>double</code>) plus <code>bigint</code> for arbitrarily large integers (<code>123n</code>). <code>char</code> doesn't exist either: a character is a <code>string</code> of length 1.</p>
+</div>
+
+<h2 id="arrays">Arrays</h2>
+<p>An array of numbers is <code>number[]</code>. The generic spelling <code>Array&lt;number&gt;</code> means exactly the same thing (Chapter 8 explains generics).</p>
+<script type="text/plain" class="code" data-file="arrays.ts">
+const prices: number[] = [1299, 899];
+const titles: Array<string> = ["Dune", "Emma"];
+prices.push(2450);
+titles.push(42);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+arrays.ts(4,13): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+</script>
+<p><code>[number]</code> is something else: a <em>tuple</em> with exactly one element. Tuples are in Chapter 6.</p>
+
+<h2 id="any">any: the escape hatch</h2>
+<p><code>any</code> means "don't check this". You can call anything on it, assign it anywhere, and TypeScript stays quiet:</p>
+<script type="text/plain" class="code" data-file="any.ts">
+let anything: any = { title: "Dune" };
+anything.foo();            // no error...
+anything = 5;
+const n: string = anything; // ...and no error here either
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TypeError: anything.foo is not a function
+</script>
+<p>That file compiles with zero errors, and it crashes on the first line that runs. <code>any</code> also spreads: anything you read from an <code>any</code> is <code>any</code> too. Use it rarely, on purpose. When you mean "I don't know yet", use <code>unknown</code> instead (Chapter 4): it makes you check before use.</p>
+
+<h2 id="functions">Functions</h2>
+<p>Annotate parameters after their names, and the return type after the parameter list. An <code>async</code> function always returns a <code>Promise</code>, so its return type is <code>Promise&lt;T&gt;</code>:</p>
+<script type="text/plain" class="code" data-file="functions.ts">
+function fee(daysLate: number): number {
+  return daysLate * 25;
+}
+
+async function fetchTitle(id: string): Promise<string> {
+  return id === "b1" ? "Dune" : "Unknown";
+}
+
+fetchTitle("b1").then((t) => console.log(t, fee(3)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 75
+</script>
+<h3>Contextual typing</h3>
+<p>Functions passed as callbacks usually need no annotations. TypeScript knows <code>forEach</code> on a <code>string[]</code> calls you with a <code>string</code>, so <code>t</code> is typed by its <em>context</em>:</p>
+<script type="text/plain" class="code" data-file="contextual.ts">
+const titles = ["Dune", "Emma"];
+titles.forEach((t) => console.log(t.toUpperCase()));
+titles.forEach((t) => console.log(t.toFixed()));
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+contextual.ts(3,37): error TS2551: Property 'toFixed' does not exist on type 'string'. Did you mean 'fixed'?
+</script>
+
+<h2 id="objects">Object types</h2>
+<p>An object type lists properties and their types, separated by <code>;</code> or <code>,</code>. Add <code>?</code> to make a property <strong>optional</strong>. An optional property may be missing, so its type includes <code>undefined</code>, and you must check it before use:</p>
+<script type="text/plain" class="code" data-file="objects.ts">
+function printName(person: { first: string; last?: string }) {
+  console.log(person.last === undefined ? person.first : `${person.first} ${person.last}`);
+  console.log(person.last?.toUpperCase() ?? "(no last name)");
+}
+printName({ first: "Ana", last: "Lima" });
+printName({ first: "Ben" });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana Lima
+LIMA
+Ben
+(no last name)
+</script>
+
+<h2 id="unions">Union types</h2>
+<p>A <strong>union</strong> <code>A | B</code> is a value that is <em>either</em> an <code>A</code> <em>or</em> a <code>B</code>. Each type in it is a <em>member</em>. You can pass any member, but inside the function you may only use what <strong>every</strong> member supports:</p>
+<script type="text/plain" class="code" data-file="union-bad.ts">
+function printId(id: number | string) {
+  console.log(id.toUpperCase());
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+union-bad.ts(2,18): error TS2339: Property 'toUpperCase' does not exist on type 'string | number'.
+  Property 'toUpperCase' does not exist on type 'number'.
+</script>
+<p>The fix is to <strong>narrow</strong> the union with a check that JavaScript can do at runtime, here <code>typeof</code>. In each branch TypeScript knows the more specific type:</p>
+<script type="text/plain" class="code" data-file="union-good.ts">
+function printId(id: number | string) {
+  if (typeof id === "string") {
+    console.log(id.toUpperCase());      // string here
+  } else {
+    console.log(id.toFixed(1));         // number here
+  }
+}
+printId("b1");
+printId(7);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+B1
+7.0
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a parcel that holds a book or a DVD.</strong> Before you open it, you can only do what works for both: weigh it, ship it. To read it or play it, you first look inside (narrowing), then use it as what it is.</p>
+</div>
+
+<h2 id="aliases">Type aliases</h2>
+<p>Writing the same object type or union twice is tedious. A <strong>type alias</strong> gives any type a name. It's only a name: it doesn't create a new, different type.</p>
+<script type="text/plain" class="code" data-file="aliases.ts">
+type Id = number | string;
+type Point = { x: number; y: number };
+
+function locate(id: Id, at: Point): string {
+  return `${id} at (${at.x}, ${at.y})`;
+}
+console.log(locate("shelf-3", { x: 2, y: 5 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+shelf-3 at (2, 5)
+</script>
+
+<h2 id="interfaces">Interfaces</h2>
+<p>An <strong>interface</strong> is another way to name an <em>object</em> type. For objects, it works almost the same as a type alias:</p>
+<script type="text/plain" class="code" data-file="interfaces.ts">
+interface Book {
+  title: string;
+  pages: number;
+}
+interface Ebook extends Book {        // add properties by extending
+  sizeMb: number;
+}
+type Audiobook = Book & { minutes: number };   // the type-alias way: an intersection
+
+const e: Ebook = { title: "Dune", pages: 412, sizeMb: 2.4 };
+const a: Audiobook = { title: "Emma", pages: 474, minutes: 960 };
+console.log(e.sizeMb, a.minutes);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2.4 960
+</script>
+<p>The main differences:</p>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>interface</code></th><th><code>type</code></th></tr>
+<tr><td>Describes</td><td>object shapes (and classes)</td><td>any type: unions, primitives, tuples, functions, objects</td></tr>
+<tr><td>Extend with</td><td><code>extends</code></td><td><code>&amp;</code> (intersection)</td></tr>
+<tr><td>Re-open later to add fields</td><td>✅ yes (declaration merging)</td><td>❌ no: a duplicate name is an error</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="merging.ts">
+interface Member { name: string }
+interface Member { email: string }       // merged into the first one
+const m: Member = { name: "Ana", email: "ana@example.com" };
+console.log(Object.keys(m));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'name', 'email' ]
+</script>
+<div class="tip">
+<p>💡 <strong>Which one?</strong> The Handbook's advice: use <code>interface</code> for object shapes until you need something only <code>type</code> can do (a union, a mapped type…). Many teams simply pick one style. Both are fine; be consistent.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> a TypeScript interface is closer to a C# <em>record shape</em> or a Java interface with only getters than to a "contract with behaviour". It describes data and methods, but there's no <code>implements</code> required (structural typing), and it disappears completely at runtime: you can't write <code>x instanceof Book</code> when <code>Book</code> is an interface.</p>
+</div>
+
+<h2 id="assertions">Type assertions</h2>
+<p>Sometimes you know more than the checker. A <strong>type assertion</strong> <code>value as Type</code> tells it to treat the value as that type. It's not a cast: nothing is checked or converted at runtime.</p>
+<script type="text/plain" class="code" data-file="assertions.ts">
+const raw = JSON.parse('{"title":"Dune","pages":412}');   // JSON.parse returns any
+const book = raw as { title: string; pages: number };
+console.log(book.title.length);
+
+const wrong = "Dune" as number;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+assertions.ts(5,15): error TS2352: Conversion of type 'string' to type 'number' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+</script>
+<p>TypeScript refuses assertions between types that can't possibly overlap, like <code>string</code> to <code>number</code>. (You could force it with <code>as unknown as number</code>, but that's lying to the compiler.)</p>
+<div class="pitfall">
+<p>⚠️ An assertion on <code>JSON.parse</code> output is a <em>promise you make</em>, not a check. If the JSON is missing <code>pages</code>, your code still believes it's there. Chapter 4 shows how to check data properly.</p>
+</div>
+
+<h2 id="literals">Literal types</h2>
+<p>Besides <code>string</code> in general, TypeScript can talk about one exact string, like <code>"overdue"</code>. On its own that isn't useful, but unions of literals are everywhere:</p>
+<script type="text/plain" class="code" data-file="literals.ts">
+type Align = "left" | "right" | "center";
+function pad(text: string, width: number, align: Align): string {
+  if (align === "left") return text.padEnd(width, ".");
+  if (align === "right") return text.padStart(width, ".");
+  return text.padStart((width + text.length) / 2, ".").padEnd(width, ".");
+}
+console.log(pad("Dune", 10, "right"));
+console.log(pad("Dune", 10, "center"));
+pad("Dune", 10, "middle");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+literals.ts(9,17): error TS2345: Argument of type '"middle"' is not assignable to parameter of type 'Align'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+......Dune
+...Dune...
+</script>
+<h3>Literal inference: let vs const</h3>
+<p>A <code>const</code> can't change, so its type is the literal. A <code>let</code> can, so it gets the wider type. Object properties are like <code>let</code>: they can be reassigned.</p>
+<script type="text/plain" class="code" data-file="literal-infer.ts">
+type Method = "GET" | "POST";
+function request(url: string, method: Method) { return `${method} ${url}`; }
+
+const req = { url: "/books", method: "GET" };      // method: string
+console.log(request(req.url, req.method));
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+literal-infer.ts(5,30): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Method'.
+</script>
+<p>Two fixes. Annotate the object (<code>const req: { url: string; method: Method } = …</code>), or use <code>as const</code>, which makes every property <code>readonly</code> and literal:</p>
+<script type="text/plain" class="code" data-file="as-const.ts">
+type Method = "GET" | "POST";
+function request(url: string, method: Method) { return `${method} ${url}`; }
+
+const req = { url: "/books", method: "GET" } as const;   // { readonly url: "/books"; readonly method: "GET" }
+console.log(request(req.url, req.method));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+GET /books
+</script>
+
+<h2 id="nullish">null, undefined and the ! operator</h2>
+<p>With <code>strictNullChecks</code> (part of <code>strict</code>), <code>null</code> and <code>undefined</code> must be listed in a type to be allowed. The <strong>non-null assertion</strong> <code>x!</code> tells TypeScript "this isn't null or undefined here". Like <code>as</code>, it's unchecked, so use it only when you're sure:</p>
+<script type="text/plain" class="code" data-file="nonnull.ts">
+const shelf = new Map<string, string>([["b1", "Dune"]]);
+const title = shelf.get("b1")!;          // Map.get returns string | undefined
+console.log(title.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE
+</script>
+<p>Less common primitives: <code>bigint</code> (<code>100n</code>) and <code>symbol</code> (<code>Symbol("id")</code>). Chapter 13 covers symbols.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A function type as a parameter</h3>
+<script type="text/plain" class="code" data-file="fn-param.ts">
+type Formatter = (cents: number) => string;
+const euros: Formatter = (c) => `€${(c / 100).toFixed(2)}`;
+function total(prices: number[], fmt: Formatter): string {
+  return fmt(prices.reduce((a, b) => a + b, 0));
+}
+console.log(total([1299, 899], euros));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+€21.98
+</script>
+<h3>Union of arrays vs array of unions</h3>
+<script type="text/plain" class="code" data-file="union-arrays.ts">
+const mixed: (string | number)[] = ["b1", 2, "b3"];      // each item can be either
+const either: string[] | number[] = [1, 2, 3];           // all strings OR all numbers
+console.log(mixed.length, either.length);
+const oops: string[] | number[] = ["b1", 2];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+union-arrays.ts(4,7): error TS2322: Type '(string | number)[]' is not assignable to type 'string[] | number[]'.
+  Type '(string | number)[]' is not assignable to type 'string[]'.
+    Type 'string | number' is not assignable to type 'string'.
+      Type 'number' is not assignable to type 'string'.
+</script>
+<p>Long errors read top-down: the first line is the problem, each indented line explains <em>why</em>, one level deeper.</p>
+<h3>Optional property vs "can be undefined"</h3>
+<script type="text/plain" class="code" data-file="optional.ts">
+interface A { note?: string }                  // may be missing entirely
+interface B { note: string | undefined }       // must be present, value may be undefined
+const a: A = {};
+const b: B = {};
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+optional.ts(4,7): error TS2741: Property 'note' is missing in type '{}' but required in type 'B'.
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use lowercase <code>string</code>, <code>number</code>, <code>boolean</code>; arrays are <code>T[]</code> or <code>Array&lt;T&gt;</code>.</li>
+  <li><code>any</code> switches checking off and spreads; prefer <code>unknown</code> when you don't know a type.</li>
+  <li>Annotate parameters and returns; <code>async</code> functions return <code>Promise&lt;T&gt;</code>; callbacks get contextual types.</li>
+  <li>Object types list properties; <code>?</code> marks optional ones.</li>
+  <li>Unions mean "one of these". Narrow them with runtime checks before using member-specific features.</li>
+  <li><code>type</code> names any type; <code>interface</code> names object shapes, can <code>extends</code>, and can be merged.</li>
+  <li>Literal types and <code>as const</code> pin exact values. <code>as</code> and <code>!</code> are unchecked promises to the compiler.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">annotate</span></h3>
+<p>Write the type of each: <code>"Dune"</code>, <code>[1, 2]</code>, <code>true</code>, <code>["a", 1]</code> (as a mixed array).</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>string</code>, <code>number[]</code>, <code>boolean</code>, <code>(string | number)[]</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">optional</span></h3>
+<p>Write a type <code>Member</code> with a required <code>name</code> and an optional <code>phone</code>, and a function that returns the phone or <code>"no phone"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="phone.ts">
+type Member = { name: string; phone?: string };
+function phoneOf(m: Member): string {
+  return m.phone ?? "no phone";
+}
+console.log(phoneOf({ name: "Ana", phone: "555-0100" }), "|", phoneOf({ name: "Ben" }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+555-0100 | no phone
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What is the type of <code>x</code> in <code>const x = "ebook";</code> and of <code>y</code> in <code>let y = "ebook";</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>x</code> is the literal type <code>"ebook"</code>; <code>y</code> is <code>string</code>, because a <code>let</code> can be reassigned.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">union</span></h3>
+<p>Write <code>formatPrice(p: number | string): string</code>: numbers are cents and become <code>"12.99"</code>; strings are returned unchanged.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="formatprice.ts">
+function formatPrice(p: number | string): string {
+  return typeof p === "number" ? (p / 100).toFixed(2) : p;
+}
+console.log(formatPrice(1299), formatPrice("free"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+12.99 free
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">interface vs type</span></h3>
+<p>Which of these can only be written with <code>type</code>? (a) an object with <code>id</code> and <code>title</code>, (b) <code>"asc" | "desc"</code>, (c) a pair <code>[string, number]</code>, (d) a shape extended from another shape.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(b) and (c). An interface describes an object shape, so it can't be a union of literals or a tuple. (a) and (d) work with either.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fix it</span></h3>
+<p>This doesn't compile. Fix it in two different ways.</p>
+<script type="text/plain" class="code" data-file="ex6.ts">
+type Sort = "asc" | "desc";
+function sortTitles(titles: string[], dir: Sort) { return dir; }
+const options = { dir: "asc" };
+sortTitles([], options.dir);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+ex6.ts(4,16): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Sort'.
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex6-fixed.ts">
+type Sort = "asc" | "desc";
+function sortTitles(titles: string[], dir: Sort) { return dir; }
+const a = { dir: "asc" } as const;                 // fix 1: as const
+const b: { dir: Sort } = { dir: "desc" };          // fix 2: annotate
+console.log(sortTitles([], a.dir), sortTitles([], b.dir));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+asc desc
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">async</span></h3>
+<p>Write <code>async function countAvailable(ids: string[]): Promise&lt;number&gt;</code> that pretends to look up each id and counts those that don't start with <code>"x"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="count.ts">
+async function isAvailable(id: string): Promise<boolean> {
+  return !id.startsWith("x");
+}
+async function countAvailable(ids: string[]): Promise<number> {
+  const flags = await Promise.all(ids.map(isAvailable));
+  return flags.filter(Boolean).length;
+}
+countAvailable(["b1", "x2", "b3"]).then((n) => console.log(n, "available"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 available
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch03/catalog-types.ts</code>, define the types the capstone will use: <code>BookId</code> (a string), <code>Format</code> (<code>"hardcover" | "paperback" | "ebook"</code>) and an interface <code>Book</code> with <code>id</code>, <code>title</code>, <code>author</code>, <code>year</code>, <code>format</code> and optional <code>isbn</code>. Create two books.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="catalog-types.ts">
+export type BookId = string;
+export type Format = "hardcover" | "paperback" | "ebook";
+export interface Book {
+  id: BookId;
+  title: string;
+  author: string;
+  year: number;
+  format: Format;
+  isbn?: string;
+}
+const books: Book[] = [
+  { id: "b1", title: "Dune", author: "Frank Herbert", year: 1965, format: "paperback" },
+  { id: "b2", title: "Emma", author: "Jane Austen", year: 1815, format: "ebook", isbn: "978-0141439587" },
+];
+console.log(books.map((b) => `${b.title} (${b.format})`).join("; "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune (paperback); Emma (ebook)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Both lines below compile. Which one is safer, and why?</p>
+<script type="text/plain" class="code" data-file="ex9.ts" data-norun>
+const a = JSON.parse(text) as { pages: number };
+const b: { pages: number } = JSON.parse(text);
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Neither is safe: <code>JSON.parse</code> returns <code>any</code>, and both just trust it. <code>as</code> at least makes the trust visible and searchable. The truly safe version parses to <code>unknown</code> and checks the shape (Chapter 4, user-defined type guards), or uses a validation library.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write a type <code>Price</code> that is either <code>{ kind: "free" }</code> or <code>{ kind: "paid"; cents: number }</code>, and a function <code>show(p: Price)</code> that prints <code>"free"</code> or <code>"12.99"</code>. Why does checking <code>p.kind</code> let you read <code>p.cents</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="price.ts">
+type Price = { kind: "free" } | { kind: "paid"; cents: number };
+function show(p: Price): string {
+  if (p.kind === "free") return "free";
+  return (p.cents / 100).toFixed(2);       // TypeScript knows p is the "paid" member here
+}
+console.log(show({ kind: "free" }), show({ kind: "paid", cents: 1299 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+free 12.99
+</script>
+<p>Each member has a different literal in <code>kind</code>, so checking it tells TypeScript which member you have. This is a <strong>discriminated union</strong>, one of the most useful patterns in TypeScript. Chapter 4 covers it in depth.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html">Handbook: Everyday Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#differences-between-type-aliases-and-interfaces">Differences between type aliases and interfaces</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/variable-declarations.html">Reference: Variable Declaration</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

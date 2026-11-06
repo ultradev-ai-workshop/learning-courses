@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏁&lt;/text&gt;&lt;/svg&gt;">
+<title>19. Capstone: Migrate JS to TS · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+<!-- GENERATED from tools/19-project.template.html by tools/build-project-chapter.mjs: edit the template. -->
+
+<div class="eyebrow">Chapter 19 · Real Projects</div>
+<h1>Capstone: Learn TypeScript the Official Way</h1>
+<p class="lead">The best way to learn TypeScript is the way the TypeScript team recommends adopting it: take working JavaScript and make it typed, one safe step at a time. This capstone follows the official guides <em>Migrating from JavaScript</em> and <em>JS Projects Utilizing TypeScript</em>. You start from a small library-loans app in plain JavaScript, with passing tests and three hidden bugs, and finish with a strict, tested TypeScript package that publishes its own types. Every command output on this page was produced by running it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The official migration path: <code>checkJs</code> → JSDoc → <code>.ts</code> files → <code>strict</code> → declarations.</li>
+  <li>How the compiler finds bugs that passing tests missed.</li>
+  <li>How every chapter of this book shows up in one real codebase.</li>
+  <li>How to structure, build, run and test a TypeScript project with <code>tsc</code> and <code>node:test</code>.</li>
+</ul>
+</div>
+
+<div class="note">
+<p>📝 <strong>Follow along in the playground.</strong> Clone <a href="https://github.com/coderhop-learning/typescript-playground">coderhop-learning/typescript-playground</a> (see <a href="playground-howto.html">Using the Playground</a>). <code>capstone-start/</code> is where you begin; <code>reference/</code> is the finished version shown at the end of this chapter. Try each step yourself before reading the solution.</p>
+</div>
+
+<h2 id="plan">The plan</h2>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>What changes</th><th>Official guide</th></tr>
+<tr><td>0</td><td>Run the JavaScript app and its tests</td><td>—</td></tr>
+<tr><td>1</td><td>Add a <code>tsconfig.json</code> with <code>allowJs</code> + <code>checkJs</code>; fix what the checker finds</td><td>JS Projects Utilizing TypeScript</td></tr>
+<tr><td>2</td><td>Rename files to <code>.ts</code> and write the shapes down as types</td><td>Migrating from JavaScript</td></tr>
+<tr><td>3</td><td>Turn on <code>strict</code> and the extra checks; model the domain properly</td><td>Migrating from JavaScript: "Getting stricter checks"</td></tr>
+<tr><td>4</td><td>Build, test, and publish declarations</td><td>Declaration Files: Publishing</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: renovating a house you live in.</strong> You don't knock it down and rebuild: you fix one room at a time while the family keeps living there. TypeScript is designed for this. JavaScript keeps running at every step, because emit never depends on type errors.</p>
+</div>
+
+<h2 id="start">The starting point</h2>
+<p>A library lends books to members. Members have a type (<code>student</code>, <code>staff</code>, <code>guest</code>) with a loan limit and a loan period; late returns cost a fee. Here are the three core modules:</p>
+<script type="text/plain" class="code" data-file="start/src/fees.js" data-save>
+// Late fees and dates.
+export const DAY_MS = 86_400_000;
+
+/** Cents owed for a return `daysLate` days after the due date. */
+export function lateFee(daysLate, options) {
+  if (daysLate <= 0) return 0;
+  const perDay = options.perDay || 25;
+  const cap = options.cap || 500;
+  return Math.min(daysLate * perDay, cap);
+}
+
+export function daysBetween(from, to) {
+  const start = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((end - start) / DAY_MS);
+}
+
+export function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+export const formatCents = (cents) => `€${(cents / 100).toFixed(2)}`;
+</script>
+<script type="text/plain" class="code" data-file="start/src/members.js" data-save>
+// Members and their loan policies.
+export const LOAN_POLICY = {
+  student: { maxLoans: 3, days: 21 },
+  staff: { maxLoans: 10, days: 42 },
+  guest: { maxLoans: 1, days: 7 },
+};
+
+export class MemberDirectory {
+  #members = new Map();
+
+  static fromJson(text) {
+    const dir = new MemberDirectory();
+    for (const m of JSON.parse(text)) dir.add(m);
+    return dir;
+  }
+
+  add(member) {
+    this.#members.set(member.id, member);
+    return member;
+  }
+
+  get(id) {
+    return this.#members.get(id);
+  }
+
+  list() {
+    return [...this.#members.values()];
+  }
+
+  policyFor(id) {
+    return LOAN_POLICY[this.get(id).type];
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="start/src/loans.js" data-save>
+// Borrowing and returning books.
+import { addDays, daysBetween, lateFee } from "./fees.js";
+
+export function statusOf(loan, today) {
+  if (loan.returnedOn !== undefined) return "returned";
+  return daysBetween(loan.due, today) > 0 ? "overdue" : "active";
+}
+
+export class LoanService {
+  #loans = new Map();
+  #next = 1;
+
+  constructor(catalog, members, onEvent = () => {}) {
+    this.catalog = catalog;
+    this.members = members;
+    this.onEvent = onEvent;
+  }
+
+  openLoans(filter = () => true) {
+    return [...this.#loans.values()].filter((l) => l.returnedOn === undefined && filter(l));
+  }
+
+  available(bookId) {
+    const book = this.catalog.find(bookId);
+    return book === undefined ? 0 : book.copies - this.openLoans((l) => l.bookId === bookId).length;
+  }
+
+  borrow(bookId, memberId, today) {
+    const book = this.catalog.find(bookId);
+    if (book === undefined) return { ok: false, reason: `no book ${bookId}` };
+    const policy = this.members.policyFor(memberId);
+    if (this.available(bookId) <= 0) return { ok: false, reason: `"${book.title}" has no copies left` };
+    const open = this.openLoans((l) => l.memberID === memberId).length;
+    if (open >= policy.maxLoans) return { ok: false, reason: `loan limit (${policy.maxLoans}) reached` };
+
+    const loan = { id: `L${this.#next++}`, bookId, memberId, borrowedOn: today, due: addDays(today, policy.days) };
+    this.#loans.set(loan.id, loan);
+    this.onEvent({ type: "borrowed", loanId: loan.id, bookId, memberId });
+    return { ok: true, value: loan };
+  }
+
+  giveBack(loanId, today) {
+    const loan = this.#loans.get(loanId);
+    if (loan === undefined) return { ok: false, reason: `no loan ${loanId}` };
+    if (loan.returnedOn !== undefined) return { ok: false, reason: `loan ${loanId} is already returned` };
+
+    const lateDays = Math.max(0, daysBetween(loan.due, today));
+    const fee = lateFee(lateDays);
+    loan.returnedOn = today;
+    this.onEvent({ type: "returned", loanId, lateDays });
+    if (fee > 0) this.onEvent({ type: "fined", loanId, cents: fee });
+    return { ok: true, value: { loan, lateDays, fee } };
+  }
+}
+</script>
+<details class="more"><summary>Show the other files (catalogue, CLI, test, data, package.json)</summary>
+<script type="text/plain" class="code" data-file="start/src/catalog.js" data-save>
+// The book catalogue.
+export class Catalog {
+  #books = new Map();
+
+  static fromJson(text) {
+    const catalog = new Catalog();
+    for (const book of JSON.parse(text)) catalog.add(book);
+    return catalog;
+  }
+
+  add(book) {
+    if (this.#books.has(book.id)) throw new Error(`duplicate book id ${book.id}`);
+    this.#books.set(book.id, book);
+    return this;
+  }
+
+  find(id) {
+    return this.#books.get(id);
+  }
+
+  search(text) {
+    const q = text.toLowerCase();
+    return this.all().filter((b) => `${b.title} ${b.author}`.toLowerCase().includes(q));
+  }
+
+  all() {
+    return [...this.#books.values()];
+  }
+
+  get size() {
+    return this.#books.size;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="start/src/cli.js" data-save>
+// Runs one scripted day at the library.  Usage: npm start
+import { readFileSync } from "node:fs";
+import { Catalog } from "./catalog.js";
+import { formatCents } from "./fees.js";
+import { LoanService } from "./loans.js";
+import { MemberDirectory } from "./members.js";
+
+const dataDir = new URL("../data/", import.meta.url);
+const catalog = Catalog.fromJson(readFileSync(new URL("books.json", dataDir), "utf8"));
+const members = MemberDirectory.fromJson(readFileSync(new URL("members.json", dataDir), "utf8"));
+const events = [];
+const service = new LoanService(catalog, members, (e) => events.push(e));
+
+const show = (r, describe) => console.log(r.ok ? `  ✓ ${describe(r.value)}` : `  ✗ ${r.reason}`);
+const day = (d) => new Date(2026, 10, d);
+
+console.log(`${catalog.size} books, ${members.list().length} members`);
+show(service.borrow("b1", "m1", day(2)), (l) => `${l.id} due ${l.due.toDateString()}`);
+show(service.borrow("b2", "m3", day(2)), (l) => `${l.id} due ${l.due.toDateString()}`);
+show(service.borrow("b4", "m3", day(3)), (l) => l.id);
+show(service.giveBack("L2", day(12)), (r) => `back ${r.lateDays} day(s) late, fee ${formatCents(r.fee)}`);
+console.log(`Events: ${events.map((e) => e.type).join(", ")}`);
+</script>
+<script type="text/plain" class="code" data-file="start/test/loans.test.js" data-save>
+import assert from "node:assert/strict";
+import { it } from "node:test";
+import { Catalog } from "../src/catalog.js";
+import { LoanService } from "../src/loans.js";
+import { MemberDirectory } from "../src/members.js";
+
+const day = (d) => new Date(2026, 10, d);
+
+it("lends a book and takes it back on time", () => {
+  const catalog = new Catalog().add({ id: "b1", title: "Dune", author: "Frank Herbert", year: 1965, format: "paperback", copies: 1 });
+  const members = new MemberDirectory();
+  members.add({ id: "m1", name: "Ana", type: "guest" });
+  const service = new LoanService(catalog, members);
+  const r = service.borrow("b1", "m1", day(1));
+  assert.equal(r.ok, true);
+  assert.deepEqual(service.giveBack("L1", day(5)).value.fee, 0);
+});
+</script>
+<script type="text/plain" class="code" data-file="start/data/books.json" data-save>
+[
+  { "id": "b1", "title": "Dune", "author": "Frank Herbert", "year": 1965, "format": "paperback", "copies": 2 },
+  { "id": "b2", "title": "Emma", "author": "Jane Austen", "year": 1815, "format": "ebook", "copies": 1 },
+  { "id": "b3", "title": "Beloved", "author": "Toni Morrison", "year": 1987, "format": "hardcover", "copies": 1 },
+  { "id": "b4", "title": "Hamlet", "author": "William Shakespeare", "year": 1603, "format": "paperback", "copies": 3 },
+  { "id": "b5", "title": "The Left Hand of Darkness", "author": "Ursula K. Le Guin", "year": 1969, "format": "paperback", "copies": 1 }
+]
+</script>
+<script type="text/plain" class="code" data-file="start/data/members.json" data-save>
+[
+  { "id": "m1", "name": "Ana Lima", "type": "student" },
+  { "id": "m2", "name": "Ben Okafor", "type": "staff", "email": "ben@example.com" },
+  { "id": "m3", "name": "Chen Wei", "type": "guest" }
+]
+</script>
+<script type="text/plain" class="code" data-file="start/package.json" data-save>
+{
+  "name": "library-loans-start",
+  "private": true,
+  "description": "The plain-JavaScript starting point that Chapter 19 migrates to TypeScript.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "check": "tsc"
+  }
+}
+</script>
+</details>
+
+<h2 id="step0">Step 0: it works… doesn't it?</h2>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="start">
+$ node --test "test/**/*.test.js" | grep -E "^# (tests|pass|fail)"
+# tests 1
+# pass 1
+# fail 0
+$ node src/cli.js 2>&1 | grep -E "books|✓|✗|Error"
+5 books, 3 members
+  ✓ L1 due Mon Nov 23 2026
+  ✓ L2 due Mon Nov 09 2026
+  ✓ L3
+TypeError: Cannot read properties of undefined (reading 'perDay')
+</script>
+<p>The test passes, yet the scripted day goes wrong twice. Member <code>m3</code> is a <em>guest</em>, allowed one loan, but the third line lent them a second book. Then returning <code>L2</code> three days late crashes. The test only covered an on-time return. Keep these in mind and let the compiler find them.</p>
+
+<h2 id="step1">Step 1: let TypeScript check the JavaScript</h2>
+<p>The first official step changes no code at all. Add a <code>tsconfig.json</code> that includes the JavaScript files (<code>allowJs</code>), checks them (<code>checkJs</code>) and writes nothing (<code>noEmit</code>). Start <strong>loose</strong> (<code>strict: false</code>) so the first report is short:</p>
+<script type="text/plain" class="code" data-file="start/tsconfig.json" data-save>
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2024",
+    "module": "nodenext",
+    "types": ["node"],
+    "strict": false
+  },
+  "include": ["src", "test"]
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="start">
+$ tsc
+src/cli.js(12,58): error TS2322: Type 'number' is not assignable to type 'void'.
+src/loans.js(20,89): error TS2554: Expected 0 arguments, but got 1.
+src/loans.js(25,66): error TS2345: Argument of type '(l: any) => boolean' is not assignable to parameter of type '() => boolean'.
+  Target signature provides too few arguments. Expected 1 or more, but got 0.
+src/loans.js(33,33): error TS2345: Argument of type '(l: any) => boolean' is not assignable to parameter of type '() => boolean'.
+  Target signature provides too few arguments. Expected 1 or more, but got 0.
+src/loans.js(38,18): error TS2554: Expected 0 arguments, but got 1.
+src/loans.js(50,18): error TS2554: Expected 0 arguments, but got 1.
+src/loans.js(51,31): error TS2554: Expected 0 arguments, but got 1.
+</script>
+<p>Even without a single annotation, TypeScript infers types from the code. The errors all have one cause: <strong>default parameter values become the parameter's type</strong>. <code>onEvent = () =&gt; {}</code> makes <code>onEvent</code> "a function with no parameters", and <code>filter = () =&gt; true</code> the same. The code that passes them arguments then looks wrong. The fix is a JSDoc comment that says what the parameter really is:</p>
+<script type="text/plain" class="code" data-file="step1-fix.js" data-tsc="checkJs">
+/** @typedef {{ bookId: string; memberId: string; returnedOn?: Date }} Loan */
+
+/** @param {(loan: Loan) => boolean} [filter] */
+function openLoans(filter = () => true) {
+  /** @type {Loan[]} */
+  const all = [{ bookId: "b1", memberId: "m1" }];
+  return all.filter((l) => l.returnedOn === undefined && filter(l));
+}
+console.log(openLoans((l) => l.bookId === "b1").length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1
+</script>
+<p>Now look at how much is still unknown. Running the same check with <code>--strict</code> counts the places where TypeScript had to fall back to <code>any</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="start">
+$ tsc --strict | grep -c "TS7006"
+36
+</script>
+<p>36 untyped parameters. In a big codebase you would now add JSDoc types file by file and turn on <code>noImplicitAny</code>. Plain JavaScript with JSDoc is a perfectly good final state for some projects (Chapter 17). Here we go on to TypeScript files.</p>
+
+<h2 id="step2">Step 2: rename to .ts and write the shapes down</h2>
+<p>Rename each file (<code>git mv src/fees.js src/fees.ts</code> keeps the history), and put the shapes the code already uses into one types module. You don't invent anything: you write down what the JavaScript was doing. Here are the first converted files:</p>
+<script type="text/plain" class="code" data-file="step2/src/types.ts" data-save>
+// Step 3: the shapes the JavaScript code was already using, written down once.
+export type MemberType = "student" | "staff" | "guest";
+export interface Book { id: string; title: string; author: string; year: number; format: string; copies: number }
+export interface Member { id: string; name: string; type: MemberType; email?: string }
+export interface Loan { id: string; bookId: string; memberId: string; borrowedOn: Date; due: Date; returnedOn?: Date }
+export type Result<T> = { ok: true; value: T } | { ok: false; reason: string };
+</script>
+<script type="text/plain" class="code" data-file="step2/src/fees.ts" data-save>
+export interface FeeOptions { perDay?: number; cap?: number }
+
+export function lateFee(daysLate: number, options?: FeeOptions): number {
+  if (daysLate <= 0) return 0;
+  const perDay = options.perDay || 25;
+  const cap = options.cap || 500;
+  return Math.min(daysLate * perDay, cap);
+}
+</script>
+<script type="text/plain" class="code" data-file="step2/src/members.ts" data-save>
+import type { Member, MemberType } from "./types.js";
+
+export const LOAN_POLICY: Record<MemberType, { maxLoans: number; days: number }> = {
+  student: { maxLoans: 3, days: 21 },
+  staff: { maxLoans: 10, days: 42 },
+  guest: { maxLoans: 1, days: 7 },
+};
+
+export class MemberDirectory {
+  #members = new Map<string, Member>();
+  add(member: Member): Member { this.#members.set(member.id, member); return member; }
+  get(id: string): Member | undefined { return this.#members.get(id); }
+  policyFor(id: string) {
+    return LOAN_POLICY[this.get(id).type];
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="step2/src/loans.ts" data-save>
+import { lateFee } from "./fees.js";
+import type { MemberDirectory } from "./members.js";
+import type { Loan } from "./types.js";
+
+export class LoanService {
+  #loans = new Map<string, Loan>();
+  constructor(private members: MemberDirectory) {}
+
+  openLoans(filter: (loan: Loan) => boolean = () => true): Loan[] {
+    return [...this.#loans.values()].filter((l) => l.returnedOn === undefined && filter(l));
+  }
+
+  canBorrow(memberId: string): boolean {
+    const policy = this.members.policyFor(memberId);
+    return this.openLoans((l) => l.memberID === memberId).length < policy.maxLoans;
+  }
+
+  fee(lateDays: number): number {
+    return lateFee(lateDays);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="step2/tsconfig.json" data-save>
+{ "compilerOptions": { "target": "es2024", "module": "nodenext", "types": [], "strict": true, "noEmit": true }, "include": ["src"] }
+</script>
+<p>Only the type annotations were added; the bodies are the JavaScript ones (<code>loans.ts</code> shows just the two methods that matter here). Now compile:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="step2">
+$ tsc
+src/fees.ts(5,18): error TS18048: 'options' is possibly 'undefined'.
+src/fees.ts(6,15): error TS18048: 'options' is possibly 'undefined'.
+src/loans.ts(15,36): error TS2551: Property 'memberID' does not exist on type 'Loan'. Did you mean 'memberId'?
+src/members.ts(14,24): error TS2532: Object is possibly 'undefined'.
+</script>
+<p>Four errors, three bugs, and two of them are the ones you saw in step 0:</p>
+<ol>
+  <li><strong><code>options</code> is possibly <code>undefined</code></strong>: <code>lateFee(lateDays)</code> is called without options, and the body reads <code>options.perDay</code>. That's the crash. Fix: a destructured parameter with defaults, <code>{ perDay = 25, cap = 500 }: FeeOptions = {}</code> (Chapter 5).</li>
+  <li><strong><code>memberID</code> doesn't exist</strong>: a typo, so <code>l.memberID === memberId</code> was always <code>false</code>, every member always had zero open loans, and the limit never applied. That's the guest's second book. Fix: <code>memberId</code>.</li>
+  <li><strong>Object is possibly <code>undefined</code></strong>: <code>policyFor</code> crashes for an unknown member id. Nobody had hit it yet. Fix: return <code>undefined</code> for unknown members and handle it in <code>borrow</code> (Chapter 4).</li>
+</ol>
+<div class="tip">
+<p>💡 This is the real payoff of TypeScript. The tests passed. The code "worked". The compiler found every bug just from the shapes, before any user did, and it will keep finding new ones like them on every change.</p>
+</div>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> this is the step a Java or C# developer expects to be first: declaring the types. In TypeScript it can come <em>after</em> the code works, because types are optional and erased. That's why a gradual migration is possible at all; you can't half-convert a Python program to Java.</p>
+</div>
+
+<h2 id="step3">Step 3: strict, and a better model</h2>
+<p>With the bugs fixed, turn on everything that keeps them from coming back: <code>strict</code>, <code>noUncheckedIndexedAccess</code>, <code>exactOptionalPropertyTypes</code>, <code>noImplicitOverride</code>, and the tool-friendly <code>verbatimModuleSyntax</code>, <code>isolatedModules</code> and <code>erasableSyntaxOnly</code> (Chapter 18). Then improve the <em>model</em>, using the book's tools. Each one removes a kind of bug:</p>
+<div class="table-wrap"><table>
+<tr><th>Change</th><th>Prevents</th><th>Chapter</th></tr>
+<tr><td>Branded <code>BookId</code>, <code>MemberId</code>, <code>LoanId</code></td><td>passing a member id where a book id is expected</td><td>14</td></tr>
+<tr><td><code>LOAN_POLICY</code> <code>as const satisfies …</code>, <code>MemberType = keyof typeof LOAN_POLICY</code></td><td>a member type with no policy</td><td>9, 14</td></tr>
+<tr><td><code>FORMATS</code> tuple → <code>Format</code> union</td><td>unknown formats</td><td>9</td></tr>
+<tr><td><code>parseBook</code>/<code>parseMember</code> validate <code>unknown</code> JSON</td><td>bad data files</td><td>4</td></tr>
+<tr><td><code>Result&lt;T&gt;</code> discriminated union</td><td>forgetting to handle a refusal</td><td>4</td></tr>
+<tr><td>Generic <code>InMemoryRepository&lt;T&gt;</code> with <code>Partial&lt;Omit&lt;T, "id"&gt;&gt;</code> updates</td><td>changing an id by accident</td><td>8, 12</td></tr>
+<tr><td><code>LoanEvent</code> union + <code>EventOf&lt;T&gt;</code> listeners</td><td>listeners reading the wrong payload</td><td>10</td></tr>
+<tr><td><code>Columns&lt;T&gt;</code> mapped type for the report</td><td>a column formatter for the wrong type</td><td>11</td></tr>
+<tr><td><code>LoanStatus</code> <code>as const</code> object instead of an enum</td><td>non-erasable syntax</td><td>13</td></tr>
+<tr><td><code>@traced</code> standard decorator</td><td>(adds call tracing without touching methods)</td><td>16</td></tr>
+<tr><td><code>index.ts</code> barrel with <code>export type</code></td><td>leaking internals; type imports at runtime</td><td>15</td></tr>
+</table></div>
+<p>Here's the finished code. Read it top to bottom; every line uses something from an earlier chapter.</p>
+<script type="text/plain" class="code" data-file="reference/tsconfig.json" data-save>
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "types": ["node"],
+    "module": "nodenext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "sourceMap": true,
+    "declaration": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "test"]
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/types.ts" data-save>
+// Shared types, and the constant tables they are derived from (Chapters 3, 6, 9, 14).
+import type { BookId, LoanId, MemberId } from "./ids.js";
+
+export const FORMATS = ["hardcover", "paperback", "ebook"] as const;
+export type Format = (typeof FORMATS)[number];
+
+export interface Book {
+  readonly id: BookId;
+  title: string;
+  author: string;
+  year: number;
+  format: Format;
+  copies: number;
+}
+
+export const LOAN_POLICY = {
+  student: { maxLoans: 3, days: 21 },
+  staff: { maxLoans: 10, days: 42 },
+  guest: { maxLoans: 1, days: 7 },
+} as const satisfies Record<string, { maxLoans: number; days: number }>;
+export type MemberType = keyof typeof LOAN_POLICY;
+
+export interface Member {
+  readonly id: MemberId;
+  name: string;
+  type: MemberType;
+  email?: string;
+}
+
+export interface Loan {
+  readonly id: LoanId;
+  bookId: BookId;
+  memberId: MemberId;
+  borrowedOn: Date;
+  due: Date;
+  returnedOn?: Date;
+}
+
+/** Success or a reason, without exceptions (Chapter 4). */
+export type Result<T> = { ok: true; value: T } | { ok: false; reason: string };
+
+export type LoanEvent =
+  | { type: "borrowed"; loanId: LoanId; bookId: BookId; memberId: MemberId }
+  | { type: "returned"; loanId: LoanId; lateDays: number }
+  | { type: "fined"; loanId: LoanId; cents: number };
+</script>
+<script type="text/plain" class="code" data-file="reference/src/ids.ts" data-save>
+// Branded ids: plain strings at runtime, incompatible types at compile time (Chapter 14).
+declare const brand: unique symbol;
+type Brand<T, B extends string> = T & { readonly [brand]: B };
+
+export type BookId = Brand<string, "BookId">;
+export type MemberId = Brand<string, "MemberId">;
+export type LoanId = Brand<string, "LoanId">;
+
+function maker<T extends string>(prefix: string, kind: string): (s: string) => T {
+  const pattern = new RegExp(`^${prefix}\\d+$`);
+  return (s) => {
+    if (!pattern.test(s)) throw new TypeError(`invalid ${kind}: ${JSON.stringify(s)}`);
+    return s as T;
+  };
+}
+
+export const BookId = maker<BookId>("b", "book id");
+export const MemberId = maker<MemberId>("m", "member id");
+export const LoanId = maker<LoanId>("L", "loan id");
+</script>
+<script type="text/plain" class="code" data-file="reference/src/fees.ts" data-save>
+// Late fees and dates (Chapters 2 and 5).
+export const DAY_MS = 86_400_000;
+
+export interface FeeOptions {
+  perDay?: number;
+  cap?: number;
+}
+
+/** Cents owed for a return `daysLate` days after the due date. */
+export function lateFee(daysLate: number, { perDay = 25, cap = 500 }: FeeOptions = {}): number {
+  if (daysLate <= 0) return 0;
+  return Math.min(daysLate * perDay, cap);
+}
+
+/** Whole days from `from` to `to` (negative if `to` is earlier), ignoring the time of day. */
+export function daysBetween(from: Date, to: Date): number {
+  const start = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((end - start) / DAY_MS);
+}
+
+export function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+export const formatCents = (cents: number): string => `€${(cents / 100).toFixed(2)}`;
+</script>
+<script type="text/plain" class="code" data-file="reference/src/repository.ts" data-save>
+// A generic in-memory store for anything with an id (Chapter 8).
+export class InMemoryRepository<T extends { readonly id: string }> {
+  readonly #items = new Map<T["id"], T>();
+
+  add(item: T): T {
+    if (this.#items.has(item.id)) throw new Error(`duplicate id ${item.id}`);
+    this.#items.set(item.id, item);
+    return item;
+  }
+
+  get(id: T["id"]): T | undefined {
+    return this.#items.get(id);
+  }
+
+  update(id: T["id"], changes: Partial<Omit<T, "id">>): T {
+    const current = this.#items.get(id);
+    if (current === undefined) throw new Error(`unknown id ${id}`);
+    const next: T = { ...current, ...changes };
+    this.#items.set(id, next);
+    return next;
+  }
+
+  list(filter: (item: T) => boolean = () => true): T[] {
+    return [...this.#items.values()].filter(filter);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/members.ts" data-save>
+// Members, stored in the generic repository (Chapters 8 and 9).
+import { MemberId } from "./ids.js";
+import { InMemoryRepository } from "./repository.js";
+import { LOAN_POLICY, type Member, type MemberType } from "./types.js";
+
+const isMemberType = (v: unknown): v is MemberType => typeof v === "string" && Object.hasOwn(LOAN_POLICY, v);
+
+export function parseMember(raw: unknown): Member {
+  if (typeof raw !== "object" || raw === null) throw new TypeError("member must be an object");
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || typeof r.name !== "string") throw new TypeError("member.id and member.name must be strings");
+  if (!isMemberType(r.type)) throw new TypeError(`unknown member type: ${String(r.type)}`);
+  const member: Member = { id: MemberId(r.id), name: r.name, type: r.type };
+  if (typeof r.email === "string") member.email = r.email;
+  return member;
+}
+
+export class MemberDirectory extends InMemoryRepository<Member> {
+  static fromJson(text: string): MemberDirectory {
+    const data: unknown = JSON.parse(text);
+    if (!Array.isArray(data)) throw new TypeError("members must be an array");
+    const dir = new MemberDirectory();
+    for (const raw of data) dir.add(parseMember(raw));
+    return dir;
+  }
+
+  policyFor(id: MemberId) {
+    const member = this.get(id);
+    return member === undefined ? undefined : LOAN_POLICY[member.type];
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/catalog.ts" data-save>
+// The book catalogue: validation of untrusted JSON (Chapter 4) and a class with private state (Chapter 7).
+import { BookId } from "./ids.js";
+import { FORMATS, type Book, type Format } from "./types.js";
+
+const isFormat = (v: unknown): v is Format => (FORMATS as readonly unknown[]).includes(v);
+
+/** Checks one raw value from JSON and returns a Book, or throws with the reason. */
+export function parseBook(raw: unknown): Book {
+  if (typeof raw !== "object" || raw === null) throw new TypeError("book must be an object");
+  const r = raw as Record<string, unknown>;
+  for (const key of ["id", "title", "author"] as const) {
+    if (typeof r[key] !== "string") throw new TypeError(`book.${key} must be a string`);
+  }
+  if (typeof r.year !== "number" || typeof r.copies !== "number") throw new TypeError("book.year and book.copies must be numbers");
+  if (!isFormat(r.format)) throw new TypeError(`unknown format: ${String(r.format)}`);
+  return { id: BookId(r.id as string), title: r.title as string, author: r.author as string, year: r.year, format: r.format, copies: r.copies };
+}
+
+export class Catalog {
+  readonly #books = new Map<BookId, Book>();
+
+  static fromJson(text: string): Catalog {
+    const data: unknown = JSON.parse(text);
+    if (!Array.isArray(data)) throw new TypeError("catalogue must be an array");
+    const catalog = new Catalog();
+    for (const raw of data) catalog.add(parseBook(raw));
+    return catalog;
+  }
+
+  add(book: Book): this {
+    if (this.#books.has(book.id)) throw new Error(`duplicate book id ${book.id}`);
+    this.#books.set(book.id, book);
+    return this;
+  }
+
+  find(id: BookId): Book | undefined {
+    return this.#books.get(id);
+  }
+
+  search(text: string): Book[] {
+    const q = text.toLowerCase();
+    return this.all().filter((b) => `${b.title} ${b.author}`.toLowerCase().includes(q));
+  }
+
+  all(): Book[] {
+    return [...this.#books.values()];
+  }
+
+  get size(): number {
+    return this.#books.size;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/audit.ts" data-save>
+// A typed event log and a standard method decorator (Chapters 10 and 16).
+import type { LoanEvent } from "./types.js";
+
+export type EventOf<T extends LoanEvent["type"]> = Extract<LoanEvent, { type: T }>;
+type Listener<T extends LoanEvent["type"]> = (event: EventOf<T>) => void;
+
+export class EventLog {
+  readonly events: LoanEvent[] = [];
+  readonly #listeners: { [T in LoanEvent["type"]]?: Listener<T>[] } = {};
+
+  on<T extends LoanEvent["type"]>(type: T, listener: Listener<T>): void {
+    const list = (this.#listeners[type] ??= []) as Listener<T>[];
+    list.push(listener);
+  }
+
+  emit(event: LoanEvent): void {
+    this.events.push(event);
+    const list = this.#listeners[event.type] as Listener<typeof event.type>[] | undefined;
+    list?.forEach((fn) => fn(event as never));
+  }
+}
+
+/** Logs each call of the decorated method as "→ name(args)". */
+export function traced<This, A extends unknown[], R>(
+  method: (this: This, ...args: A) => R,
+  context: ClassMethodDecoratorContext<This, (this: This, ...args: A) => R>,
+) {
+  const name = String(context.name);
+  return function (this: This, ...args: A): R {
+    const shown = args.map((a) => (a instanceof Date ? a.toDateString() : String(a)));
+    console.log(`→ ${name}(${shown.join(", ")})`);
+    return method.call(this, ...args);
+  };
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/loans.ts" data-save>
+// Borrowing and returning: discriminated unions, Result values and status derivation (Chapters 4, 12, 13).
+import { traced, type EventLog } from "./audit.js";
+import type { Catalog } from "./catalog.js";
+import { addDays, daysBetween, lateFee } from "./fees.js";
+import { LoanId, type BookId, type MemberId } from "./ids.js";
+import type { MemberDirectory } from "./members.js";
+import { InMemoryRepository } from "./repository.js";
+import type { Loan, Result } from "./types.js";
+
+export const LoanStatus = { Active: "active", Overdue: "overdue", Returned: "returned" } as const;
+export type LoanStatus = (typeof LoanStatus)[keyof typeof LoanStatus];
+
+export function statusOf(loan: Pick<Loan, "due" | "returnedOn">, today: Date): LoanStatus {
+  if (loan.returnedOn !== undefined) return LoanStatus.Returned;
+  return daysBetween(loan.due, today) > 0 ? LoanStatus.Overdue : LoanStatus.Active;
+}
+
+export interface Returned { loan: Loan; lateDays: number; fee: number }
+
+export class LoanService {
+  readonly loans = new InMemoryRepository<Loan>();
+  #next = 1;
+  readonly #catalog: Catalog;
+  readonly #members: MemberDirectory;
+  readonly #log: EventLog;
+
+  constructor(catalog: Catalog, members: MemberDirectory, log: EventLog) {
+    this.#catalog = catalog;
+    this.#members = members;
+    this.#log = log;
+  }
+
+  openLoans(filter: (loan: Loan) => boolean = () => true): Loan[] {
+    return this.loans.list((l) => l.returnedOn === undefined && filter(l));
+  }
+
+  available(bookId: BookId): number {
+    const book = this.#catalog.find(bookId);
+    return book === undefined ? 0 : book.copies - this.openLoans((l) => l.bookId === bookId).length;
+  }
+
+  @traced
+  borrow(bookId: BookId, memberId: MemberId, today: Date): Result<Loan> {
+    const book = this.#catalog.find(bookId);
+    if (book === undefined) return { ok: false, reason: `no book ${bookId}` };
+    const policy = this.#members.policyFor(memberId);
+    if (policy === undefined) return { ok: false, reason: `no member ${memberId}` };
+    if (this.available(bookId) <= 0) return { ok: false, reason: `"${book.title}" has no copies left` };
+    const open = this.openLoans((l) => l.memberId === memberId).length;
+    if (open >= policy.maxLoans) return { ok: false, reason: `loan limit (${policy.maxLoans}) reached` };
+
+    const loan = this.loans.add({
+      id: LoanId(`L${this.#next++}`), bookId, memberId, borrowedOn: today, due: addDays(today, policy.days),
+    });
+    this.#log.emit({ type: "borrowed", loanId: loan.id, bookId, memberId });
+    return { ok: true, value: loan };
+  }
+
+  @traced
+  giveBack(loanId: LoanId, today: Date): Result<Returned> {
+    const loan = this.loans.get(loanId);
+    if (loan === undefined) return { ok: false, reason: `no loan ${loanId}` };
+    if (loan.returnedOn !== undefined) return { ok: false, reason: `loan ${loanId} is already returned` };
+
+    const lateDays = Math.max(0, daysBetween(loan.due, today));
+    const fee = lateFee(lateDays);
+    const updated = this.loans.update(loanId, { returnedOn: today });
+    this.#log.emit({ type: "returned", loanId, lateDays });
+    if (fee > 0) this.#log.emit({ type: "fined", loanId, cents: fee });
+    return { ok: true, value: { loan: updated, lateDays, fee } };
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/report.ts" data-save>
+// A plain-text table typed by its rows (Chapter 11).
+export type Columns<T> = { [K in keyof T]?: { header: string; format?: (value: T[K]) => string } };
+
+export function table<T extends object>(rows: readonly T[], columns: Columns<T>): string {
+  const keys = Object.keys(columns) as (keyof T)[];
+  const cell = (row: T, key: keyof T): string => {
+    const col = columns[key]!;
+    return col.format ? col.format(row[key]) : String(row[key]);
+  };
+  const grid = [keys.map((k) => columns[k]!.header), ...rows.map((r) => keys.map((k) => cell(r, k)))];
+  const widths = keys.map((_, i) => Math.max(...grid.map((line) => line[i]!.length)));
+  return grid.map((line) => line.map((c, i) => c.padEnd(widths[i]!)).join("  ").trimEnd()).join("\n");
+}
+</script>
+<script type="text/plain" class="code" data-file="reference/src/index.ts" data-save>
+// Public API of the library-loans package: values and types (Chapter 15).
+export { Catalog, parseBook } from "./catalog.js";
+export { MemberDirectory, parseMember } from "./members.js";
+export { LoanService, LoanStatus, statusOf } from "./loans.js";
+export { EventLog, type EventOf } from "./audit.js";
+export { lateFee, daysBetween, addDays, formatCents } from "./fees.js";
+export { BookId, MemberId, LoanId } from "./ids.js";
+export { table, type Columns } from "./report.js";
+export type { Book, Member, Loan, LoanEvent, MemberType, Format, Result } from "./types.js";
+export type { Returned } from "./loans.js";
+</script>
+<script type="text/plain" class="code" data-file="reference/src/cli.ts" data-save>
+// Runs one scripted day at the library and prints a report.
+// Usage: npm start   (builds with tsc, then runs dist/src/cli.js)
+import { readFileSync } from "node:fs";
+import { EventLog } from "./audit.js";
+import { Catalog } from "./catalog.js";
+import { formatCents } from "./fees.js";
+import { BookId, LoanId, MemberId } from "./ids.js";
+import { LoanService, statusOf } from "./loans.js";
+import { MemberDirectory } from "./members.js";
+import { table } from "./report.js";
+import type { Loan, Result } from "./types.js";
+
+const dataDir = new URL("../../data/", import.meta.url);
+const catalog = Catalog.fromJson(readFileSync(new URL("books.json", dataDir), "utf8"));
+const members = MemberDirectory.fromJson(readFileSync(new URL("members.json", dataDir), "utf8"));
+const log = new EventLog();
+const service = new LoanService(catalog, members, log);
+
+let fines = 0;
+log.on("fined", (e) => { fines += e.cents; });
+
+function show<T>(r: Result<T>, describe: (value: T) => string): void {
+  console.log(r.ok ? `  ✓ ${describe(r.value)}` : `  ✗ ${r.reason}`);
+}
+const day = (d: number) => new Date(2026, 10, d);
+const titleOf = (loan: Loan) => catalog.find(loan.bookId)?.title ?? "?";
+
+console.log(`${catalog.size} books, ${members.list().length} members`);
+show(service.borrow(BookId("b1"), MemberId("m1"), day(2)), (l) => `${l.id} due ${l.due.toDateString()}`);
+show(service.borrow(BookId("b2"), MemberId("m3"), day(2)), (l) => `${l.id} due ${l.due.toDateString()}`);
+show(service.borrow(BookId("b2"), MemberId("m2"), day(3)), (l) => l.id);
+show(service.borrow(BookId("b4"), MemberId("m3"), day(3)), (l) => l.id);
+show(service.giveBack(LoanId("L2"), day(12)), (r) => `${titleOf(r.loan)} back ${r.lateDays} day(s) late, fee ${formatCents(r.fee)}`);
+show(service.borrow(BookId("b2"), MemberId("m2"), day(12)), (l) => `${l.id} due ${l.due.toDateString()}`);
+
+const today = day(25);
+console.log(`\nOpen loans on ${today.toDateString()}:`);
+console.log(table(
+  service.openLoans().map((l) => ({ id: l.id, title: titleOf(l), member: members.get(l.memberId)?.name ?? "?", due: l.due, status: statusOf(l, today) })),
+  { id: { header: "Loan" }, title: { header: "Title" }, member: { header: "Member" }, due: { header: "Due", format: (d) => d.toDateString() }, status: { header: "Status" } },
+));
+console.log(`\nEvents: ${log.events.map((e) => e.type).join(", ")}`);
+console.log(`Fines collected: ${formatCents(fines)}`);
+</script>
+<details class="more"><summary>Show the tests, data and package.json</summary>
+<script type="text/plain" class="code" data-file="reference/test/loans.test.ts" data-save>
+// Tests with Node's built-in runner, written in TypeScript and run from dist/.
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { BookId, Catalog, EventLog, lateFee, LoanId, LoanService, MemberDirectory, MemberId, statusOf, type Book } from "../src/index.js";
+
+const day = (d: number) => new Date(2026, 10, d);
+const book = (id: string, copies = 1): Book => ({ id: BookId(id), title: `Book ${id}`, author: "A", year: 2000, format: "paperback", copies });
+
+function setup() {
+  const catalog = new Catalog().add(book("b1", 1)).add(book("b2", 2));
+  const members = new MemberDirectory();
+  members.add({ id: MemberId("m1"), name: "Ana", type: "guest" });       // guest: 1 loan, 7 days
+  members.add({ id: MemberId("m2"), name: "Ben", type: "staff" });
+  const log = new EventLog();
+  return { service: new LoanService(catalog, members, log), log };
+}
+
+describe("lateFee", () => {
+  it("is 0 when on time and capped at 500", () => {
+    assert.equal(lateFee(0), 0);
+    assert.equal(lateFee(3), 75);
+    assert.equal(lateFee(100), 500);
+  });
+});
+
+describe("LoanService", () => {
+  it("lends a book with the member's loan period", () => {
+    const { service } = setup();
+    const r = service.borrow(BookId("b1"), MemberId("m1"), day(1));
+    assert.ok(r.ok);
+    assert.equal(r.value.due.getDate(), 8);
+  });
+
+  it("refuses when no copies are left or the limit is reached", () => {
+    const { service } = setup();
+    service.borrow(BookId("b1"), MemberId("m2"), day(1));
+    const noCopies = service.borrow(BookId("b1"), MemberId("m1"), day(1));
+    assert.deepEqual(noCopies, { ok: false, reason: '"Book b1" has no copies left' });
+    service.borrow(BookId("b2"), MemberId("m1"), day(1));
+    const limit = service.borrow(BookId("b2"), MemberId("m1"), day(1));
+    assert.deepEqual(limit, { ok: false, reason: "loan limit (1) reached" });
+  });
+
+  it("charges a late fee and emits events on return", () => {
+    const { service, log } = setup();
+    service.borrow(BookId("b1"), MemberId("m1"), day(1));
+    const r = service.giveBack(LoanId("L1"), day(11));
+    assert.ok(r.ok);
+    assert.equal(r.value.lateDays, 3);
+    assert.equal(r.value.fee, 75);
+    assert.deepEqual(log.events.map((e) => e.type), ["borrowed", "returned", "fined"]);
+    assert.equal(statusOf(r.value.loan, day(20)), "returned");
+  });
+
+  it("rejects returning twice", () => {
+    const { service } = setup();
+    service.borrow(BookId("b1"), MemberId("m1"), day(1));
+    service.giveBack(LoanId("L1"), day(2));
+    assert.deepEqual(service.giveBack(LoanId("L1"), day(3)), { ok: false, reason: "loan L1 is already returned" });
+  });
+});
+</script>
+<script type="text/plain" class="code" data-file="reference/data/books.json" data-save>
+[
+  { "id": "b1", "title": "Dune", "author": "Frank Herbert", "year": 1965, "format": "paperback", "copies": 2 },
+  { "id": "b2", "title": "Emma", "author": "Jane Austen", "year": 1815, "format": "ebook", "copies": 1 },
+  { "id": "b3", "title": "Beloved", "author": "Toni Morrison", "year": 1987, "format": "hardcover", "copies": 1 },
+  { "id": "b4", "title": "Hamlet", "author": "William Shakespeare", "year": 1603, "format": "paperback", "copies": 3 },
+  { "id": "b5", "title": "The Left Hand of Darkness", "author": "Ursula K. Le Guin", "year": 1969, "format": "paperback", "copies": 1 }
+]
+</script>
+<script type="text/plain" class="code" data-file="reference/data/members.json" data-save>
+[
+  { "id": "m1", "name": "Ana Lima", "type": "student" },
+  { "id": "m2", "name": "Ben Okafor", "type": "staff", "email": "ben@example.com" },
+  { "id": "m3", "name": "Chen Wei", "type": "guest" }
+]
+</script>
+<script type="text/plain" class="code" data-file="reference/package.json" data-save>
+{
+  "name": "library-loans",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capstone of the TypeScript Study Book: a small library-loans system in strict TypeScript.",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "start": "tsc && node --enable-source-maps dist/src/cli.js",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "7.0.2"
+  }
+}
+</script>
+</details>
+
+<h2 id="step4">Step 4: build, run, test, publish</h2>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="reference">
+$ tsc && node dist/src/cli.js
+5 books, 3 members
+→ borrow(b1, m1, Mon Nov 02 2026)
+  ✓ L1 due Mon Nov 23 2026
+→ borrow(b2, m3, Mon Nov 02 2026)
+  ✓ L2 due Mon Nov 09 2026
+→ borrow(b2, m2, Tue Nov 03 2026)
+  ✗ "Emma" has no copies left
+→ borrow(b4, m3, Tue Nov 03 2026)
+  ✗ loan limit (1) reached
+→ giveBack(L2, Thu Nov 12 2026)
+  ✓ Emma back 3 day(s) late, fee €0.75
+→ borrow(b2, m2, Thu Nov 12 2026)
+  ✓ L3 due Thu Dec 24 2026
+
+Open loans on Wed Nov 25 2026:
+Loan  Title  Member      Due              Status
+L1    Dune   Ana Lima    Mon Nov 23 2026  overdue
+L3    Emma   Ben Okafor  Thu Dec 24 2026  active
+
+Events: borrowed, borrowed, returned, fined, borrowed
+Fines collected: €0.75
+$ node --test "dist/test/**/*.test.js" | grep -E "^# (tests|pass|fail)"
+# tests 5
+# pass 5
+# fail 0
+</script>
+<p>The guest's second loan is refused, the late return costs €0.75 instead of crashing, and five tests cover the cases the original single test missed. Because <code>declaration</code> is on, the build also wrote <code>.d.ts</code> files, so anyone who installs this package gets its types (Chapter 17):</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="reference">
+$ cat dist/src/fees.d.ts
+export declare const DAY_MS = 86400000;
+export interface FeeOptions {
+    perDay?: number;
+    cap?: number;
+}
+/** Cents owed for a return `daysLate` days after the due date. */
+export declare function lateFee(daysLate: number, { perDay, cap }?: FeeOptions): number;
+/** Whole days from `from` to `to` (negative if `to` is earlier), ignoring the time of day. */
+export declare function daysBetween(from: Date, to: Date): number;
+export declare function addDays(date: Date, days: number): Date;
+export declare const formatCents: (cents: number) => string;
+</script>
+<p>The <code>package.json</code> <code>"exports"</code> field points both to the JavaScript and to <code>dist/src/index.d.ts</code>. And because the reference uses only erasable syntax, any tool that strips types (esbuild, Vite, Node's built-in TypeScript support) can run it too.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>What the brands buy you</h3>
+<script type="text/plain" class="code" data-file="brand-check.ts">
+import { BookId, MemberId } from "./reference/src/ids.js";
+function lend(book: BookId, member: MemberId) { return `${member} ← ${book}`; }
+const b = BookId("b1"), m = MemberId("m1");
+console.log(lend(b, m));
+lend(m, b);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+brand-check.ts(5,6): error TS2345: Argument of type 'MemberId' is not assignable to parameter of type 'BookId'.
+  Type 'MemberId' is not assignable to type '{ readonly [brand]: "BookId"; }'.
+    Types of property '[brand]' are incompatible.
+      Type '"MemberId"' is not assignable to type '"BookId"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+m1 ← b1
+</script>
+<h3>Bad data is rejected at the edge</h3>
+<script type="text/plain" class="code" data-file="bad-data.ts">
+import { Catalog } from "./reference/src/catalog.js";
+for (const text of ['[{"id":"b1","title":"Dune","author":"FH","year":1965,"format":"scroll","copies":1}]', '{"id":"b1"}', '[{"id":"x1","title":"T","author":"A","year":1,"format":"ebook","copies":1}]']) {
+  try { Catalog.fromJson(text); } catch (e) { console.log((e as Error).message); }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+unknown format: scroll
+catalogue must be an array
+invalid book id: "x1"
+</script>
+<h3>Handling a Result forces you to look at the failure</h3>
+<script type="text/plain" class="code" data-file="result-check.ts">
+import type { Result } from "./reference/src/types.js";
+declare const r: Result<{ id: string }>;
+console.log(r.value.id);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+result-check.ts(3,15): error TS2339: Property 'value' does not exist on type 'Result<{ id: string; }>'.
+  Property 'value' does not exist on type '{ ok: false; reason: string; }'.
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>The official path is gradual: <code>checkJs</code> on unchanged JavaScript, JSDoc where inference falls short, <code>.ts</code> files with written-down shapes, then <code>strict</code> and extras.</li>
+  <li>Types found three bugs that the tests missed: a crash, a broken business rule, and a crash nobody had hit yet.</li>
+  <li>After the migration, model the domain: brands, unions, <code>as const</code> tables, validated input, <code>Result</code> values.</li>
+  <li>Build with <code>tsc</code>, test the output with <code>node:test</code>, and publish <code>.d.ts</code> files with <code>declaration</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+<p>All exercises extend the playground's <code>reference/</code> project (or your own migrated version). Run <code>npm test</code> after each one.</p>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">playground</span></h3>
+<p>Do steps 1 and 2 yourself in <code>capstone-start/</code>: run <code>npx tsc -p capstone-start</code>, fix the default-parameter errors with JSDoc, then rename the files to <code>.ts</code> and find the three bugs.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Your result should match the errors in <a href="#step2">step 2</a>. Compare your fixes with <code>reference/src/fees.ts</code>, <code>members.ts</code> and <code>loans.ts</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">playground</span></h3>
+<p>Add a <code>"vip"</code> member type with 20 loans for 60 days. Which files did you have to change?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only <code>LOAN_POLICY</code> in <code>types.ts</code>: add <code>vip: { maxLoans: 20, days: 60 }</code>. <code>MemberType</code> is derived from it, and <code>parseMember</code> checks against it, so everything else follows automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">playground</span></h3>
+<p>Add an <code>"audiobook"</code> format. Then try to load a book with format <code>"cassette"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>"audiobook"</code> to the <code>FORMATS</code> tuple. <code>"cassette"</code> is rejected by <code>parseBook</code> with <code>unknown format: cassette</code>, because <code>isFormat</code> reads the same tuple.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">playground</span></h3>
+<p>Write a test that <code>borrow</code> refuses an unknown member id with the reason <code>"no member m9"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="reference/test/unknown-member.test.ts" data-norun>
+it("refuses unknown members", () => {
+  const { service } = setup();
+  assert.deepEqual(service.borrow(BookId("b1"), MemberId("m9"), day(1)), { ok: false, reason: "no member m9" });
+});
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">feature</span></h3>
+<p>Add <code>renew(loanId, today): Result&lt;Loan&gt;</code>: it extends the due date by the member's loan period, at most twice, and never for an overdue loan. Add a <code>"renewed"</code> event to <code>LoanEvent</code>. What does the compiler tell you to update?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>renewals: number</code> to <code>Loan</code> (the compiler then points at <code>borrow</code>, where new loans must set <code>renewals: 0</code>) and <code>{ type: "renewed"; loanId: LoanId; due: Date }</code> to <code>LoanEvent</code>. In <code>renew</code>, return <code>{ ok: false, … }</code> when <code>statusOf(loan, today) !== "active"</code> or <code>loan.renewals &gt;= 2</code>; otherwise <code>update(loanId, { due: addDays(loan.due, policy.days), renewals: loan.renewals + 1 })</code> and emit the event. Any <code>switch</code> over <code>event.type</code> with a <code>never</code> check now fails until it handles <code>"renewed"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">feature</span></h3>
+<p>Add a <code>search</code> command to the CLI: <code>node dist/src/cli.js search austen</code> prints matching titles. Use <code>process.argv</code> and keep the scripted day as the default.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>At the top of <code>cli.ts</code>: <code>const [command, ...args] = process.argv.slice(2);</code>. If <code>command === "search"</code>, print <code>catalog.search(args.join(" ")).map((b) =&gt; b.title)</code> and <code>process.exit(0)</code>. With <code>noUncheckedIndexedAccess</code>, <code>command</code> is <code>string | undefined</code>, which is exactly right.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">types</span></h3>
+<p>Write a <code>switch</code> over <code>LoanEvent</code> that turns each event into a sentence for an e-mail, with an exhaustiveness check. Then add the <code>"renewed"</code> event from exercise 5 and watch it fail.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>function sentence(e: LoanEvent): string { switch (e.type) { case "borrowed": …; case "returned": …; case "fined": …; default: { const x: never = e; return x; } } }</code>. Adding a member to the union makes the <code>never</code> assignment an error that names the missing case (Chapter 4).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">tooling</span></h3>
+<p>Run the reference with Node's type stripping instead of <code>tsc</code>: what has to change in the imports, and which compiler options make <code>tsc</code> still produce correct <code>.js</code> files?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Node loads <code>.ts</code> files directly, so imports must name them: <code>"./fees.ts"</code>. Turn on <code>allowImportingTsExtensions</code> (so the checker accepts those paths) and <code>rewriteRelativeImportExtensions</code> (so <code>tsc</code> rewrites them to <code>.js</code> in its output). The code is already erasable, so no other change is needed. Run with <code>node src/cli.ts</code> on Node 22.18+ or 23.6+ (older 22.x versions need <code>--experimental-strip-types</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Add reservations: a member can reserve a book that has no copies left; when a copy is returned, the first reservation becomes a loan automatically. Model it with types first: which new types, events and <code>Result</code> reasons do you need?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A <code>ReservationId</code> brand, <code>interface Reservation { id; bookId; memberId; createdOn }</code>, a second <code>InMemoryRepository&lt;Reservation&gt;</code>, events <code>{ type: "reserved"; … }</code> and <code>{ type: "fulfilled"; reservationId; loanId }</code>, and reasons such as "already reserved" and "book is available, borrow it instead". In <code>giveBack</code>, after the return, look up the oldest reservation for that book and call <code>borrow</code> for it; emit <code>"fulfilled"</code> if it succeeds. Writing the types first shows every place that must change before you write any logic.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">refactor</span></h3>
+<p>Replace the hand-written <code>parseBook</code> with a schema from a validation library (Zod, Valibot or ArkType), deriving the <code>Book</code> type from the schema. What do you gain, and what has to stay hand-written?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>For example with Zod: <code>const BookSchema = z.object({ id: z.string().regex(/^b\d+$/).transform(BookId), title: z.string(), …, format: z.enum(FORMATS) }); type Book = z.infer&lt;typeof BookSchema&gt;;</code>. You gain one source of truth for the runtime check and the type, and better error messages. Business rules (loan limits, fees) and the brand constructors stay hand-written. Note that this adds a runtime dependency, which the reference avoids on purpose.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/migrating-from-javascript.html">Migrating from JavaScript</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/intro-to-js-ts.html">JS Projects Utilizing TypeScript</a> · <a href="https://www.typescriptlang.org/docs/handbook/type-checking-javascript-files.html">Type Checking JavaScript Files</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/declaration-files/publishing.html">Publishing declaration files</a></li>
+  <li><a href="https://nodejs.org/api/test.html">Node.js test runner</a></li>
+  <li><a href="https://github.com/coderhop-learning/typescript-playground">typescript-playground on GitHub</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

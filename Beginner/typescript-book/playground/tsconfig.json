@@ -1,0 +1,20 @@
+{
+  // The playground's main project: everything under exercises/.
+  // capstone-start/ and reference/ have their own tsconfig.json files.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "types": ["node"],
+    "module": "nodenext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["exercises"],
+  "exclude": ["exercises/ch02/mini"]
+}

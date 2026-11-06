@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎛️&lt;/text&gt;&lt;/svg&gt;">
+<title>18. Project Configuration · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 18 · Real Projects</div>
+<h1>Project Configuration</h1>
+<p class="lead">A <code>tsconfig.json</code> decides which files are compiled, how strict the checker is, what JavaScript comes out, and how imports are resolved. TypeScript has well over a hundred options; you need about twenty. This chapter follows the Handbook's <em>Project Configuration</em> section and the TSConfig reference: the options <code>tsc --init</code> picks for you, the ones you'll change, and how to split a big codebase with project references.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The structure of <code>tsconfig.json</code>: <code>compilerOptions</code>, <code>include</code>/<code>exclude</code>/<code>files</code>, <code>extends</code>.</li>
+  <li>What <code>tsc --init</code> sets in TypeScript 7, and why.</li>
+  <li>The option groups: environment, modules, emit, strictness, and "tool-friendliness".</li>
+  <li>Debugging a config with <code>--showConfig</code> and <code>--explainFiles</code>.</li>
+  <li><strong>Project references</strong> and build mode (<code>tsc -b</code>).</li>
+  <li>Recommended configs for a Node app, a library and a bundled web app.</li>
+</ul>
+</div>
+
+<h2 id="structure">The structure of tsconfig.json</h2>
+<script type="text/plain" class="code" data-file="tsconfig.json" data-norun>
+{
+  "extends": "./tsconfig.base.json",      // inherit options from another file (or an npm package)
+  "compilerOptions": { /* how to check and emit */ },
+  "include": ["src/**/*"],                // which files (glob patterns); default: everything
+  "exclude": ["src/**/*.test.ts"],        // filter out of `include` (not out of imports!)
+  "files": ["src/main.ts"],               // an explicit list instead of globs
+  "references": [{ "path": "../core" }]   // other projects this one depends on
+}
+</script>
+<p><code>tsconfig.json</code> allows comments and trailing commas (it's "JSON with comments"). Two things surprise people:</p>
+<ul>
+  <li><code>exclude</code> only filters what <code>include</code> found. A file you <em>import</em> is always compiled, even if it matches <code>exclude</code>.</li>
+  <li>A <code>tsconfig.json</code> marks a <strong>project</strong>. Editors use the nearest one for each file, so a file outside every <code>include</code> gets default settings in the editor.</li>
+</ul>
+
+<h2 id="init">What tsc --init gives you</h2>
+<p><code>tsc --init</code> writes a commented starter config. <code>tsc --showConfig</code> prints the <em>effective</em> configuration, with every default and inherited value resolved, which is the fastest way to see what's really on:</p>
+<script type="text/plain" class="code" data-file="init-demo/src/index.ts" data-save>
+export const greet = (name: string) => `Hi ${name}`;
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="init-demo">
+$ tsc --init
+
+Created a new tsconfig.json
+
+You can learn more at https://aka.ms/tsconfig
+$ tsc --showConfig
+{
+    "compilerOptions": {
+        "declaration": true,
+        "declarationMap": true,
+        "exactOptionalPropertyTypes": true,
+        "isolatedModules": true,
+        "jsx": "react-jsx",
+        "module": "nodenext",
+        "moduleDetection": "force",
+        "noUncheckedIndexedAccess": true,
+        "noUncheckedSideEffectImports": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "sourceMap": true,
+        "target": "esnext",
+        "types": [],
+        "verbatimModuleSyntax": true,
+        "moduleResolution": "nodenext",
+        "preserveConstEnums": true
+    },
+    "files": [
+        "./src/index.ts"
+    ]
+}
+</script>
+<p>That's a modern, strict starting point. You'll usually add <code>rootDir</code>/<code>outDir</code>, set <code>"types": ["node"]</code> for Node, pick a concrete <code>target</code>, and remove <code>jsx</code> if you don't use JSX. (<code>moduleResolution</code> and <code>preserveConstEnums</code> are shown because other options imply them.)</p>
+
+<h2 id="groups">The options that matter</h2>
+<h3>Environment: where the code runs</h3>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>What it does</th><th>Typical value</th></tr>
+<tr><td><code>target</code></td><td>syntax level of the output (Chapter 2)</td><td><code>es2024</code> for Node 22+, <code>esnext</code> if a bundler handles it</td></tr>
+<tr><td><code>lib</code></td><td>built-in APIs the checker knows (<code>es2024</code>, <code>dom</code>…)</td><td>follows <code>target</code>; add <code>"dom"</code> for browsers</td></tr>
+<tr><td><code>types</code></td><td>global <code>@types</code> packages to load</td><td><code>["node"]</code> for Node; <code>[]</code> otherwise</td></tr>
+</table></div>
+<h3>Modules: how imports work</h3>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>What it does</th><th>Typical value</th></tr>
+<tr><td><code>module</code></td><td>the module system of the output and the import rules</td><td><code>nodenext</code> (Node), <code>preserve</code> (bundlers)</td></tr>
+<tr><td><code>moduleResolution</code></td><td>how import paths are found</td><td>implied by <code>module</code>; <code>bundler</code> with <code>preserve</code></td></tr>
+<tr><td><code>moduleDetection</code></td><td>which files are modules</td><td><code>force</code></td></tr>
+<tr><td><code>resolveJsonModule</code></td><td>allow <code>import data from "./x.json" with { type: "json" }</code></td><td><code>true</code> if you import JSON</td></tr>
+<tr><td><code>paths</code></td><td>import aliases like <code>@app/*</code> (the runtime/bundler must agree)</td><td>optional; prefer <code>package.json</code> <code>"imports"</code> (<code>#app/*</code>)</td></tr>
+</table></div>
+<h3>Emit: what comes out</h3>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>What it does</th></tr>
+<tr><td><code>rootDir</code>, <code>outDir</code></td><td>mirror <code>src/</code> into <code>dist/</code></td></tr>
+<tr><td><code>noEmit</code></td><td>check only (another tool builds)</td></tr>
+<tr><td><code>declaration</code>, <code>declarationMap</code></td><td>emit <code>.d.ts</code> (+ maps for "go to source") for libraries</td></tr>
+<tr><td><code>sourceMap</code></td><td>emit <code>.js.map</code> so stack traces and debuggers point at <code>.ts</code> lines</td></tr>
+<tr><td><code>noEmitOnError</code></td><td>emit nothing if there are errors</td></tr>
+</table></div>
+<h3>Strictness: how much is checked</h3>
+<p><code>strict: true</code> turns on this family. Each can be turned off on its own (useful in migrations):</p>
+<div class="table-wrap"><table>
+<tr><th>Under <code>strict</code></th><th>Catches</th><th>Chapter</th></tr>
+<tr><td><code>noImplicitAny</code></td><td>untyped parameters silently becoming <code>any</code></td><td>2</td></tr>
+<tr><td><code>strictNullChecks</code></td><td>using possibly <code>null</code>/<code>undefined</code> values</td><td>2</td></tr>
+<tr><td><code>strictFunctionTypes</code></td><td>unsafe callback parameter types</td><td>14</td></tr>
+<tr><td><code>strictBindCallApply</code></td><td>wrong arguments to <code>bind</code>/<code>call</code>/<code>apply</code></td><td>5</td></tr>
+<tr><td><code>strictPropertyInitialization</code></td><td>class fields never assigned</td><td>7</td></tr>
+<tr><td><code>noImplicitThis</code></td><td><code>this</code> of type <code>any</code></td><td>5</td></tr>
+<tr><td><code>useUnknownInCatchVariables</code></td><td>treating caught values as <code>Error</code> without checking</td><td>4</td></tr>
+<tr><td><code>alwaysStrict</code>, <code>strictBuiltinIteratorReturn</code></td><td>sloppy-mode output; iterator return types</td><td>—</td></tr>
+</table></div>
+<p>Not part of <code>strict</code>, but recommended: <code>noUncheckedIndexedAccess</code> and <code>exactOptionalPropertyTypes</code> (Chapter 6), <code>noImplicitOverride</code> (Chapter 7), <code>noFallthroughCasesInSwitch</code>, <code>noImplicitReturns</code>.</p>
+<h3>Tool-friendliness</h3>
+<p>These make sure other tools (esbuild, Babel, Node's type stripping) can compile each file on its own:</p>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>Requires</th></tr>
+<tr><td><code>isolatedModules</code></td><td>every file can be transpiled without looking at others</td></tr>
+<tr><td><code>verbatimModuleSyntax</code></td><td><code>import type</code> for type-only imports (Chapter 15)</td></tr>
+<tr><td><code>erasableSyntaxOnly</code></td><td>no enums, namespaces or parameter properties (Chapter 13)</td></tr>
+<tr><td><code>skipLibCheck</code></td><td>not a requirement: it skips checking <code>.d.ts</code> files, for speed</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a car's settings menu.</strong> <em>Environment</em> is the country you're driving in (which side of the road), <em>modules</em> are the road rules, <em>emit</em> is what the dashboard records, <em>strictness</em> is how sensitive the warning beeps are, and <em>tool-friendliness</em> makes sure any mechanic can service the car.</p>
+</div>
+
+<h2 id="debug">Debugging a configuration</h2>
+<ul>
+  <li><code>tsc --showConfig</code>: the effective options (above).</li>
+  <li><code>tsc --listFiles</code> / <code>--explainFiles</code>: every file in the program, and <em>why</em> it's there ("Matched by include pattern", "Imported via …"). Use it when an "excluded" file still gets compiled.</li>
+  <li><code>tsc --traceResolution</code>: step-by-step import resolution, for "Cannot find module" mysteries.</li>
+  <li><code>tsc --extendedDiagnostics</code>: timings and memory, for slow builds.</li>
+</ul>
+
+<h2 id="references">Project references and build mode</h2>
+<p>A large codebase (a monorepo, or an app plus a shared library) can be split into several TypeScript projects that reference each other. Each is checked and built separately, and only rebuilt when it changes. The referenced project must set <code>composite: true</code>, which also turns on <code>declaration</code>, because dependants use its <code>.d.ts</code> output instead of its source:</p>
+<script type="text/plain" class="code" data-file="refs/core/tsconfig.json" data-save>
+{
+  "compilerOptions": {
+    "composite": true, "rootDir": "src", "outDir": "dist",
+    "module": "nodenext", "target": "es2024", "types": []
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="refs/core/src/index.ts" data-save>
+export const fee = (days: number) => days * 25;
+</script>
+<script type="text/plain" class="code" data-file="refs/cli/tsconfig.json" data-save>
+{
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "module": "nodenext", "target": "es2024", "types": ["node"] },
+  "references": [{ "path": "../core" }]
+}
+</script>
+<script type="text/plain" class="code" data-file="refs/cli/src/main.ts" data-save>
+import { fee } from "../../core/dist/index.js";
+console.log(`fee: ${fee(3)}`);
+</script>
+<p><code>tsc -b</code> (<em>build mode</em>) builds the referenced projects first, in dependency order, and skips the ones that are up to date. (The <code>sed</code> just removes the timestamps from <code>--verbose</code> output.)</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="refs">
+$ tsc -b cli --verbose | sed 's/^.* - //'
+Projects in this build:
+    * core/tsconfig.json
+    * cli/tsconfig.json
+
+Project 'core/tsconfig.json' is out of date because output file 'core/tsconfig.tsbuildinfo' does not exist
+
+Building project 'core/tsconfig.json'...
+
+Project 'cli/tsconfig.json' is out of date because output file 'cli/tsconfig.tsbuildinfo' does not exist
+
+Building project 'cli/tsconfig.json'...
+$ node cli/dist/main.js
+fee: 75
+$ tsc -b cli --verbose | sed 's/^.* - //' | grep "up to date"
+Project 'core/tsconfig.json' is up to date because newest input 'core/src/index.ts' is older than output 'core/tsconfig.tsbuildinfo'
+Project 'cli/tsconfig.json' is up to date because newest input 'cli/src/main.ts' is older than output 'cli/dist/main.js'
+</script>
+<p>The second build does nothing. The <code>.tsbuildinfo</code> files record what was built; <code>incremental: true</code> gives single projects the same speed-up. In a real monorepo, <code>cli</code> would import <code>core</code> by package name (with npm/pnpm workspaces) rather than by a relative <code>dist</code> path.</p>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> project references are TypeScript's version of Maven/Gradle multi-module builds or a .NET solution with project references: modules with declared dependencies, built in order, each publishing its "API" (here: <code>.d.ts</code> files, there: compiled classes or assemblies) to the modules that depend on it. <code>tsconfig.json</code> itself plays the role of the <code>.csproj</code> or the compiler section of <code>pom.xml</code>; the <code>"extends"</code> field is like a parent POM.</p>
+</div>
+
+<h2 id="recipes">Three recommended configs</h2>
+<h3>A Node application (tsc builds it)</h3>
+<script type="text/plain" class="code" data-file="node-app.tsconfig.json" data-norun>
+{
+  "compilerOptions": {
+    "target": "es2024", "lib": ["es2024"], "types": ["node"],
+    "module": "nodenext",
+    "rootDir": "src", "outDir": "dist", "sourceMap": true,
+    "strict": true, "noUncheckedIndexedAccess": true, "noImplicitOverride": true,
+    "verbatimModuleSyntax": true, "isolatedModules": true, "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+</script>
+<h3>A library published to npm</h3>
+<p>Same as above, plus <code>"declaration": true</code>, <code>"declarationMap": true</code>, and usually <code>"erasableSyntaxOnly": true</code> so consumers' tools have no surprises. Its <code>package.json</code> points <code>"exports"</code> at <code>dist/*.js</code> and <code>dist/*.d.ts</code>.</p>
+<h3>A web app built by a bundler (Vite, esbuild…)</h3>
+<script type="text/plain" class="code" data-file="web-app.tsconfig.json" data-norun>
+{
+  "compilerOptions": {
+    "target": "es2022", "lib": ["es2024", "dom", "dom.iterable"], "types": [],
+    "module": "preserve", "moduleResolution": "bundler",
+    "noEmit": true,                         // the bundler emits; tsc only checks
+    "jsx": "react-jsx",
+    "strict": true, "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true, "isolatedModules": true, "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+</script>
+<p>A shared base config is often taken from the <a href="https://github.com/tsconfig/bases">tsconfig/bases</a> project: <code>"extends": "@tsconfig/node22/tsconfig.json"</code>.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A flag on the command line overrides the config</h3>
+<script type="text/plain" class="code" data-file="override/tsconfig.json" data-save>
+{ "compilerOptions": { "strict": true, "noEmit": true, "types": [] }, "include": ["*.ts"] }
+</script>
+<script type="text/plain" class="code" data-file="override/loose.ts" data-save>
+export function half(n) { return n / 2; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="override">
+$ tsc
+loose.ts(1,22): error TS7006: Parameter 'n' implicitly has an 'any' type.
+$ tsc --noImplicitAny false && echo "OK with noImplicitAny off"
+OK with noImplicitAny off
+</script>
+<h3>Seeing why a file is in the program</h3>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="override">
+$ tsc --explainFiles | grep -A1 "^loose.ts$"
+loose.ts
+  Matched by include pattern '*.ts' in 'tsconfig.json'
+</script>
+<h3>extends and overriding</h3>
+<script type="text/plain" class="code" data-file="override/tsconfig.test.json" data-save>
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noImplicitAny": false }
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="override">
+$ tsc -p tsconfig.test.json && echo "tests config passes"
+tests config passes
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>tsconfig.json</code> = <code>compilerOptions</code> + which files (<code>include</code>/<code>exclude</code>/<code>files</code>) + <code>extends</code> + <code>references</code>.</li>
+  <li><code>tsc --init</code> (TS 7) is strict and modern; add <code>rootDir</code>/<code>outDir</code>, <code>types</code> and a concrete <code>target</code>.</li>
+  <li>Think in groups: environment (<code>target</code>, <code>lib</code>, <code>types</code>), modules, emit, strictness, tool-friendliness.</li>
+  <li><code>--showConfig</code>, <code>--explainFiles</code> and <code>--traceResolution</code> debug configs.</li>
+  <li>Project references + <code>composite</code> + <code>tsc -b</code> split big codebases into incremental builds.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">match</span></h3>
+<p>Which option do you need to (a) put output in <code>dist/</code>, (b) only type-check, (c) see Node's <code>process</code> global, (d) emit <code>.d.ts</code> files?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>outDir</code> (with <code>rootDir</code>), (b) <code>noEmit</code>, (c) <code>"types": ["node"]</code> with <code>@types/node</code> installed, (d) <code>declaration</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p><code>"exclude": ["src/legacy"]</code> is set, but <code>src/app.ts</code> imports <code>./legacy/old.js</code>. Is <code>old.ts</code> compiled?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes. <code>exclude</code> only removes files from the <code>include</code> globs; imported files are always part of the program. <code>tsc --explainFiles</code> would say "Imported via './legacy/old.js' from file 'src/app.ts'".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">strict family</span></h3>
+<p>Name three checks that <code>strict</code> turns on.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Any three of: <code>noImplicitAny</code>, <code>strictNullChecks</code>, <code>strictFunctionTypes</code>, <code>strictBindCallApply</code>, <code>strictPropertyInitialization</code>, <code>noImplicitThis</code>, <code>useUnknownInCatchVariables</code>, <code>alwaysStrict</code>, <code>strictBuiltinIteratorReturn</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">bundler</span></h3>
+<p>Your React app is built by Vite. Which values do you use for <code>module</code>, <code>moduleResolution</code> and emit?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"module": "preserve"</code>, <code>"moduleResolution": "bundler"</code>, and <code>"noEmit": true</code>: Vite strips types and bundles; <code>tsc --noEmit</code> runs only to check.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">extends</span></h3>
+<p>Write a <code>tsconfig.base.json</code> with your strict options, and two configs that extend it: one for <code>src</code> (emitting to <code>dist</code>) and one for <code>test</code> (no emit, with <code>"types": ["node"]</code>).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="tsconfig.base.json" data-norun>
+{ "compilerOptions": { "target": "es2024", "module": "nodenext", "strict": true,
+  "noUncheckedIndexedAccess": true, "verbatimModuleSyntax": true, "skipLibCheck": true } }
+</script>
+<script type="text/plain" class="code" data-file="tsconfig.json" data-norun>
+{ "extends": "./tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
+  "include": ["src"] }
+</script>
+<script type="text/plain" class="code" data-file="tsconfig.test.json" data-norun>
+{ "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "include": ["src", "test"] }
+</script>
+<p>Paths in an extended config (like <code>include</code>) are resolved relative to the file that declares them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">sourceMap</span></h3>
+<p>What does <code>sourceMap</code> change for you when a compiled program throws an error, and how do you enable it in Node?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>.js.map</code> files, a debugger (and, with <code>node --enable-source-maps</code>, Node's stack traces) shows <code>src/app.ts:12</code> instead of <code>dist/app.js:9</code>. Turn on <code>"sourceMap": true</code> and run Node with <code>--enable-source-maps</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">migration</span></h3>
+<p>You're adding TypeScript to a large JavaScript project with <code>allowJs</code>. Which strict checks would you turn off first to keep the error count manageable, and in which order would you turn them back on?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Start with <code>"strict": false</code> (or <code>strict: true</code> plus <code>noImplicitAny: false</code> and <code>strictNullChecks: false</code>). Turn on <code>noImplicitAny</code> first (it finds untyped edges), then <code>strictNullChecks</code> (the biggest change, often done folder by folder), then the rest of <code>strict</code>, and finally extras like <code>noUncheckedIndexedAccess</code>. Chapter 19 walks through this order.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Open the playground's <code>tsconfig.json</code> and run <code>npx tsc --showConfig</code>. Which of the options in the "tool-friendliness" table are on? Then run <code>npx tsc -p reference --showConfig</code> and compare.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The playground has <code>isolatedModules</code>, <code>verbatimModuleSyntax</code> and <code>skipLibCheck</code> on. The reference adds <code>erasableSyntaxOnly</code>: it was written without enums, namespaces or parameter properties, so type-stripping tools can run it. (The exercises leave it off, because Chapters 7 and 13 practise parameter properties and enums.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does a referenced project need <code>composite: true</code>, and why do dependants read its <code>.d.ts</code> files rather than its <code>.ts</code> sources?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>composite</code> guarantees the project can be built on its own and that its outputs are predictable: <code>declaration</code> is on, all files are listed by <code>include</code>/<code>files</code>, and <code>rootDir</code> is fixed. Dependants read the <code>.d.ts</code> output because it's much smaller and cheaper to check than the full sources, and it changes only when the public API changes. That's what makes builds incremental and lets a big codebase be checked in parts.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design the tsconfig layout for a monorepo with <code>packages/models</code> (shared types and validation), <code>packages/api</code> (a Node server) and <code>packages/web</code> (a Vite app), all depending on <code>models</code>. List the files and the key options of each.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><code>tsconfig.base.json</code>: strict options, <code>verbatimModuleSyntax</code>, <code>isolatedModules</code>, <code>skipLibCheck</code>.</li>
+  <li><code>packages/models/tsconfig.json</code>: extends base; <code>composite: true</code>, <code>rootDir</code> <code>src</code>, <code>outDir</code> <code>dist</code>, <code>module: nodenext</code>, <code>erasableSyntaxOnly</code>, <code>types: []</code>.</li>
+  <li><code>packages/api/tsconfig.json</code>: extends base; <code>module: nodenext</code>, <code>types: ["node"]</code>, <code>outDir</code> <code>dist</code>, <code>references: [{ path: "../models" }]</code>.</li>
+  <li><code>packages/web/tsconfig.json</code>: extends base; <code>module: preserve</code>, <code>moduleResolution: bundler</code>, <code>lib</code> with <code>dom</code>, <code>noEmit</code>, <code>jsx</code>, <code>references</code> to models.</li>
+  <li>Root <code>tsconfig.json</code>: <code>"files": []</code> and <code>references</code> to all three, so <code>tsc -b</code> at the root builds everything in order.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/tsconfig-json.html">What is a tsconfig.json</a> · <a href="https://www.typescriptlang.org/tsconfig/">TSConfig Reference</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/compiler-options.html">tsc CLI Options</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/project-references.html">Project References</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/integrating-with-build-tools.html">Integrating with Build Tools</a> · <a href="https://www.typescriptlang.org/docs/handbook/configuring-watch.html">Configuring Watch</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html">Modules: Choosing Compiler Options</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

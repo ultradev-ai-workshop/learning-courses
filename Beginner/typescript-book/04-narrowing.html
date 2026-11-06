@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔎&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Narrowing · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Getting Started</div>
+<h1>Narrowing</h1>
+<p class="lead">A union says "one of these". <strong>Narrowing</strong> is how you find out which one, using ordinary JavaScript checks that TypeScript understands. This chapter follows the Handbook's <em>Narrowing</em> page, from <code>typeof</code> to discriminated unions and exhaustiveness checks. It also shows the right way to handle data you don't trust: <code>unknown</code> plus a type guard.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How <strong>control flow analysis</strong> narrows types after <code>if</code>, <code>return</code> and assignments.</li>
+  <li>The built-in guards: <code>typeof</code>, truthiness, <code>===</code>, <code>in</code> and <code>instanceof</code>.</li>
+  <li>Writing your own guards with <strong>type predicates</strong> (<code>x is T</code>) and assertion functions.</li>
+  <li><strong>Discriminated unions</strong>, the pattern behind most well-typed TypeScript code.</li>
+  <li><code>never</code> and exhaustiveness checking.</li>
+  <li><code>unknown</code>: safely validating JSON and other runtime data.</li>
+</ul>
+</div>
+
+<h2 id="typeof">typeof guards</h2>
+<p><code>typeof</code> returns one of <code>"string"</code>, <code>"number"</code>, <code>"bigint"</code>, <code>"boolean"</code>, <code>"symbol"</code>, <code>"undefined"</code>, <code>"object"</code> or <code>"function"</code>. TypeScript narrows on each. Watch the classic JavaScript quirk: <code>typeof null</code> is <code>"object"</code>, and TypeScript knows it.</p>
+<script type="text/plain" class="code" data-file="typeof.ts">
+function printAll(strs: string | string[] | null) {
+  if (typeof strs === "object") {
+    for (const s of strs) console.log(s);
+  } else if (typeof strs === "string") {
+    console.log(strs);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+typeof.ts(3,21): error TS18047: 'strs' is possibly 'null'.
+</script>
+<p>Inside the first branch, <code>strs</code> is <code>string[] | null</code>, because <code>null</code> also has <code>typeof "object"</code>. The checker just saved you from a crash.</p>
+
+<h2 id="truthiness">Truthiness narrowing</h2>
+<p>In <code>if (x)</code>, falsy values (<code>0</code>, <code>NaN</code>, <code>""</code>, <code>null</code>, <code>undefined</code>, <code>false</code>, <code>0n</code>) take the <code>else</code> branch. TypeScript removes <code>null</code> and <code>undefined</code> in the true branch:</p>
+<script type="text/plain" class="code" data-file="truthy.ts">
+function printAll(strs: string | string[] | null) {
+  if (strs && typeof strs === "object") {
+    for (const s of strs) console.log(s);
+  } else if (typeof strs === "string") {
+    console.log(strs);
+  }
+}
+printAll(["Dune", "Emma"]);
+printAll("Hamlet");
+printAll(null);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune
+Emma
+Hamlet
+</script>
+<div class="pitfall">
+<p>⚠️ Don't wrap the whole body in <code>if (strs)</code> to "handle null": that also skips the empty string <code>""</code>, which is a valid value. For numbers, <code>if (count)</code> skips <code>0</code>. Check <code>!== null</code> or <code>!== undefined</code> when that's what you mean.</p>
+</div>
+
+<h2 id="equality">Equality narrowing</h2>
+<p><code>===</code>, <code>!==</code>, <code>==</code> and <code>!=</code> narrow too. If two values are equal, they must share a type. <code>x != null</code> removes both <code>null</code> and <code>undefined</code> (loose equality treats them as equal).</p>
+<script type="text/plain" class="code" data-file="equality.ts">
+function compare(x: string | number, y: string | boolean) {
+  if (x === y) {
+    return x.toUpperCase();           // both must be string here
+  }
+  return "different";
+}
+function len(v: string | null | undefined): number {
+  return v != null ? v.length : 0;    // != null removes null and undefined
+}
+console.log(compare("a", "a"), compare(1, true), len(undefined), len("Dune"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+A different 0 4
+</script>
+
+<h2 id="in">The in operator</h2>
+<p><code>"prop" in obj</code> narrows to the members of a union that have (or might have) that property:</p>
+<script type="text/plain" class="code" data-file="in.ts">
+type Printed = { pages: number };
+type Audio = { minutes: number };
+
+function length(item: Printed | Audio): string {
+  if ("pages" in item) return `${item.pages} pages`;
+  return `${item.minutes} minutes`;
+}
+console.log(length({ pages: 412 }), "|", length({ minutes: 960 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+412 pages | 960 minutes
+</script>
+
+<h2 id="instanceof">instanceof</h2>
+<p>For classes (anything created with <code>new</code>), <code>x instanceof C</code> narrows to <code>C</code>. It's how you check errors in a <code>catch</code>, because the caught value is <code>unknown</code> in strict mode: JavaScript lets you <code>throw</code> anything.</p>
+<script type="text/plain" class="code" data-file="instanceof.ts">
+function when(d: Date | string): string {
+  return d instanceof Date ? d.toISOString().slice(0, 10) : d;
+}
+console.log(when(new Date(Date.UTC(2026, 10, 5))), when("tomorrow"));
+
+try {
+  JSON.parse("{bad json}");
+} catch (err) {                      // err: unknown
+  if (err instanceof SyntaxError) console.log("Bad JSON:", err.name);
+  else throw err;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2026-11-05 tomorrow
+Bad JSON: SyntaxError
+</script>
+
+<h2 id="cfa">Control flow analysis</h2>
+<p>TypeScript follows every path through your code: <code>if</code>s, early <code>return</code>s, <code>throw</code>s, loops and assignments. The type of a variable can be different at each point. This is <strong>control flow analysis</strong>.</p>
+<script type="text/plain" class="code" data-file="cfa.ts">
+function padLeft(padding: number | string, input: string): string {
+  if (typeof padding === "number") {
+    return " ".repeat(padding) + input;    // padding: number
+  }
+  return padding + input;                   // padding: string (the number case returned)
+}
+
+let x: string | number = Math.random() < 2 ? "hello" : 42;   // declared type: string | number
+x = 1;                                      // now narrowed to number
+console.log(x.toFixed(1));
+x = "now a string";
+console.log(x.toUpperCase(), padLeft(4, "Dune"), padLeft(">> ", "Emma"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1.0
+NOW A STRING     Dune >> Emma
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a detective's notebook.</strong> At each line TypeScript writes down what it has <em>proved</em> about each variable. "Passed the <code>typeof</code> check, so it's a number." "Returned in that branch, so from here on it can't be a number." When you assign a new value, the old notes are crossed out.</p>
+</div>
+
+<h2 id="predicates">Type predicates: your own guards</h2>
+<p>Sometimes the check is more complex than <code>typeof</code>. Write a function whose return type is a <strong>type predicate</strong>, <code>param is Type</code>. When it returns <code>true</code>, TypeScript narrows the argument:</p>
+<script type="text/plain" class="code" data-file="predicate.ts">
+interface Book { kind: "book"; title: string; pages: number }
+interface Dvd { kind: "dvd"; title: string; minutes: number }
+
+function isBook(item: Book | Dvd): item is Book {
+  return item.kind === "book";
+}
+
+const items: (Book | Dvd)[] = [
+  { kind: "book", title: "Dune", pages: 412 },
+  { kind: "dvd", title: "Arrival", minutes: 116 },
+];
+const books = items.filter(isBook);          // Book[] — filter understands predicates
+console.log(books.map((b) => b.pages));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 412 ]
+</script>
+<p>Since <span class="es">TS 5.5</span>, TypeScript can often <strong>infer</strong> a predicate for you. <code>items.filter((i) => i.kind === "book")</code> is already a <code>Book[]</code>, and <code>[1, null, 2].filter((x) => x !== null)</code> is a <code>number[]</code>.</p>
+<script type="text/plain" class="code" data-file="inferred-predicate.ts">
+const maybe = [1, null, 2, undefined, 3];
+const nums = maybe.filter((x) => x != null);   // number[]
+console.log(nums.reduce((a, b) => a + b, 0));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+6
+</script>
+
+<h2 id="unknown">unknown: data you don't trust</h2>
+<p><code>unknown</code> is the safe opposite of <code>any</code>. Anything can be assigned <em>to</em> it, but you can do almost nothing <em>with</em> it until you narrow it:</p>
+<script type="text/plain" class="code" data-file="unknown-bad.ts">
+const data: unknown = JSON.parse('{"title":"Dune"}');
+console.log(data.title);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+unknown-bad.ts(2,13): error TS18046: 'data' is of type 'unknown'.
+</script>
+<p>Combine <code>unknown</code> with a type predicate to <strong>validate</strong> runtime data. This is the honest version of the <code>as</code> assertion from Chapter 3:</p>
+<script type="text/plain" class="code" data-file="validate.ts">
+interface Book { title: string; pages: number }
+
+function isBook(value: unknown): value is Book {
+  return typeof value === "object" && value !== null
+    && "title" in value && typeof value.title === "string"
+    && "pages" in value && typeof value.pages === "number";
+}
+
+for (const text of ['{"title":"Dune","pages":412}', '{"title":"Emma"}', "42"]) {
+  const data: unknown = JSON.parse(text);
+  console.log(isBook(data) ? `OK: ${data.title}, ${data.pages} pages` : `rejected: ${text}`);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+OK: Dune, 412 pages
+rejected: {"title":"Emma"}
+rejected: 42
+</script>
+<div class="tip">
+<p>💡 In real projects, hand-written guards get long. Validation libraries such as Zod, Valibot or ArkType let you describe the shape once and get <em>both</em> the runtime check and the TypeScript type from it.</p>
+</div>
+
+<h3>Assertion functions</h3>
+<p>An <strong>assertion function</strong> throws if a condition fails. Its return type <code>asserts value is T</code> tells TypeScript that, if the call returns at all, the value is a <code>T</code>:</p>
+<script type="text/plain" class="code" data-file="asserts.ts">
+function assertIsString(value: unknown, name: string): asserts value is string {
+  if (typeof value !== "string") throw new TypeError(`${name} must be a string`);
+}
+
+const input: unknown = "  Dune ";
+assertIsString(input, "title");
+console.log(`[${input.trim()}]`);       // input: string from here on
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[Dune]
+</script>
+
+<h2 id="discriminated">Discriminated unions</h2>
+<p>Give each member of a union a common property with a different <strong>literal</strong> value, the <em>discriminant</em> (often called <code>kind</code> or <code>type</code>). Checking it narrows to exactly one member. A <code>switch</code> on it reads very cleanly:</p>
+<script type="text/plain" class="code" data-file="discriminated.ts">
+type LoanEvent =
+  | { type: "borrowed"; bookId: string; due: string }
+  | { type: "returned"; bookId: string; lateDays: number }
+  | { type: "lost"; bookId: string; fee: number };
+
+function describe(e: LoanEvent): string {
+  switch (e.type) {
+    case "borrowed": return `${e.bookId} due ${e.due}`;
+    case "returned": return `${e.bookId} back, ${e.lateDays} day(s) late`;
+    case "lost":     return `${e.bookId} lost, fee ${e.fee}`;
+  }
+}
+
+console.log(describe({ type: "borrowed", bookId: "b1", due: "2026-11-19" }));
+console.log(describe({ type: "returned", bookId: "b1", lateDays: 2 }));
+console.log(describe({ type: "lost", bookId: "b2", fee: 1500 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1 due 2026-11-19
+b1 back, 2 day(s) late
+b2 lost, fee 1500
+</script>
+<p>Notice the function has no <code>return</code> after the <code>switch</code>, and TypeScript doesn't complain: it knows every case returns.</p>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> this is the TypeScript version of Java's <strong>sealed interfaces + records + pattern-matching <code>switch</code></strong> (Java 21), or C#'s records with <code>switch</code> expressions. In Java the compiler knows the permitted subclasses; in TypeScript it knows the members of the union. There are no classes involved: the members are plain objects.</p>
+</div>
+
+<h2 id="never">never and exhaustiveness checking</h2>
+<p>Narrowing can remove every possibility. Then the type is <strong><code>never</code></strong>: a value that can't exist. Use it to make the compiler tell you when you forget a case. Assign the value to a <code>never</code> variable in the <code>default</code> branch:</p>
+<script type="text/plain" class="code" data-file="exhaustive.ts">
+type Format = "hardcover" | "paperback" | "ebook" | "audiobook";
+
+function shipping(f: Format): number {
+  switch (f) {
+    case "hardcover": return 599;
+    case "paperback": return 399;
+    case "ebook": return 0;
+    default: {
+      const unhandled: never = f;
+      throw new Error(`Unknown format: ${unhandled}`);
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+exhaustive.ts(9,13): error TS2322: Type '"audiobook"' is not assignable to type 'never'.
+</script>
+<p>Someone added <code>"audiobook"</code> to <code>Format</code>, and every <code>switch</code> that forgot it now fails to compile. The message names the case you missed. Add the missing <code>case "audiobook": return 0;</code> and the error disappears, because <code>f</code> really is <code>never</code> in <code>default</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a checklist that must be fully ticked.</strong> Each <code>case</code> ticks a box. <code>never</code> in <code>default</code> asserts "no boxes are left". Add a new box to the list, and every checklist that hasn't ticked it gets flagged.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Narrowing with Array.isArray</h3>
+<script type="text/plain" class="code" data-file="isarray.ts">
+function tagsOf(input: string | string[]): string[] {
+  return Array.isArray(input) ? input : input.split(",").map((t) => t.trim());
+}
+console.log(tagsOf("sci-fi, classic"), tagsOf(["poetry"]));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'sci-fi', 'classic' ] [ 'poetry' ]
+</script>
+<h3>Narrowing is lost inside callbacks for let variables</h3>
+<p>A callback might run later, after the variable changed, so TypeScript forgets narrowing of a <code>let</code> inside it. Copy the value to a <code>const</code> first:</p>
+<script type="text/plain" class="code" data-file="callback.ts">
+let current: string | null = "Dune";
+if (current !== null) {
+  setTimeout(() => console.log(current.length), 0);
+}
+current = null;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+callback.ts(3,32): error TS18047: 'current' is possibly 'null'.
+</script>
+<script type="text/plain" class="code" data-file="callback-fixed.ts">
+let current: string | null = "Dune";
+if (current !== null) {
+  const title = current;                    // const: can't change later
+  setTimeout(() => console.log(title.length), 0);
+}
+current = null;
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4
+</script>
+<h3>A Result type</h3>
+<p>Discriminated unions are a clean way to return "success or error" without exceptions:</p>
+<script type="text/plain" class="code" data-file="result.ts">
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function parseYear(text: string): Result<number> {
+  const n = Number(text);
+  return Number.isInteger(n) && n > 0 ? { ok: true, value: n } : { ok: false, error: `not a year: ${text}` };
+}
+for (const t of ["1965", "soon"]) {
+  const r = parseYear(t);
+  console.log(r.ok ? r.value + 1 : r.error);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1966
+not a year: soon
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><strong>Narrowing</strong> turns a wide type into a specific one using normal runtime checks; <strong>control flow analysis</strong> tracks the type at every line.</li>
+  <li>Built-in guards: <code>typeof</code> (remember <code>typeof null === "object"</code>), truthiness, <code>===</code>/<code>!= null</code>, <code>in</code>, <code>instanceof</code>, <code>Array.isArray</code>.</li>
+  <li>Custom guards return <code>x is T</code>; assertion functions return <code>asserts x is T</code>. TS 5.5+ infers simple predicates.</li>
+  <li><code>unknown</code> + a guard is the safe way to handle JSON and other runtime data.</li>
+  <li><strong>Discriminated unions</strong>: members share a literal <code>kind</code>; <code>switch</code> on it.</li>
+  <li><code>never</code> means "impossible"; assign to it in <code>default</code> for exhaustiveness checking.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Inside <code>if (typeof v === "object")</code>, where <code>v: string[] | number | null</code>, what is the type of <code>v</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>string[] | null</code>. Arrays are objects, and so is <code>null</code> according to <code>typeof</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write <code>describeValue(v: string | number | boolean): string</code> that returns <code>"text"</code>, <code>"number"</code> or <code>"yes/no"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="describe-value.ts">
+function describeValue(v: string | number | boolean): string {
+  if (typeof v === "string") return "text";
+  if (typeof v === "number") return "number";
+  return "yes/no";
+}
+console.log(describeValue("a"), describeValue(1), describeValue(false));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+text number yes/no
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">find the bug</span></h3>
+<p>What's wrong with <code>function show(count: number | undefined) { if (count) return `${count} copies`; return "unknown"; }</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A count of <code>0</code> is falsy, so it prints "unknown" instead of "0 copies". Check <code>count !== undefined</code> instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">catch</span></h3>
+<p>In <code>catch (err)</code> under <code>strict</code>, what is the type of <code>err</code>, and how do you read its <code>message</code> safely?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="catch.ts">
+try {
+  throw new RangeError("days must be positive");
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.log(message);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+days must be positive
+</script>
+<p>It's <code>unknown</code> (the <code>useUnknownInCatchVariables</code> check, part of <code>strict</code>). Narrow with <code>instanceof Error</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">type predicate</span></h3>
+<p>Write <code>isNonEmptyString(v: unknown): v is string</code> and use it to filter <code>["Dune", "", 42, "Emma", null]</code> down to a <code>string[]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="nonempty.ts">
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0;
+}
+const mixed: unknown[] = ["Dune", "", 42, "Emma", null];
+const titles: string[] = mixed.filter(isNonEmptyString);
+console.log(titles);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Emma' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">discriminated union</span></h3>
+<p>Model shapes as <code>{ kind: "circle"; r: number } | { kind: "rect"; w: number; h: number }</code> and write <code>area</code>. Print the areas of a circle with r=1 (2 decimals) and a 2×3 rectangle.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="shapes.ts">
+type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle": return Math.PI * s.r ** 2;
+    case "rect": return s.w * s.h;
+  }
+}
+console.log(area({ kind: "circle", r: 1 }).toFixed(2), area({ kind: "rect", w: 2, h: 3 }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3.14 6
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">exhaustiveness</span></h3>
+<p>Add <code>{ kind: "triangle"; base: number; height: number }</code> to <code>Shape</code> from Exercise 6 and add a <code>never</code> check. What error do you get before you handle the triangle?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="triangle.ts">
+type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "triangle"; base: number; height: number };
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle": return Math.PI * s.r ** 2;
+    case "rect": return s.w * s.h;
+    default: {
+      const missing: never = s;
+      return missing;
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+triangle.ts(10,13): error TS2322: Type '{ kind: "triangle"; base: number; height: number; }' is not assignable to type 'never'.
+</script>
+<p>The message even tells you <em>which</em> member is missing. Add <code>case "triangle": return (s.base * s.height) / 2;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch04/parse-book.ts</code>, write <code>parseBook(text: string): Book | null</code> that parses JSON to <code>unknown</code>, validates it with a type guard, and returns <code>null</code> when it's invalid. The capstone uses this to load the catalogue file.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="parse-book.ts">
+interface Book { id: string; title: string; year: number }
+
+function isBook(v: unknown): v is Book {
+  return typeof v === "object" && v !== null
+    && "id" in v && typeof v.id === "string"
+    && "title" in v && typeof v.title === "string"
+    && "year" in v && typeof v.year === "number";
+}
+export function parseBook(text: string): Book | null {
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { return null; }
+  return isBook(data) ? data : null;
+}
+console.log(parseBook('{"id":"b1","title":"Dune","year":1965}'), parseBook("{oops"), parseBook('{"id":"b2"}'));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'b1', title: 'Dune', year: 1965 } null null
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">assertion function</span></h3>
+<p>Write <code>assertDefined&lt;T&gt;(v: T | undefined, msg: string): asserts v is T</code> and use it on the result of <code>Map.get</code>. (The <code>&lt;T&gt;</code> makes it work for any type; generics are Chapter 8.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="assert-defined.ts">
+function assertDefined<T>(v: T | undefined, msg: string): asserts v is T {
+  if (v === undefined) throw new Error(msg);
+}
+const stock = new Map([["b1", 3]]);
+const n = stock.get("b1");
+assertDefined(n, "unknown book b1");
+console.log(n + 1);
+try {
+  const m = stock.get("b9");
+  assertDefined(m, "unknown book b9");
+} catch (e) {
+  console.log((e as Error).message);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4
+unknown book b9
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Model a loan request result as a discriminated union with three outcomes: <code>approved</code> (with <code>due</code>), <code>waitlisted</code> (with <code>position</code>) and <code>denied</code> (with <code>reason</code>). Write <code>message(r)</code> with an exhaustiveness check and print one message per outcome.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="loan-result.ts">
+type LoanResult =
+  | { status: "approved"; due: string }
+  | { status: "waitlisted"; position: number }
+  | { status: "denied"; reason: string };
+
+function message(r: LoanResult): string {
+  switch (r.status) {
+    case "approved": return `Enjoy! Due back ${r.due}.`;
+    case "waitlisted": return `You are number ${r.position} in the queue.`;
+    case "denied": return `Sorry: ${r.reason}.`;
+    default: { const x: never = r; return x; }
+  }
+}
+const results: LoanResult[] = [
+  { status: "approved", due: "2026-11-19" },
+  { status: "waitlisted", position: 2 },
+  { status: "denied", reason: "loan limit reached" },
+];
+results.forEach((r) => console.log(message(r)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Enjoy! Due back 2026-11-19.
+You are number 2 in the queue.
+Sorry: loan limit reached.
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html">Handbook: Narrowing</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions">Discriminated unions</a> · <a href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html#exhaustiveness-checking">Exhaustiveness checking</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-5.html#inferred-type-predicates">TS 5.5: Inferred type predicates</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#useUnknownInCatchVariables">TSConfig: useUnknownInCatchVariables</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗺️&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Mapped &amp; Template Literal Types · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Type Manipulation</div>
+<h1>Mapped &amp; Template Literal Types</h1>
+<p class="lead">A <strong>mapped type</strong> builds a new object type by looping over keys, like <code>Array.map</code> but for properties. A <strong>template literal type</strong> builds string types the way template strings build strings. Together they describe APIs such as <code>onChange</code> handlers, getters and setters, or <code>"GET /books"</code> routes. This chapter follows the Handbook pages <em>Mapped Types</em> and <em>Template Literal Types</em>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The syntax <code>{ [K in Keys]: Type }</code>.</li>
+  <li>Adding and removing <code>readonly</code> and <code>?</code> with <code>+</code>/<code>-</code> modifiers.</li>
+  <li><strong>Key remapping</strong> with <code>as</code>, including filtering keys out.</li>
+  <li>Template literal types, and how they combine with unions.</li>
+  <li>The intrinsic string types <code>Uppercase</code>, <code>Lowercase</code>, <code>Capitalize</code>, <code>Uncapitalize</code>.</li>
+</ul>
+</div>
+
+<h2 id="mapped">Mapped types</h2>
+<p>A mapped type iterates over a union of keys (usually <code>keyof T</code>) and produces one property per key:</p>
+<script type="text/plain" class="code" data-file="mapped.ts">
+interface Features { darkMode: () => void; newUserProfile: () => void }
+
+type OptionsFlags<T> = { [K in keyof T]: boolean };
+type FeatureOptions = OptionsFlags<Features>;      // { darkMode: boolean; newUserProfile: boolean }
+
+const flags: FeatureOptions = { darkMode: true, newUserProfile: false };
+console.log(flags);
+const missing: FeatureOptions = { darkMode: true };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+mapped.ts(8,7): error TS2741: Property 'newUserProfile' is missing in type '{ darkMode: true; }' but required in type 'OptionsFlags<Features>'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ darkMode: true, newUserProfile: false }
+</script>
+<p>The keys don't have to come from <code>keyof</code>. Any union of strings works, which is exactly what the built-in <code>Record&lt;K, V&gt;</code> is:</p>
+<script type="text/plain" class="code" data-file="record.ts">
+type MyRecord<K extends PropertyKey, V> = { [P in K]: V };
+type Shelf = "A" | "B" | "C";
+const counts: MyRecord<Shelf, number> = { A: 12, B: 7, C: 0 };
+console.log(Object.values(counts).reduce((a, b) => a + b));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+19
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a mail merge.</strong> You write one template line, <code>[K in keyof T]: boolean</code>, and the type system "prints" one copy per key, filling in the name each time.</p>
+</div>
+
+<h2 id="modifiers">Mapping modifiers</h2>
+<p>You can add (<code>+</code>, the default) or remove (<code>-</code>) the <code>readonly</code> and <code>?</code> modifiers while mapping. The built-in <code>Partial</code>, <code>Required</code> and <code>Readonly</code> are written this way:</p>
+<script type="text/plain" class="code" data-file="modifiers.ts">
+type MyPartial<T> = { [K in keyof T]?: T[K] };
+type MyRequired<T> = { [K in keyof T]-?: T[K] };
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+interface Draft { readonly id: string; title?: string; author?: string }
+
+const patch: MyPartial<Draft> = { title: "Dune" };
+const full: MyRequired<Draft> = { id: "b1", title: "Dune", author: "Frank Herbert" };
+const editable: Mutable<Draft> = { id: "b1" };
+editable.id = "b2";                                  // readonly removed
+console.log(patch, full.author, editable.id);
+const incomplete: MyRequired<Draft> = { id: "b1" };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+modifiers.ts(12,7): error TS2739: Type '{ id: string; }' is missing the following properties from type 'MyRequired<Draft>': title, author
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ title: 'Dune' } Frank Herbert b2
+</script>
+<p>A mapped type over <code>keyof T</code> keeps each property's original modifiers unless you change them. That's called a <strong>homomorphic</strong> mapped type: it has the same "shape" as <code>T</code>.</p>
+
+<h2 id="remap">Key remapping with as</h2>
+<p>Since <span class="es">TS 4.1</span>, you can rename keys while mapping with an <code>as</code> clause. The new name is often built with a template literal type:</p>
+<script type="text/plain" class="code" data-file="getters.ts">
+type Getters<T> = { [K in keyof T as `get${Capitalize<string & K>}`]: () => T[K] };
+
+interface Member { name: string; maxLoans: number }
+type MemberGetters = Getters<Member>;    // { getName: () => string; getMaxLoans: () => number }
+
+const ana: MemberGetters = { getName: () => "Ana", getMaxLoans: () => 3 };
+console.log(ana.getName(), ana.getMaxLoans());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana 3
+</script>
+<p><code>string &amp; K</code> keeps only string keys (keys can also be numbers or symbols, which <code>Capitalize</code> doesn't accept). Remapping a key to <code>never</code> <strong>removes</strong> it, so <code>as</code> can filter:</p>
+<script type="text/plain" class="code" data-file="filter-keys.ts">
+type RemoveKind<T> = { [K in keyof T as Exclude<K, "kind">]: T[K] };
+type OnlyStrings<T> = { [K in keyof T as T[K] extends string ? K : never]: T[K] };
+
+interface Circle { kind: "circle"; radius: number; label: string; color: string }
+const a: RemoveKind<Circle> = { radius: 2, label: "c1", color: "red" };
+const b: OnlyStrings<Circle> = { kind: "circle", label: "c1", color: "red" };
+console.log(Object.keys(a), Object.keys(b));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'radius', 'label', 'color' ] [ 'kind', 'label', 'color' ]
+</script>
+<p>You can also map over a union of objects, using a property of each as the key:</p>
+<script type="text/plain" class="code" data-file="map-union.ts">
+type LoanEvent =
+  | { type: "borrowed"; bookId: string }
+  | { type: "returned"; lateDays: number };
+type Handlers = { [E in LoanEvent as `on${Capitalize<E["type"]>}`]: (e: E) => void };
+
+const h: Handlers = {
+  onBorrowed: (e) => console.log("borrowed", e.bookId),
+  onReturned: (e) => console.log("returned, late", e.lateDays),
+};
+h.onBorrowed({ type: "borrowed", bookId: "b1" });
+h.onReturned({ type: "returned", lateDays: 1 });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+borrowed b1
+returned, late 1
+</script>
+
+<h2 id="template">Template literal types</h2>
+<p>A <strong>template literal type</strong> uses backticks in a type position. With literal types inside, it produces a new literal type:</p>
+<script type="text/plain" class="code" data-file="template.ts">
+type World = "world";
+type Greeting = `hello ${World}`;              // "hello world"
+const g: Greeting = "hello world";
+
+type Shelf = "A" | "B";
+type Level = 1 | 2 | 3;
+type Location = `${Shelf}${Level}`;            // "A1" | "A2" | "A3" | "B1" | "B2" | "B3"
+const loc: Location = "B2";
+const bad: Location = "C1";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+template.ts(9,7): error TS2322: Type '"C1"' is not assignable to type '"A1" | "A2" | "A3" | "B1" | "B2" | "B3"'.
+</script>
+<p>Unions in the placeholders <strong>multiply</strong>: every combination is produced. Use it for small sets; 10 × 10 × 10 combinations is already a 1000-member union.</p>
+<p>A placeholder can also be a general type like <code>string</code> or <code>number</code>, giving a <em>pattern</em>:</p>
+<script type="text/plain" class="code" data-file="patterns.ts">
+type BookId = `b${number}`;
+type Route = `${"GET" | "POST"} /${string}`;
+
+const id: BookId = "b42";
+const r: Route = "GET /books";
+const wrongId: BookId = "book-42";
+const wrongRoute: Route = "PUT /books";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+patterns.ts(6,7): error TS2322: Type '"book-42"' is not assignable to type '`b${number}`'.
+patterns.ts(7,7): error TS2322: Type '"PUT /books"' is not assignable to type '`GET /${string}` | `POST /${string}`'.
+</script>
+
+<h3>Intrinsic string manipulation types</h3>
+<p>Four built-in types change the case of string literal types. They're implemented inside the compiler, so they're called <em>intrinsic</em>:</p>
+<script type="text/plain" class="code" data-file="intrinsic.ts">
+type Status = "active" | "overdue";
+type Loud = Uppercase<Status>;           // "ACTIVE" | "OVERDUE"
+type Event = `on${Capitalize<Status>}`;  // "onActive" | "onOverdue"
+type Quiet = Lowercase<"DUNE">;          // "dune"
+type Un = Uncapitalize<"Dune">;          // "dune"
+const values: [Loud, Event, Quiet, Un] = ["OVERDUE", "onActive", "dune", "dune"];
+console.log(values);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'OVERDUE', 'onActive', 'dune', 'dune' ]
+</script>
+
+<h3>Inference with template literals</h3>
+<p>The Handbook's flagship example: an object that gets an <code>on</code> method where the event name is <code>"<em>property</em>Changed"</code>, and the callback receives that property's type.</p>
+<script type="text/plain" class="code" data-file="watched.ts">
+type PropEventSource<T> = {
+  on<K extends string & keyof T>(eventName: `${K}Changed`, callback: (newValue: T[K]) => void): void;
+};
+
+function makeWatchedObject<T extends object>(obj: T): T & PropEventSource<T> {
+  const listeners = new Map<string, ((v: unknown) => void)[]>();
+  const target = obj as T & PropEventSource<T>;
+  target.on = (name: string, cb: (v: never) => void) => {
+    listeners.set(name, [...(listeners.get(name) ?? []), cb as (v: unknown) => void]);
+  };
+  return new Proxy(target, {
+    set(t, key, value) {
+      Reflect.set(t, key, value);
+      listeners.get(`${String(key)}Changed`)?.forEach((cb) => cb(value));
+      return true;
+    },
+  });
+}
+
+const person = makeWatchedObject({ firstName: "Saoirse", age: 26 });
+person.on("ageChanged", (newAge) => console.log(`age is now ${newAge.toFixed(0)}`));
+person.on("firstNameChanged", (n) => console.log(`name is now ${n.toUpperCase()}`));
+person.age = 27;
+person.firstName = "Sierra";
+person.on("lastNameChanged", () => {});
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+watched.ts(25,11): error TS2345: Argument of type '"lastNameChanged"' is not assignable to parameter of type '"ageChanged" | "firstNameChanged"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+age is now 27
+name is now SIERRA
+</script>
+<p>When you write <code>"ageChanged"</code>, TypeScript infers <code>K = "age"</code> from the template, so <code>newAge</code> is a <code>number</code>. The implementation uses a <code>Proxy</code> and a few casts; callers get the precise types.</p>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> nothing like this exists in Java's or C#'s type systems. A Java developer would generate code (annotation processors, Lombok's getters) or use reflection. In TypeScript, the "generated" API lives purely in the types, with zero runtime cost, and the editor autocompletes <code>getName</code> and <code>"ageChanged"</code> as if they were written by hand.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A form state type from a model</h3>
+<script type="text/plain" class="code" data-file="form.ts">
+interface Book { title: string; year: number }
+type FormState<T> = { [K in keyof T]: { value: T[K]; error?: string; touched: boolean } };
+
+const form: FormState<Book> = {
+  title: { value: "", error: "required", touched: true },
+  year: { value: 1965, touched: false },
+};
+console.log(form.title.error, form.year.value);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+required 1965
+</script>
+<h3>CSS-like units</h3>
+<script type="text/plain" class="code" data-file="units.ts">
+type Unit = "px" | "rem" | "%";
+type Size = `${number}${Unit}`;
+function width(s: Size) { return `width: ${s}`; }
+console.log(width("12px"), width("1.5rem"), width("50%"));
+width("12");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+units.ts(5,7): error TS2345: Argument of type '"12"' is not assignable to parameter of type '`${number}%` | `${number}px` | `${number}rem`'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+width: 12px width: 1.5rem width: 50%
+</script>
+<h3>Setters from a type</h3>
+<script type="text/plain" class="code" data-file="setters.ts">
+type Setters<T> = { [K in keyof T & string as `set${Capitalize<K>}`]: (value: T[K]) => void };
+const state = { title: "Dune", year: 1965 };
+const setters: Setters<typeof state> = {
+  setTitle: (v) => { state.title = v; },
+  setYear: (v) => { state.year = v; },
+};
+setters.setYear(1966);
+console.log(state);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ title: 'Dune', year: 1966 }
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>{ [K in Keys]: T }</code> creates one property per key; over <code>keyof T</code> it keeps modifiers (homomorphic).</li>
+  <li><code>+</code>/<code>-</code> add or remove <code>readonly</code> and <code>?</code>: that's how <code>Partial</code>, <code>Required</code>, <code>Readonly</code> work.</li>
+  <li><code>as</code> renames keys; mapping a key to <code>never</code> removes it.</li>
+  <li>Template literal types build string types; unions in placeholders produce every combination.</li>
+  <li><code>`b${number}`</code> and <code>`${string}Changed`</code> are patterns that also drive inference.</li>
+  <li><code>Uppercase</code>, <code>Lowercase</code>, <code>Capitalize</code>, <code>Uncapitalize</code> transform string literals.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">mapped</span></h3>
+<p>Write <code>Stringify&lt;T&gt;</code> that turns every property into <code>string</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="stringify.ts">
+type Stringify<T> = { [K in keyof T]: string };
+const row: Stringify<{ id: number; due: Date }> = { id: "1", due: "2026-11-19" };
+console.log(row);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: '1', due: '2026-11-19' }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">template</span></h3>
+<p>Write a type <code>Isbn</code> for strings shaped like <code>"978-…"</code>, and a type for <code>"m1"</code>-style member ids.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type Isbn = `978-${string}`;</code> and <code>type MemberId = `m${number}`;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>How many members does <code>`${"a" | "b"}-${"x" | "y" | "z"}`</code> have?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>2 × 3 = 6: <code>"a-x" | "a-y" | "a-z" | "b-x" | "b-y" | "b-z"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">modifiers</span></h3>
+<p>Write <code>ReadonlyPartial&lt;T&gt;</code>: every property readonly and optional.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type ReadonlyPartial&lt;T&gt; = { readonly [K in keyof T]?: T[K] };</code> (same as <code>Readonly&lt;Partial&lt;T&gt;&gt;</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">remap</span></h3>
+<p>Write <code>PickByType&lt;T, V&gt;</code> that keeps only properties whose type is assignable to <code>V</code>. Use it to get the number fields of a book.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="pickbytype.ts">
+type PickByType<T, V> = { [K in keyof T as T[K] extends V ? K : never]: T[K] };
+interface Book { title: string; year: number; pages: number; isbn?: string }
+const nums: PickByType<Book, number> = { year: 1965, pages: 412 };
+console.log(Object.keys(nums));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'year', 'pages' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">template + mapped</span></h3>
+<p>Write <code>EventHandlers&lt;Events extends string&gt;</code> producing <code>{ onBorrow: () =&gt; void; onReturn: () =&gt; void }</code> from <code>"borrow" | "return"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="event-handlers.ts">
+type EventHandlers<Events extends string> = { [E in Events as `on${Capitalize<E>}`]: () => void };
+const h: EventHandlers<"borrow" | "return"> = {
+  onBorrow: () => console.log("borrow!"),
+  onReturn: () => console.log("return!"),
+};
+h.onBorrow();
+h.onReturn();
+</script>
+<script type="text/plain" class="code" data-lang="text">
+borrow!
+return!
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">infer + template</span></h3>
+<p>Write <code>RouteParams&lt;"/books/:id/copies/:copy"&gt;</code> that produces <code>"id" | "copy"</code>. Hint: a recursive conditional type with <code>infer</code> in a template.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="route-params.ts">
+type RouteParams<S extends string> =
+  S extends `${string}:${infer P}/${infer Rest}` ? P | RouteParams<`/${Rest}`>
+  : S extends `${string}:${infer P}` ? P
+  : never;
+type P = RouteParams<"/books/:id/copies/:copy">;
+const params: Record<P, string> = { id: "b1", copy: "2" };
+console.log(params);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'b1', copy: '2' }
+</script>
+<p>This is how typed routers (Express types, Hono, React Router) extract parameter names from a path string.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch11/report-columns.ts</code>, write a <code>Columns&lt;T&gt;</code> mapped type: for each key of a row type, a <code>{ header: string; format?: (v: T[K]) =&gt; string }</code>. Use it to print a small table of loans. The capstone's report uses it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="report-columns.ts">
+export type Columns<T> = { [K in keyof T]: { header: string; format?: (v: T[K]) => string } };
+
+export function table<T>(rows: T[], cols: Columns<T>): string {
+  const keys = Object.keys(cols) as (keyof T)[];
+  const head = keys.map((k) => cols[k].header).join(" | ");
+  const body = rows.map((r) => keys.map((k) => cols[k].format?.(r[k]) ?? String(r[k])).join(" | "));
+  return [head, ...body].join("\n");
+}
+interface LoanRow { title: string; due: Date; fee: number }
+console.log(table<LoanRow>(
+  [{ title: "Dune", due: new Date(2026, 10, 19), fee: 0 }, { title: "Emma", due: new Date(2026, 10, 2), fee: 75 }],
+  { title: { header: "Title" }, due: { header: "Due", format: (d) => d.toDateString() }, fee: { header: "Fee", format: (c) => (c / 100).toFixed(2) } },
+));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Title | Due | Fee
+Dune | Thu Nov 19 2026 | 0.00
+Emma | Mon Nov 02 2026 | 0.75
+</script>
+<p>Each <code>format</code> function gets the right type: <code>d</code> is a <code>Date</code>, <code>c</code> is a <code>number</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why do you need <code>string &amp; K</code> (or <code>keyof T &amp; string</code>) before <code>Capitalize</code> in a key remapping?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>keyof T</code> is <code>string | number | symbol</code> in general, and <code>Capitalize</code> requires a <code>string</code>. Intersecting with <code>string</code> keeps only the string keys (number and symbol keys become <code>never</code> and are dropped), so the template type is valid.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write <code>Paths&lt;T&gt;</code> that lists all dotted paths of a nested object type, e.g. <code>"id" | "author" | "author.name" | "author.born"</code>, and a <code>get(obj, path)</code> that only accepts those paths.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="paths.ts">
+type Paths<T> = T extends object
+  ? { [K in keyof T & string]: K | `${K}.${Paths<T[K]>}` }[keyof T & string]
+  : never;
+
+interface Book { id: string; author: { name: string; born: number } }
+function get(obj: Book, path: Paths<Book>): unknown {
+  return path.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], obj);
+}
+const dune: Book = { id: "b1", author: { name: "Frank Herbert", born: 1920 } };
+console.log(get(dune, "author.born"), get(dune, "id"));
+get(dune, "author.age");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+paths.ts(11,11): error TS2345: Argument of type '"author.age"' is not assignable to parameter of type '"author" | "author.born" | "author.name" | "id"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1920 b1
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/mapped-types.html">Handbook: Mapped Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/template-literal-types.html">Handbook: Template Literal Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/mapped-types.html#key-remapping-via-as">Key remapping via as</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

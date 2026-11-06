@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📦&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Object Types · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Functions, Objects &amp; Classes</div>
+<h1>Object Types</h1>
+<p class="lead">In JavaScript, data travels in objects. This chapter follows the Handbook's <em>Object Types</em> page and goes deeper than Chapter 3: property modifiers, index signatures, the excess property check, extending and intersecting types, generic object types, and tuples.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><code>readonly</code> and optional properties, and <code>exactOptionalPropertyTypes</code>.</li>
+  <li><strong>Index signatures</strong> for dictionaries, and <code>noUncheckedIndexedAccess</code>.</li>
+  <li>The <strong>excess property check</strong>: why extra properties sometimes fail.</li>
+  <li><code>extends</code> vs intersections (<code>&amp;</code>).</li>
+  <li>Generic object types such as <code>Box&lt;T&gt;</code> and <code>ReadonlyArray&lt;T&gt;</code>.</li>
+  <li><strong>Tuples</strong>: fixed-length arrays with a type per position.</li>
+</ul>
+</div>
+
+<h2 id="readonly">readonly properties</h2>
+<p><code>readonly</code> forbids assignment to a property <em>through that type</em>. It's a compile-time check only; it doesn't freeze the object.</p>
+<script type="text/plain" class="code" data-file="readonly.ts">
+interface Loan {
+  readonly id: string;
+  readonly member: { name: string };
+  days: number;
+}
+const loan: Loan = { id: "L1", member: { name: "Ana" }, days: 14 };
+loan.days = 21;                 // fine
+loan.member.name = "Ana Lima";  // fine: readonly is not deep
+loan.id = "L2";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+readonly.ts(9,6): error TS2540: Cannot assign to 'id' because it is a read-only property.
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> <code>readonly</code> is like a <code>final</code> field (Java) or a <code>readonly</code>/<code>init</code> property (C#): the reference can't change, but the object it points to can. And because typing is structural, a <code>readonly</code> object type can be assigned to a mutable one with the same properties. It protects your code from accidents, not from other code.</p>
+</div>
+
+<h2 id="optional">Optional properties, exactly</h2>
+<p>An optional property <code>note?: string</code> may be missing. By default you may also set it to <code>undefined</code> explicitly. The stricter option <code>exactOptionalPropertyTypes</code> separates "missing" from "present but <code>undefined</code>", which matters for code that checks <code>"note" in obj</code> or uses <code>Object.keys</code>:</p>
+<script type="text/plain" class="code" data-file="exact-optional.ts" data-tsc="exactOptionalPropertyTypes">
+interface Settings { theme?: "light" | "dark" }
+const a: Settings = {};                    // OK: missing
+const b: Settings = { theme: "dark" };     // OK
+const c: Settings = { theme: undefined };  // not OK with exactOptionalPropertyTypes
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+exact-optional.ts(4,7): error TS2375: Type '{ theme: undefined; }' is not assignable to type 'Settings' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'theme' are incompatible.
+    Type 'undefined' is not assignable to type '"dark" | "light"'.
+</script>
+<p><code>tsc --init</code> turns this option on in new projects. If you really want to allow <code>undefined</code>, write it: <code>theme?: "light" | "dark" | undefined</code>.</p>
+
+<h2 id="index">Index signatures</h2>
+<p>When you don't know the property names in advance, but you know the types, use an <strong>index signature</strong>: <code>[key: string]: T</code>. It describes a dictionary.</p>
+<script type="text/plain" class="code" data-file="index.ts">
+interface StockByBook {
+  [bookId: string]: number;
+}
+const stock: StockByBook = { b1: 3, b2: 0 };
+stock.b7 = 5;
+console.log(Object.entries(stock));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ [ 'b1', 3 ], [ 'b2', 0 ], [ 'b7', 5 ] ]
+</script>
+<p>Every other property in the type must fit the index signature, because <code>obj.name</code> and <code>obj["name"]</code> are the same thing:</p>
+<script type="text/plain" class="code" data-file="index-conflict.ts">
+interface Dictionary {
+  [key: string]: number;
+  count: number;      // OK
+  label: string;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+index-conflict.ts(4,3): error TS2411: Property 'label' of type 'string' is not assignable to 'string' index type 'number'.
+</script>
+<h3>noUncheckedIndexedAccess</h3>
+<p>Look closely: <code>stock.b99</code> has type <code>number</code>, but it's <code>undefined</code> at runtime. The option <code>noUncheckedIndexedAccess</code> (also set by <code>tsc --init</code>) adds <code>| undefined</code> to every index access, including arrays:</p>
+<script type="text/plain" class="code" data-file="unchecked.ts" data-tsc="noUncheckedIndexedAccess">
+const stock: Record<string, number> = { b1: 3 };
+const titles = ["Dune", "Emma"];
+const n = stock["b99"];       // number | undefined
+const t = titles[5];          // string | undefined
+console.log(n + 1, t.length);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+unchecked.ts(5,13): error TS18048: 'n' is possibly 'undefined'.
+unchecked.ts(5,20): error TS18048: 't' is possibly 'undefined'.
+</script>
+<p><code>Record&lt;string, number&gt;</code> is a built-in shorthand for <code>{ [key: string]: number }</code> (Chapter 12). For a real dictionary, a <code>Map</code> is often better: <code>map.get(k)</code> always returns <code>T | undefined</code>.</p>
+
+<h2 id="excess">The excess property check</h2>
+<p>Structural typing allows extra properties. But when you write an <strong>object literal directly</strong> where a type is expected, an unknown property is almost always a typo, so TypeScript reports it:</p>
+<script type="text/plain" class="code" data-file="excess.ts">
+interface SearchOptions { query: string; limit?: number }
+function search(o: SearchOptions) { return o.query; }
+
+search({ query: "dune", limt: 5 });
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+excess.ts(4,25): error TS2561: Object literal may only specify known properties, but 'limt' does not exist in type 'SearchOptions'. Did you mean to write 'limit'?
+</script>
+<p>The check only applies to <em>fresh</em> object literals. The same object stored in a variable first is accepted, because it might be used elsewhere with the extra property:</p>
+<script type="text/plain" class="code" data-file="excess-var.ts">
+interface SearchOptions { query: string; limit?: number }
+function search(o: SearchOptions) { return o.query; }
+const opts = { query: "dune", limt: 5 };
+console.log(search(opts));          // no error, and the typo is silently ignored
+</script>
+<script type="text/plain" class="code" data-lang="text">
+dune
+</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a form you fill in versus a document you hand over.</strong> When you fill in the form on the spot (an object literal), the clerk points out a box that doesn't exist. When you hand over a document you already had (a variable), the clerk reads only the boxes they need and ignores the rest.</p>
+</div>
+
+<h2 id="extends">Extending and intersecting</h2>
+<p>An interface can <code>extends</code> one or more others. An <strong>intersection</strong> <code>A &amp; B</code> combines types into one that has everything from both.</p>
+<script type="text/plain" class="code" data-file="extends.ts">
+interface Named { name: string }
+interface Contact { email: string }
+interface Member extends Named, Contact { maxLoans: number }
+
+type Staff = Named & Contact & { role: "librarian" | "admin" };
+
+const m: Member = { name: "Ana", email: "ana@example.com", maxLoans: 3 };
+const s: Staff = { name: "Ben", email: "ben@example.com", role: "librarian" };
+console.log(m.name, s.role);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana librarian
+</script>
+<p>They differ when properties conflict. <code>extends</code> reports the conflict at the declaration; an intersection silently produces <code>never</code> for that property:</p>
+<script type="text/plain" class="code" data-file="conflict.ts">
+interface A { id: string }
+interface B extends A { id: number }
+
+type C = { id: string } & { id: number };   // id: string & number = never
+const c: C = { id: 1 };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+conflict.ts(2,11): error TS2430: Interface 'B' incorrectly extends interface 'A'.
+  Types of property 'id' are incompatible.
+    Type 'number' is not assignable to type 'string'.
+conflict.ts(5,16): error TS2322: Type 'number' is not assignable to type 'never'.
+</script>
+
+<h2 id="generic">Generic object types</h2>
+<p>A type can have type parameters too. <code>Box&lt;T&gt;</code> is a template: <code>Box&lt;string&gt;</code> and <code>Box&lt;number&gt;</code> are two concrete types made from it.</p>
+<script type="text/plain" class="code" data-file="box.ts">
+interface Box<T> {
+  contents: T;
+}
+type Page<T> = { items: T[]; total: number; next: number | null };
+
+const titleBox: Box<string> = { contents: "Dune" };
+const page: Page<{ id: string }> = { items: [{ id: "b1" }, { id: "b2" }], total: 40, next: 2 };
+console.log(titleBox.contents.length, page.items.length, page.next);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 2 2
+</script>
+<p><code>Array&lt;T&gt;</code> is a generic interface. Its read-only twin <code>ReadonlyArray&lt;T&gt;</code> (short form <code>readonly T[]</code>) has no mutating methods. Use it for parameters you promise not to change:</p>
+<script type="text/plain" class="code" data-file="readonly-array.ts">
+function total(prices: readonly number[]): number {
+  prices.push(0);
+  return prices.reduce((a, b) => a + b, 0);
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+readonly-array.ts(2,10): error TS2339: Property 'push' does not exist on type 'readonly number[]'.
+</script>
+
+<h2 id="tuples">Tuples</h2>
+<p>A <strong>tuple</strong> is an array with a known length and a known type at each position. React's <code>useState</code> returns one: <code>[value, setter]</code>.</p>
+<script type="text/plain" class="code" data-file="tuples.ts">
+type Entry = [bookId: string, copies: number];          // labelled elements (for readability)
+const e: Entry = ["b1", 3];
+const [id, copies] = e;
+console.log(id, copies + 1);
+
+type Range = [start: number, end?: number];            // optional last element
+const open: Range = [10];
+console.log(open.length, open[1] ?? "open-ended");
+
+type Path = [string, ...number[]];                     // rest element
+const p: Path = ["shelf", 3, 5, 2];
+console.log(p);
+const bad: Entry = ["b1", 3, true];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+tuples.ts(13,7): error TS2322: Type '[string, number, boolean]' is not assignable to type 'Entry'.
+  Source has 3 element(s) but target allows only 2.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1 4
+1 open-ended
+[ 'shelf', 3, 5, 2 ]
+</script>
+<p>Mark tuples <code>readonly</code> when they shouldn't change: <code>readonly [number, number]</code>. <code>as const</code> on an array literal produces a readonly tuple.</p>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> tuples are like C#'s <code>(string BookId, int Copies)</code> value tuples. Java has no built-in tuple; you'd write a small <code>record Entry(String bookId, int copies)</code>. In TypeScript, prefer an object with named properties once a tuple has more than two or three elements.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A dictionary with known and unknown keys</h3>
+<script type="text/plain" class="code" data-file="config.ts">
+interface Labels {
+  [lang: string]: string;
+  en: string;            // must always exist, and must fit the index signature
+}
+const labels: Labels = { en: "Borrow", fr: "Emprunter" };
+console.log(labels.en, labels["fr"]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Borrow Emprunter
+</script>
+<h3>A function that returns a tuple</h3>
+<script type="text/plain" class="code" data-file="split.ts">
+function splitAvailability(stock: Record<string, number>): [inStock: string[], out: string[]] {
+  const ids = Object.keys(stock);
+  return [ids.filter((id) => stock[id]! > 0), ids.filter((id) => stock[id] === 0)];
+}
+const [inStock, out] = splitAvailability({ b1: 3, b2: 0, b3: 1 });
+console.log(inStock, out);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'b1', 'b3' ] [ 'b2' ]
+</script>
+<h3>Readonly everywhere with as const</h3>
+<script type="text/plain" class="code" data-file="as-const-object.ts">
+const LIMITS = { student: 3, staff: 10, guest: 1 } as const;
+type MemberType = keyof typeof LIMITS;          // "student" | "staff" | "guest" (Chapter 9)
+function limitFor(t: MemberType) { return LIMITS[t]; }
+console.log(limitFor("staff"));
+LIMITS.guest = 2;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+as-const-object.ts(5,8): error TS2540: Cannot assign to 'guest' because it is a read-only property.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+10
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>readonly</code> blocks assignment through a type (shallowly, at compile time only).</li>
+  <li><code>?</code> marks optional properties; <code>exactOptionalPropertyTypes</code> separates "missing" from "<code>undefined</code>".</li>
+  <li>Index signatures (<code>[k: string]: T</code>, or <code>Record&lt;string, T&gt;</code>) describe dictionaries; <code>noUncheckedIndexedAccess</code> makes lookups honest.</li>
+  <li>Fresh object literals get an <strong>excess property check</strong>; variables don't.</li>
+  <li><code>extends</code> reports conflicts; <code>&amp;</code> turns them into <code>never</code>.</li>
+  <li>Generic types (<code>Box&lt;T&gt;</code>) are type templates. <code>readonly T[]</code> has no mutating methods.</li>
+  <li>Tuples have fixed positions; they can have labels, optional and rest elements.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">readonly</span></h3>
+<p>Write an interface <code>Isbn</code> with a <code>readonly value: string</code>. Can you change <code>value</code> through a variable typed <code>{ value: string }</code> that points to the same object?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="isbn.ts">
+interface Isbn { readonly value: string }
+const isbn: Isbn = { value: "978-0441013593" };
+const loose: { value: string } = isbn;   // allowed: readonly isn't part of assignability
+loose.value = "changed";
+console.log(isbn.value);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+changed
+</script>
+<p>Yes. <code>readonly</code> only protects the access path you declared it on. Use <code>Object.freeze</code> for a runtime guarantee.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">index signature</span></h3>
+<p>Write a type <code>Ratings</code> mapping book ids to numbers, and print the average of <code>{ b1: 4, b2: 5, b3: 3 }</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ratings.ts">
+type Ratings = { [bookId: string]: number };
+const r: Ratings = { b1: 4, b2: 5, b3: 3 };
+const values = Object.values(r);
+console.log(values.reduce((a, b) => a + b, 0) / values.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">tuple</span></h3>
+<p>Write a tuple type <code>Coord</code> for a shelf position <code>[row, column]</code>, and a function that formats it as <code>"R2-C5"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="coord.ts">
+type Coord = readonly [row: number, column: number];
+const fmt = ([r, c]: Coord) => `R${r}-C${c}`;
+console.log(fmt([2, 5]));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+R2-C5
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Does <code>const p: { x: number } = { x: 1, y: 2 };</code> compile? Does <code>const q = { x: 1, y: 2 }; const p: { x: number } = q;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The first fails (excess property check on a fresh literal: <code>'y' does not exist in type</code>). The second compiles: <code>q</code> isn't fresh, and it has the required <code>x</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">generic type</span></h3>
+<p>Write a generic type <code>Paged&lt;T&gt;</code> with <code>items: T[]</code>, <code>page: number</code> and <code>hasMore: boolean</code>, and a function <code>paginate&lt;T&gt;(all: T[], page: number, size: number): Paged&lt;T&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="paged.ts">
+type Paged<T> = { items: T[]; page: number; hasMore: boolean };
+function paginate<T>(all: T[], page: number, size: number): Paged<T> {
+  const start = (page - 1) * size;
+  return { items: all.slice(start, start + size), page, hasMore: start + size < all.length };
+}
+const titles = ["Dune", "Emma", "Hamlet", "Ulysses", "Beloved"];
+console.log(paginate(titles, 2, 2));
+console.log(paginate(titles, 3, 2).hasMore);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ items: [ 'Hamlet', 'Ulysses' ], page: 2, hasMore: true }
+false
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">extends vs &amp;</span></h3>
+<p>Combine <code>{ id: string; title: string }</code> and <code>{ id: string; due: Date }</code> into a <code>Loaned</code> type both ways (interface and intersection). Then explain what happens if the second <code>id</code> is a <code>number</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="loaned.ts">
+interface Item { id: string; title: string }
+interface LoanInfo { id: string; due: Date }
+interface Loaned1 extends Item, LoanInfo {}
+type Loaned2 = Item & LoanInfo;
+const x: Loaned1 = { id: "b1", title: "Dune", due: new Date(2026, 10, 19) };
+const y: Loaned2 = x;
+console.log(y.title, y.due.getDate());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 19
+</script>
+<p>With <code>id: number</code> in <code>LoanInfo</code>, the interface version fails right away (TS2320: it can't extend both). The intersection is accepted, but <code>id</code> becomes <code>string &amp; number</code>, which is <code>never</code>, so no value can ever be created.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">noUncheckedIndexedAccess</span></h3>
+<p>With <code>noUncheckedIndexedAccess</code> on, write <code>stockOf(stock: Record&lt;string, number&gt;, id: string): number</code> that returns 0 for unknown ids.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="stock-of.ts" data-tsc="noUncheckedIndexedAccess">
+function stockOf(stock: Record<string, number>, id: string): number {
+  return stock[id] ?? 0;
+}
+console.log(stockOf({ b1: 3 }, "b1"), stockOf({ b1: 3 }, "b9"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3 0
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch06/member-types.ts</code>, define <code>Member</code> (<code>readonly id</code>, <code>name</code>, <code>type: "student" | "staff" | "guest"</code>, optional <code>email</code>) and <code>Loan</code> (<code>readonly id</code>, <code>bookId</code>, <code>memberId</code>, <code>borrowedOn: Date</code>, <code>returnedOn?: Date</code>). Write <code>isOpen(loan)</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="member-types.ts">
+export interface Member {
+  readonly id: string;
+  name: string;
+  type: "student" | "staff" | "guest";
+  email?: string;
+}
+export interface Loan {
+  readonly id: string;
+  bookId: string;
+  memberId: string;
+  borrowedOn: Date;
+  returnedOn?: Date;
+}
+export const isOpen = (loan: Loan): boolean => loan.returnedOn === undefined;
+
+const l: Loan = { id: "L1", bookId: "b1", memberId: "m1", borrowedOn: new Date(2026, 10, 5) };
+console.log(isOpen(l), isOpen({ ...l, returnedOn: new Date(2026, 10, 12) }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true false
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does TypeScript check excess properties only for fresh object literals? Give an example where checking variables too would be annoying.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Structural typing means "has at least these properties". A variable usually exists for another purpose and legitimately has more properties, e.g. a full <code>Member</code> passed to <code>function sendEmail(to: { email: string })</code>. Rejecting that would force copies everywhere. A fresh literal, however, exists only for this call, so an unknown property is almost certainly a typo.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">tuple rest</span></h3>
+<p>Write <code>logLine(...entry: [level: "info" | "warn", message: string, ...tags: string[]])</code> and call it with two and four arguments.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="logline.ts">
+function logLine(...entry: [level: "info" | "warn", message: string, ...tags: string[]]) {
+  const [level, message, ...tags] = entry;
+  console.log(`[${level}] ${message}${tags.length ? " #" + tags.join(" #") : ""}`);
+}
+logLine("info", "catalogue loaded");
+logLine("warn", "book overdue", "b1", "ana");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[info] catalogue loaded
+[warn] book overdue #b1 #ana
+</script>
+<p>A rest parameter typed as a tuple gives each position its own type, and the labels appear in editor hints like real parameter names.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/objects.html">Handbook: Object Types</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/objects.html#excess-property-checks">Excess property checks</a> · <a href="https://www.typescriptlang.org/docs/handbook/2/objects.html#tuple-types">Tuple types</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#noUncheckedIndexedAccess">TSConfig: noUncheckedIndexedAccess</a> · <a href="https://www.typescriptlang.org/tsconfig/#exactOptionalPropertyTypes">exactOptionalPropertyTypes</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

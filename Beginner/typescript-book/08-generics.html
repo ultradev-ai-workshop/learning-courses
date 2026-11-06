@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧬&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Generics · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Type Manipulation</div>
+<h1>Generics</h1>
+<p class="lead">Part III of the Handbook is called <em>Type Manipulation</em>: building new types from existing ones. Generics come first, because every other tool in this part uses them. A generic is a type (or function, or class) with a <strong>type parameter</strong>, a placeholder that is filled in when it's used.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Why <code>T</code> beats <code>any</code>: generics keep the link between input and output types.</li>
+  <li>Generic functions, interfaces, type aliases and classes.</li>
+  <li><strong>Constraints</strong> with <code>extends</code>, including <code>K extends keyof T</code>.</li>
+  <li>Default type parameters, <code>const</code> type parameters and <code>NoInfer</code>.</li>
+  <li>How TypeScript generics compare with Java's and C#'s.</li>
+</ul>
+</div>
+
+<h2 id="why">Why not any?</h2>
+<p>Here's an identity function: it returns its argument. With <code>any</code>, the information about what went in is lost:</p>
+<script type="text/plain" class="code" data-file="any-identity.ts">
+function identityAny(arg: any): any { return arg; }
+const out = identityAny("Dune");     // out: any
+console.log(out.toFixed(2));         // no error at compile time...
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TypeError: out.toFixed is not a function
+</script>
+<p>A <strong>type parameter</strong> <code>&lt;T&gt;</code> captures the argument's type so the return type can use it:</p>
+<script type="text/plain" class="code" data-file="identity.ts">
+function identity<T>(arg: T): T { return arg; }
+const a = identity<string>("Dune");   // T given explicitly
+const b = identity(1965);             // T inferred as number (the usual way)
+console.log(a.toUpperCase(), b.toFixed(1));
+identity("Dune").toFixed(2);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+identity.ts(5,18): error TS2551: Property 'toFixed' does not exist on type '"Dune"'. Did you mean 'fixed'?
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE 1965.0
+TypeError: identity(...).toFixed is not a function
+</script>
+<p>The checker caught the bad call, and the emitted JavaScript fails on exactly that line. Notice <code>T</code> was inferred as the literal type <code>"Dune"</code>.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: a labelled storage box.</strong> <code>any</code> is a box with no label: you can put anything in, but you don't know what comes out. A generic box is labelled when you fill it, <code>Box&lt;Book&gt;</code>, and everyone who opens it knows it holds a book.</p>
+</div>
+
+<h2 id="working">Working with generic values</h2>
+<p>Inside a generic function, <code>T</code> could be <em>any</em> type, so you can only do what works for every type:</p>
+<script type="text/plain" class="code" data-file="length-bad.ts">
+function logLength<T>(arg: T): T {
+  console.log(arg.length);
+  return arg;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+length-bad.ts(2,19): error TS2339: Property 'length' does not exist on type 'T'.
+</script>
+<p>If you mean "an array of T", say so: <code>arg: T[]</code> has a <code>length</code>. Otherwise, add a constraint (below).</p>
+
+<h2 id="types">Generic types</h2>
+<p>Type aliases, interfaces and classes can all have type parameters. The type of a generic function itself can be written too:</p>
+<script type="text/plain" class="code" data-file="generic-types.ts">
+interface ApiResponse<T> {
+  status: number;
+  data: T;
+}
+type Pair<A, B> = [first: A, second: B];
+type Mapper<In, Out> = (value: In) => Out;
+
+const res: ApiResponse<{ id: string }[]> = { status: 200, data: [{ id: "b1" }] };
+const p: Pair<string, number> = ["Dune", 1965];
+const toYear: Mapper<string, number> = (s) => Number(s.slice(0, 4));
+console.log(res.data[0]?.id, p[1], toYear("1965-08-01"));
+
+const myIdentity: <T>(arg: T) => T = (x) => x;   // a generic function type
+console.log(myIdentity(true));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1 1965 1965
+true
+</script>
+
+<h2 id="constraints">Constraints</h2>
+<p><code>T extends Something</code> means "T can be any type that is assignable to Something". Inside, you can use whatever <code>Something</code> has:</p>
+<script type="text/plain" class="code" data-file="constraints.ts">
+interface HasId { id: string }
+
+function indexById<T extends HasId>(items: T[]): Map<string, T> {
+  return new Map(items.map((i) => [i.id, i]));
+}
+const byId = indexById([{ id: "b1", title: "Dune" }, { id: "b2", title: "Emma" }]);
+console.log(byId.get("b2")?.title);      // T kept its full shape, so .title is known
+indexById([{ title: "no id" }]);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+constraints.ts(8,14): error TS2353: Object literal may only specify known properties, and 'title' does not exist in type 'HasId'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Emma
+</script>
+<div class="tip">
+<p>💡 Compare with <code>function indexById(items: HasId[]): Map&lt;string, HasId&gt;</code>. It works, but <code>byId.get("b2")?.title</code> would be an error: the result only knows <code>id</code>. The constraint says what you <em>need</em>; the type parameter <em>keeps</em> everything else.</p>
+</div>
+<h3>Type parameters constrained by other type parameters</h3>
+<p>A very common pattern: <code>K extends keyof T</code> means "K must be one of T's property names". <code>T[K]</code> is then the type of that property (Chapter 9 explains both operators):</p>
+<script type="text/plain" class="code" data-file="keyof-constraint.ts">
+function getProperty<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+const book = { title: "Dune", year: 1965 };
+const year = getProperty(book, "year");      // number
+console.log(year + 1);
+getProperty(book, "isbn");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+keyof-constraint.ts(7,19): error TS2345: Argument of type '"isbn"' is not assignable to parameter of type '"title" | "year"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1966
+</script>
+
+<h2 id="classes">Generic classes and class types</h2>
+<script type="text/plain" class="code" data-file="generic-class.ts">
+class Repository<T extends { id: string }> {
+  #rows = new Map<string, T>();
+  save(row: T): T { this.#rows.set(row.id, row); return row; }
+  all(): T[] { return [...this.#rows.values()]; }
+}
+interface Member { id: string; name: string }
+const members = new Repository<Member>();
+members.save({ id: "m1", name: "Ana" });
+console.log(members.all());
+
+function create<T>(Ctor: new () => T): T { return new Ctor(); }   // a class as a value
+class Shelf { books: string[] = [] }
+console.log(create(Shelf));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ { id: 'm1', name: 'Ana' } ]
+Shelf { books: [] }
+</script>
+
+<h2 id="defaults">Defaults, const and NoInfer</h2>
+<h3>Default type parameters</h3>
+<script type="text/plain" class="code" data-file="defaults.ts">
+interface LibraryEvent<Payload = string> { name: string; payload: Payload }
+const e1: LibraryEvent = { name: "note", payload: "renewed" };             // Payload = string
+const e2: LibraryEvent<{ days: number }> = { name: "renew", payload: { days: 7 } };
+console.log(e1.payload.length, e2.payload.days);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7 7
+</script>
+<h3>const type parameters <span class="es">TS 5.0</span></h3>
+<p>Normally, an array literal passed to a generic is widened to <code>string[]</code>. Writing <code>&lt;const T&gt;</code> infers it as if you'd written <code>as const</code>:</p>
+<script type="text/plain" class="code" data-file="const-param.ts">
+function choices<T extends readonly string[]>(values: T): T { return values; }
+function exact<const T extends readonly string[]>(values: T): T { return values; }
+
+const a = choices(["asc", "desc"]);    // string[]
+const b = exact(["asc", "desc"]);      // readonly ["asc", "desc"]
+type Sort = (typeof b)[number];        // "asc" | "desc"
+const s: Sort = "asc";
+console.log(a.length, b[1], s);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+2 desc asc
+</script>
+<h3>NoInfer <span class="es">TS 5.4</span></h3>
+<p>When <code>T</code> appears in several parameters, TypeScript infers from all of them. <code>NoInfer&lt;T&gt;</code> marks a place that should only be <em>checked</em>, not used for inference:</p>
+<script type="text/plain" class="code" data-file="noinfer.ts">
+function pickDefault<T extends string>(options: T[], fallback: NoInfer<T>): T {
+  return options[0] ?? fallback;
+}
+console.log(pickDefault(["paperback", "ebook"], "ebook"));
+pickDefault(["paperback", "ebook"], "audiobook");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+noinfer.ts(5,37): error TS2345: Argument of type '"audiobook"' is not assignable to parameter of type '"ebook" | "paperback"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+paperback
+</script>
+<p>Notice the order in the message: <code>"ebook" | "paperback"</code>, not the order you wrote. TypeScript 7 prints union members in a fixed, stable order (the <code>stableTypeOrdering</code> behaviour), so error messages are the same on every machine and every run. Without <code>NoInfer</code>, <code>T</code> would be inferred as <code>"paperback" | "ebook" | "audiobook"</code>, and the typo would be accepted.</p>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> the syntax is the same idea as Java's <code>&lt;T extends Comparable&lt;T&gt;&gt;</code> or C#'s <code>where T : IComparable&lt;T&gt;</code>. Differences: TypeScript generics are fully erased (like Java, unlike C#, so no <code>typeof(T)</code> or <code>new T()</code>); any type works as an argument, including <code>number</code> and unions (no boxing, no <code>Integer</code>); there are no wildcards (<code>? extends</code>), because structural typing and unions cover those cases; and inference is much stronger, so you rarely write type arguments at all.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A typed groupBy</h3>
+<script type="text/plain" class="code" data-file="groupby.ts">
+function groupBy<T, K extends string>(items: T[], keyOf: (item: T) => K): Record<K, T[]> {
+  const out = {} as Record<K, T[]>;
+  for (const item of items) (out[keyOf(item)] ??= []).push(item);
+  return out;
+}
+const books = [
+  { title: "Dune", format: "paperback" as const },
+  { title: "Emma", format: "ebook" as const },
+  { title: "Hamlet", format: "paperback" as const },
+];
+const byFormat = groupBy(books, (b) => b.format);
+console.log(byFormat.paperback.map((b) => b.title), byFormat.ebook.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Hamlet' ] 1
+</script>
+<h3>A generic cache with a loader</h3>
+<script type="text/plain" class="code" data-file="cache.ts">
+class Cache<K, V> {
+  #map = new Map<K, V>();
+  constructor(private load: (key: K) => V) {}
+  get(key: K): V {
+    if (!this.#map.has(key)) { console.log("loading", key); this.#map.set(key, this.load(key)); }
+    return this.#map.get(key)!;
+  }
+}
+const titles = new Cache((id: string) => id.toUpperCase());
+console.log(titles.get("b1"), titles.get("b1"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+loading b1
+B1 B1
+</script>
+<h3>A rule of thumb: push type parameters down</h3>
+<p>The Handbook's guidelines: use as few type parameters as possible, constrain them as little as necessary, and if one appears only once, replace it with its constraint.</p>
+<script type="text/plain" class="code" data-file="guidelines.ts">
+// ✘ T appears once: it adds nothing
+function greetBad<T extends string>(name: T): string { return "Hi " + name; }
+// ✓ simpler and identical for callers
+function greet(name: string): string { return "Hi " + name; }
+console.log(greetBad("Ana"), greet("Ben"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hi Ana Hi Ben
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A type parameter <code>&lt;T&gt;</code> links types across a signature; <code>any</code> throws that link away.</li>
+  <li>Functions, interfaces, aliases and classes can be generic; type arguments are usually inferred.</li>
+  <li>Constraints (<code>T extends X</code>) say what T must have; <code>K extends keyof T</code> + <code>T[K]</code> is a key pattern.</li>
+  <li>Defaults (<code>&lt;T = string&gt;</code>), <code>const T</code> (literal inference) and <code>NoInfer&lt;T&gt;</code> fine-tune inference.</li>
+  <li>Generics are erased: pass constructors as values when you need to create instances.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write <code>wrap&lt;T&gt;(value: T): { value: T }</code> and check that <code>wrap(3).value</code> is a number.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="wrap.ts">
+function wrap<T>(value: T): { value: T } { return { value }; }
+console.log(wrap(3).value.toFixed(1), wrap("Dune").value.length);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+3.0 4
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What is <code>T</code> in <code>identity(["a", "b"])</code>? And in <code>identity(["a", 1])</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>string[]</code> and <code>(string | number)[]</code>. Arrays are widened; only a <code>const</code> type parameter or <code>as const</code> would keep the literals.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">generic type</span></h3>
+<p>Write <code>type Nullable&lt;T&gt; = …</code> that allows <code>T</code> or <code>null</code>, and use it for a member's optional phone number.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="nullable.ts">
+type Nullable<T> = T | null;
+const phone: Nullable<string> = null;
+console.log(phone ?? "no phone");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no phone
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">constraint</span></h3>
+<p>Fix <code>function shortest&lt;T&gt;(a: T, b: T) { return a.length &lt; b.length ? a : b; }</code> with a constraint.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="shortest.ts">
+function shortest<T extends { length: number }>(a: T, b: T): T {
+  return a.length < b.length ? a : b;
+}
+console.log(shortest("Dune", "Emma Woodhouse"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">keyof constraint</span></h3>
+<p>Write <code>sortBy&lt;T, K extends keyof T&gt;(items: T[], key: K): T[]</code> that returns a sorted copy. Sort books by <code>year</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="sortby.ts">
+function sortBy<T, K extends keyof T>(items: readonly T[], key: K): T[] {
+  return [...items].sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0));
+}
+const books = [{ title: "Dune", year: 1965 }, { title: "Emma", year: 1815 }, { title: "Beloved", year: 1987 }];
+console.log(sortBy(books, "year").map((b) => b.title));
+console.log(sortBy(books, "title").map((b) => b.title));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Emma', 'Dune', 'Beloved' ]
+[ 'Beloved', 'Dune', 'Emma' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">generic class</span></h3>
+<p>Write <code>class TypedEmitter&lt;Events extends Record&lt;string, unknown&gt;&gt;</code> with <code>on&lt;E extends keyof Events&gt;(name: E, fn: (payload: Events[E]) =&gt; void)</code> and <code>emit</code>. Use it with <code>{ borrowed: { bookId: string }; returned: { lateDays: number } }</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="emitter.ts">
+class TypedEmitter<Events extends Record<string, unknown>> {
+  #handlers: { [E in keyof Events]?: ((p: Events[E]) => void)[] } = {};
+  on<E extends keyof Events>(name: E, fn: (payload: Events[E]) => void): void {
+    (this.#handlers[name] ??= []).push(fn);
+  }
+  emit<E extends keyof Events>(name: E, payload: Events[E]): void {
+    this.#handlers[name]?.forEach((fn) => fn(payload));
+  }
+}
+type LoanEvents = { borrowed: { bookId: string }; returned: { lateDays: number } };
+const bus = new TypedEmitter<LoanEvents>();
+bus.on("borrowed", (p) => console.log("borrowed", p.bookId));
+bus.on("returned", (p) => console.log("late by", p.lateDays));
+bus.emit("borrowed", { bookId: "b1" });
+bus.emit("returned", { lateDays: 2 });
+</script>
+<script type="text/plain" class="code" data-lang="text">
+borrowed b1
+late by 2
+</script>
+<p>The handler types use a mapped type (<code>[E in keyof Events]</code>), covered in Chapter 11.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">NoInfer</span></h3>
+<p>Write <code>createStatus&lt;S extends string&gt;(states: S[], initial: NoInfer&lt;S&gt;)</code> that returns <code>{ states, current: initial }</code>. Show that a typo in <code>initial</code> is caught.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="status.ts">
+function createStatus<S extends string>(states: S[], initial: NoInfer<S>) {
+  return { states, current: initial };
+}
+const s = createStatus(["active", "overdue", "returned"], "active");
+console.log(s.current);
+createStatus(["active", "overdue"], "actve");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+status.ts(6,37): error TS2345: Argument of type '"actve"' is not assignable to parameter of type '"active" | "overdue"'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+active
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch08/repository.ts</code>, write a generic <code>InMemoryRepository&lt;T extends { id: string }&gt;</code> with <code>add</code>, <code>get</code>, <code>update(id, changes: Partial&lt;T&gt;)</code> and <code>list(filter?: (item: T) =&gt; boolean)</code>. The capstone uses it for members and loans. (<code>Partial</code> makes every property optional; Chapter 12.)</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="repository.ts">
+export class InMemoryRepository<T extends { id: string }> {
+  #items = new Map<string, T>();
+  add(item: T): T {
+    if (this.#items.has(item.id)) throw new Error(`duplicate id ${item.id}`);
+    this.#items.set(item.id, item);
+    return item;
+  }
+  get(id: string): T | undefined { return this.#items.get(id); }
+  update(id: string, changes: Partial<T>): T {
+    const current = this.#items.get(id);
+    if (!current) throw new Error(`unknown id ${id}`);
+    const next = { ...current, ...changes, id };
+    this.#items.set(id, next);
+    return next;
+  }
+  list(filter: (item: T) => boolean = () => true): T[] {
+    return [...this.#items.values()].filter(filter);
+  }
+}
+const repo = new InMemoryRepository<{ id: string; name: string; type: "student" | "staff" }>();
+repo.add({ id: "m1", name: "Ana", type: "student" });
+repo.add({ id: "m2", name: "Ben", type: "staff" });
+repo.update("m1", { name: "Ana Lima" });
+console.log(repo.list((m) => m.type === "student"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ { id: 'm1', name: 'Ana Lima', type: 'student' } ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does <code>function first&lt;T extends any[]&gt;(arr: T) { return arr[0]; }</code> give a worse return type than <code>function first&lt;T&gt;(arr: T[]) { return arr[0]; }</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In the first, <code>T</code> is the whole array type and <code>arr[0]</code> is typed through the constraint, so it's <code>any</code>. In the second, <code>T</code> is the element type, so <code>arr[0]</code> is <code>T</code> (e.g. <code>number</code>). The Handbook's rule: when possible, use the type parameter itself rather than constraining it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write <code>pipe</code> for two and three functions with overloads, so <code>pipe(trim, upper, exclaim)("  dune ")</code> is fully typed. Each function's output must match the next one's input.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="pipe.ts">
+function pipe<A, B, C>(f: (a: A) => B, g: (b: B) => C): (a: A) => C;
+function pipe<A, B, C, D>(f: (a: A) => B, g: (b: B) => C, h: (c: C) => D): (a: A) => D;
+function pipe(...fns: ((x: unknown) => unknown)[]) {
+  return (x: unknown) => fns.reduce((acc, fn) => fn(acc), x);
+}
+const trim = (s: string) => s.trim();
+const upper = (s: string) => s.toUpperCase();
+const count = (s: string) => s.length;
+console.log(pipe(trim, upper, (s) => s + "!")("  dune "));
+console.log(pipe(trim, count)("  emma  ") * 10);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE!
+40
+</script>
+<p>Each overload chains type parameters (<code>A → B → C → D</code>), so a function whose input doesn't match the previous output is a compile error.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/generics.html">Handbook: Generics</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/functions.html#guidelines-for-writing-good-generic-functions">Guidelines for writing good generic functions</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html#const-type-parameters">TS 5.0: const type parameters</a> · <a href="https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-4.html#the-noinfer-utility-type">TS 5.4: NoInfer</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

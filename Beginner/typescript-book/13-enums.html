@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏷️&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Enums, Literal Unions &amp; Symbols · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Reference Topics</div>
+<h1>Enums, Literal Unions &amp; Symbols</h1>
+<p class="lead">Part IV covers the Handbook's <em>Reference</em> pages. First: how to model a fixed set of values. TypeScript has <code>enum</code>, one of its few features that isn't just JavaScript plus types, and modern TypeScript code often prefers literal unions and <code>as const</code> objects instead. This chapter shows both, then covers symbols and the types of iterators and generators.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Numeric and string enums, and what they compile to.</li>
+  <li><code>const enum</code>, and why <code>erasableSyntaxOnly</code> and Node's type stripping reject enums.</li>
+  <li>The alternatives: literal unions and <code>as const</code> objects.</li>
+  <li>How TypeScript enums compare with Java and C# enums.</li>
+  <li><code>symbol</code>, <code>unique symbol</code>, and typing iterators and generators.</li>
+</ul>
+</div>
+
+<h2 id="numeric">Numeric enums</h2>
+<p>An <code>enum</code> defines a set of named constants. Without initializers, members are numbered from 0:</p>
+<script type="text/plain" class="code" data-file="numeric.ts">
+enum Direction { Up, Down, Left, Right }
+enum Priority { Low = 1, Medium, High }      // 1, 2, 3
+
+function move(d: Direction) { return `moving ${Direction[d]} (${d})`; }
+console.log(move(Direction.Left), Priority.High);
+console.log(Direction);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+moving Left (2) 3
+{
+  '0': 'Up',
+  '1': 'Down',
+  '2': 'Left',
+  '3': 'Right',
+  Up: 0,
+  Down: 1,
+  Left: 2,
+  Right: 3
+}
+</script>
+<p>The last line shows that an enum is a <strong>real object at runtime</strong>. Numeric enums also get a <em>reverse mapping</em> (<code>Direction[2]</code> is <code>"Left"</code>). This is generated code: <code>tsc</code> emits an object, unlike interfaces or type aliases, which vanish.</p>
+<div class="pitfall">
+<p>⚠️ Numeric enums are loose: any number is assignable to a numeric enum type in many places, and the reverse mapping makes <code>Object.keys</code> return twice as many keys as you expect. If you use enums, prefer string enums.</p>
+</div>
+
+<h2 id="string">String enums</h2>
+<p>Each member of a string enum must be initialised with a string. There's no reverse mapping, and values are readable when logged or stored:</p>
+<script type="text/plain" class="code" data-file="string-enum.ts">
+enum LoanStatus {
+  Active = "ACTIVE",
+  Overdue = "OVERDUE",
+  Returned = "RETURNED",
+}
+function badge(s: LoanStatus): string {
+  return s === LoanStatus.Overdue ? `⚠️ ${s}` : s;
+}
+console.log(badge(LoanStatus.Overdue), Object.values(LoanStatus));
+badge("OVERDUE");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+string-enum.ts(10,7): error TS2345: Argument of type '"OVERDUE"' is not assignable to parameter of type 'LoanStatus'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+⚠️ OVERDUE [ 'ACTIVE', 'OVERDUE', 'RETURNED' ]
+</script>
+<p>Note the last line: string enums are <strong>nominal</strong>. The string <code>"OVERDUE"</code> isn't accepted, even though it's the same value. You must write <code>LoanStatus.Overdue</code>. That's stricter than everything else in TypeScript, and it surprises people who receive values from JSON.</p>
+
+<h2 id="const-enum">const enums and erasable syntax</h2>
+<p>A <code>const enum</code> is removed at compile time: every use is replaced by its value. It saves the runtime object, but it needs whole-program compilation, so tools that compile one file at a time (esbuild, Babel, <code>isolatedModules</code>) can't fully support it.</p>
+<script type="text/plain" class="code" data-file="shelf.ts" data-save>
+const enum Shelf { A = "A", B = "B" }
+console.log(Shelf.B);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc shelf.ts && cat shelf.js
+"use strict";
+console.log("B" /* Shelf.B */);
+$ node shelf.js
+B
+</script>
+<p>No <code>Shelf</code> object is emitted: the value is pasted in, with a comment saying where it came from.</p>
+<p>Enums (like namespaces and parameter properties) are not <em>erasable</em>: you can't just delete the TypeScript parts and get valid JavaScript. That matters more and more:</p>
+<ul>
+  <li><strong>Node's built-in type stripping</strong> (<code>node file.ts</code>) only removes types; it rejects enums unless you use the slower <code>--experimental-transform-types</code> flag.</li>
+  <li>The <code>erasableSyntaxOnly</code> option <span class="es">TS 5.8</span> makes <code>tsc</code> report these features, so your code stays runnable by type strippers:</li>
+</ul>
+<script type="text/plain" class="code" data-file="erasable.ts" data-tsc="erasableSyntaxOnly">
+enum Color { Red, Green }
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+erasable.ts(1,6): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+</script>
+
+<h2 id="alternatives">The alternatives: unions and as const</h2>
+<p>For most code, a <strong>union of string literals</strong> does everything a string enum does, with no runtime code and no nominal surprise:</p>
+<script type="text/plain" class="code" data-file="union-alt.ts">
+type LoanStatus = "active" | "overdue" | "returned";
+function badge(s: LoanStatus) { return s === "overdue" ? `⚠️ ${s}` : s; }
+console.log(badge("overdue"));            // a plain string works, and is checked
+</script>
+<script type="text/plain" class="code" data-lang="text">
+⚠️ overdue
+</script>
+<p>When you also need the values at runtime (a dropdown, validation, a loop), use an <strong><code>as const</code> object</strong> and derive the type from it (Chapter 9):</p>
+<script type="text/plain" class="code" data-file="const-object.ts">
+const LoanStatus = {
+  Active: "active",
+  Overdue: "overdue",
+  Returned: "returned",
+} as const;
+type LoanStatus = (typeof LoanStatus)[keyof typeof LoanStatus];   // "active" | "overdue" | "returned"
+
+function badge(s: LoanStatus) { return s === LoanStatus.Overdue ? `⚠️ ${s}` : s; }
+console.log(badge(LoanStatus.Overdue), badge("returned"), Object.values(LoanStatus));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+⚠️ overdue returned [ 'active', 'overdue', 'returned' ]
+</script>
+<p>The same name, <code>LoanStatus</code>, is used for a value and a type. That's allowed because values and types live in different namespaces, and it reads just like an enum: <code>LoanStatus.Overdue</code>.</p>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>enum</code> (string)</th><th>literal union</th><th><code>as const</code> object</th></tr>
+<tr><td>Runtime object</td><td>✅</td><td>❌</td><td>✅</td></tr>
+<tr><td>Accepts plain <code>"overdue"</code></td><td>❌ (nominal)</td><td>✅</td><td>✅</td></tr>
+<tr><td>Erasable (type strippers OK)</td><td>❌</td><td>✅</td><td>✅</td></tr>
+<tr><td><code>Obj.Member</code> syntax</td><td>✅</td><td>❌</td><td>✅</td></tr>
+</table></div>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> C# enums are numeric constants, like TypeScript's numeric enums (including the "any int can be cast to it" looseness). Java enums are full classes, with fields, methods, constructors and a fixed set of singleton instances. TypeScript enums have <strong>no methods or fields</strong>. To get Java-style enums, use a discriminated union of objects, or a class with a private constructor and static instances:</p>
+<script type="text/plain" class="code" data-file="java-style.ts">
+class Format {
+  static readonly Hardcover = new Format("hardcover", 599);
+  static readonly Ebook = new Format("ebook", 0);
+  private constructor(readonly name: string, readonly shippingCents: number) {}
+  static values(): Format[] { return [Format.Hardcover, Format.Ebook]; }
+  toString() { return this.name; }
+}
+console.log(Format.values().map((f) => `${f}: ${f.shippingCents}`));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'hardcover: 599', 'ebook: 0' ]
+</script>
+</div>
+
+<h2 id="symbols">Symbols</h2>
+<p>A <code>symbol</code> is a unique, primitive value often used as a property key that can't clash with any string key. TypeScript types them as <code>symbol</code>, or, for a <code>const</code> declaration, as a <strong><code>unique symbol</code></strong>: a type that matches only that one symbol.</p>
+<script type="text/plain" class="code" data-file="symbols.ts">
+const internalId: unique symbol = Symbol("internalId");
+const book = { title: "Dune", [internalId]: 4211 };
+
+console.log(book[internalId], Object.keys(book), JSON.stringify(book));
+const other = Symbol("internalId");
+console.log(other === (internalId as symbol));   // every Symbol() is different
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4211 [ 'title' ] {"title":"Dune"}
+false
+</script>
+<p>Symbol keys don't show up in <code>Object.keys</code> or JSON, which makes them handy for metadata. JavaScript's <em>well-known symbols</em>, such as <code>Symbol.iterator</code>, let your objects plug into language features.</p>
+
+<h2 id="iterators">Iterators and generators</h2>
+<p>An object is <strong>iterable</strong> if it has a <code>[Symbol.iterator]()</code> method. TypeScript describes this with <code>Iterable&lt;T&gt;</code>, and <code>for…of</code> and spread accept any iterable. A generator function returns a <code>Generator&lt;Yield, Return, Next&gt;</code>:</p>
+<script type="text/plain" class="code" data-file="iterators.ts">
+class Shelf implements Iterable<string> {
+  constructor(private titles: string[]) {}
+  *[Symbol.iterator](): Generator<string, void, undefined> {
+    for (const t of this.titles) yield t;
+  }
+}
+function* ids(prefix: string, count: number): Generator<string, number> {
+  for (let i = 1; i <= count; i++) yield `${prefix}${i}`;
+  return count;                                      // the Return type
+}
+const shelf = new Shelf(["Dune", "Emma"]);
+console.log([...shelf], [...ids("b", 3)]);
+
+const gen = ids("m", 1);
+console.log(gen.next(), gen.next());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Emma' ] [ 'b1', 'b2', 'b3' ]
+{ value: 'm1', done: false } { value: 1, done: true }
+</script>
+<p>Usually you don't annotate generators: TypeScript infers the yield and return types. Write <code>Iterable&lt;T&gt;</code> for parameters, so callers can pass arrays, sets, maps' <code>.values()</code> or generators:</p>
+<script type="text/plain" class="code" data-file="iterable-param.ts">
+function countLong(titles: Iterable<string>, min = 5): number {
+  let n = 0;
+  for (const t of titles) if (t.length >= min) n++;
+  return n;
+}
+console.log(countLong(["Dune", "Hamlet"]), countLong(new Set(["Beloved", "Ulysses", "Emma"])));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+1 2
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Validating input against an as const object</h3>
+<script type="text/plain" class="code" data-file="parse-status.ts">
+const STATUS = { Active: "active", Overdue: "overdue", Returned: "returned" } as const;
+type Status = (typeof STATUS)[keyof typeof STATUS];
+const ALL: readonly string[] = Object.values(STATUS);
+
+function parseStatus(input: string): Status | undefined {
+  return ALL.includes(input) ? (input as Status) : undefined;
+}
+console.log(parseStatus("overdue"), parseStatus("archived"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+overdue undefined
+</script>
+<h3>Exhaustive switch over a string enum</h3>
+<script type="text/plain" class="code" data-file="enum-switch.ts">
+enum Size { S = "S", M = "M", L = "L" }
+function price(s: Size): number {
+  switch (s) {
+    case Size.S: return 5;
+    case Size.M: return 7;
+    case Size.L: return 9;
+    default: { const x: never = s; return x; }
+  }
+}
+console.log(price(Size.M));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+7
+</script>
+<h3>Lazy pagination with a generator</h3>
+<script type="text/plain" class="code" data-file="pages.ts">
+function* pages<T>(items: readonly T[], size: number): Generator<readonly T[]> {
+  for (let i = 0; i < items.length; i += size) yield items.slice(i, i + size);
+}
+for (const page of pages(["Dune", "Emma", "Hamlet", "Ulysses", "Beloved"], 2)) console.log(page);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'Dune', 'Emma' ]
+[ 'Hamlet', 'Ulysses' ]
+[ 'Beloved' ]
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Enums generate a runtime object; numeric enums have reverse mappings, string enums don't.</li>
+  <li>String enums are nominal: a matching plain string isn't accepted.</li>
+  <li><code>const enum</code> inlines values but needs whole-program compilation; enums aren't erasable (<code>erasableSyntaxOnly</code>, Node type stripping).</li>
+  <li>Prefer literal unions, or an <code>as const</code> object plus a derived type, for most code.</li>
+  <li>TypeScript enums have no methods; model Java-style enums with classes or unions.</li>
+  <li><code>unique symbol</code> types one symbol; <code>Iterable&lt;T&gt;</code> and <code>Generator&lt;Y, R, N&gt;</code> type iteration.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What values do <code>enum E { A = 3, B, C }</code> give to <code>B</code> and <code>C</code>? What is <code>E[4]</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>B = 4</code>, <code>C = 5</code>, and <code>E[4]</code> is <code>"B"</code> (reverse mapping).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">string enum</span></h3>
+<p>Write a string enum <code>Genre</code> with three genres, and print all its values.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="genre.ts">
+enum Genre { SciFi = "sci-fi", Classic = "classic", Poetry = "poetry" }
+console.log(Object.values(Genre));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'sci-fi', 'classic', 'poetry' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">refactor</span></h3>
+<p>Rewrite the <code>Genre</code> enum as a literal union type.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>type Genre = "sci-fi" | "classic" | "poetry";</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"A TypeScript <code>enum</code> disappears at runtime, like an interface." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False</strong> for regular enums: they compile to an object. Only <code>const enum</code> (and <code>declare enum</code>) leave no object behind.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">as const</span></h3>
+<p>Turn <code>enum Role { Student = "student", Staff = "staff" }</code> into an <code>as const</code> object plus a type with the same name, and use both.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="role-const.ts">
+const Role = { Student: "student", Staff: "staff" } as const;
+type Role = (typeof Role)[keyof typeof Role];
+const r: Role = Role.Staff;
+const s: Role = "student";
+console.log(r, s, Object.keys(Role));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+staff student [ 'Student', 'Staff' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">JSON</span></h3>
+<p>An API returns <code>{"status":"OVERDUE"}</code>. Why can't you pass <code>data.status</code> (a string) to a function taking a string enum <code>LoanStatus</code>? Write a safe converter.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="enum-from-json.ts">
+enum LoanStatus { Active = "ACTIVE", Overdue = "OVERDUE" }
+function toStatus(s: string): LoanStatus | undefined {
+  return (Object.values(LoanStatus) as string[]).includes(s) ? (s as LoanStatus) : undefined;
+}
+const data = JSON.parse('{"status":"OVERDUE"}') as { status: string };
+console.log(toStatus(data.status) === LoanStatus.Overdue, toStatus("LOST"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+true undefined
+</script>
+<p>String enums are nominal, so a plain <code>string</code> isn't assignable. Check the value against the enum's values, then assert.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">generator</span></h3>
+<p>Write a generator <code>dueDates(start: Date, days: number, renewals: number)</code> that yields the due date after each renewal, as ISO date strings.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="due-dates.ts">
+function* dueDates(start: Date, days: number, renewals: number): Generator<string> {
+  const d = new Date(start);
+  for (let i = 0; i <= renewals; i++) {
+    d.setUTCDate(d.getUTCDate() + days);
+    yield d.toISOString().slice(0, 10);
+  }
+}
+console.log([...dueDates(new Date(Date.UTC(2026, 10, 5)), 14, 2)]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ '2026-11-19', '2026-12-03', '2026-12-17' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch13/status.ts</code>, define <code>LoanStatus</code> as an <code>as const</code> object (<code>active</code>, <code>overdue</code>, <code>returned</code>) with its type, and write <code>statusOf(loan, today)</code> that computes it from <code>due</code> and <code>returnedOn</code>. The capstone keeps code erasable, so no <code>enum</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="status-of.ts">
+export const LoanStatus = { Active: "active", Overdue: "overdue", Returned: "returned" } as const;
+export type LoanStatus = (typeof LoanStatus)[keyof typeof LoanStatus];
+
+export function statusOf(loan: { due: Date; returnedOn?: Date }, today: Date): LoanStatus {
+  if (loan.returnedOn) return LoanStatus.Returned;
+  return today > loan.due ? LoanStatus.Overdue : LoanStatus.Active;
+}
+const due = new Date(2026, 10, 19);
+console.log(statusOf({ due }, new Date(2026, 10, 5)), statusOf({ due }, new Date(2026, 10, 25)),
+  statusOf({ due, returnedOn: new Date(2026, 10, 10) }, new Date(2026, 10, 25)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+active overdue returned
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why do tools that compile one file at a time (esbuild, Babel, Node's type stripping) struggle with <code>const enum</code>s imported from another file?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>To inline <code>Shelf.B</code> as <code>"B"</code>, the compiler must read the other file where the enum is declared. A single-file transpiler doesn't look at other files, so it doesn't know the value. It would have to keep <code>Shelf.B</code>, but no <code>Shelf</code> object exists at runtime, so the code breaks. That's why <code>isolatedModules</code> restricts <code>const enum</code>s.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Model a Java-style enum <code>MemberType</code> (student, staff, guest) as a discriminated union where each member carries <code>maxLoans</code> and a <code>describe()</code> function, and print all three descriptions.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="member-type-union.ts">
+const MEMBER_TYPES = {
+  student: { kind: "student", maxLoans: 3 },
+  staff: { kind: "staff", maxLoans: 10 },
+  guest: { kind: "guest", maxLoans: 1 },
+} as const;
+type MemberType = (typeof MEMBER_TYPES)[keyof typeof MEMBER_TYPES];
+const describe = (t: MemberType) => `${t.kind} may borrow ${t.maxLoans}`;
+Object.values(MEMBER_TYPES).forEach((t) => console.log(describe(t)));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+student may borrow 3
+staff may borrow 10
+guest may borrow 1
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/enums.html">Reference: Enums</a> (see "Objects vs Enums")</li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/symbols.html">Reference: Symbols</a> · <a href="https://www.typescriptlang.org/docs/handbook/iterators-and-generators.html">Iterators and Generators</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#erasableSyntaxOnly">TSConfig: erasableSyntaxOnly</a></li>
+  <li><a href="https://nodejs.org/api/typescript.html">Node.js: Modules: TypeScript</a> (type stripping)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

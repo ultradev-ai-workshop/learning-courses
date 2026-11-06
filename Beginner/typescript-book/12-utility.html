@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧰&lt;/text&gt;&lt;/svg&gt;">
+<title>12. Utility Types · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 12 · Type Manipulation</div>
+<h1>Utility Types</h1>
+<p class="lead">TypeScript ships a set of global generic types for the most common transformations. You've already built several of them yourself in Chapters 10 and 11. This chapter follows the <em>Utility Types</em> reference page: what each one does, and the everyday situations where it saves you from writing a type twice.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Object transformers: <code>Partial</code>, <code>Required</code>, <code>Readonly</code>, <code>Pick</code>, <code>Omit</code>, <code>Record</code>.</li>
+  <li>Union filters: <code>Exclude</code>, <code>Extract</code>, <code>NonNullable</code>.</li>
+  <li>Function and class helpers: <code>Parameters</code>, <code>ReturnType</code>, <code>ConstructorParameters</code>, <code>InstanceType</code>, <code>Awaited</code>.</li>
+  <li>The <code>this</code> helpers and <code>NoInfer</code>.</li>
+  <li>How to combine them into DTO types (create / update / view) from one model.</li>
+</ul>
+</div>
+
+<h2 id="table">The list at a glance</h2>
+<div class="table-wrap"><table>
+<tr><th>Utility</th><th>Result</th><th>Built from</th></tr>
+<tr><td><code>Partial&lt;T&gt;</code></td><td>all properties optional</td><td>mapped type <code>?</code></td></tr>
+<tr><td><code>Required&lt;T&gt;</code></td><td>all properties required</td><td>mapped type <code>-?</code></td></tr>
+<tr><td><code>Readonly&lt;T&gt;</code></td><td>all properties <code>readonly</code></td><td>mapped type</td></tr>
+<tr><td><code>Record&lt;K, V&gt;</code></td><td>object with keys <code>K</code> and values <code>V</code></td><td>mapped type</td></tr>
+<tr><td><code>Pick&lt;T, K&gt;</code></td><td>only keys <code>K</code></td><td>mapped type</td></tr>
+<tr><td><code>Omit&lt;T, K&gt;</code></td><td>all keys except <code>K</code></td><td><code>Pick</code> + <code>Exclude</code></td></tr>
+<tr><td><code>Exclude&lt;U, X&gt;</code></td><td>union members not assignable to <code>X</code></td><td>conditional type</td></tr>
+<tr><td><code>Extract&lt;U, X&gt;</code></td><td>union members assignable to <code>X</code></td><td>conditional type</td></tr>
+<tr><td><code>NonNullable&lt;T&gt;</code></td><td><code>T</code> without <code>null</code>/<code>undefined</code></td><td><code>T &amp; {}</code></td></tr>
+<tr><td><code>Parameters&lt;F&gt;</code></td><td>tuple of parameter types</td><td><code>infer</code></td></tr>
+<tr><td><code>ReturnType&lt;F&gt;</code></td><td>return type</td><td><code>infer</code></td></tr>
+<tr><td><code>ConstructorParameters&lt;C&gt;</code> / <code>InstanceType&lt;C&gt;</code></td><td>for classes</td><td><code>infer</code></td></tr>
+<tr><td><code>Awaited&lt;T&gt;</code></td><td>what <code>await</code> gives</td><td>recursive conditional</td></tr>
+<tr><td><code>NoInfer&lt;T&gt;</code></td><td><code>T</code>, but not an inference site</td><td>intrinsic</td></tr>
+<tr><td><code>ThisParameterType</code>, <code>OmitThisParameter</code>, <code>ThisType</code></td><td><code>this</code> helpers</td><td>various</td></tr>
+<tr><td><code>Uppercase</code>, <code>Lowercase</code>, <code>Capitalize</code>, <code>Uncapitalize</code></td><td>string case</td><td>intrinsic (Chapter 11)</td></tr>
+</table></div>
+
+<h2 id="objects">Transforming object types</h2>
+<h3>Partial and Required</h3>
+<p><code>Partial</code> is perfect for "update" functions where callers send only the fields that change:</p>
+<script type="text/plain" class="code" data-file="partial.ts">
+interface Book { id: string; title: string; author: string; year: number }
+
+function updateBook(book: Book, changes: Partial<Book>): Book {
+  return { ...book, ...changes };
+}
+const dune: Book = { id: "b1", title: "Dune", author: "Frank Herbert", year: 1965 };
+console.log(updateBook(dune, { year: 1966 }));
+
+interface Props { a?: number; b?: string }
+const all: Required<Props> = { a: 5 };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+partial.ts(10,7): error TS2741: Property 'b' is missing in type '{ a: number; }' but required in type 'Required<Props>'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'b1', title: 'Dune', author: 'Frank Herbert', year: 1966 }
+</script>
+<h3>Readonly</h3>
+<script type="text/plain" class="code" data-file="readonly.ts">
+interface Todo { title: string }
+const todo: Readonly<Todo> = { title: "Return Dune" };
+todo.title = "Return Emma";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+readonly.ts(3,6): error TS2540: Cannot assign to 'title' because it is a read-only property.
+</script>
+<p>It's shallow, like <code>Object.freeze</code> (which is typed as returning <code>Readonly&lt;T&gt;</code>).</p>
+<h3>Record</h3>
+<script type="text/plain" class="code" data-file="record.ts">
+type MemberType = "student" | "staff" | "guest";
+interface Limit { maxLoans: number; days: number }
+
+const limits: Record<MemberType, Limit> = {
+  student: { maxLoans: 3, days: 21 },
+  staff: { maxLoans: 10, days: 42 },
+  guest: { maxLoans: 1, days: 7 },
+};
+console.log(limits.staff.days);
+const partialLimits: Record<MemberType, Limit> = { student: { maxLoans: 3, days: 21 } };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+record.ts(10,7): error TS2739: Type '{ student: { maxLoans: number; days: number; }; }' is missing the following properties from type 'Record<MemberType, Limit>': guest, staff
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+</script>
+<p>With a union of literal keys, <code>Record</code> forces you to cover every key: a quiet exhaustiveness check. Add <code>"vip"</code> to <code>MemberType</code> and this object fails to compile until you add its limit.</p>
+<h3>Pick and Omit</h3>
+<script type="text/plain" class="code" data-file="pick-omit.ts">
+interface Member { id: string; name: string; email: string; passwordHash: string; createdAt: Date }
+
+type MemberPreview = Pick<Member, "id" | "name">;
+type PublicMember = Omit<Member, "passwordHash">;
+
+const preview: MemberPreview = { id: "m1", name: "Ana" };
+function toPublic({ passwordHash, ...rest }: Member): PublicMember { return rest; }
+const pub = toPublic({ id: "m1", name: "Ana", email: "ana@example.com", passwordHash: "x9!", createdAt: new Date(0) });
+console.log(preview, Object.keys(pub));
+type Bad = Pick<Member, "phone">;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+pick-omit.ts(10,25): error TS2344: Type '"phone"' does not satisfy the constraint 'keyof Member'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'm1', name: 'Ana' } [ 'id', 'name', 'email', 'createdAt' ]
+</script>
+<div class="pitfall">
+<p>⚠️ <code>Omit</code>'s key parameter is <code>K extends keyof any</code>, not <code>keyof T</code>, so <code>Omit&lt;Member, "passwrdHash"&gt;</code> (a typo) compiles and omits nothing. Double-check <code>Omit</code> keys, or write a stricter <code>type StrictOmit&lt;T, K extends keyof T&gt; = Omit&lt;T, K&gt;</code>.</p>
+</div>
+
+<h2 id="unions">Filtering unions</h2>
+<script type="text/plain" class="code" data-file="unions.ts">
+type Status = "active" | "overdue" | "returned" | "lost";
+type Closed = Extract<Status, "returned" | "lost">;          // "returned" | "lost"
+type Open = Exclude<Status, Closed>;                          // "active" | "overdue"
+type MaybeDate = Date | null | undefined;
+type SureDate = NonNullable<MaybeDate>;                       // Date
+
+const o: Open = "active";
+const d: SureDate = new Date(Date.UTC(2026, 10, 5));
+console.log(o, d.toISOString().slice(0, 10));
+
+type Shape = { kind: "circle"; r: number } | { kind: "square"; side: number };
+type Circle = Extract<Shape, { kind: "circle" }>;            // picks a union member by shape
+const c: Circle = { kind: "circle", r: 2 };
+console.log(c.r);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+active 2026-11-05
+2
+</script>
+
+<h2 id="functions">Function and class helpers</h2>
+<p>These let you reuse the types of a function or class you don't control, without copying them:</p>
+<script type="text/plain" class="code" data-file="fn-helpers.ts">
+function createLoan(bookId: string, memberId: string, days = 21) {
+  return { id: `L-${bookId}-${memberId}`, bookId, memberId, days };
+}
+type LoanArgs = Parameters<typeof createLoan>;          // [bookId: string, memberId: string, days?: number]
+type Loan = ReturnType<typeof createLoan>;              // { id: string; bookId: string; ... }
+
+const args: LoanArgs = ["b1", "m1"];
+const loan: Loan = createLoan(...args);
+console.log(loan);
+
+class Member { constructor(public name: string, public type: "student" | "staff") {} }
+type MemberArgs = ConstructorParameters<typeof Member>;   // [name: string, type: "student" | "staff"]
+type MemberInstance = InstanceType<typeof Member>;        // Member
+const make = (...a: MemberArgs): MemberInstance => new Member(...a);
+console.log(make("Ana", "staff"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'L-b1-m1', bookId: 'b1', memberId: 'm1', days: 21 }
+Member { name: 'Ana', type: 'staff' }
+</script>
+<h3>Awaited</h3>
+<p><code>Awaited&lt;T&gt;</code> is the type you get from <code>await</code>: it unwraps promises recursively. Combine it with <code>ReturnType</code> for async functions:</p>
+<script type="text/plain" class="code" data-file="awaited.ts">
+async function fetchCatalog() {
+  return [{ id: "b1", title: "Dune" }];
+}
+type Catalog = Awaited<ReturnType<typeof fetchCatalog>>;   // { id: string; title: string }[]
+type Deep = Awaited<Promise<Promise<number>>>;             // number
+
+const [cat, n]: [Catalog, Deep] = await Promise.all([fetchCatalog(), Promise.resolve(3)]);
+console.log(cat[0]?.title, n);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune 3
+</script>
+<p>(Top-level <code>await</code> works here because the file is an ES module.)</p>
+
+<h2 id="this">this helpers</h2>
+<script type="text/plain" class="code" data-file="this-helpers.ts">
+function describe(this: { title: string }, prefix: string) { return `${prefix}${this.title}`; }
+
+type Ctx = ThisParameterType<typeof describe>;            // { title: string }
+const bound: OmitThisParameter<typeof describe> = describe.bind({ title: "Dune" });
+console.log(bound("Book: "));
+const ctx: Ctx = { title: "Emma" };
+console.log(describe.call(ctx, "Novel: "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Book: Dune
+Novel: Emma
+</script>
+<p><code>ThisType&lt;T&gt;</code> is a marker used in object literals to say what <code>this</code> will be inside their methods (used by some libraries' "options object" APIs). It requires <code>noImplicitThis</code>, which <code>strict</code> includes.</p>
+
+<h2 id="dto">Putting them together: one model, many shapes</h2>
+<p>A common real-world use: define the full model once, and derive the request and response types for an API from it. If the model changes, all of them follow.</p>
+<script type="text/plain" class="code" data-file="dto.ts">
+interface Book {
+  id: string;
+  title: string;
+  author: string;
+  year: number;
+  isbn?: string;
+  createdAt: Date;
+}
+type CreateBook = Omit<Book, "id" | "createdAt">;                     // what clients send to create
+type UpdateBook = Partial<CreateBook>;                                 // what clients send to update
+type BookSummary = Pick<Book, "id" | "title">;                         // what lists show
+type BookView = Readonly<Omit<Book, "createdAt"> & { createdAt: string }>;  // JSON-friendly
+
+let next = 1;
+function create(input: CreateBook): Book { return { ...input, id: `b${next++}`, createdAt: new Date(0) }; }
+function view(b: Book): BookView { return { ...b, createdAt: b.createdAt.toISOString() }; }
+function summary({ id, title }: Book): BookSummary { return { id, title }; }
+
+const dune = create({ title: "Dune", author: "Frank Herbert", year: 1965 });
+const changes: UpdateBook = { year: 1966 };
+console.log(summary(dune), view({ ...dune, ...changes }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ id: 'b1', title: 'Dune' } {
+  title: 'Dune',
+  author: 'Frank Herbert',
+  year: 1966,
+  id: 'b1',
+  createdAt: '1970-01-01T00:00:00.000Z'
+}
+</script>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> in Java or C# you'd write separate <code>CreateBookRequest</code>, <code>UpdateBookRequest</code> and <code>BookSummaryDto</code> classes (or records), and keep them in sync by hand or with a mapper library (MapStruct, AutoMapper). In TypeScript they're one line each, derived from the model, and the compiler keeps them in sync. You still write the mapping <em>functions</em>, because types don't exist at runtime.</p>
+</div>
+<div class="analogy">
+<p>🧠 <strong>Analogy: photo filters.</strong> The model is the original photo. <code>Pick</code> crops it, <code>Omit</code> blurs out a part, <code>Partial</code> makes parts transparent, <code>Readonly</code> laminates it. You never re-take the photo.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Typed configuration with defaults</h3>
+<script type="text/plain" class="code" data-file="config.ts">
+interface Config { loanDays: number; maxRenewals: number; currency: "EUR" | "USD" }
+const DEFAULTS: Readonly<Config> = { loanDays: 21, maxRenewals: 2, currency: "EUR" };
+function loadConfig(overrides: Partial<Config> = {}): Readonly<Config> {
+  return Object.freeze({ ...DEFAULTS, ...overrides });
+}
+const cfg = loadConfig({ currency: "USD" });
+console.log(cfg, Object.isFrozen(cfg));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ loanDays: 21, maxRenewals: 2, currency: 'USD' } true
+</script>
+<h3>Wrapping a library function with the same parameters</h3>
+<script type="text/plain" class="code" data-file="wrap.ts">
+function formatPrice(cents: number, currency: "EUR" | "USD" = "EUR") {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
+}
+function loggedFormat(...args: Parameters<typeof formatPrice>): ReturnType<typeof formatPrice> {
+  const out = formatPrice(...args);
+  console.log("formatted", args, "→", out);
+  return out;
+}
+loggedFormat(1299);
+loggedFormat(899, "USD");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+formatted [ 1299 ] → €12.99
+formatted [ 899, 'USD' ] → $8.99
+</script>
+<h3>A required subset</h3>
+<script type="text/plain" class="code" data-file="require-some.ts">
+type RequireSome<T, K extends keyof T> = Omit<T, K> & Required<Pick<T, K>>;
+interface Draft { title?: string; author?: string; year?: number }
+type ReadyToPublish = RequireSome<Draft, "title" | "author">;
+const ok: ReadyToPublish = { title: "Dune", author: "Frank Herbert" };
+const notOk: ReadyToPublish = { title: "Dune" };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+require-some.ts(5,7): error TS2322: Type '{ title: string; }' is not assignable to type 'ReadyToPublish'.
+  Property 'author' is missing in type '{ title: string; }' but required in type 'Required<Pick<Draft, "author" | "title">>'.
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>Partial</code>/<code>Required</code>/<code>Readonly</code> change modifiers; <code>Pick</code>/<code>Omit</code> select keys; <code>Record</code> builds dictionaries (and forces every literal key).</li>
+  <li><code>Exclude</code>/<code>Extract</code>/<code>NonNullable</code> filter unions.</li>
+  <li><code>Parameters</code>, <code>ReturnType</code>, <code>ConstructorParameters</code>, <code>InstanceType</code> and <code>Awaited</code> reuse the types of existing functions and classes.</li>
+  <li>Derive DTOs (create, update, summary, view) from one model instead of writing them by hand.</li>
+  <li>Beware: <code>Omit</code> doesn't check that the keys exist.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">pick the utility</span></h3>
+<p>Which utility gives "a <code>Member</code> without <code>email</code>"? "Only <code>id</code> and <code>name</code>"? "A dictionary from book id to <code>Book</code>"?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>Omit&lt;Member, "email"&gt;</code>, <code>Pick&lt;Member, "id" | "name"&gt;</code>, <code>Record&lt;string, Book&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>What is <code>Exclude&lt;"a" | "b" | "c", "a" | "z"&gt;</code>? And <code>Extract&lt;string | number | boolean, number | boolean&gt;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"b" | "c"</code> and <code>number | boolean</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">ReturnType</span></h3>
+<p>Without writing the object type by hand, declare a variable with the type of <code>makeMember()</code>'s result.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="make-member.ts">
+const makeMember = () => ({ id: "m1", name: "Ana", joined: 2026 });
+let m: ReturnType<typeof makeMember>;
+m = { id: "m2", name: "Ben", joined: 2025 };
+console.log(m.name);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ben
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">Record</span></h3>
+<p>Write a <code>Record</code> of day-of-week opening hours for the library, using a literal union of the seven days.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="hours.ts">
+type Day = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+const hours: Record<Day, string | null> = {
+  mon: "9-18", tue: "9-18", wed: "9-18", thu: "9-20", fri: "9-18", sat: "10-14", sun: null,
+};
+console.log(hours.thu, hours.sun ?? "closed");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+9-20 closed
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">DTOs</span></h3>
+<p>From <code>interface Loan { id: string; bookId: string; memberId: string; borrowedOn: Date; returnedOn?: Date }</code>, derive <code>NewLoan</code> (no <code>id</code>, no <code>returnedOn</code>) and <code>LoanPatch</code> (only <code>returnedOn</code>, optional).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="loan-dto.ts">
+interface Loan { id: string; bookId: string; memberId: string; borrowedOn: Date; returnedOn?: Date }
+type NewLoan = Omit<Loan, "id" | "returnedOn">;
+type LoanPatch = Partial<Pick<Loan, "returnedOn">>;
+const n: NewLoan = { bookId: "b1", memberId: "m1", borrowedOn: new Date(2026, 10, 5) };
+const p: LoanPatch = {};
+console.log(Object.keys(n), Object.keys(p));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'bookId', 'memberId', 'borrowedOn' ] []
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">StrictOmit</span></h3>
+<p>Show that <code>Omit&lt;Book, "titel"&gt;</code> compiles, then write <code>StrictOmit</code> that rejects the typo.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="strict-omit.ts">
+interface Book { id: string; title: string }
+type Loose = Omit<Book, "titel">;                    // compiles, omits nothing
+type StrictOmit<T, K extends keyof T> = Omit<T, K>;
+const loose: Loose = { id: "b1", title: "Dune" };
+console.log(Object.keys(loose));
+type Strict = StrictOmit<Book, "titel">;
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+strict-omit.ts(6,32): error TS2344: Type '"titel"' does not satisfy the constraint 'keyof Book'.
+</script>
+<script type="text/plain" class="code" data-lang="text">
+[ 'id', 'title' ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">Awaited</span></h3>
+<p>Given <code>async function loadMembers()</code> that returns an array of members, write a function <code>countByType(members: …)</code> whose parameter type is derived from <code>loadMembers</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="count-by-type.ts">
+async function loadMembers() {
+  return [{ name: "Ana", type: "student" as const }, { name: "Ben", type: "staff" as const }, { name: "Cy", type: "student" as const }];
+}
+type Members = Awaited<ReturnType<typeof loadMembers>>;
+function countByType(members: Members): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of members) out[m.type] = (out[m.type] ?? 0) + 1;
+  return out;
+}
+console.log(countByType(await loadMembers()));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ student: 2, staff: 1 }
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>exercises/ch12/dto.ts</code>, derive <code>NewBook</code>, <code>BookPatch</code> and <code>BookRow</code> from the capstone's <code>Book</code> model, and write <code>applyPatch(book, patch)</code> that ignores <code>undefined</code> values in the patch.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="dto-patch.ts">
+interface Book { id: string; title: string; author: string; year: number; format: "paperback" | "ebook" }
+export type NewBook = Omit<Book, "id">;
+export type BookPatch = Partial<NewBook>;
+export type BookRow = Pick<Book, "id" | "title" | "year">;
+
+export function applyPatch(book: Book, patch: BookPatch): Book {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  return { ...book, ...clean };
+}
+const dune: Book = { id: "b1", title: "Dune", author: "Frank Herbert", year: 1965, format: "paperback" };
+console.log(applyPatch(dune, { year: 1966, title: undefined }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{
+  id: 'b1',
+  title: 'Dune',
+  author: 'Frank Herbert',
+  year: 1966,
+  format: 'paperback'
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">re-implement</span></h3>
+<p>Write <code>MyPick</code>, <code>MyOmit</code> and <code>MyParameters</code> yourself using only mapped types, conditional types and <code>infer</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="my-utils.ts">
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+type MyOmit<T, K extends PropertyKey> = MyPick<T, Exclude<keyof T, K>>;
+type MyParameters<F> = F extends (...args: infer A) => any ? A : never;
+
+interface Book { id: string; title: string; year: number }
+const a: MyPick<Book, "title"> = { title: "Dune" };
+const b: MyOmit<Book, "id"> = { title: "Emma", year: 1815 };
+const c: MyParameters<(x: string, y: number) => void> = ["b1", 3];
+console.log(a, b, c);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+{ title: 'Dune' } { title: 'Emma', year: 1815 } [ 'b1', 3 ]
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Write <code>Nullable&lt;T, K extends keyof T&gt;</code> that makes only the keys <code>K</code> accept <code>null</code>, and use it for a member whose <code>phone</code> and <code>email</code> may be <code>null</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="nullable-keys.ts">
+type Nullable<T, K extends keyof T> = Omit<T, K> & { [P in K]: T[P] | null };
+interface Member { id: string; name: string; phone: string; email: string }
+const m: Nullable<Member, "phone" | "email"> = { id: "m1", name: "Ana", phone: null, email: "ana@example.com" };
+console.log(m.phone ?? "no phone", m.email);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no phone ana@example.com
+</script>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/utility-types.html">Reference: Utility Types</a></li>
+  <li><a href="https://github.com/microsoft/TypeScript/blob/main/src/lib/es5.d.ts">lib.es5.d.ts</a> (where the utility types are defined)</li>
+  <li><a href="https://www.typescriptlang.org/cheatsheets/">TypeScript Cheat Sheets</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

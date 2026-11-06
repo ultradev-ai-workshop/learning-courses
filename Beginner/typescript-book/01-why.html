@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🟦&lt;/text&gt;&lt;/svg&gt;">
+<title>1. Why TypeScript? · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Getting Started</div>
+<h1>Why TypeScript?</h1>
+<p class="lead">TypeScript is JavaScript with a type checker in front of it. You write the same JavaScript you already know, add notes about what kind of value goes where, and a compiler tells you about mistakes before the code runs. This chapter follows the official <em>TypeScript for JavaScript Programmers</em> page: what TypeScript adds, what it doesn't change, and how the compiler fits into your work.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What a <strong>static type checker</strong> is, and which bugs it catches before you run anything.</li>
+  <li>The golden rule: <strong>types are erased</strong>. The JavaScript that runs is the same JavaScript you wrote.</li>
+  <li>Type <strong>inference</strong>: TypeScript works out most types for you.</li>
+  <li>The three ideas the whole book builds on: defining types, composing types, and structural typing.</li>
+  <li>What changed in <span class="es">TS 7.0</span>: the new native compiler.</li>
+</ul>
+</div>
+
+<h2 id="what">JavaScript plus types</h2>
+<p>JavaScript checks types only while the program runs. If you call a method that doesn't exist, you find out when that line runs, maybe in production. A <strong>static type checker</strong> reads your code <em>without running it</em> and reports the mistakes it can prove. "Static" just means "before running".</p>
+<p>Here is a small JavaScript bug. The object has <code>title</code>, but the code reads <code>tilte</code>:</p>
+<script type="text/plain" class="code" data-file="typo.js">
+const book = { title: "Dune", pages: 412 };
+console.log(book.tilte.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+TypeError: Cannot read properties of undefined (reading 'toUpperCase')
+</script>
+<p>JavaScript only fails when the line runs. The same code in a <code>.ts</code> file never gets that far: the compiler stops you while you type.</p>
+<script type="text/plain" class="code" data-file="typo.ts">
+const book = { title: "Dune", pages: 412 };
+console.log(book.tilte.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+typo.ts(2,18): error TS2551: Property 'tilte' does not exist on type '{ title: string; pages: number; }'. Did you mean 'title'?
+</script>
+<p>Read the error from left to right: the file, the position <code>(line,column)</code>, an error code (<code>TS2551</code>, handy for searching), and a message. Notice that we never wrote a type. TypeScript <strong>inferred</strong> the type of <code>book</code> from its value: <code>{ title: string; pages: number; }</code>.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a spell checker for your program's shape.</strong> A spell checker doesn't understand your essay, and it doesn't stop you from printing it. It only underlines words that can't be right. TypeScript is the same: it underlines code that can't be right, and leaves the meaning to you.</p>
+</div>
+
+<h2 id="erased">The golden rule: types are erased</h2>
+<p>Browsers and Node run JavaScript, not TypeScript. The compiler, <code>tsc</code>, does two separate jobs:</p>
+<ol>
+  <li><strong>Type-check</strong> the code and report errors.</li>
+  <li><strong>Emit</strong> JavaScript by removing the type annotations.</li>
+</ol>
+<p>These jobs are independent. Even when there are type errors, <code>tsc</code> still writes the JavaScript by default. The types are gone from the output, so they can't change what the program does:</p>
+<script type="text/plain" class="code" data-file="erased.ts">
+function addTax(price: number): number {
+  return price * 1.2;
+}
+console.log(addTax(100));
+console.log(addTax("100" as any));   // `as any` switches the checker off for this value
+</script>
+<script type="text/plain" class="code" data-lang="text">
+120
+120
+</script>
+<p>The second call passes a string. JavaScript's <code>*</code> converts it to a number, so it "works". The annotation <code>price: number</code> did not add any runtime check. This is the most important fact in the book:</p>
+<div class="pitfall">
+<p>⚠️ <strong>TypeScript checks your code, not your data.</strong> Data that arrives at runtime (JSON from an API, a form field, a file) has no types until you check it yourself. Chapter 4 (narrowing) shows how.</p>
+</div>
+<p>Here is what <code>tsc</code> emits for <code>erased.ts</code>. The annotations are simply deleted:</p>
+<script type="text/plain" class="code" data-file="out/erased.js" data-norun>
+function addTax(price) {
+    return price * 1.2;
+}
+console.log(addTax(100));
+console.log(addTax("100")); // `as any` switches the checker off for this value
+</script>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> in Java and C#, types exist at runtime too. The JVM and the .NET runtime check casts, and <code>instanceof</code> or <code>is</code> can look at a generic's metadata (C#) or a class. TypeScript is different: once the code is compiled, the types are gone, much like Java's <em>type erasure</em> for generics, but applied to <strong>every</strong> type. A failed "cast" in TypeScript (<code>as</code>) never throws.</p>
+</div>
+
+<h2 id="inference">Types by inference</h2>
+<p>You rarely need to write types for local variables. TypeScript infers them from the values, and then holds you to them:</p>
+<script type="text/plain" class="code" data-file="inference.ts">
+let title = "Dune";        // inferred: string
+let copies = 3;            // inferred: number
+copies = "three";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+inference.ts(3,1): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<p>"Not assignable" is how TypeScript says "these types don't fit". You will see TS2322 a lot. It always reads <em>Type 'what you gave' is not assignable to type 'what was expected'</em>.</p>
+
+<h2 id="defining">Defining types</h2>
+<p>When inference isn't enough, you describe the shape of an object yourself. An <strong>interface</strong> names a shape:</p>
+<script type="text/plain" class="code" data-file="defining.ts">
+interface Book {
+  id: string;
+  title: string;
+  pages: number;
+}
+
+const dune: Book = { id: "b1", title: "Dune", pages: 412 };
+
+function describe(book: Book): string {
+  return `${book.title} (${book.pages} pages)`;
+}
+console.log(describe(dune));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Dune (412 pages)
+</script>
+<p>If the object doesn't match the shape, the error says exactly which property is wrong:</p>
+<script type="text/plain" class="code" data-file="defining-bad.ts">
+interface Book {
+  id: string;
+  title: string;
+  pages: number;
+}
+const emma: Book = { id: "b2", title: "Emma", pages: "474" };
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+defining-bad.ts(6,47): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<p>JavaScript's own types are all available: <code>string</code>, <code>number</code>, <code>boolean</code>, <code>bigint</code>, <code>symbol</code>, <code>null</code> and <code>undefined</code>. TypeScript adds a few more: <code>any</code> (anything, unchecked), <code>unknown</code> (anything, but you must check before using it), <code>never</code> (a value that can't happen) and <code>void</code> (a function that returns nothing useful). Chapter 3 covers them all.</p>
+
+<h2 id="composing">Composing types</h2>
+<p>Bigger types are built from smaller ones. The two everyday tools are <strong>unions</strong> ("this or that") and <strong>generics</strong> ("a box of some type").</p>
+<script type="text/plain" class="code" data-file="composing.ts">
+type LoanStatus = "active" | "returned" | "overdue";   // a union of three exact strings
+
+function label(status: LoanStatus): string {
+  return status === "overdue" ? "⚠️ " + status : status;
+}
+console.log(label("active"), label("overdue"));
+
+// A generic: an array whose items are all Books
+const shelf: Array<{ title: string }> = [{ title: "Dune" }, { title: "Emma" }];
+console.log(shelf.map((b) => b.title).join(", "));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+active ⚠️ overdue
+Dune, Emma
+</script>
+<p>A misspelt status is now a compile-time error, not a silent bug:</p>
+<script type="text/plain" class="code" data-file="composing-bad.ts">
+type LoanStatus = "active" | "returned" | "overdue";
+const s: LoanStatus = "overdeu";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+composing-bad.ts(2,7): error TS2820: Type '"overdeu"' is not assignable to type 'LoanStatus'. Did you mean '"overdue"'?
+</script>
+
+<h2 id="structural">Structural typing</h2>
+<p>TypeScript compares types by their <strong>shape</strong>, not by their name. If an object has the properties a type needs, it fits, even if it was never declared as that type. This is called <strong>structural typing</strong> (or "duck typing, checked at compile time").</p>
+<script type="text/plain" class="code" data-file="structural.ts">
+interface HasTitle {
+  title: string;
+}
+function shout(item: HasTitle): string {
+  return item.title.toUpperCase();
+}
+
+const book = { title: "Dune", pages: 412 };          // never mentions HasTitle
+const film = { title: "Arrival", minutes: 116 };
+console.log(shout(book), shout(film));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+DUNE ARRIVAL
+</script>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> Java and C# use <strong>nominal</strong> typing: a class fits an interface only if it says <code>implements HasTitle</code> (or <code>: IHasTitle</code>). In TypeScript the <code>implements</code> keyword exists (Chapter 7), but it's only a check you ask for. Any value with the right shape is accepted. This one difference explains many surprises for Java and C# developers.</p>
+</div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a plug and a socket.</strong> Nominal typing asks "is this plug from the approved brand?". Structural typing asks "do the pins fit the socket?". TypeScript only looks at the pins.</p>
+</div>
+
+<h2 id="ts7">The compiler today: TypeScript 7 <span class="es">TS 7.0</span></h2>
+<p>For its first ten years, the TypeScript compiler was written in TypeScript and ran on Node. <strong>TypeScript 7.0</strong> (2026) is a port of the same compiler to Go. It checks code about <strong>10× faster</strong> and uses much less memory. The language and its rules are the same as in TypeScript 6.0. Only the engine changed.</p>
+<ul>
+  <li>You still install it with <code>npm install -D typescript</code> and run <code>tsc</code>.</li>
+  <li><code>strict</code> mode is <strong>on by default</strong> now. Every example in this book uses it.</li>
+  <li>Tools that load TypeScript as a library (some linters and framework plugins) still use TypeScript 6 until the new programmatic API is stable. <a href="appendix-tooling.html">Appendix B</a> explains this.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --version
+Version 7.0.2
+</script>
+
+<h2 id="where">Where TypeScript runs</h2>
+<p>Since TypeScript is erased, "running TypeScript" always means "remove the types, then run JavaScript". You have three common choices:</p>
+<div class="table-wrap"><table>
+<tr><th>How</th><th>Checks types?</th><th>Used for</th></tr>
+<tr><td><code>tsc</code> → <code>.js</code> files → <code>node</code></td><td>✅ yes</td><td>libraries, builds, this book</td></tr>
+<tr><td><code>node file.ts</code> (Node 22.18+ and 23.6+ strip types themselves)</td><td>❌ no</td><td>quick scripts, tests</td></tr>
+<tr><td>a bundler or tool (Vite, esbuild, tsx)</td><td>❌ no, run <code>tsc --noEmit</code> alongside</td><td>web apps</td></tr>
+</table></div>
+<p>The tools that only strip types are fast because they skip checking. You still run <code>tsc --noEmit</code> (check only, write nothing) in your editor, in a pre-commit hook or in CI.</p>
+<div class="tip">
+<p>💡 <strong>The official Playground</strong> at <a href="https://www.typescriptlang.org/play/">typescriptlang.org/play</a> runs the compiler in your browser. Paste any example from this book, see the errors, and look at the emitted JavaScript in the <em>.JS</em> tab. No install needed.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Wrong number of arguments</h3>
+<p>JavaScript lets you call a function with too few arguments; the missing ones are <code>undefined</code>. TypeScript doesn't:</p>
+<script type="text/plain" class="code" data-file="args.ts">
+function renew(loanId: string, days: number) {
+  return `${loanId} renewed for ${days} days`;
+}
+renew("L1");
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+args.ts(4,1): error TS2554: Expected 2 arguments, but got 1.
+</script>
+<p>In an editor, hovering the error also shows a note pointing at the parameter that wasn't filled (<code>days</code>).</p>
+<h3>A method that doesn't exist on that type</h3>
+<script type="text/plain" class="code" data-file="methods.ts">
+const pages = 412;
+console.log(pages.toUpperCase());
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+methods.ts(2,19): error TS2339: Property 'toUpperCase' does not exist on type '412'.
+</script>
+<p>Why <code>'412'</code> and not <code>number</code>? A <code>const</code> can never change, so TypeScript gives it the narrowest type possible: the <strong>literal type</strong> <code>412</code>, which is a kind of <code>number</code>. With <code>let</code> it would be <code>number</code>. Chapter 3 explains literal types.</p>
+<h3>Possibly undefined</h3>
+<p><code>Array.prototype.find</code> may not find anything. The checker knows this and makes you handle it:</p>
+<script type="text/plain" class="code" data-file="find.ts">
+const titles = ["Dune", "Emma"];
+const found = titles.find((t) => t.startsWith("H"));
+console.log(found.length);
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+find.ts(3,13): error TS18048: 'found' is possibly 'undefined'.
+</script>
+<script type="text/plain" class="code" data-file="find-fixed.ts">
+const titles = ["Dune", "Emma"];
+const found = titles.find((t) => t.startsWith("H"));
+console.log(found?.length ?? "no title starts with H");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+no title starts with H
+</script>
+<h3>Valid JavaScript is (almost always) valid TypeScript syntax</h3>
+<p>TypeScript is a <em>superset</em> of JavaScript: any JavaScript program is also a TypeScript program. It may have type errors, but it parses. That's why you can rename a <code>.js</code> file to <code>.ts</code> and fix errors one by one (the capstone in <a href="19-project.html">Chapter 19</a> does exactly that).</p>
+<script type="text/plain" class="code" data-file="plain.ts">
+const prices = [1299, 899, 2450];
+const total = prices.reduce((sum, p) => sum + p, 0);
+console.log(`Total: ${(total / 100).toFixed(2)}`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Total: 46.48
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>TypeScript is JavaScript plus a <strong>static type checker</strong>: it finds mistakes without running the code.</li>
+  <li><strong>Types are erased.</strong> <code>tsc</code> checks, then emits plain JavaScript, even when there are errors. Types never check runtime data.</li>
+  <li>Most types are <strong>inferred</strong>. You write them for function parameters and for shapes you want to name.</li>
+  <li>Build types with <code>interface</code>/<code>type</code>, unions (<code>"a" | "b"</code>) and generics (<code>Array&lt;T&gt;</code>).</li>
+  <li>TypeScript is <strong>structural</strong>: shape matters, names don't. Java and C# are nominal.</li>
+  <li><span class="es">TS 7.0</span> is the native (Go) compiler: same language, about 10× faster, <code>strict</code> by default.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">read the error</span></h3>
+<p>What do the parts of <code>app.ts(7,3): error TS2322: …</code> mean?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>app.ts</code> is the file, <code>(7,3)</code> is line 7, column 3, <code>TS2322</code> is the error code ("type not assignable"), and the rest is the message. Search the code online, or in the TypeScript repository, to find explanations.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Does this file compile? If not, which line fails and why?</p>
+<script type="text/plain" class="code" data-file="ex2.ts" data-norun>
+let year = 2026;
+year = year + 1;
+year = "next year";
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Line 3 fails with TS2322. <code>year</code> was inferred as <code>number</code> from its first value, and a string can't be assigned to it.</p>
+<script type="text/plain" class="code" data-file="ex2-check.ts">
+let year = 2026;
+year = year + 1;
+year = "next year";
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+ex2-check.ts(3,1): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"If my TypeScript code compiles, a function declared as <code>(n: number)</code> can never receive a string at runtime." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> Types are erased. A caller written in plain JavaScript, data from <code>JSON.parse</code>, or an <code>as any</code> can still pass a string. TypeScript only proves things about the code it checked.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">write it</span></h3>
+<p>Write an interface <code>Member</code> with <code>name</code> (string) and <code>maxLoans</code> (number), create one member, and print <code>"Ana can borrow 3 books"</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="member.ts">
+interface Member {
+  name: string;
+  maxLoans: number;
+}
+const ana: Member = { name: "Ana", maxLoans: 3 };
+console.log(`${ana.name} can borrow ${ana.maxLoans} books`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana can borrow 3 books
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">structural typing</span></h3>
+<p>Given <code>interface Named { name: string }</code>, which of these can be passed to <code>function greet(x: Named)</code>: (a) <code>{ name: "Ana", age: 30 }</code> stored in a variable first, (b) a class instance with a public <code>name</code> field, (c) <code>{ title: "Dune" }</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) and (b). Both have a <code>name: string</code>, and extra properties are fine. (c) has no <code>name</code>. (Passing an object literal with extra properties <em>directly</em> is a special case called the excess property check, covered in Chapter 6.)</p>
+<script type="text/plain" class="code" data-file="greet.ts">
+interface Named { name: string }
+function greet(x: Named) { return "Hi " + x.name; }
+class Librarian { constructor(public name: string) {} }
+const person = { name: "Ana", age: 30 };
+console.log(greet(person), greet(new Librarian("Ben")));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Hi Ana Hi Ben
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">find the bug</span></h3>
+<p>Without running it, list every error TypeScript reports here:</p>
+<script type="text/plain" class="code" data-file="ex6.ts" data-norun>
+interface Loan { bookId: string; days: number }
+const loan: Loan = { bookId: "b1", days: 14 };
+console.log(loan.day);
+console.log(loan.bookId.toFixed(2));
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Both lines fail. TypeScript even suggests a "fix" for the second one: <code>fixed()</code> is an old, deprecated string method, so the suggestion is wrong here. Read suggestions, don't follow them blindly.</p>
+<script type="text/plain" class="code" data-file="ex6-check.ts">
+interface Loan { bookId: string; days: number }
+const loan: Loan = { bookId: "b1", days: 14 };
+console.log(loan.day);
+console.log(loan.bookId.toFixed(2));
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+ex6-check.ts(3,18): error TS2551: Property 'day' does not exist on type 'Loan'. Did you mean 'days'?
+ex6-check.ts(4,25): error TS2551: Property 'toFixed' does not exist on type 'string'. Did you mean 'fixed'?
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">union</span></h3>
+<p>Write a type <code>Format</code> that allows only <code>"hardcover"</code>, <code>"paperback"</code> or <code>"ebook"</code>, and a function <code>shipping(f: Format)</code> that returns 0 for ebooks and 399 otherwise.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="format.ts">
+type Format = "hardcover" | "paperback" | "ebook";
+function shipping(f: Format): number {
+  return f === "ebook" ? 0 : 399;
+}
+console.log(shipping("ebook"), shipping("paperback"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+0 399
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Clone the playground (see <a href="playground-howto.html">Using the Playground</a>), open <code>exercises/ch01/hello.ts</code>, write a function <code>welcome(name: string): string</code>, and run <code>npm run check</code>. Then change the call to <code>welcome(42)</code> and read the error.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="hello.ts">
+export function welcome(name: string): string {
+  return `Welcome to the library, ${name}!`;
+}
+console.log(welcome("Ana"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Welcome to the library, Ana!
+</script>
+<p>With <code>welcome(42)</code> you get <code>error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Your team says: "We'll add TypeScript, so we can delete our input-validation code." Explain in two or three sentences why that's wrong, and what TypeScript <em>does</em> let you delete.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Input arrives at runtime, and types are erased, so TypeScript can't check it; validation code is still needed at the edges (HTTP requests, files, user input). What TypeScript lets you delete is <em>defensive checks inside</em> your own code ("is this really a string?") between functions that are already type-checked, plus many unit tests that only checked shapes and argument counts.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">playground</span></h3>
+<p>Write <code>exercises/ch01/erased.ts</code> that proves types are erased: declare <code>function double(n: number)</code>, call it once correctly and once through <code>as any</code> with <code>"21"</code>, and print both results. Predict the output before you run it.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="double.ts">
+function double(n: number): number {
+  return n * 2;
+}
+console.log(double(21));
+console.log(double("21" as any));        // "21" * 2 → 42 (coercion)
+console.log((double as any)("21") + "!");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+42
+42
+42!
+</script>
+<p>Both calls give <code>42</code> because <code>*</code> converts the string. Nothing at runtime knows that <code>n</code> was meant to be a number.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes.html">TypeScript for JavaScript Programmers</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-oop.html">TypeScript for Java/C# Programmers</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/intro.html">The TypeScript Handbook</a></li>
+  <li><a href="https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/">Announcing TypeScript 7.0</a></li>
+  <li><a href="https://www.typescriptlang.org/play/">TypeScript Playground</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

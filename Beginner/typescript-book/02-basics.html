@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛠️&lt;/text&gt;&lt;/svg&gt;">
+<title>2. The Basics: tsc &amp; Strictness · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Getting Started</div>
+<h1>The Basics: tsc &amp; Strictness</h1>
+<p class="lead">This chapter follows the Handbook's <em>The Basics</em> page. You install the compiler, compile a first file, see what <code>tsc</code> writes out, and meet the switches that decide how strict the checker is. By the end you can set up a small TypeScript project from nothing.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to install TypeScript in a project and run <code>tsc</code>.</li>
+  <li>What <code>tsc</code> emits, and how <code>target</code> changes it ("downleveling").</li>
+  <li>Why <code>tsc</code> still writes files when there are errors, and <code>noEmitOnError</code>.</li>
+  <li>Explicit type annotations: where to write them and where to leave them out.</li>
+  <li>The two most important strict checks: <code>noImplicitAny</code> and <code>strictNullChecks</code>.</li>
+  <li>A first <code>tsconfig.json</code>, <code>--noEmit</code> and <code>--watch</code>.</li>
+</ul>
+</div>
+
+<h2 id="install">Installing the compiler</h2>
+<p>Install TypeScript <strong>per project</strong>, as a development dependency. Then every teammate and the CI server use the same version, written in <code>package.json</code>.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install --save-dev typescript
+$ npx tsc --version
+Version 7.0.2
+</script>
+<p><code>npx tsc</code> runs the compiler from <code>node_modules/.bin</code>. Inside <code>package.json</code> scripts you can just write <code>tsc</code>. In this book, a <code>$ tsc</code> line means the project's compiler.</p>
+<div class="note">
+<p>📝 A global install (<code>npm install -g typescript</code>) also works, but then different projects can't pin different versions. Prefer the local install.</p>
+</div>
+
+<h2 id="first">Your first compile</h2>
+<p>Save this as <code>hello.ts</code>:</p>
+<script type="text/plain" class="code" data-file="hello.ts" data-save>
+function greet(person: string, date: Date) {
+  console.log(`Hello ${person}, today is ${date.toDateString()}!`);
+}
+greet("Ana", new Date(2026, 10, 5));
+</script>
+<p>Compile it by naming the file. With no errors, <code>tsc</code> prints nothing and writes <code>hello.js</code> next to it:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc hello.ts
+$ node hello.js
+Hello Ana, today is Thu Nov 05 2026!
+$ cat hello.js
+"use strict";
+function greet(person, date) {
+    console.log(`Hello ${person}, today is ${date.toDateString()}!`);
+}
+greet("Ana", new Date(2026, 10, 5));
+</script>
+<p>The output is your code minus the annotations <code>: string</code> and <code>: Date</code>. The <code>"use strict"</code> line was added because, with no other settings, TypeScript 7 treats the file as strict JavaScript.</p>
+
+<h2 id="errors">Errors still emit</h2>
+<p>Now call <code>greet</code> wrongly. The checker complains, and the exit code is non-zero (so CI fails), but <code>hello.js</code> is still written:</p>
+<script type="text/plain" class="code" data-file="hello.ts" data-save>
+function greet(person: string, date: Date) {
+  console.log(`Hello ${person}, today is ${date.toDateString()}!`);
+}
+greet("Ana", "Thursday");
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc hello.ts; echo "exit code $?"
+hello.ts(4,14): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Date'.
+exit code 2
+$ node hello.js 2>&1 | grep Error
+TypeError: date.toDateString is not a function
+</script>
+<p>(<code>grep</code> keeps just the error line from Node's stack trace.) TypeScript warned you, you ran the code anyway, and it failed exactly where the checker said.</p>
+<p>Why emit at all? While you move a JavaScript project to TypeScript, you'll have hundreds of errors for a while, and the code still worked yesterday. TypeScript doesn't block you. When you want it to, set <code>noEmitOnError</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ rm hello.js
+$ tsc --noEmitOnError hello.ts; ls hello.js
+hello.ts(4,14): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Date'.
+ls: hello.js: No such file or directory
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy: a building inspector who doesn't hold the keys.</strong> The inspector (the checker) writes a report of every problem. The builder (the emitter) hands over the keys either way, unless you made a rule (<code>noEmitOnError</code>) that no keys are handed over while the report has problems.</p>
+</div>
+
+<h2 id="annotations">Explicit types</h2>
+<p>An <strong>annotation</strong> is <code>: Type</code> after a name. You'll write them in three places:</p>
+<ol>
+  <li><strong>Function parameters</strong>: always, because TypeScript can't guess what callers will pass.</li>
+  <li><strong>Return types</strong>: optional, but useful on exported functions. They document intent and catch a wrong <code>return</code> early.</li>
+  <li><strong>Variables</strong>: only when there's no initial value, or when the inferred type is too narrow or too wide.</li>
+</ol>
+<script type="text/plain" class="code" data-file="annotations.ts">
+let msg = "hello";                       // inferred string: no annotation needed
+let due: Date;                           // no value yet: annotate
+due = new Date(2026, 10, 19);
+
+function daysBetween(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+}
+console.log(msg, daysBetween(new Date(2026, 10, 5), due));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+hello 14
+</script>
+<div class="tip">
+<p>💡 <strong>Rule of thumb:</strong> annotate the edges (parameters, exported functions, public APIs), let inference do the inside. If you hover a variable in your editor and the inferred type is right, don't repeat it.</p>
+</div>
+
+<h2 id="downlevel">Downleveling with target</h2>
+<p><code>target</code> tells <code>tsc</code> which JavaScript version the output must run on. Newer syntax is rewritten for older targets. That rewriting is called <strong>downleveling</strong>. Template literals arrived in ES2015, so watch what happens with <code>--target es5</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ printf 'const who = "Ana";\nconsole.log(`Hi ${who}`);\n' > tpl.ts
+$ tsc --target es2015 tpl.ts && cat tpl.js
+"use strict";
+const who = "Ana";
+console.log(`Hi ${who}`);
+$ tsc --target es5 tpl.ts
+error TS5108: Option 'target=ES5' has been removed. Please remove it from your configuration.
+</script>
+<p>TypeScript 6.0 deprecated <code>es5</code>, and TypeScript 7 removed it: every browser and Node version still in use runs ES2015+. The lowest target is now <code>es2015</code>, and the default is the newest (<code>esnext</code>). Pick the oldest runtime you support; for Node 22+ that is <code>es2024</code>.</p>
+<div class="note">
+<p>📝 <code>target</code> only rewrites <strong>syntax</strong>. It doesn't add missing built-in functions (like <code>Array.prototype.findLast</code>) to old runtimes. That's what <em>polyfills</em> are for, and it's why you also set <code>lib</code>, the list of built-ins the checker assumes exist (Chapter 18).</p>
+</div>
+
+<h2 id="strict">Strictness</h2>
+<p>TypeScript can be loose (good for a first migration) or strict (good for everything else). The <code>strict</code> flag turns on a family of checks at once. Since <span class="es">TS 7.0</span>, <strong><code>strict</code> is on by default</strong>, which is why you saw <code>"use strict"</code> above. The two checks you'll feel the most:</p>
+
+<h3>noImplicitAny</h3>
+<p>When TypeScript can't work out a type, it falls back to <code>any</code>, which switches checking off for that value. <code>noImplicitAny</code> turns that silent fallback into an error:</p>
+<script type="text/plain" class="code" data-file="implicit.ts">
+function fine(cents) {
+  return cents / 100;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+implicit.ts(1,15): error TS7006: Parameter 'cents' implicitly has an 'any' type.
+</script>
+<p>With <code>strict</code> off, the same code compiles, and <code>fine("oops")</code> would compile too:</p>
+<script type="text/plain" class="code" data-file="implicit-loose.ts" data-tsc="strict=false">
+function fine(cents) {
+  return cents / 100;
+}
+console.log(fine("oops"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+NaN
+</script>
+
+<h3>strictNullChecks</h3>
+<p>Without it, <code>null</code> and <code>undefined</code> are allowed everywhere, the "billion-dollar mistake" from Java and C#. With it, they are separate types, and you must handle them:</p>
+<script type="text/plain" class="code" data-file="nulls.ts">
+function initials(name: string | null): string {
+  return name.split(" ").map((p) => p[0]).join("");
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+nulls.ts(2,10): error TS18047: 'name' is possibly 'null'.
+</script>
+<script type="text/plain" class="code" data-file="nulls-fixed.ts">
+function initials(name: string | null): string {
+  if (name === null) return "?";
+  return name.split(" ").map((p) => p[0]).join("");
+}
+console.log(initials("Ana Lima"), initials(null));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+AL ?
+</script>
+<p>After the <code>if</code>, TypeScript knows <code>name</code> is a <code>string</code>. That's <strong>narrowing</strong>, the topic of Chapter 4.</p>
+
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> <code>strictNullChecks</code> is like C#'s <em>nullable reference types</em> (<code>string?</code> vs <code>string</code>, with <code>#nullable enable</code>) or Java's <code>@Nullable</code>/<code>Optional</code>, but enforced by the compiler everywhere. <code>string | null</code> is TypeScript's <code>string?</code>.</p>
+</div>
+
+<h2 id="tsconfig">A first tsconfig.json</h2>
+<p>Passing flags on the command line gets old fast. A <code>tsconfig.json</code> file marks the root of a project and holds its settings. The example project below lives in a folder called <code>first-project/</code>. <code>tsc --init</code> writes a commented starter file; run <code>tsc</code> with <strong>no file names</strong> to compile the project it describes.</p>
+<script type="text/plain" class="code" data-file="first-project/tsconfig.json" data-save>
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "noEmitOnError": true
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="first-project/src/app.ts" data-save>
+const shelf: string[] = ["Dune", "Emma"];
+console.log(`${shelf.length} books on the shelf`);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="first-project">
+$ tsc && node dist/app.js
+2 books on the shelf
+$ tsc --noEmit && echo "types OK"
+types OK
+$ tsc src/app.ts
+error TS5112: tsconfig.json is present but will not be loaded if files are specified on commandline. Use '--ignoreConfig' to skip this error.
+</script>
+<ul>
+  <li><code>rootDir</code>/<code>outDir</code> keep sources in <code>src/</code> and output in <code>dist/</code>.</li>
+  <li><code>tsc --noEmit</code> only type-checks. That's what you run in CI when another tool builds the code.</li>
+  <li>New in TypeScript 7: naming files while a <code>tsconfig.json</code> exists is an error (TS5112), because people were surprised that their settings were ignored.</li>
+  <li><code>tsc --watch</code> (<code>-w</code>) keeps running and recompiles when a file changes.</li>
+</ul>
+<p>Chapter 18 goes through the important options one by one.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A wrong return type is caught inside the function</h3>
+<script type="text/plain" class="code" data-file="returns.ts">
+function lateFee(days: number): number {
+  if (days <= 0) return "none";
+  return days * 25;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+returns.ts(2,18): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<p>Without the <code>: number</code>, TypeScript would infer <code>string | number</code>, and the mistake would show up later, at the caller.</p>
+<h3>Implicit any from an empty array, made explicit</h3>
+<script type="text/plain" class="code" data-file="empty-array.ts">
+const ids: string[] = [];
+ids.push("b1", "b2");
+console.log(ids.join("+"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+b1+b2
+</script>
+<h3>Types don't change runtime behaviour</h3>
+<p>Annotations never convert values. <code>Number(...)</code> converts; <code>: number</code> only describes.</p>
+<script type="text/plain" class="code" data-file="convert.ts">
+const raw = "42";
+const n: number = Number(raw);    // conversion happens here, at runtime
+console.log(n + 1, typeof n);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+43 number
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Install TypeScript per project (<code>npm i -D typescript</code>) and run <code>npx tsc</code> or <code>tsc</code> in npm scripts.</li>
+  <li><code>tsc file.ts</code> checks and emits <code>file.js</code>. Errors still emit unless <code>noEmitOnError</code> is set; the exit code is non-zero.</li>
+  <li>Annotate parameters and public return types; let inference handle locals.</li>
+  <li><code>target</code> picks the output syntax (ES2015 or newer in TS 7); <code>lib</code> picks which built-ins exist.</li>
+  <li><code>strict</code> (on by default in TS 7) includes <code>noImplicitAny</code> and <code>strictNullChecks</code>.</li>
+  <li><code>tsconfig.json</code> marks a project; run <code>tsc</code>, <code>tsc --noEmit</code> or <code>tsc -w</code> with no file names.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">commands</span></h3>
+<p>Which command only checks types, without writing any files?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>tsc --noEmit</code> (in a folder with a <code>tsconfig.json</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A file has one type error. You run <code>tsc app.ts</code> with no other options. Is <code>app.js</code> written? What is the exit code?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes, <code>app.js</code> is written (emit and checking are independent). The exit code is 2, so scripts and CI see the failure.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">fix it</span></h3>
+<p>Add annotations so this compiles under <code>strict</code>:</p>
+<script type="text/plain" class="code" data-file="ex3.ts" data-norun>
+function fullName(first, last) {
+  return first + " " + last;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="ex3-fixed.ts">
+function fullName(first: string, last: string): string {
+  return first + " " + last;
+}
+console.log(fullName("Ana", "Lima"));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Ana Lima
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"<code>--target es2015</code> makes <code>Array.prototype.at</code> work on an ES2015 runtime." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> <code>target</code> rewrites syntax only. A missing built-in method needs a polyfill. With <code>lib</code> set to ES2015, the checker would even report that <code>at</code> doesn't exist.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">strictNullChecks</span></h3>
+<p>Write <code>shout(text: string | undefined): string</code> that upper-cases the text, or returns <code>"(silence)"</code> when it's <code>undefined</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="shout.ts">
+function shout(text: string | undefined): string {
+  if (text === undefined) return "(silence)";
+  return text.toUpperCase();
+}
+console.log(shout("quiet please"), shout(undefined));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+QUIET PLEASE (silence)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">read the error</span></h3>
+<p>What error does this give, and what is the smallest fix?</p>
+<script type="text/plain" class="code" data-file="ex6.ts">
+const tags = [];
+tags.push("sci-fi");
+const first: number = tags[0];
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+ex6.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Under <code>noImplicitAny</code>, an empty array starts as an "evolving" array whose type grows as you push. After <code>push("sci-fi")</code> it's <code>string[]</code>, so <code>tags[0]</code> is a <code>string</code>. The fix is <code>const first: string = tags[0];</code>, or better, write <code>const tags: string[] = [];</code> to make the intent clear.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, run <code>npm run check</code>, then open <code>tsconfig.json</code> and find <code>strict</code>. Set it to <code>false</code>, add a function with an un-annotated parameter in <code>exercises/ch02/loose.ts</code>, and check again. Then set it back.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>"strict": false</code>, <code>function f(x) { return x; }</code> compiles: <code>x</code> is silently <code>any</code>. With <code>"strict": true</code> you get TS7006. Keep strict on; turn individual checks off only during a migration.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">return types</span></h3>
+<p>Write <code>dueDate(start: Date, days: number): Date</code> that returns a <em>new</em> date <code>days</code> later. Print the due date for a loan starting on 5 November 2026 for 14 days, as <code>toDateString()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="due.ts">
+function dueDate(start: Date, days: number): Date {
+  const d = new Date(start);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+console.log(dueDate(new Date(2026, 10, 5), 14).toDateString());
+</script>
+<script type="text/plain" class="code" data-lang="text">
+Thu Nov 19 2026
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does TypeScript emit JavaScript even when there are type errors, and in which situation would you turn on <code>noEmitOnError</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Because type errors don't mean the JavaScript is broken: the types are only a model of it. During a gradual migration the old code still runs, so blocking output would stop the team. Turn on <code>noEmitOnError</code> when <code>tsc</code> produces the shipped build (a library or a server), so a type error can never reach production as a "successful" build.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">playground</span></h3>
+<p>Set up a tiny project from scratch in <code>exercises/ch02/mini/</code>: a <code>tsconfig.json</code> with <code>rootDir</code> <code>src</code>, <code>outDir</code> <code>dist</code>, <code>target</code> <code>es2024</code> and <code>noEmitOnError</code>; a <code>src/index.ts</code> that prints the number of days between two dates. Build with <code>tsc -p exercises/ch02/mini</code> and run the output.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="mini/tsconfig.json" data-norun>
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "noEmitOnError": true
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="days.ts">
+const start = new Date(2026, 10, 5);
+const end = new Date(2026, 11, 25);
+const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+console.log(`${days} days until the holiday`);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+50 days until the holiday
+</script>
+<p><code>tsc -p</code> points the compiler at a folder (or a config file) other than the current one.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://www.typescriptlang.org/docs/handbook/2/basic-types.html">Handbook: The Basics</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-tooling-in-5-minutes.html">TypeScript Tooling in 5 minutes</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/compiler-options.html">tsc CLI Options</a></li>
+  <li><a href="https://www.typescriptlang.org/tsconfig/#strict">TSConfig reference: strict</a> · <a href="https://www.typescriptlang.org/tsconfig/#target">target</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

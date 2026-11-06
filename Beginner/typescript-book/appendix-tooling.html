@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧪&lt;/text&gt;&lt;/svg&gt;">
+<title>B. Tooling &amp; TypeScript 7 · TypeScript Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B</div>
+<h1>Tooling &amp; TypeScript 7</h1>
+<p class="lead">TypeScript is a language, a compiler and a language service that powers your editor. This appendix covers the tools around it as of TypeScript 7.0: installing and running the compiler, running <code>.ts</code> files directly, editors, linting, testing and formatting, plus what changed with the native compiler and where TypeScript 6 still matters. It follows the Handbook's <em>TypeScript Tooling in 5 minutes</em>, <em>Integrating with Build Tools</em> and <em>Nightly Builds</em> pages.</p>
+
+<div class="tip">
+<p>💡 <strong>Facts on this page change often.</strong> Version numbers and tool support were checked in November 2026. Before you rely on one, check the <a href="https://devblogs.microsoft.com/typescript/">TypeScript blog</a> and each tool's release notes.</p>
+</div>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What TypeScript 7 changed, and the <code>@typescript/typescript6</code> package.</li>
+  <li>Three ways to run TypeScript: <code>tsc</code> + Node, Node's type stripping, and <code>tsx</code>.</li>
+  <li>Editor support, <code>tsc --watch</code> and the language service.</li>
+  <li>Linting with typescript-eslint, testing with <code>node:test</code> or Vitest, formatting with Prettier.</li>
+  <li>Picking versions: <code>typescript@latest</code>, <code>@next</code>, and <code>@types/node</code>.</li>
+</ul>
+</div>
+
+<h2 id="ts7">TypeScript 7: the native compiler</h2>
+<p>TypeScript 7.0 is the same type checker, ported from TypeScript (running on Node) to Go (a native binary). The project was known as "Project Corsa", and its previews shipped as the <code>@typescript/native-preview</code> package with a <code>tsgo</code> command. Since 7.0, it <em>is</em> the <code>typescript</code> package and its command is <code>tsc</code>.</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --version
+Version 7.0.2
+</script>
+<div class="table-wrap"><table>
+<tr><th>What changed in 7.0</th><th>What it means for you</th></tr>
+<tr><td>About 10× faster checking, shared-memory parallelism, lower memory use</td><td>Large projects check in seconds; editors respond faster</td></tr>
+<tr><td>Same language and checking rules as 6.0</td><td>Code that compiles with 6.0 compiles with 7.0</td></tr>
+<tr><td><code>strict</code> on by default; <code>module</code> defaults to <code>esnext</code>; <code>types</code> defaults to <code>[]</code></td><td>Old configs that relied on loose defaults may report new errors</td></tr>
+<tr><td>Options deprecated in 6.0 removed: <code>target: "es5"</code>, <code>module: "amd"</code>, <code>moduleResolution: "node10"</code> (alias <code>"node"</code>), <code>esModuleInterop: false</code>, <code>outFile</code>, <code>baseUrl</code>, <code>downlevelIteration</code>…</td><td>Update configs before upgrading; see the example below</td></tr>
+<tr><td>Union members are printed in a stable order</td><td>Error messages are identical on every machine (Chapter 8)</td></tr>
+<tr><td>Naming files while a <code>tsconfig.json</code> exists is an error (TS5112)</td><td>Use <code>tsc -p</code> or <code>--ignoreConfig</code></td></tr>
+<tr><td>The JavaScript programmatic API is not stable yet (planned for 7.1)</td><td>Tools that <code>import "typescript"</code> as a library still need TypeScript 6</td></tr>
+</table></div>
+<h3>Where TypeScript 6 still matters</h3>
+<p>Linters (typescript-eslint), some framework template checkers (Vue, Svelte, Angular) and other tools use TypeScript's API in-process. Until 7.x ships a stable API, they keep using TypeScript 6. The TypeScript team publishes 6.0 under a separate name so both can be installed side by side:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install -D typescript@7 @typescript/typescript6
+$ npx tsc --version     # 7.0.x: your build and type-check
+$ npx tsc6 --version    # 6.0.x: available for tools that need the old API
+</script>
+<p>At the time of writing, typescript-eslint declares support for <code>typescript</code> versions below 6.1. Check your tools' docs for how they pick up TypeScript 6.</p>
+
+<h2 id="running">Running TypeScript</h2>
+<div class="table-wrap"><table>
+<tr><th>Way</th><th>Type-checks?</th><th>Supports</th><th>Good for</th></tr>
+<tr><td><code>tsc</code>, then <code>node dist/app.js</code></td><td>✅</td><td>everything</td><td>libraries, servers, this book</td></tr>
+<tr><td><code>node app.ts</code> (type stripping)</td><td>❌</td><td>erasable syntax only; <code>.ts</code> import paths</td><td>scripts, tools, tests</td></tr>
+<tr><td><code>npx tsx app.ts</code></td><td>❌</td><td>almost everything (uses esbuild)</td><td>development, scripts</td></tr>
+<tr><td>bundler (Vite, esbuild, webpack)</td><td>❌</td><td>everything the bundler supports</td><td>web apps</td></tr>
+</table></div>
+<p><strong>Node's type stripping</strong> is on by default from Node 22.18 and 23.6 (earlier 22.x versions need <code>--experimental-strip-types</code>). Node only deletes the types; it doesn't check them and doesn't read <code>tsconfig.json</code>. That's why the "erasable syntax only" rule exists: no enums, namespaces or parameter properties (Chapters 13 and 18), and imports must name the <code>.ts</code> file. Whichever runner you use, keep <code>tsc --noEmit</code> in your editor, pre-commit hook and CI.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy: the spell checker and the printer.</strong> Type stripping, tsx and bundlers are fast printers: they print whatever you give them. <code>tsc --noEmit</code> is the spell checker. You want both, and you don't want the printer waiting for the spell checker on every keystroke.</p>
+</div>
+
+<h2 id="editor">Editors and watch mode</h2>
+<ul>
+  <li><strong>VS Code</strong> has TypeScript support built in, powered by the same compiler. Use the workspace's TypeScript version ("TypeScript: Select TypeScript Version" → "Use Workspace Version") so the editor matches <code>tsc</code>.</li>
+  <li>Other editors (JetBrains IDEs, Neovim, Zed, Helix) talk to TypeScript through the Language Server Protocol.</li>
+  <li><code>tsc --watch</code> (<code>-w</code>) re-checks on every save; with <code>--noEmit</code> it's a fast error panel in your terminal. <code>tsc -b -w</code> watches project references.</li>
+  <li>The online <a href="https://www.typescriptlang.org/play/">Playground</a> lets you pick a version, see emitted JavaScript and <code>.d.ts</code> output, and share a link to an example.</li>
+</ul>
+
+<h2 id="quality">Linting, testing, formatting</h2>
+<h3>Linting</h3>
+<p>The compiler checks types; a linter checks <em>patterns</em> (unused variables, floating promises, <code>any</code> creeping in). The standard is <strong>typescript-eslint</strong>, with type-aware rules such as <code>no-floating-promises</code> and <code>no-unsafe-assignment</code>:</p>
+<script type="text/plain" class="code" data-file="eslint.config.mjs" data-norun>
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  tseslint.configs.strictTypeChecked,
+  { languageOptions: { parserOptions: { projectService: true } } },
+);
+</script>
+<p>Faster alternatives written in Rust (Biome, Oxlint) cover many rules without the TypeScript API, and are adding type-aware rules.</p>
+<h3>Testing</h3>
+<ul>
+  <li><strong><code>node:test</code></strong> (built in): compile with <code>tsc</code> and run <code>node --test "dist/test/**/*.test.js"</code> (the capstone does this), or run <code>.ts</code> test files directly with type stripping.</li>
+  <li><strong>Vitest</strong> and <strong>Jest</strong> (with a TypeScript transform) run <code>.ts</code> tests directly. Vitest also has <code>expectTypeOf</code> for type tests (Chapter 10).</li>
+</ul>
+<h3>Formatting</h3>
+<p><strong>Prettier</strong> (or Biome) formats TypeScript, including types. Let the formatter own style and the linter own correctness, so they never argue.</p>
+
+<h2 id="versions">Choosing versions</h2>
+<ul>
+  <li><code>npm install -D typescript</code> installs the latest stable release; pin it in <code>package.json</code> (this book uses <code>7.0.2</code>). TypeScript doesn't follow semantic versioning strictly: a minor release (7.0 → 7.1) can add new errors. Upgrade on purpose and read the release notes.</li>
+  <li><code>npm install -D typescript@next</code> gives the nightly build, useful to try upcoming features (Handbook: <em>Nightly Builds</em>).</li>
+  <li><strong><code>@types/node</code></strong>: match the major version of the Node.js you run (for example <code>@types/node@22</code> for Node 22), not the newest.</li>
+</ul>
+<div class="java">
+<p>☕ <strong>Java / C#:</strong> the split mirrors <code>javac</code> vs your IDE's incremental compiler, Checkstyle/SpotBugs (or Roslyn analyzers) for linting, and JUnit/xUnit for tests. The big difference is that running the code doesn't require the type checker at all; in Java you can't run what doesn't compile.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A complete package.json for a small Node project</h3>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\"",
+    "start": "node --enable-source-maps dist/src/main.js"
+  },
+  "devDependencies": { "typescript": "7.0.2", "@types/node": "^22.13.0" }
+}
+</script>
+<h3>Checking JavaScript and TypeScript in CI</h3>
+<script type="text/plain" class="code" data-file=".github/workflows/ci.yml" data-norun>
+name: ci
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+</script>
+<h3>A removed option, and what to use instead</h3>
+<script type="text/plain" class="code" data-file="old-config/tsconfig.json" data-save>
+{ "compilerOptions": { "baseUrl": ".", "noEmit": true }, "files": ["a.ts"] }
+</script>
+<script type="text/plain" class="code" data-file="old-config/a.ts" data-save>
+export const x = 1;
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-cwd="old-config">
+$ tsc
+tsconfig.json(1,24): error TS5102: Option 'baseUrl' has been removed. Please remove it from your configuration.
+  Use '"paths": {"*": ["./*"]}' instead.
+</script>
+<p>Removed options are errors that name the replacement. Upgrading to 6.0 first shows the same list as deprecation warnings, which is the gentler path.</p>
+<h3>Finding a slow type</h3>
+<script type="text/plain" class="code" data-file="perf.ts" data-save>
+type Digits = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+type Pin = `${Digits}${Digits}${Digits}${Digits}`;     // 10,000 members!
+const pin: Pin = "4242";
+console.log(pin);
+</script>
+<script type="text/plain" class="code" data-file="plain.ts" data-save>
+const pin: string = "4242";
+console.log(pin);
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ tsc --noEmit --lib es2024,dom plain.ts --extendedDiagnostics | grep "^Types:"
+Types:           32907
+$ tsc --noEmit --lib es2024,dom perf.ts --extendedDiagnostics | grep "^Types:"
+Types:           44039
+</script>
+<p><code>--extendedDiagnostics</code> prints counts and timings. The one-line <code>Pin</code> type added about 11,000 types to the program (most of them come from the built-in libraries, which are the same in both runs). A jump in "Types" after a change usually points to a type that grew too large. <code>--generateTrace</code> writes a detailed trace for deeper digging.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>TypeScript 7 is the native (Go) compiler: same language, about 10× faster, stricter defaults, some old options removed.</li>
+  <li>Tools that use the compiler API (linters, some framework plugins) still use TypeScript 6 (<code>@typescript/typescript6</code>, <code>tsc6</code>) until 7.1.</li>
+  <li>Run TypeScript with <code>tsc</code> + Node, Node's type stripping (22.18+/23.6+, erasable syntax), <code>tsx</code> or a bundler; always also run <code>tsc --noEmit</code>.</li>
+  <li>typescript-eslint for linting, <code>node:test</code>/Vitest for tests, Prettier for formatting.</li>
+  <li>Pin TypeScript, upgrade deliberately, and match <code>@types/node</code> to your Node major version.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">commands</span></h3>
+<p>Which command prints the compiler version, and which only type-checks a project?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>tsc --version</code> (or <code>-v</code>) and <code>tsc --noEmit</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>"<code>node app.ts</code> reports type errors." True or false?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>False.</strong> Node only strips types; a file with type errors runs as long as its JavaScript is valid.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">pick a tool</span></h3>
+<p>You want to run a one-off TypeScript script that uses an <code>enum</code>, without a build step. Which tool?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>npx tsx script.ts</code>: tsx transforms enums. Node's type stripping rejects them (unless you add <code>--experimental-transform-types</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">versions</span></h3>
+<p>Your server runs Node 22. Which <code>@types/node</code> version should you install?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@types/node@22</code>. Newer majors describe APIs your Node doesn't have.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">upgrade</span></h3>
+<p>A project on TypeScript 5.9 has <code>"target": "es5"</code>, <code>"moduleResolution": "node"</code> and no <code>strict</code>. List what to change before upgrading to 7.0.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Raise <code>target</code> to at least <code>es2015</code> (ideally what your runtime supports); replace <code>moduleResolution: "node"</code> (node10) with <code>nodenext</code> or <code>bundler</code>; set <code>"strict": false</code> explicitly if you're not ready for strict mode (it's now the default); add <code>"types": ["node"]</code> if you use Node globals. Upgrading to 6.0 first shows these as deprecation warnings.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>Why can't typescript-eslint simply run on the TypeScript 7 compiler yet?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Its type-aware rules call TypeScript's JavaScript API in the same process (to get types of nodes). TypeScript 7 is a Go binary, and its JavaScript API isn't stable yet, so the linter keeps using TypeScript 6's API. Your build and editor can use 7 at the same time.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">setup</span></h3>
+<p>Write the <code>scripts</code> section for a project that checks types, runs tests from compiled output, and has a fast dev mode with tsx.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"check": "tsc --noEmit"</code>, <code>"build": "tsc"</code>, <code>"test": "tsc &amp;&amp; node --test \"dist/test/**/*.test.js\""</code>, <code>"dev": "tsx watch src/main.ts"</code>, and run <code>npm run check</code> in CI.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, run <code>npx tsc --extendedDiagnostics --noEmit</code> and note the "Check time". Then add the <code>Pin</code> type from this appendix to an exercise file and run it again.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The type count and check time go up noticeably. Template literal types with unions multiply; keep them small, or use a pattern like <code>`${number}`</code> plus a runtime check instead.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design the checks for a pull request in a TypeScript monorepo so that type errors, lint errors and test failures are all caught, but developers' local edit-run loop stays fast.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Locally: an editor with the workspace TypeScript, <code>tsx watch</code> or type stripping for running, and <code>tsc -b -w --noEmit</code> (or just the editor) for errors; an optional pre-commit hook running the formatter and a fast linter on changed files. In CI: <code>npm ci</code>, <code>tsc -b</code> (project references keep it incremental), typescript-eslint with type-aware rules (on TypeScript 6 for now), tests, and a check that formatting is clean. Fail the PR on any of them.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>The TypeScript team rewrote the compiler in Go rather than in Rust or keeping it in TypeScript. From what this appendix says, what problem were they solving, and what did they choose <em>not</em> to change?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>They solved speed and memory: large codebases took minutes to check and editors became slow. They chose a port rather than a rewrite, keeping the same type system, rules and output, so existing code keeps compiling the same way. (The team explained that Go's structure is close to the existing TypeScript code, which made a faithful port practical.) The cost is the temporary API gap for tools.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/">Announcing TypeScript 7.0</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/typescript-tooling-in-5-minutes.html">TypeScript Tooling in 5 minutes</a> · <a href="https://www.typescriptlang.org/docs/handbook/integrating-with-build-tools.html">Integrating with Build Tools</a></li>
+  <li><a href="https://www.typescriptlang.org/docs/handbook/nightly-builds.html">Nightly Builds</a></li>
+  <li><a href="https://nodejs.org/api/typescript.html">Node.js: TypeScript (type stripping)</a></li>
+  <li><a href="https://typescript-eslint.io/">typescript-eslint</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
