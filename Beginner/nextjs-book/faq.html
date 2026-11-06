@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;❓&lt;/text&gt;&lt;/svg&gt;">
+<title>FAQ · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Frequently Asked Questions</h1>
+<p class="lead">Short answers to the questions people ask before and during the course, with links to the chapters that go deeper.</p>
+
+<div class="learn">
+<h2>Questions</h2>
+<ol>
+  <li><a href="#difference">What is the main difference between Next.js and React?</a></li>
+  <li><a href="#problems">What problems does Next.js solve, and when is it the better choice?</a></li>
+  <li><a href="#react-first">Do I need to learn React before Next.js?</a></li>
+  <li><a href="#vercel">Do I need Vercel to use Next.js?</a></li>
+  <li><a href="#backend">Is Next.js a back end? Can it replace Express or Spring?</a></li>
+  <li><a href="#rendering">SSR, SSG, ISR, CSR, PPR: which is which in Next.js 16?</a></li>
+  <li><a href="#routers">App Router or Pages Router?</a></li>
+  <li><a href="#use-client">When do I need <code>"use client"</code>?</a></li>
+  <li><a href="#actions-vs-routes">Server Actions or Route Handlers?</a></li>
+  <li><a href="#cache">Why doesn't my page update (or why isn't it cached)?</a></li>
+  <li><a href="#seo">Is Next.js good for SEO?</a></li>
+  <li><a href="#alternatives">How does Next.js compare with Vite, React Router, Astro and others?</a></li>
+  <li><a href="#ai">What is AGENTS.md, and do AI assistants know Next.js 16?</a></li>
+  <li><a href="#time">How long does it take to learn Next.js?</a></li>
+</ol>
+</div>
+
+<h2 id="difference">1. What is the main difference between Next.js and React?</h2>
+<p><strong>React is a library for building user interfaces; Next.js is a framework for building whole web applications with React.</strong> React gives you components, props, state and hooks: it turns data into UI and keeps the UI in sync when data changes. It doesn't decide how URLs map to screens, where code runs, how data is loaded, how the app is bundled or how it's served. Next.js makes those decisions and builds them in:</p>
+<div class="table-wrap"><table>
+<tr><th></th><th>React (e.g. with Vite)</th><th>Next.js</th></tr>
+<tr><td>Kind of tool</td><td>UI library</td><td>Full-stack framework built on React</td></tr>
+<tr><td>Where code runs</td><td>In the browser</td><td>On the server, at build time and in the browser (Server and Client Components)</td></tr>
+<tr><td>First HTML</td><td>Mostly empty; JavaScript builds the page</td><td>Real content, prerendered or streamed from the server</td></tr>
+<tr><td>Routing</td><td>A library you add (React Router…)</td><td>File-system routing in <code>app/</code></td></tr>
+<tr><td>Data</td><td>Fetched in the browser (effects, SWR…) from an API you build</td><td><code>async</code> Server Components, Server Actions, caching</td></tr>
+<tr><td>Back end</td><td>A separate server</td><td>Route Handlers and Server Functions in the same project</td></tr>
+<tr><td>Optimisations</td><td>Your job</td><td>Images, fonts, code splitting, prefetching, metadata built in</td></tr>
+<tr><td>Hosting</td><td>Static files anywhere</td><td>A Node.js server (or Docker, adapters, or static export)</td></tr>
+</table></div>
+<p>The two aren't competitors: <em>every Next.js app is a React app</em>. Chapter 1 shows the difference with real HTML: a Vite app sends <code>&lt;div id="root"&gt;&lt;/div&gt;</code>, a Next.js page sends the content.</p>
+
+<h2 id="problems">2. What problems does Next.js solve, and when is it the better choice?</h2>
+<p>It solves the problems you hit when a React single-page app grows up:</p>
+<ul>
+  <li><strong>Slow first load and blank screens</strong>: HTML is prerendered or streamed, so content appears before JavaScript runs (Chapters 1, 6).</li>
+  <li><strong>Search engines and link previews</strong> see real content and metadata (Chapter 13).</li>
+  <li><strong>Too much JavaScript</strong>: Server Components ship none, and each route loads only its own code (Chapter 5).</li>
+  <li><strong>Request waterfalls</strong> from fetching in effects: data is loaded on the server, close to the database (Chapter 6).</li>
+  <li><strong>Secrets</strong> stay on the server (Chapters 5, 16).</li>
+  <li><strong>Glue work</strong>: routing, bundling, TypeScript, CSS, images, fonts and an API layer come configured and working together (Chapter 2).</li>
+  <li><strong>Performance at scale</strong>: caching and partial prerendering serve most of a page from a CDN while personal parts stream (Chapters 8–9).</li>
+</ul>
+<p><strong>Next.js is the better choice</strong> for public sites that must load fast and rank well (shops, content sites, marketing pages, docs), for apps that mix public pages with logged-in areas, and for teams who want front end and back end in one TypeScript codebase. <strong>It's probably not needed</strong> for a purely client-side tool behind a login that already has an API (Vite + React is simpler), an embeddable widget, or a handful of static pages. And a large back end with queues, jobs and many clients still deserves its own service; Next.js then becomes its web front end. Chapter 1, <a href="01-what.html#when">When is Next.js the better choice?</a>, has a checklist.</p>
+
+<h2 id="react-first">3. Do I need to learn React before Next.js?</h2>
+<p>You need the basics: components, JSX, props, <code>useState</code>, event handlers, lists with keys. The docs list React as prerequisite knowledge. You <em>don't</em> need to master effects, data-fetching libraries or React Router first: Next.js replaces most of those with Server Components and file-system routing. If you know some React, <a href="appendix-react.html">Appendix A</a> is a refresher; if you don't, do the <a href="../react-book/index.html">React Beginner Book</a> first.</p>
+
+<h2 id="vercel">4. Do I need Vercel to use Next.js?</h2>
+<p>No. Vercel created and maintains Next.js and hosts it very well, but Next.js is open source (MIT licence) and <code>next build</code> + <code>next start</code> runs on any machine with Node.js, in Docker, or on platforms with adapters (Bun, Cloudflare, Netlify, AWS Amplify, and others). Every example in this book ran on a plain Node.js server. Chapter 18 covers self-hosting, and what you need to configure when you do (a reverse proxy, streaming, shared caches).</p>
+
+<h2 id="backend">5. Is Next.js a back end? Can it replace Express or Spring?</h2>
+<p>Partly. Next.js runs server code (Server Components, Server Functions, Route Handlers, Proxy), so for many apps it <em>is</em> the back end: reading and writing a database, authentication, JSON endpoints for a mobile app. It's built around request/response and rendering, though. Long-running jobs, queues, WebSocket servers, heavy computation, or a large API shared by many teams usually belong in a dedicated service (Node, Java, Python…), with Next.js as the web front end that calls it from the server, the "Backend for Frontend" pattern in the docs. Chapter 14 compares the options.</p>
+
+<h2 id="rendering">6. SSR, SSG, ISR, CSR, PPR: which is which in Next.js 16?</h2>
+<p>Those acronyms come from older versions, where you picked a mode per page. With Cache Components (the default for new apps), you mark parts of a page instead, and Next.js combines them:</p>
+<ul>
+  <li><strong>Static</strong> (formerly SSG): anything that doesn't depend on the request is prerendered at build time.</li>
+  <li><strong>Cached</strong> (formerly ISR): <code>"use cache"</code> + <code>cacheLife</code> results join the static shell and are refreshed in the background, or on demand with tags.</li>
+  <li><strong>Dynamic / streamed</strong> (formerly SSR): request data and uncached data render per request inside <code>&lt;Suspense&gt;</code>.</li>
+  <li><strong>Partial Prerendering</strong> (PPR) is the combination: a static shell sent instantly, with dynamic parts streamed into it.</li>
+  <li><strong>Client rendering</strong> (CSR) is what Client Components do after hydration.</li>
+</ul>
+<p>The build's route table shows the result: <code>○</code> static, <code>◐</code> partial prerender, <code>ƒ</code> dynamic, <code>●</code> SSG. Chapters 1, 4, 6 and 8 cover this.</p>
+
+<h2 id="routers">7. App Router or Pages Router?</h2>
+<p>For new projects, the <strong>App Router</strong> (<code>app/</code>), as the docs recommend: it supports Server Components, streaming, Server Functions, layouts and Cache Components. The <strong>Pages Router</strong> (<code>pages/</code>) is still supported, and you'll see it in older projects and tutorials. Both can live in one app while you migrate. <a href="appendix-pages-router.html">Appendix B</a> maps one to the other.</p>
+
+<h2 id="use-client">8. When do I need "use client"?</h2>
+<p>When a component needs state, event handlers, effects, browser APIs (<code>window</code>, <code>localStorage</code>) or hooks that use them. Put the directive in the smallest file that needs it (a button, a form, a menu), not in pages or layouts, because everything that file imports becomes browser JavaScript too. Server Components can render Client Components, and pass them serializable props or other Server Components as <code>children</code>. Chapter 5 shows the rules and the build errors you get when you break them.</p>
+
+<h2 id="actions-vs-routes">9. Server Actions or Route Handlers?</h2>
+<p>Use a <strong>Server Action</strong> when your own UI changes data (forms, buttons): it's type-safe, works without JavaScript and returns updated UI in one round trip. Use a <strong>Route Handler</strong> when something else calls you (webhooks, mobile apps, third parties) or you need a specific URL, method, status code or content type. Read data in Server Components, not through your own API. Either way, both are public endpoints: always check authentication, authorization and input (Chapters 7, 14, 16).</p>
+
+<h2 id="cache">10. Why doesn't my page update (or why isn't it cached)?</h2>
+<p>With Cache Components, nothing is cached unless you add <code>"use cache"</code>. If a page <em>doesn't update</em> after you change data, a cached function is still serving the old result: call <code>updateTag</code> (in Server Actions), <code>revalidateTag</code> (in Route Handlers or webhooks) or <code>revalidatePath</code>, or give the cache a shorter <code>cacheLife</code>. If a page <em>isn't cached</em> when you expected it, check whether it reads request data or uncached I/O outside a cached function. And always judge caching on <code>next build</code> + <code>next start</code>: <code>next dev</code> renders on every request. Chapters 8 and 9 explain it, with real stale-while-revalidate timings.</p>
+
+<h2 id="seo">11. Is Next.js good for SEO?</h2>
+<p>Yes, which is a main reason people choose it. Pages arrive as HTML with their content, the Metadata API generates titles, descriptions, canonical URLs and Open Graph tags, file conventions produce <code>robots.txt</code>, sitemaps and preview images, and bots get the complete page instead of a stream. Good SEO still depends on your content, fast pages (<code>&lt;Image&gt;</code>, <code>next/font</code>, caching) and correct status codes (see Chapter 10 on 404s and streaming). Chapter 13 covers it.</p>
+
+<h2 id="alternatives">12. How does Next.js compare with Vite, React Router, Astro and others?</h2>
+<ul>
+  <li><strong>Vite + React</strong>: a fast build tool for client-side React apps. Simpler, no server; you add routing and data fetching yourself.</li>
+  <li><strong>React Router</strong> (in framework mode, the successor of Remix): another full-stack React framework with server rendering, loaders and actions.</li>
+  <li><strong>Astro</strong>: content-focused, ships little JavaScript by default, and can use React for interactive "islands".</li>
+  <li><strong>TanStack Start</strong>: a newer full-stack React framework built around TanStack Router.</li>
+</ul>
+<p>All are good tools. Next.js has the largest ecosystem, the deepest integration of React Server Components, and the most hosting options with first-class support. Pick by your app's needs, and remember that the React you learn transfers between them.</p>
+
+<h2 id="ai">13. What is AGENTS.md, and do AI assistants know Next.js 16?</h2>
+<p><code>create-next-app</code> writes an <code>AGENTS.md</code> file that tells AI coding agents: "This is NOT the Next.js you know… read the relevant guide in <code>node_modules/next/dist/docs/</code>." The point is that models trained on older code often suggest outdated patterns: <code>getServerSideProps</code>, <code>middleware.ts</code>, <code>export const dynamic</code>, <code>fetch</code> caching options, <code>priority</code> on images. This book hit several of these during testing; the build rejected <code>dynamicParams</code> with Cache Components, for example. Use AI help, but check its code against the docs for your version and run <code>npm run build</code>.</p>
+
+<h2 id="time">14. How long does it take to learn Next.js?</h2>
+<p>If you know React and TypeScript, the core (Chapters 1–10) takes a couple of weeks of evenings, and you can build real apps after it. The full book, including the capstone, takes roughly the hours shown on the course card in the launcher. Mastery comes from building: finish the capstone, then extend it (the Chapter 19 exercises are a good list), and read the docs' guides for the features you use.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>React builds UI; Next.js is the framework that makes it a fast, full-stack web app.</li>
+  <li>Choose Next.js for public, SEO-relevant or mixed public/private apps; plain React for client-only tools.</li>
+  <li>You don't need Vercel; you do need to understand Server vs Client Components and caching.</li>
+</ul>
+</div>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

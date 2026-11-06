@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧭&lt;/text&gt;&lt;/svg&gt;">
+<title>1. What Next.js Is (and Isn't) · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Foundations</div>
+<h1>What Next.js Is (and Isn't)</h1>
+<p class="lead">The official docs open with one sentence: <em>"Next.js is a React framework for building full-stack web applications."</em> This chapter unpacks it. You'll see what React gives you, what Next.js adds on top, which problems that solves, and when you don't need Next.js at all. Every example is a real Next.js 16.4 app that was built and opened in a browser to get the output shown.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The difference between a <strong>library</strong> (React) and a <strong>framework</strong> (Next.js).</li>
+  <li>What "full-stack" means here: pages, data and an API in one project.</li>
+  <li>Why HTML made on the server helps first load, search engines and slow phones.</li>
+  <li>The rendering words you'll meet: prerendering, static, dynamic, streaming, Cache Components.</li>
+  <li>When Next.js is a good fit, and when plain React (or something else) is better.</li>
+</ul>
+</div>
+
+<h2 id="react">React is a library for building UI</h2>
+<p>React does one job: it turns <strong>components</strong> (functions that return JSX) into UI, and updates that UI when state changes. It doesn't decide how URLs map to screens, where data comes from, how code is bundled, or how the app reaches users. You pick those pieces yourself: a router, a bundler like Vite, a data library, a server for your API.</p>
+<p>A typical React app built with Vite is a <strong>single-page application</strong> (SPA). The server sends an almost empty HTML file, and JavaScript builds the whole page in the browser:</p>
+<script type="text/plain" class="code" data-file="index.html (a Vite + React app)" data-norun>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>My React app</title>
+    <script type="module" src="/src/main.tsx"><\/script>
+  </head>
+  <body>
+    <div id="root"></div>   <!-- empty until JavaScript runs -->
+  </body>
+</html>
+</script>
+<p>Until that JavaScript downloads and runs, the user sees a blank page. So does any tool that reads only the HTML.</p>
+
+<h2 id="framework">Next.js is a framework built on React</h2>
+<p>A <strong>framework</strong> makes those other decisions for you and wires the pieces together. You still write React components. Next.js adds:</p>
+<div class="table-wrap"><table>
+<tr><th>Need</th><th>Plain React (you choose)</th><th>Next.js (built in)</th></tr>
+<tr><td>URLs → screens</td><td>React Router, TanStack Router…</td><td>File-system routing: <code>app/blog/page.tsx</code> is <code>/blog</code> (Chapter 3)</td></tr>
+<tr><td>Where code runs</td><td>Browser only</td><td>Server <em>and</em> browser: Server and Client Components (Chapter 5)</td></tr>
+<tr><td>Loading data</td><td><code>useEffect</code> + fetch, or a data library</td><td><code>async</code> components that read data on the server (Chapter 6)</td></tr>
+<tr><td>Changing data</td><td>Write an API, call it with fetch</td><td>Server Functions called from forms (Chapter 7)</td></tr>
+<tr><td>Speed</td><td>Configure it yourself</td><td>Prerendering, caching, streaming, code splitting (Chapters 6–9)</td></tr>
+<tr><td>Images and fonts</td><td>Manual</td><td><code>&lt;Image&gt;</code> and <code>next/font</code> (Chapter 12)</td></tr>
+<tr><td>SEO tags</td><td>Manual, or a helper library</td><td>The Metadata API and OG images (Chapter 13)</td></tr>
+<tr><td>API endpoints</td><td>A separate server (Express…)</td><td>Route Handlers in the same project (Chapter 14)</td></tr>
+<tr><td>Build tools</td><td>Vite, a config file</td><td>Turbopack, configured for you</td></tr>
+</table></div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> React is a great <em>engine</em>. You can build a car around it: pick a chassis, wheels, brakes and seats, and bolt them together. Next.js is a <em>complete car</em> with that same engine inside. You give up some choice (the seats are Next.js seats), and in return you drive away today, and the parts are made to work together.</p>
+</div>
+
+<h2 id="first-page">A first look: HTML made on the server</h2>
+<p>Here is a whole Next.js page. It's an ordinary React component in a file called <code>app/page.tsx</code>, so it's served at <code>/</code>:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+export default function Home() {
+  const where = typeof window === "undefined" ? "the server" : "the browser";
+  return (
+    <main>
+      <h1>Hello, Next.js!</h1>
+      <p>This text was rendered on {where}.</p>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+Hello, Next.js!
+
+This text was rendered on the server.
+</script>
+<p>There is no <code>window</code> object on the server, so the page says it was rendered there. By default, every component in the <code>app</code> folder is a <strong>Server Component</strong>. Its code runs on the server (or at build time), and only the resulting HTML reaches the browser. Ask the server for the page and the text is already in the HTML:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000 | grep -o "<h1>[^<]*</h1>"
+<h1>Hello, Next.js!</h1>
+</script>
+<p>Compare this with the empty <code>&lt;div id="root"&gt;</code> above. Search engines, link previews in chat apps, and users on slow phones all get real content straight away.</p>
+
+<div class="note">
+<p>📝 <strong>How the examples work:</strong> each <code>app/…</code> block is a file in a real project created the way <code>create-next-app</code> does it (Chapter 2). The 🌐 <em>browser</em> blocks show the visible text of the page at that address, read from Chrome after the app was built with <code>next build</code> and started with <code>next start</code>. The <em>terminal</em> blocks were run against that same server.</p>
+</div>
+
+<h2 id="interactive">Interactivity: Client Components</h2>
+<p>Server-rendered HTML can't respond to clicks by itself. For that you write a <strong>Client Component</strong>: a file that starts with <code>"use client"</code>. It still renders to HTML on the server first, then its JavaScript is sent to the browser to make it interactive. That step is called <strong>hydration</strong>.</p>
+<script type="text/plain" class="code" data-file="app/counter/page.tsx">
+"use client";
+
+import { useState } from "react";
+
+export default function CounterPage() {
+  const [count, setCount] = useState(0);
+  return (
+    <main>
+      <h1>Counter</h1>
+      <button onClick={() => setCount(count + 1)}>Clicked {count} times</button>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/counter" data-steps="click:button; click:button; click:button">
+Counter
+Clicked 3 times
+</script>
+<p>The output was read after clicking the button three times. This is plain React (<code>useState</code>, <code>onClick</code>); Next.js only decided <em>where</em> it runs. Chapter 5 explains when to use each kind of component.</p>
+
+<h2 id="full-stack">"Full-stack": an API in the same project</h2>
+<p>Next.js also runs server code that isn't a page. A file named <code>route.ts</code> is a <strong>Route Handler</strong>: it answers HTTP requests using the web-standard <code>Request</code> and <code>Response</code> objects.</p>
+<script type="text/plain" class="code" data-file="app/api/hello/route.ts">
+export async function GET() {
+  return Response.json({ message: "Hello from the API", framework: "Next.js" });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/api/hello
+{"message":"Hello from the API","framework":"Next.js"}
+</script>
+<p>So one project, one deployment and one language (TypeScript) cover the pages, the data access and the API. That is what "full-stack" means in the docs' sentence.</p>
+
+<h2 id="problems">What problems does Next.js solve?</h2>
+<p>Each feature exists because plain single-page apps run into the same problems again and again:</p>
+<ol>
+  <li><strong>Slow first load and a blank screen.</strong> An SPA must download, parse and run its JavaScript before anything appears. Next.js sends HTML first, and much of it can be <strong>prerendered</strong> at build time.</li>
+  <li><strong>Search engines and link previews.</strong> Crawlers and social apps read the HTML. With Next.js, the content and the <code>&lt;title&gt;</code>/<code>&lt;meta&gt;</code> tags are in it.</li>
+  <li><strong>Too much JavaScript.</strong> In an SPA every component ships to the browser. Server Components send <em>no</em> JavaScript, and each route only loads the code it needs (automatic <strong>code splitting</strong>).</li>
+  <li><strong>Request waterfalls.</strong> Fetching in <code>useEffect</code> means: load JS → render → fetch → render → fetch again. Server Components fetch on the server, close to the database, before HTML is sent.</li>
+  <li><strong>Secrets in the browser.</strong> Code that talks to a database needs credentials. In Server Components it stays on the server; only the result is sent.</li>
+  <li><strong>Glue code.</strong> Routing, bundling, TypeScript, CSS, image resizing, font loading and an API server are all configured and work together.</li>
+</ol>
+
+<h2 id="rendering">The rendering words you'll meet</h2>
+<p>Older articles talk about SSR, SSG and ISR as separate "modes". Next.js 16 with <strong>Cache Components</strong> (on by default in new projects) uses a simpler model, but you'll still see the old words, so here they are side by side:</p>
+<div class="table-wrap"><table>
+<tr><th>Term</th><th>Meaning</th><th>In Next.js 16</th></tr>
+<tr><td><strong>CSR</strong> (client-side rendering)</td><td>The browser builds the page with JavaScript.</td><td>What Client Components do after hydration.</td></tr>
+<tr><td><strong>SSR</strong> (server-side rendering)</td><td>The server builds HTML for each request.</td><td>"Dynamic" rendering: content that depends on the request (cookies, search params) or must be fresh.</td></tr>
+<tr><td><strong>SSG</strong> (static site generation)</td><td>HTML is built once, at build time.</td><td>"Prerendering": the default for anything that doesn't depend on the request.</td></tr>
+<tr><td><strong>ISR</strong> (incremental static regeneration)</td><td>Static HTML is rebuilt in the background after a time or an event.</td><td>Cached content with <code>cacheLife</code>, refreshed with <code>revalidateTag</code>/<code>updateTag</code> (Chapters 8–9).</td></tr>
+<tr><td><strong>PPR</strong> (partial prerendering)</td><td>One page mixes a static shell with dynamic parts.</td><td>What Cache Components does: a prerendered <strong>static shell</strong>, with dynamic parts <strong>streamed</strong> in through <code>&lt;Suspense&gt;</code>.</td></tr>
+</table></div>
+<p>You can see the build's decisions in the output of <code>next build</code>. The <code>○</code> marks routes that were prerendered:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+▲ Next.js 16.4.5 (Turbopack)
+...
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /api/hello
+└ ○ /counter
+
+
+○  (Static)  prerendered as static content
+</script>
+<p>All four routes are static: none of them reads anything from the request. In later chapters you'll see <code>◐</code> (a static shell with streamed dynamic parts) and <code>ƒ</code> (rendered on demand) appear.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a bakery. <em>Static</em> pages are bread baked before opening: ready the moment you ask. <em>Dynamic</em> pages are sandwiches made to order: fresh, but you wait. <em>Partial prerendering</em> is a sandwich on bread baked this morning, filled while you watch: most of the work was done in advance, and only the personal part happens now. <em>Revalidation</em> is the baker making a fresh batch when the old one gets stale.</p>
+</div>
+
+<h2 id="vs-react">So what is the main difference between Next.js and React?</h2>
+<p>In one line: <strong>React is how you describe UI; Next.js is how you build, serve and run a whole web app with that UI.</strong> Next.js isn't a replacement for React. Every Next.js app is a React app, and everything you know about components, props, state and hooks still applies. The <a href="faq.html#difference">FAQ</a> goes into more detail.</p>
+<div class="table-wrap"><table>
+<tr><th></th><th>React</th><th>Next.js</th></tr>
+<tr><td>What it is</td><td>A UI library</td><td>A framework that uses React</td></tr>
+<tr><td>Runs</td><td>In the browser (and on a server if you set it up)</td><td>On the server, at build time, and in the browser</td></tr>
+<tr><td>Routing</td><td>Not included</td><td>File-system routing</td></tr>
+<tr><td>Data loading</td><td>Your choice</td><td>Server Components, Server Functions, caching</td></tr>
+<tr><td>Deployment</td><td>Static files on any host</td><td>A Node.js server, a platform like Vercel, or static export</td></tr>
+<tr><td>Learning cost</td><td>Smaller</td><td>React + server concepts (this book)</td></tr>
+</table></div>
+
+<h2 id="when">When is Next.js the better choice?</h2>
+<div class="good">
+<p>✅ <strong>Good fit:</strong></p>
+<ul>
+  <li>Public sites that must load fast and rank in search: shops, blogs, marketing pages, documentation.</li>
+  <li>Apps that mix public pages and logged-in screens.</li>
+  <li>Teams who want front end and back end in one TypeScript codebase.</li>
+  <li>Content that changes sometimes (product lists, articles) and benefits from caching.</li>
+  <li>Projects that want sensible defaults instead of assembling a toolchain.</li>
+</ul>
+</div>
+<div class="bad">
+<p>❌ <strong>Probably not needed:</strong></p>
+<ul>
+  <li>A purely client-side tool behind a login, where SEO doesn't matter and you already have an API (an admin panel, an in-browser editor). Vite + React is simpler.</li>
+  <li>A widget embedded in someone else's page.</li>
+  <li>A site of a few static pages, where plain HTML or a static site generator is enough.</li>
+  <li>Hosting that can only serve static files and a team that needs server features (Next.js can export static files, but loses its server features: Chapter 18).</li>
+  <li>A large back end with jobs, queues and many services: keep that in a dedicated back end (Node, Java, Python…) and let Next.js be the web front end that calls it.</li>
+</ul>
+</div>
+<div class="pitfall">
+<p>⚠️ <strong>Common misunderstanding:</strong> "Next.js needs Vercel." It doesn't. Vercel makes Next.js and hosts it well, but <code>next build</code> + <code>next start</code> runs on any server with Node.js, and there are Docker and adapter options too (Chapter 18).</p>
+</div>
+
+<h2 id="routers">App Router and Pages Router</h2>
+<p>Next.js has two routers. The <strong>App Router</strong> (the <code>app</code> folder) is the current one; it supports Server Components, streaming and Server Functions. The <strong>Pages Router</strong> (the <code>pages</code> folder) is the original one, still supported. This book teaches the App Router, as the docs recommend for new projects. <a href="appendix-pages-router.html">Appendix B</a> explains the Pages Router so you can read older code.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>An async Server Component.</strong> A Server Component can be an <code>async</code> function and <code>await</code> data directly. Here the "database" is a module with an array:</p>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="books">
+export type Book = { id: string; title: string; author: string };
+
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien" },
+  { id: "2", title: "Dune", author: "Frank Herbert" },
+];
+
+export async function getBooks(): Promise<Book[]> {
+  return books;   // imagine a database query here
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="books">
+import { getBooks } from "@/lib/books";
+
+export default async function Home() {
+  const books = await getBooks();
+  return (
+    <main>
+      <h1>{books.length} books</h1>
+      <ul>
+        {books.map((b) => (
+          <li key={b.id}>{b.title} by {b.author}</li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+2 books
+
+The Hobbit by J.R.R. Tolkien
+Dune by Frank Herbert
+</script>
+<p>No <code>useEffect</code>, no loading state, no API in between. <code>@/lib/books</code> uses the <code>@/*</code> import alias that <code>create-next-app</code> sets up: <code>@/</code> means "the project root".</p>
+
+<p><strong>The server's code isn't sent to the browser.</strong> The page's JavaScript bundles don't contain the book data module. You can check with the build output folder:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="books">
+$ grep -rl "Frank Herbert" .next/static | wc -l | tr -d ' '
+0
+$ grep -c "Frank Herbert" .next/server/app/index.html
+1
+</script>
+<p>The author's name is in the prerendered HTML (<code>.next/server/app/index.html</code>), but not in any JavaScript file under <code>.next/static</code>, which is what browsers download.</p>
+
+<p><strong>Mixing both kinds.</strong> A Server Component can render a Client Component, so one page can be mostly server-rendered with small interactive "islands". The server page reads the data; the client button handles clicks:</p>
+<script type="text/plain" class="code" data-file="app/like-button.tsx" data-app="books">
+"use client";
+
+import { useState } from "react";
+
+export function LikeButton({ title }: { title: string }) {
+  const [liked, setLiked] = useState(false);
+  return (
+    <button onClick={() => setLiked(!liked)}>
+      {liked ? "♥ Liked" : "♡ Like"} {title}
+    </button>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/likes/page.tsx" data-app="books">
+import { getBooks } from "@/lib/books";
+import { LikeButton } from "../like-button";
+
+export default async function Likes() {
+  const books = await getBooks();      // runs on the server
+  return (
+    <main>
+      {books.map((b) => (
+        <p key={b.id}><LikeButton title={b.title} /></p>
+      ))}
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/likes" data-app="books" data-steps="click:button">
+♥ Liked The Hobbit
+
+♡ Like Dune
+</script>
+<p>Only <code>like-button.tsx</code> becomes browser JavaScript. The data module and the page stay on the server, and the server passes each title to the button as a <strong>prop</strong>.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>React builds UI from components; Next.js is a framework that adds routing, server rendering, data loading, an API layer and build tooling.</li>
+  <li>Components in <code>app/</code> are Server Components by default: their HTML is made on the server and they ship no JavaScript.</li>
+  <li><code>"use client"</code> marks a Client Component for interactivity; it's prerendered to HTML, then hydrated.</li>
+  <li><code>route.ts</code> files are API endpoints in the same project: that's the "full-stack" part.</li>
+  <li><code>next build</code> prerenders what it can (<code>○</code>); Cache Components mixes a static shell with streamed dynamic parts.</li>
+  <li>Next.js suits public, fast, SEO-relevant apps; a client-only tool behind a login may not need it.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">definitions</span></h3>
+<p>In your own words: what is the difference between a library and a framework? Which one is React, and which is Next.js?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>You call a <strong>library</strong> when you need it; you choose the rest of the architecture. A <strong>framework</strong> provides the architecture and calls your code at the right places (for example, Next.js calls your <code>page.tsx</code> component when a URL is requested). React is a library for UI; Next.js is a framework built on React.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A page component contains <code>console.log("rendering")</code>. It's a Server Component with no dynamic data. Where does the message appear: in the browser's console, in the terminal, or both? When?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In the <strong>terminal</strong>, never in the browser. A Server Component's code runs on the server. Because the page is static, in production it runs once, during <code>next build</code>, when the page is prerendered. In development (<code>next dev</code>) it runs on every request, so you see it each time you reload.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">match</span></h3>
+<p>Match each need to the Next.js feature: (a) an endpoint that returns JSON, (b) a button that counts clicks, (c) the URL <code>/about</code>, (d) reading from a database before HTML is sent.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) A Route Handler, <code>app/api/…/route.ts</code>. (b) A Client Component with <code>"use client"</code> and <code>useState</code>. (c) A file <code>app/about/page.tsx</code>. (d) An <code>async</code> Server Component that awaits the query.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) You must deploy Next.js to Vercel. (2) Every Next.js app is a React app. (3) Client Components are never rendered on the server. (4) A Server Component's code is included in the browser's JavaScript.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: any Node.js server works. (2) True. (3) False: Client Components are prerendered to HTML on the server too, then hydrated in the browser. (4) False: only its rendered output is sent.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">choose</span></h3>
+<p>For each project, say whether you'd pick Next.js or plain React + Vite, and why: (a) an online bookshop, (b) an image editor that runs entirely in the browser, (c) a company blog with 300 articles, (d) an internal dashboard that calls an existing Java API and is only used by logged-in staff.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>(a) <strong>Next.js</strong>: product pages must be fast and indexed; carts and checkout need server code.</li>
+  <li>(b) <strong>Vite + React</strong>: everything is client-side and interactive; server rendering adds little.</li>
+  <li>(c) <strong>Next.js</strong> (or a static site generator): articles can be prerendered and cached; SEO matters.</li>
+  <li>(d) Either. <strong>Vite + React</strong> is enough if the API exists and SEO is irrelevant. Next.js still helps if you want server-side calls to the API (secrets stay on the server) or one TypeScript codebase.</li>
+</ul>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>Explain the "request waterfall" in a client-rendered React page that fetches a user, then that user's orders, in <code>useEffect</code>. How does a Server Component improve it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In the browser: download HTML → download JS → render → effect fetches the user → render → effect fetches orders → render. Each step waits for the one before, over the user's (maybe slow) network. A Server Component runs on the server, near the database: it awaits the user and the orders there (in parallel if they're independent, see Chapter 6), and sends finished HTML in one response.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">rendering words</span></h3>
+<p>A product page shows the product's name and description (they change once a week) and the price for the logged-in user's country (read from a cookie). Using this chapter's table, which parts are "static" and which are "dynamic"? What does Next.js 16 do with such a page?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Name and description are cacheable: they can be part of the prerendered <strong>static shell</strong> (refreshed when they change). The price depends on a cookie, so it's <strong>dynamic</strong>: it must be rendered per request. With Cache Components, Next.js sends the static shell immediately and <strong>streams</strong> the price in when it's ready, inside a <code>&lt;Suspense&gt;</code> boundary. That's partial prerendering.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Follow <a href="playground-howto.html">Using the Playground</a> to clone <a href="https://github.com/coderhop-learning/nextjs-playground">nextjs-playground</a>, run <code>npm install</code> and <code>npm run dev</code>, and open <code>http://localhost:3000</code>. Then replace <code>app/page.tsx</code> with a home page for the <strong>Reading List</strong> app you'll build in this book: a heading "Reading List" and a paragraph "Track the books you want to read." Save, and watch the browser update.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="ex8">
+export default function Home() {
+  return (
+    <main>
+      <h1>Reading List</h1>
+      <p>Track the books you want to read.</p>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="ex8">
+Reading List
+
+Track the books you want to read.
+</script>
+<p>The browser updates without a full reload: that's <strong>Fast Refresh</strong>, part of <code>next dev</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">investigate</span></h3>
+<p>Build the counter example with <code>npm run build</code> and start it with <code>npm start</code>. Open the page with JavaScript <em>disabled</em> in your browser's DevTools. What do you see? Can you click the button? What does this tell you about Client Components?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>You see "Counter" and the button text "Clicked 0 times": the Client Component was <strong>prerendered to HTML</strong> on the server. Clicking does nothing, because the <code>onClick</code> handler only exists after the JavaScript loads and hydrates the button. Client Components are "server-rendered first, interactive after hydration", not "browser-only".</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">argue</span></h3>
+<p>Your team lead says: "We'll use Next.js so we don't need a back end." Give two cases where that's right and two where you'd still want a separate back end.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>Right:</strong> (1) a site whose server needs are reading and writing one database (Server Components and Server Functions do this well); (2) small JSON endpoints for a mobile app, written as Route Handlers. <strong>Still want a back end:</strong> (1) long-running work such as video processing, scheduled jobs or queues, which don't fit request/response handlers; (2) an existing system or many clients (mobile, partners, other services) that need a stable API owned by its own team. There, Next.js is the web front end and calls that API from the server, a pattern the docs call "Backend for Frontend".</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs">Next.js Docs: What is Next.js?</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started">Getting Started</a> (the structure this book follows)</li>
+  <li><a href="https://nextjs.org/docs/app/guides/rendering-philosophy">Guide: Rendering Philosophy</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/backend-for-frontend">Guide: Backend for Frontend</a></li>
+  <li><a href="https://react.dev/learn">react.dev: Learn React</a> (the React foundations)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗂️&lt;/text&gt;&lt;/svg&gt;">
+<title>3. Layouts and Pages · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 3 · Foundations</div>
+<h1>Layouts and Pages</h1>
+<p class="lead">Next.js uses <strong>file-system routing</strong>: folders and files define your routes. This chapter follows the docs' <em>Layouts and Pages</em> page. You'll create pages, wrap them in shared layouts, nest layouts, and organise folders without changing URLs. You'll also see the key property of layouts, proved in a real browser: they keep their state when you navigate.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How folders become URL segments, and why a <code>page</code> file makes a route public.</li>
+  <li>Layouts: shared UI that wraps pages, nests, and doesn't re-render on navigation.</li>
+  <li>The root layout's rules, and the <code>LayoutProps</code> and <code>PageProps</code> helper types.</li>
+  <li>Templates: layouts that re-mount on every navigation.</li>
+  <li>Route groups <code>(name)</code> and private folders <code>_name</code> for organising code.</li>
+  <li>Why layouts can't read the pathname or search params, and the client hooks that can.</li>
+</ul>
+</div>
+
+<h2 id="pages">Creating a page</h2>
+<p>A <strong>page</strong> is the UI for one route. Create a file called <code>page.tsx</code> and <code>export default</code> a React component. The folder it's in decides the URL:</p>
+<div class="table-wrap"><table>
+<tr><th>File</th><th>URL</th></tr>
+<tr><td><code>app/page.tsx</code></td><td><code>/</code></td></tr>
+<tr><td><code>app/about/page.tsx</code></td><td><code>/about</code></td></tr>
+<tr><td><code>app/blog/page.tsx</code></td><td><code>/blog</code></td></tr>
+<tr><td><code>app/blog/authors/page.tsx</code></td><td><code>/blog/authors</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+export default function Page() {
+  return <h1>Hello Next.js!</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="pages">
+export default function About() {
+  return <h1>About this site</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/about" data-app="pages">
+About this site
+</script>
+<p>Each folder is a <strong>route segment</strong>. The URL <code>/blog/authors</code> has three: the root segment (<code>/</code>), <code>blog</code>, and the leaf segment <code>authors</code>. A folder without a <code>page</code> file isn't a route: visiting it gives a 404.</p>
+
+<h2 id="layouts">Creating a layout</h2>
+<p>A <strong>layout</strong> is UI shared by several pages: a header, a navigation bar, a footer. Export a component from a <code>layout.tsx</code> file. It receives the page (or a nested layout) as its <code>children</code> prop:</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx">
+import Link from "next/link";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>
+        <header>
+          <strong>My Site</strong> · <Link href="/">Home</Link> · <Link href="/about">About</Link>
+        </header>
+        <main>{children}</main>
+        <footer>© 2026</footer>
+      </body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+My Site · Home · About
+Hello Next.js!
+© 2026
+</script>
+<p>The same header and footer appear on <code>/about</code>. <code>&lt;Link&gt;</code> (from <code>next/link</code>) is Next.js's version of <code>&lt;a&gt;</code>: it navigates on the client, without a full page reload. Chapter 4 covers it in detail.</p>
+
+<h3 id="root-layout">The root layout's rules</h3>
+<ul>
+  <li><code>app/layout.tsx</code> is the <strong>root layout</strong>. It's required, and it must render <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>.</li>
+  <li>Don't add <code>&lt;head&gt;</code>, <code>&lt;title&gt;</code> or <code>&lt;meta&gt;</code> tags by hand. Use the Metadata API (Chapter 13), which handles streaming and de-duplication.</li>
+  <li>An app can have <strong>several root layouts</strong> (one per route group, below). Navigating between them causes a full page load.</li>
+</ul>
+
+<h3 id="props-helpers">LayoutProps and PageProps</h3>
+<p>Next.js generates two global types from your folders, so you don't need to write prop types by hand:</p>
+<ul>
+  <li><code>LayoutProps&lt;"/dashboard"&gt;</code>: <code>children</code>, any parallel-route slots, and <code>params</code>.</li>
+  <li><code>PageProps&lt;"/blog/[slug]"&gt;</code>: <code>params</code> (a promise of <code>{ slug: string }</code>) and <code>searchParams</code>.</li>
+</ul>
+<p>The string must be a real route in your app; a typo is a type error. They're generated by <code>next dev</code>, <code>next build</code> or <code>next typegen</code>. Writing <code>{ children }: { children: React.ReactNode }</code> by hand, as the docs' first examples do, also works.</p>
+
+<h2 id="nesting">Nesting layouts</h2>
+<p>Layouts nest the way folders do. A <code>layout.tsx</code> inside <code>app/blog/</code> wraps every page under <code>/blog</code>, and it is itself wrapped by the root layout:</p>
+<script type="text/plain" class="code" data-file="app/blog/layout.tsx">
+export default function BlogLayout({ children }: LayoutProps<"/blog">) {
+  return (
+    <section>
+      <h2>📝 The Blog</h2>
+      {children}
+    </section>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/page.tsx">
+export default function BlogIndex() {
+  return <p>All posts</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/authors/page.tsx">
+export default function Authors() {
+  return <p>Our authors</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/blog/authors">
+My Site · Home · About
+📝 The Blog
+Our authors
+© 2026
+</script>
+<p>The component tree for <code>/blog/authors</code> is <code>RootLayout → BlogLayout → Authors</code>. The docs call this the <strong>component hierarchy</strong>. Each segment can contribute these special files, rendered in this order, outermost first:</p>
+<script type="text/plain" class="code" data-lang="text" data-title="component hierarchy of one segment" data-norun>
+<Layout>
+  <Template>
+    <ErrorBoundary fallback={<Error />}>        ← error.tsx   (Chapter 10)
+      <Suspense fallback={<Loading />}>         ← loading.tsx (Chapter 6)
+        <ErrorBoundary fallback={<NotFound />}> ← not-found.tsx
+          <Page />  (or the next segment's Layout)
+</script>
+
+<h2 id="state">Layouts keep their state on navigation</h2>
+<p>This is the most important thing about layouts. When you navigate between two pages that share a layout, <strong>the layout isn't re-rendered or re-mounted</strong>. Only the part below it changes. The docs say layouts "preserve state, remain interactive, and do not rerender".</p>
+<p>To prove it, put a Client Component with state in a layout:</p>
+<script type="text/plain" class="code" data-file="app/counter.tsx" data-app="state">
+"use client";
+
+import { useState } from "react";
+
+export function Counter() {
+  const [n, setN] = useState(0);
+  return <button onClick={() => setN(n + 1)}>Layout counter: {n}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/layout.tsx" data-app="state">
+import Link from "next/link";
+import { Counter } from "../counter";
+
+export default function ShopLayout({ children }: LayoutProps<"/shop">) {
+  return (
+    <div>
+      <nav>
+        <Link href="/shop/shoes">Shoes</Link> · <Link href="/shop/hats">Hats</Link>
+      </nav>
+      <Counter />
+      {children}
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/shoes/page.tsx" data-app="state">
+export default function Shoes() {
+  return <h1>Shoes</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/hats/page.tsx" data-app="state">
+export default function Hats() {
+  return <h1>Hats</h1>;
+}
+</script>
+<p>Open <code>/shop/shoes</code>, click the counter three times, then click the <em>Hats</em> link:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="/shop/shoes" data-app="state" data-steps="click:button; click:button; click:button; click:a[href='/shop/hats']; wait:300">
+Shoes · Hats
+Layout counter: 3
+Hats
+</script>
+<p>The page changed to <em>Hats</em>, but the counter still says 3. The layout, and the state of everything in it, survived the navigation. That makes layouts the right place for things that should persist: a search box with typed text, a playing audio player, an open sidebar. It's also faster: the server only sends the part of the page that changed.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a layout is a picture frame, and the page is the picture. When you navigate, Next.js swaps the picture and leaves the frame on the wall. Anything you've done to the frame (a note stuck on it, a light turned on) is still there.</p>
+</div>
+
+<h2 id="templates">Templates: when you want a fresh copy</h2>
+<p>Sometimes you <em>want</em> the shared UI to reset on every navigation: an enter animation, a feedback form that should start empty, an effect that should run for every page. Use a <strong><code>template.tsx</code></strong> instead of (or as well as) a layout. It wraps children the same way, but it gets a new <code>key</code> for each route, so React re-mounts it:</p>
+<script type="text/plain" class="code" data-file="app/counter.tsx" data-app="template">
+"use client";
+
+import { useState } from "react";
+
+export function Counter() {
+  const [n, setN] = useState(0);
+  return <button onClick={() => setN(n + 1)}>Template counter: {n}</button>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/template.tsx" data-app="template">
+import Link from "next/link";
+import { Counter } from "../counter";
+
+export default function ShopTemplate({ children }: { children: React.ReactNode }) {
+  return (
+    <div>
+      <nav>
+        <Link href="/shop/shoes">Shoes</Link> · <Link href="/shop/hats">Hats</Link>
+      </nav>
+      <Counter />
+      {children}
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/shoes/page.tsx" data-app="template">
+export default function Shoes() {
+  return <h1>Shoes</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/shop/hats/page.tsx" data-app="template">
+export default function Hats() {
+  return <h1>Hats</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/shop/shoes" data-app="template" data-steps="click:button; click:button; click:button; click:a[href='/shop/hats']; wait:300">
+Shoes · Hats
+Template counter: 0
+Hats
+</script>
+<p>Same clicks, same navigation, and the counter is back to 0. Use layouts by default and templates only when you need the reset.</p>
+
+<h2 id="pathname">Layouts can't see the URL; Client Components can</h2>
+<p>Because a layout doesn't re-render on navigation, it can't receive the current pathname or search params: they would go stale. If shared UI needs them (an "active" link, a breadcrumb), put that piece in a Client Component and use a hook from <code>next/navigation</code>:</p>
+<ul>
+  <li><code>usePathname()</code> returns the current path, e.g. <code>"/shop/hats"</code>.</li>
+  <li><code>useSearchParams()</code> returns the query string as a read-only <code>URLSearchParams</code>.</li>
+</ul>
+<p>Client Components re-render on navigation, so they always see the latest values:</p>
+<script type="text/plain" class="code" data-file="app/nav-links.tsx" data-app="active">
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const links = [
+  { href: "/", label: "Home" },
+  { href: "/books", label: "Books" },
+  { href: "/about", label: "About" },
+];
+
+export function NavLinks() {
+  const pathname = usePathname();
+  return (
+    <nav>
+      {links.map((l) => (
+        <Link key={l.href} href={l.href} aria-current={pathname === l.href ? "page" : undefined}>
+          {pathname === l.href ? `[${l.label}]` : l.label}{" "}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="active">
+import { NavLinks } from "./nav-links";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>
+        <NavLinks />
+        {children}
+      </body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="active">
+export default function Home() { return <h1>Home page</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="active">
+export default function Books() { return <h1>Books page</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="active">
+export default function About() { return <h1>About page</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="active" data-steps="click:a[href='/books']; wait:300">
+Home [Books] About
+Books page
+</script>
+<p>The layout itself stays a Server Component; only <code>NavLinks</code> is client code. In a real app you'd style the active link with CSS (for example <code>[aria-current="page"] { font-weight: bold }</code>) instead of brackets.</p>
+
+<h2 id="groups">Route groups: organise without changing URLs</h2>
+<p>A folder in parentheses, like <code>(marketing)</code>, is a <strong>route group</strong>. It's left out of the URL. Use groups to:</p>
+<ul>
+  <li>organise routes by section or team;</li>
+  <li>give a set of routes their own layout, without adding a URL segment;</li>
+  <li>create several root layouts.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="text" data-title="app/ with two route groups" data-norun>
+app/
+├── layout.tsx                  ← root layout for everything
+├── (marketing)/
+│   ├── layout.tsx              ← marketing layout
+│   ├── page.tsx                → /
+│   └── pricing/page.tsx        → /pricing
+└── (shop)/
+    ├── layout.tsx              ← shop layout (with a cart icon)
+    ├── cart/page.tsx           → /cart
+    └── products/page.tsx       → /products
+</script>
+<script type="text/plain" class="code" data-file="app/(marketing)/layout.tsx" data-app="groups">
+export default function MarketingLayout({ children }: { children: React.ReactNode }) {
+  return <div><p>✨ Marketing banner</p>{children}</div>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/(marketing)/pricing/page.tsx" data-app="groups">
+export default function Pricing() { return <h1>Pricing</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/(shop)/layout.tsx" data-app="groups">
+export default function ShopLayout({ children }: { children: React.ReactNode }) {
+  return <div><p>🛒 Cart (0)</p>{children}</div>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/(shop)/cart/page.tsx" data-app="groups">
+export default function Cart() { return <h1>Your cart</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/pricing" data-app="groups">
+✨ Marketing banner
+Pricing
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/cart" data-app="groups">
+🛒 Cart (0)
+Your cart
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="groups">
+$ npm run build
+...
+Route (app)
+┌ ○ /_not-found
+├ ○ /cart
+└ ○ /pricing
+...
+</script>
+<p>The URLs are <code>/pricing</code> and <code>/cart</code>: no <code>(marketing)</code> or <code>(shop)</code> in them. Each group has its own layout.</p>
+<div class="pitfall">
+<p>⚠️ Two groups must not define the same URL. <code>app/(marketing)/about/page.tsx</code> and <code>app/(shop)/about/page.tsx</code> both resolve to <code>/about</code>, and the build fails:</p>
+</div>
+<script type="text/plain" class="code" data-file="app/(marketing)/about/page.tsx" data-app="dup">
+export default function A() { return <p>marketing about</p>; }
+</script>
+<script type="text/plain" class="code" data-file="app/(shop)/about/page.tsx" data-app="dup">
+export default function B() { return <p>shop about</p>; }
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="dup">
+...
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+…/app/(shop)
+Error: You cannot have two parallel pages that resolve to the same path. Please check /(marketing)/about and /(shop).
+...
+</script>
+
+<h2 id="colocation">Colocation and private folders</h2>
+<p>A route is only public when it has a <code>page</code> (or <code>route</code>) file, and only what that file returns is sent. So you can safely keep other files next to your routes: components, helpers, styles, tests.</p>
+<p>A folder whose name starts with an underscore, like <code>_components</code>, is a <strong>private folder</strong>. Next.js ignores it and all its subfolders for routing, even if it contains a <code>page.tsx</code>:</p>
+<script type="text/plain" class="code" data-file="app/blog/_components/post-card.tsx" data-app="private">
+export function PostCard({ title }: { title: string }) {
+  return <article>📄 {title}</article>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/_components/page.tsx" data-app="private">
+// Not a route, because it's inside a private folder
+export default function NotARoute() { return <p>secret</p>; }
+</script>
+<script type="text/plain" class="code" data-file="app/blog/page.tsx" data-app="private">
+import { PostCard } from "./_components/post-card";
+
+export default function Blog() {
+  return <PostCard title="Hello, layouts" />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="private">
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/blog
+200
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/blog/_components
+404
+</script>
+<p>Private folders are optional; plain colocation works without them. They're useful to make "this isn't a route" obvious and to avoid clashes with future Next.js file names. The docs' <em>Project Structure</em> page shows three common strategies: keep code outside <code>app/</code> (in <code>components/</code>, <code>lib/</code>), keep it in top-level folders inside <code>app/</code>, or split it by feature next to the routes that use it. Pick one and be consistent.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A page is a Server Component, so it can be <code>async</code>.</strong> The docs' nested-route example lists posts from a data module:</p>
+<script type="text/plain" class="code" data-file="lib/posts.ts" data-app="posts">
+export type Post = { slug: string; title: string };
+
+export async function getPosts(): Promise<Post[]> {
+  return [
+    { slug: "hello-world", title: "Hello, World" },
+    { slug: "layouts", title: "Understanding layouts" },
+  ];
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/page.tsx" data-app="posts">
+import Link from "next/link";
+import { getPosts } from "@/lib/posts";
+
+export default async function Blog() {
+  const posts = await getPosts();
+  return (
+    <ul>
+      {posts.map((post) => (
+        <li key={post.slug}>
+          <Link href={`/blog/${post.slug}`}>{post.title}</Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/blog" data-app="posts">
+Hello, World
+Understanding layouts
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/blog" data-app="posts" data-eval="[...document.querySelectorAll('a')].map(function (a) { return a.getAttribute('href'); }).join('\n')">
+/blog/hello-world
+/blog/layouts
+</script>
+<p>The second block lists the links' <code>href</code>s. Those URLs need a <em>dynamic segment</em>, <code>app/blog/[slug]/page.tsx</code>, which is the first topic of Chapter 4.</p>
+
+<p><strong>A layout can't replace a page.</strong> A folder with a layout but no page isn't a route:</p>
+<script type="text/plain" class="code" data-file="app/admin/layout.tsx" data-app="posts">
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return <div>Admin area: {children}</div>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="posts">
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/admin
+404
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Folders are URL segments; a <code>page.tsx</code> file makes a segment a public route.</li>
+  <li><code>layout.tsx</code> wraps a segment and all its children; layouts nest. The root layout is required and renders <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>.</li>
+  <li>Layouts persist on navigation: they don't re-render and their state is kept. <code>template.tsx</code> re-mounts instead.</li>
+  <li>Layouts can't read the pathname or search params; use <code>usePathname</code>/<code>useSearchParams</code> in a Client Component.</li>
+  <li><code>(group)</code> folders organise routes and add layouts without changing URLs; <code>_private</code> folders are never routed.</li>
+  <li><code>LayoutProps&lt;"/route"&gt;</code> and <code>PageProps&lt;"/route"&gt;</code> are generated, global prop types.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">map</span></h3>
+<p>Give the URL for each file, or say "not a route": (a) <code>app/contact/page.tsx</code>, (b) <code>app/(site)/faq/page.tsx</code>, (c) <code>app/_lib/page.tsx</code>, (d) <code>app/docs/layout.tsx</code> with no page, (e) <code>app/docs/guides/page.tsx</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>/contact</code>. (b) <code>/faq</code> (the group is omitted). (c) Not a route: <code>_lib</code> is private. (d) Not a route: a layout doesn't make a segment public. (e) <code>/docs/guides</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">tree</span></h3>
+<p>For <code>/shop/hats</code> in this chapter's "state" example, write the component tree from the root layout down.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>RootLayout → ShopLayout (with Counter) → Hats</code>. The root layout here is the checker's minimal one (<code>&lt;html&gt;&lt;body&gt;</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) A layout re-renders on every navigation. (2) A template re-mounts on every navigation. (3) You may add a <code>&lt;title&gt;</code> tag to the root layout by hand. (4) <code>PageProps</code> must be imported from <code>next</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False. (2) True. (3) Don't: use the Metadata API. (4) False: it's a global type, generated from your routes.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">playground</span></h3>
+<p>In the playground, give the root layout a header with the text "📚 Reading List" and links to <code>/</code> and <code>/about</code>, and a footer "Built with Next.js". Create <code>app/about/page.tsx</code> with a short description.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="ex4">
+import Link from "next/link";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>
+        <header>
+          📚 Reading List · <Link href="/">Home</Link> · <Link href="/about">About</Link>
+        </header>
+        <main>{children}</main>
+        <footer>Built with Next.js</footer>
+      </body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="ex4">
+export default function About() {
+  return <p>Reading List keeps track of books you want to read.</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/about" data-app="ex4">
+📚 Reading List · Home · About
+Reading List keeps track of books you want to read.
+Built with Next.js
+</script>
+<p>The playground's root layout also imports <code>./globals.css</code> and the fonts; keep those lines.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>A layout contains a text <code>&lt;input&gt;</code> in a Client Component. You type "dune", then click a <code>&lt;Link&gt;</code> to a sibling page under the same layout. What does the input contain? What if the input lived in the page instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In the layout, it still contains "dune": the layout isn't re-mounted. In the page, it's empty: the old page is unmounted and the new one mounted, so its state is gone. (The same is true for an input in a <code>template.tsx</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">route groups</span></h3>
+<p>You want <code>/login</code> and <code>/signup</code> to use a centred "auth" layout with no navigation, while all other pages use the normal header. Sketch the folder structure.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text" data-title="app/" data-norun>
+app/
+├── layout.tsx                 ← html/body only
+├── (main)/
+│   ├── layout.tsx             ← header + footer
+│   ├── page.tsx               → /
+│   └── books/page.tsx         → /books
+└── (auth)/
+    ├── layout.tsx             ← centred card, no navigation
+    ├── login/page.tsx         → /login
+    └── signup/page.tsx        → /signup
+</script>
+<p>Alternatively, drop <code>app/layout.tsx</code> and give each group its own root layout with <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>. Then moving between the groups is a full page load.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Move the playground's navigation links into a Client Component <code>app/_components/nav-links.tsx</code> that marks the current page with <code>aria-current="page"</code>, and use it in the root layout. Add a CSS rule in <code>globals.css</code> that makes the current link bold.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/_components/nav-links.tsx" data-app="ex7">
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+export function NavLinks() {
+  const pathname = usePathname();
+  const link = (href: string, label: string) => (
+    <Link href={href} aria-current={pathname === href ? "page" : undefined}>{label}</Link>
+  );
+  return <nav>{link("/", "Home")} · {link("/about", "About")}</nav>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="ex7">
+import { NavLinks } from "./_components/nav-links";
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>
+        <header>📚 Reading List <NavLinks /></header>
+        <main>{children}</main>
+      </body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="ex7">
+export default function About() { return <p>About Reading List</p>; }
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/about" data-app="ex7" data-eval="document.querySelector('[aria-current=page]').textContent">
+About
+</script>
+<script type="text/plain" class="code" data-file="app/globals.css" data-norun>
+nav [aria-current="page"] {
+  font-weight: 700;
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">layout or template?</span></h3>
+<p>For each, choose a layout or a template: (a) a sidebar whose sections can be collapsed, (b) a fade-in animation for every page, (c) a "Was this page helpful?" widget that should reset for each page, (d) a music player in the header.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Layout: keep the collapsed state. (b) Template: the animation must re-run on each navigation. (c) Template: it must start fresh. (d) Layout: the music must keep playing.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">debug</span></h3>
+<p>A developer writes this layout to highlight the active tab and finds it "sometimes shows the wrong tab after clicking a link". Explain the bug and fix it.</p>
+<script type="text/plain" class="code" data-file="app/dashboard/layout.tsx" data-norun>
+import { headers } from "next/headers";
+
+export default async function Layout({ children }: LayoutProps<"/dashboard">) {
+  const path = (await headers()).get("x-pathname");   // set by a proxy
+  return <div><Tabs active={path} />{children}</div>;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>Layouts don't re-render on client-side navigation. The header is read once, when the layout first renders, so after navigating to a sibling page <code>active</code> is stale. (Reading <code>headers()</code> also makes the layout dynamic, so under Cache Components it would need a <code>&lt;Suspense&gt;</code> boundary.) The fix: make <code>Tabs</code> a Client Component that calls <code>usePathname()</code>, and drop the header logic.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design the <code>app/</code> folder for the Reading List app: a public home page, an about page, a books list at <code>/books</code>, and an admin area at <code>/admin</code> with its own layout. Keep shared components out of routing. Write the tree with comments.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text" data-title="app/" data-norun>
+app/
+├── layout.tsx            ← html/body, header with <NavLinks />, footer
+├── globals.css
+├── page.tsx              → /
+├── about/page.tsx        → /about
+├── books/
+│   └── page.tsx          → /books        (Chapter 4 adds books/[id])
+├── admin/
+│   ├── layout.tsx        ← admin header ("Admin · Back to site")
+│   └── page.tsx          → /admin        (protected in Chapter 15)
+└── _components/
+    └── nav-links.tsx     ← not routed
+lib/
+└── books.ts              ← data access (outside app/)
+</script>
+<p>Other valid choices: <code>components/</code> at the root instead of <code>app/_components</code>, or a <code>(site)</code> group for the public pages. The capstone in Chapter 19 uses exactly this tree.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/layouts-and-pages">Getting Started: Layouts and Pages</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started/project-structure">Getting Started: Project Structure</a> (colocation, private folders, route groups)</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/layout">File conventions: layout</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/page">page</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/template">template</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/route-groups">File conventions: Route Groups</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/use-pathname">usePathname</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

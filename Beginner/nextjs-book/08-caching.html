@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗄️&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Caching with Cache Components · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Rendering &amp; Data</div>
+<h1>Caching with Cache Components</h1>
+<p class="lead">Chapter 6 streamed slow data on every request. Often that's wasteful: a book's description doesn't change between two visitors. <strong>Caching</strong> stores a result so later requests reuse it. In Next.js 16, caching is explicit: nothing is cached unless you write <code>"use cache"</code>. This chapter follows the docs' <em>Caching</em> page: the directive, cache lifetimes, cache keys, how cached, static and streamed content share one page, and the rules for random values, time and request data.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li><code>"use cache"</code> on data functions and on components (data-level and UI-level caching).</li>
+  <li>Cache lifetimes with <code>cacheLife</code>: <code>stale</code>, <code>revalidate</code>, <code>expire</code>, and the built-in profiles.</li>
+  <li>Cache keys: how arguments create separate entries.</li>
+  <li>How a page combines static, cached and streamed parts (Partial Prerendering).</li>
+  <li>Random values, <code>Date.now()</code> and <code>connection()</code>.</li>
+  <li>Why cached code can't read <code>cookies()</code>, and what to do instead.</li>
+  <li>Where cached results live, and how this differs from older Next.js versions.</li>
+</ul>
+</div>
+
+<h2 id="why">Why explicit caching?</h2>
+<p>Older Next.js versions cached many things automatically (<code>fetch</code> results, whole pages), and developers often couldn't tell why a page showed stale data. With <strong>Cache Components</strong> (<code>cacheComponents: true</code>, the default for new apps), the rule is simple:</p>
+<ul>
+  <li><strong>Everything is dynamic by default.</strong> Data is fetched fresh, and slow I/O must be streamed inside <code>&lt;Suspense&gt;</code> (Chapter 6).</li>
+  <li><strong>You opt in to caching</strong> with <code>"use cache"</code>, where you know staleness is acceptable, and say for how long with <code>cacheLife</code>.</li>
+</ul>
+<p>Cached results can be part of the prerendered <strong>static shell</strong>, so they appear instantly and are served from disk or a CDN.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a café. Freshly squeezed juice is made per order (dynamic, streamed). Croissants are baked in the morning and sold all day (cached with a lifetime). The sign on the door, "Open 8–18", never changes (static). <code>cacheLife</code> is the note on the croissant tray: "best before 11:00, bake a new batch at 12:00, throw away at 18:00".</p>
+</div>
+
+<h2 id="data-level">Data-level caching</h2>
+<p>Put <code>"use cache"</code> at the top of an <code>async</code> function's body. Its return value is cached; later calls with the same arguments reuse it. Pair every cache with a <code>cacheLife</code> call:</p>
+<script type="text/plain" class="code" data-file="lib/books.ts">
+import { cacheLife } from "next/cache";
+
+export type Book = { id: string; title: string; author: string };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien" },
+  { id: "2", title: "Dune", author: "Frank Herbert" },
+  { id: "3", title: "Beloved", author: "Toni Morrison" },
+];
+
+export async function getBooks(): Promise<Book[]> {
+  "use cache";
+  cacheLife("hours");
+  await sleep(800);                    // the slow query from Chapter 6
+  return books;
+}
+
+export async function getBook(id: string): Promise<Book | undefined> {
+  "use cache";
+  cacheLife("hours");
+  await sleep(500);
+  return books.find((b) => b.id === id);
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import { getBooks } from "@/lib/books";
+
+export default async function Home() {
+  const books = await getBooks();          // no Suspense needed: it's cached
+  return (
+    <main>
+      <h1>Books</h1>
+      <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/">
+Books
+The Hobbit
+Dune
+Beloved
+</script>
+<p>This is the exact page that failed to build in Chapter 6. Now <code>getBooks</code> runs once at build time, its result goes into the static shell, and the page is fully prerendered. Each request is served instantly, with no 800&nbsp;ms wait:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "complete after %{time_total}s\n" localhost:3000/
+complete after 0.0…s
+</script>
+<div class="tip">
+<p>💡 Cache at the data level when several components or pages use the same data, or when you want to cache data independently of how it's displayed. A <code>"use cache"</code> at the top of a <em>file</em> caches every exported function in it.</p>
+</div>
+
+<h2 id="ui-level">UI-level caching</h2>
+<p>You can also cache a whole component, page or layout: put <code>"use cache"</code> at the top of the component's body. The cached result is the rendered output:</p>
+<script type="text/plain" class="code" data-file="app/featured/page.tsx">
+import { cacheLife } from "next/cache";
+
+async function getFeatured() {
+  await new Promise((r) => setTimeout(r, 300));
+  return { title: "Dune", reason: "50 years of sand and politics" };
+}
+
+async function FeaturedBook() {
+  "use cache";
+  cacheLife("days");
+  const book = await getFeatured();
+  return <section><h2>⭐ {book.title}</h2><p>{book.reason}</p></section>;
+}
+
+export default function Page() {
+  return (
+    <main>
+      <h1>This week</h1>
+      <FeaturedBook />
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/featured">
+This week
+⭐ Dune
+50 years of sand and politics
+</script>
+
+<h2 id="cachelife">Cache lifetimes: cacheLife</h2>
+<p><code>cacheLife</code> describes three times. The terms are worth learning, because they appear everywhere in the docs:</p>
+<div class="table-wrap"><table>
+<tr><th>Property</th><th>Meaning</th></tr>
+<tr><td><code>stale</code></td><td>How long the <strong>browser</strong> may use its copy without asking the server.</td></tr>
+<tr><td><code>revalidate</code></td><td>After this, the next request still gets the cached value, but the <strong>server</strong> refreshes it in the background (stale-while-revalidate).</td></tr>
+<tr><td><code>expire</code></td><td>After this with no requests, the entry is dropped and the next request waits for fresh data.</td></tr>
+</table></div>
+<p>The built-in profiles:</p>
+<div class="table-wrap"><table>
+<tr><th>Profile</th><th>Use case</th><th><code>stale</code></th><th><code>revalidate</code></th><th><code>expire</code></th></tr>
+<tr><td><code>default</code></td><td>Standard content</td><td>5 minutes</td><td>15 minutes</td><td>never</td></tr>
+<tr><td><code>seconds</code></td><td>Real-time data</td><td>30 seconds</td><td>1 second</td><td>1 minute</td></tr>
+<tr><td><code>minutes</code></td><td>Frequently updated</td><td>5 minutes</td><td>1 minute</td><td>1 hour</td></tr>
+<tr><td><code>hours</code></td><td>Updated several times a day</td><td>5 minutes</td><td>1 hour</td><td>1 day</td></tr>
+<tr><td><code>days</code></td><td>Updated daily</td><td>5 minutes</td><td>1 day</td><td>1 week</td></tr>
+<tr><td><code>weeks</code></td><td>Updated weekly</td><td>5 minutes</td><td>1 week</td><td>30 days</td></tr>
+<tr><td><code>max</code></td><td>Rarely changes</td><td>5 minutes</td><td>30 days</td><td>1 year</td></tr>
+</table></div>
+<p>You can also pass your own object, for example <code>cacheLife({ stale: 60, revalidate: 600, expire: 3600 })</code> (seconds), or define named profiles in <code>next.config.ts</code> under <code>cacheLife</code>. Without a <code>cacheLife</code> call, the <code>default</code> profile applies.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Very short lifetimes can't be prerendered.</strong> A cache with <code>revalidate: 0</code> or <code>expire</code> under 5 minutes (of the presets, only <code>seconds</code>) is left out of the static shell and becomes a <strong>dynamic hole</strong> filled at request time, so it needs a <code>&lt;Suspense&gt;</code> boundary around it. A <code>stale</code> under 30 seconds is also excluded, because a prefetched copy would expire before the user could click.</p>
+</div>
+<script type="text/plain" class="code" data-file="app/live/page.tsx" data-app="seconds">
+import { Suspense } from "react";
+import { cacheLife } from "next/cache";
+
+async function Score() {
+  "use cache";
+  cacheLife("seconds");
+  await new Promise((r) => setTimeout(r, 100));
+  return <p>Score: 2–1</p>;
+}
+
+export default function Live() {
+  return (
+    <main>
+      <h1>Live match</h1>
+      <Suspense fallback={<p>Loading score…</p>}>
+        <Score />
+      </Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="seconds">
+$ npm run build
+...
+Route (app)
+┌ ○ /_not-found
+└ ◐ /live
+...
+</script>
+<p>The page is <code>◐</code>: "Live match" and the fallback are prerendered, and the score is filled in per request (from a cache that lasts a few seconds). Remove the <code>&lt;Suspense&gt;</code> and the build fails with the familiar "uncached or runtime data" error.</p>
+
+<h2 id="keys">Cache keys</h2>
+<p>Each cached function call is stored under a <strong>cache key</strong> made from the function's identity, its <strong>arguments</strong>, and any values it <strong>captures</strong> from enclosing scopes. Different inputs give separate entries: <code>getBook("1")</code> and <code>getBook("2")</code> are cached separately. Arguments and the return value must be serializable (the same rules as props to Client Components, Chapter 5).</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx">
+import { notFound } from "next/navigation";
+import { getBook, getBooks } from "@/lib/books";
+
+export async function generateStaticParams() {
+  return (await getBooks()).map((b) => ({ id: b.id }));
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const book = await getBook((await params).id);   // one cache entry per id
+  if (!book) notFound();
+  return <h1>{book.title} by {book.author}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/3">
+Beloved by Toni Morrison
+</script>
+<p>Chapter 6's slow <code>getBook</code> forced the detail page to stream. Cached, the listed books are fully prerendered at build time. The route table of this chapter's app now has two extra columns:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+...
+Route (app)        Revalidate  Expire
+┌ ○ /                      1h      1d
+├ ○ /_not-found
+├   /books/[id]
+│ ├ ◐ /books/[id]
+│ ├ ○ /books/1             1h      1d
+│ ├ ○ /books/2             1h      1d
+│ └ ○ /books/3             1h      1d
+└ ○ /featured              1d      1w
+...
+</script>
+<p><strong>Revalidate</strong> and <strong>Expire</strong> come from the <code>cacheLife</code> profiles used on each page: <code>hours</code> (1 hour / 1 day) for the book pages, <code>days</code> (1 day / 1 week) for <code>/featured</code>. A prerendered page is refreshed in the background once its shortest cache's <code>revalidate</code> time has passed.</p>
+
+<h2 id="together">Static, cached and streaming on one page</h2>
+<p>The docs' complete example combines all three kinds of content. Static parts and cached parts form the static shell, together with fallbacks for the parts that depend on the request:</p>
+<script type="text/plain" class="code" data-file="app/blog/page.tsx" data-app="together">
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { cacheLife } from "next/cache";
+
+export default function BlogPage() {
+  return (
+    <>
+      {/* Static: prerendered automatically */}
+      <header>
+        <h1>Our Blog</h1>
+      </header>
+      {/* Cached: part of the static shell */}
+      <BlogPosts />
+      {/* Runtime: streamed at request time */}
+      <Suspense fallback={<p>Loading your preferences...</p>}>
+        <UserPreferences />
+      </Suspense>
+    </>
+  );
+}
+
+async function BlogPosts() {
+  "use cache";
+  cacheLife("hours");
+  const res = await fetch("https://api.vercel.app/blog");
+  const posts: { id: number; title: string }[] = await res.json();
+  return <p>{posts.length} posts, first: {posts[0].title}</p>;
+}
+
+async function UserPreferences() {
+  const theme = (await cookies()).get("theme")?.value || "light";
+  return <aside>Your theme: {theme}</aside>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/blog" data-app="together">
+Our Blog
+… posts, first: Lorem Ipsum - What Is It and How to Use It?
+Your theme: light
+</script>
+<p>Reading <code>cookies()</code> doesn't make the whole route dynamic, as it did in older versions. Only the <code>&lt;UserPreferences&gt;</code> boundary waits for the request. This is <strong>Partial Prerendering</strong> (PPR), the default with Cache Components.</p>
+
+<h2 id="random">Random values and the current time</h2>
+<p><code>Math.random()</code>, <code>Date.now()</code>, <code>new Date()</code> and <code>crypto.randomUUID()</code> give a different value every time. If they ran during prerendering, every visitor would see the same "random" value baked into the HTML, which is rarely what you meant. So Next.js makes you choose:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="time">
+export default function Page() {
+  return <p>Rendered at {new Date().toISOString()}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="time">
+...
+Error: Route "/": Next.js encountered the unstable value `new Date()` while prerendering.
+
+This value can change between renders, so it must be either prerendered or computed later.
+
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+  - [cache] Prerender and cache the value with `"use cache"`
+  - [client] Render the value on the client with `"use client"`
+  - [measure] If the value is for telemetry, use a timing API such as `performance.now()`
+...
+</script>
+<p>The two server-side fixes are the most common. <strong>Per request</strong>: call <code>await connection()</code> (from <code>next/server</code>) first, which says "wait for a real request", and put the component in <code>&lt;Suspense&gt;</code>. <strong>Shared</strong>: compute it inside <code>"use cache"</code>, so everyone sees the same value until the cache refreshes. (The <code>[client]</code> option renders the time in the browser instead.)</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="time-fixed">
+import { Suspense } from "react";
+import { connection } from "next/server";
+import { cacheLife } from "next/cache";
+
+async function RequestId() {
+  await connection();                          // from here on, we're at request time
+  return <p>Request ID: {crypto.randomUUID().length} characters, new every time</p>;
+}
+
+async function BuildStamp() {
+  "use cache";
+  cacheLife("max");
+  return <p>Cached stamp year: {new Date().getFullYear()}</p>;
+}
+
+export default function Page() {
+  return (
+    <main>
+      <BuildStamp />
+      <Suspense fallback={<p>…</p>}>
+        <RequestId />
+      </Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="time-fixed">
+Cached stamp year: 2026
+Request ID: 36 characters, new every time
+</script>
+<p><code>performance.now()</code> is exempt: it's meant for measuring time (as in Chapter 6's timing page), not for rendering.</p>
+
+<h2 id="runtime">Request data and cached code</h2>
+<p>A cached function is shared between users, so it <strong>can't read</strong> <code>cookies()</code>, <code>headers()</code> or <code>searchParams</code>, directly or through any helper it calls. Read the value outside the cache and <strong>pass it in as an argument</strong>. The argument becomes part of the cache key, so each value gets its own entry:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="args">
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { cacheLife } from "next/cache";
+
+async function Recommendations({ genre }: { genre: string }) {
+  "use cache";
+  cacheLife("hours");
+  await new Promise((r) => setTimeout(r, 200));
+  const picks: Record<string, string[]> = { "sci-fi": ["Dune", "Neuromancer"], fantasy: ["The Hobbit"] };
+  return <p>For {genre} fans: {(picks[genre] ?? []).join(", ")}</p>;
+}
+
+async function ForYou() {
+  const genre = (await cookies()).get("genre")?.value ?? "sci-fi";   // runtime data, outside the cache
+  return <Recommendations genre={genre} />;                         // cached per genre
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<p>Loading picks…</p>}>
+      <ForYou />
+    </Suspense>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="args">
+For sci-fi fans: Dune, Neuromancer
+</script>
+<p>Reading <code>cookies()</code> inside <code>Recommendations</code> instead would fail at request time with the <code>next-request-in-use-cache</code> error. For rare cases where you can't refactor, <code>"use cache: private"</code> caches per user in the browser only.</p>
+
+<h2 id="predictable">Predictable values are prerendered automatically</h2>
+<p>Not everything async is "uncached data". Module imports, pure computations and <strong>synchronous</strong> I/O (<code>fs.readFileSync</code>, synchronous SQLite) give the same result every time, so they simply run during prerendering. Asynchronous reads of local files (<code>await readFile</code>) count as uncached data: read config files once at module scope, or wrap the read in <code>"use cache"</code>.</p>
+<script type="text/plain" class="code" data-file="config.json" data-app="predictable">
+{ "siteName": "Reading List", "booksPerPage": 20 }
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="predictable">
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const config = JSON.parse(readFileSync(join(process.cwd(), "config.json"), "utf8"));
+
+export default function Page() {
+  return <p>{config.siteName}: {config.booksPerPage} books per page</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="predictable">
+Reading List: 20 books per page
+</script>
+
+<h2 id="storage">Where cached results live</h2>
+<p>A cached result is serialized as an RSC payload, and copies of it can live in three places:</p>
+<ul>
+  <li><strong>Prerendered HTML</strong> on disk (self-hosting) or in your platform's storage behind a CDN: the static shell.</li>
+  <li><strong>A server-side store.</strong> By default this is in memory, per server instance. On a long-running server it survives between requests; on serverless platforms each request may hit a fresh instance, so entries often don't survive. <code>"use cache: remote"</code> uses a shared cache handler (Redis, a KV store…) instead.</li>
+  <li><strong>The browser</strong>, which keeps payloads for client navigations for their <code>stale</code> time (at least 30 seconds).</li>
+</ul>
+<p>All of these are per deployment: the build ID is part of every cache key, so a new deploy starts with fresh caches.</p>
+
+<h2 id="previous">If you read older code: the previous model</h2>
+<p>Apps without <code>cacheComponents</code> (and most articles before 2026) use the <strong>previous caching model</strong>. You'll recognise it by:</p>
+<ul>
+  <li><code>fetch(url, { cache: "force-cache" })</code> or <code>{ next: { revalidate: 60, tags: ["books"] } }</code> options;</li>
+  <li>route segment exports such as <code>export const dynamic = "force-dynamic"</code>, <code>export const revalidate = 60</code> or <code>dynamicParams</code>;</li>
+  <li><code>unstable_cache(fn, keys, options)</code> for non-fetch functions.</li>
+</ul>
+<p>With Cache Components these segment exports are rejected by the build (you saw this for <code>dynamicParams</code> in Chapter 4), and <code>"use cache"</code> + <code>cacheLife</code> + <code>cacheTag</code> replace them. The docs' <em>Migrating to Cache Components</em> guide maps each one.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A cached value is shared between requests.</strong> The cached component below records when it was rendered. Two requests a second apart return the same stamp, because the second one is served from the cache:</p>
+<script type="text/plain" class="code" data-file="app/stamp/page.tsx" data-app="stamp">
+import { cacheLife } from "next/cache";
+
+async function Stamp() {
+  "use cache";
+  cacheLife("hours");
+  return <p id="stamp">rendered at {Date.now()}</p>;
+}
+
+export default function Page() {
+  return <Stamp />;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="stamp">
+$ a=$(curl -s localhost:3000/stamp | grep -o 'rendered at [0-9]*'); sleep 1; b=$(curl -s localhost:3000/stamp | grep -o 'rendered at [0-9]*'); [ "$a" = "$b" ] && echo "same stamp: cached" || echo "different stamps"
+same stamp: cached
+</script>
+<p>Without <code>"use cache"</code>, <code>Date.now()</code> during render would be a build error, as shown above.</p>
+
+<p><strong>Interleaving: cached components can take uncached children.</strong> A cached layout-like component can accept <code>children</code> without caching them, just like a Client Component's slot (Chapter 5). The children are passed through, not part of the cache key:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="interleave">
+import { Suspense } from "react";
+import { cacheLife } from "next/cache";
+import { connection } from "next/server";
+
+async function Frame({ children }: { children: React.ReactNode }) {
+  "use cache";
+  cacheLife("days");
+  await new Promise((r) => setTimeout(r, 100));
+  return <section><h2>Frame (cached)</h2>{children}</section>;
+}
+
+async function Fresh() {
+  await connection();
+  return <p>Fresh child, rendered per request</p>;
+}
+
+export default function Page() {
+  return (
+    <Frame>
+      <Suspense fallback={<p>…</p>}><Fresh /></Suspense>
+    </Frame>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="interleave">
+Frame (cached)
+Fresh child, rendered per request
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>With Cache Components nothing is cached unless you add <code>"use cache"</code>; uncached data streams in <code>&lt;Suspense&gt;</code>.</li>
+  <li><code>"use cache"</code> works on data functions and on components; cached results can join the static shell.</li>
+  <li>Pair it with <code>cacheLife</code> (<code>stale</code>/<code>revalidate</code>/<code>expire</code>); the <code>seconds</code> profile is a dynamic hole that needs <code>&lt;Suspense&gt;</code>.</li>
+  <li>Arguments and captured values form the cache key; inputs and outputs must be serializable.</li>
+  <li>Random values and the current time need <code>connection()</code> + <code>&lt;Suspense&gt;</code>, <code>"use cache"</code>, or a Client Component.</li>
+  <li>Cached code can't read <code>cookies()</code>/<code>headers()</code>/<code>searchParams</code>: read them outside and pass values in.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Give the three properties of a cache lifetime and what each controls.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>stale</code>: how long the browser uses its copy without asking. <code>revalidate</code>: after this, the server serves the cached value but refreshes it in the background. <code>expire</code>: after this without requests, the next request waits for fresh data.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">choose a profile</span></h3>
+<p>Pick a <code>cacheLife</code> profile for: (a) a site's "About us" text, (b) the list of new books, updated a few times a day, (c) a live auction price, (d) today's reading tip, changed every morning.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>max</code> (or <code>weeks</code>). (b) <code>hours</code>. (c) <code>seconds</code>, inside <code>&lt;Suspense&gt;</code>, or no cache at all. (d) <code>days</code>, often with a tag so you can refresh it early (Chapter 9).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) With Cache Components, <code>fetch</code> results are cached by default. (2) A cached function may call <code>cookies()</code>. (3) <code>getBook("1")</code> and <code>getBook("2")</code> share one cache entry. (4) A new deployment starts with empty caches.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False. (2) False: read cookies outside and pass the value as an argument. (3) False: arguments are part of the key. (4) True: the build ID is part of every key.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">read the error</span></h3>
+<p>A page shows <code>Math.random()</code> as a "lucky number" and the build fails. Give both fixes and say what users see with each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>await connection()</code> before the call and a <code>&lt;Suspense&gt;</code> boundary: every visitor gets a new number per request. Or <code>"use cache"</code> (with a <code>cacheLife</code>) around it: everyone sees the same number until the cache revalidates.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, cache <code>getBooks()</code> and <code>getBook(id)</code> with <code>"use cache"</code> and <code>cacheLife("hours")</code>. Remove the <code>&lt;Suspense&gt;</code> and <code>loading.tsx</code> you added in Chapter 6 from the list and detail pages, add <code>generateStaticParams</code> to the detail page, and build. Which symbols do the routes get now?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+import { cacheLife } from "next/cache";
+
+export type Book = { id: string; title: string; author: string; year: number };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+  { id: "2", title: "Dune", author: "Frank Herbert", year: 1965 },
+];
+
+export async function getBooks() {
+  "use cache";
+  cacheLife("hours");
+  await sleep(500);
+  return books;
+}
+
+export async function getBook(id: string) {
+  "use cache";
+  cacheLife("hours");
+  await sleep(500);
+  return books.find((b) => b.id === id);
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex5">
+import Link from "next/link";
+import { getBooks } from "@/lib/books";
+
+export default async function Books() {
+  const books = await getBooks();
+  return <ul>{books.map((b) => <li key={b.id}><Link href={`/books/${b.id}`}>{b.title}</Link></li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import { notFound } from "next/navigation";
+import { getBook, getBooks } from "@/lib/books";
+
+export async function generateStaticParams() {
+  return (await getBooks()).map((b) => ({ id: b.id }));
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const book = await getBook((await params).id);
+  if (!book) notFound();
+  return <h1>{book.title} ({book.year})</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="ex5">
+$ npm run build
+...
+Route (app)        Revalidate  Expire
+┌ ○ /_not-found
+├ ○ /books                 1h      1d
+└   /books/[id]
+  ├ ◐ /books/[id]
+  ├ ○ /books/1             1h      1d
+  └ ○ /books/2             1h      1d
+...
+</script>
+<p><code>/books</code> and each listed book are fully static (<code>○</code>); <code>◐ /books/[id]</code> is the shell for IDs not listed. Keep the Chapter 7 "Add a book" form working by revalidating the cache, which is Chapter 9's topic.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">cache keys</span></h3>
+<p>This cached function is called with <code>getPrice({ id: "1", currency: "EUR" })</code> from two different components. How many cache entries are created? What if one call passes <code>{ currency: "EUR", id: "1" }</code>?</p>
+<script type="text/plain" class="code" data-file="lib/price.ts" data-norun>
+export async function getPrice(input: { id: string; currency: string }) {
+  "use cache";
+  cacheLife("minutes");
+  return lookupPrice(input.id, input.currency);
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<p>One entry: equal serialized arguments give the same key. Property order may change the serialized form, so it's safest to pass simple arguments (<code>getPrice(id, currency)</code>) and avoid relying on object key order. (Inside one request, the two calls are also de-duplicated.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor</span></h3>
+<p>Make this work, keeping the user's region personalised but cached per region:</p>
+<script type="text/plain" class="code" data-file="app/deals.tsx" data-norun>
+async function Deals() {
+  "use cache";
+  const region = (await headers()).get("x-region") ?? "eu";
+  return <DealList deals={await getDeals(region)} />;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/deals.tsx" data-norun>
+async function Deals() {                          // not cached: reads request data
+  const region = (await headers()).get("x-region") ?? "eu";
+  return <CachedDeals region={region} />;
+}
+
+async function CachedDeals({ region }: { region: string }) {
+  "use cache";
+  cacheLife("hours");
+  return <DealList deals={await getDeals(region)} />;
+}
+
+// in the page: <Suspense fallback={<DealsSkeleton />}><Deals /></Suspense>
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>For each component, say whether it ends up in the static shell, in a cached part of the shell, or streamed: (a) <code>&lt;h1&gt;Welcome&lt;/h1&gt;</code>; (b) an <code>async</code> component that awaits an uncached <code>fetch</code>, inside <code>&lt;Suspense&gt;</code>; (c) a component with <code>"use cache"</code> + <code>cacheLife("days")</code>; (d) the same with <code>cacheLife("seconds")</code>, inside <code>&lt;Suspense&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Static shell. (b) Its fallback is in the shell; its content is streamed per request. (c) Cached, included in the shell. (d) A dynamic hole: the fallback is in the shell, and the content comes from a short-lived cache at request time.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">serverless</span></h3>
+<p>Your app runs on a serverless platform. A <code>"use cache"</code> function with <code>cacheLife("hours")</code> is called at request time (inside a Suspense boundary, after reading a cookie). Why might it run on almost every request anyway? What are your options?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The default cache handler is in-memory and per instance. On serverless, requests often land on new, short-lived instances, so the entry usually isn't there. (Results that are part of the build-time static shell aren't affected: they're stored as files.) Options: <code>"use cache: remote"</code> with a durable cache handler shared by instances (costs a network round trip and storage, so it's worth it only at a high hit rate); moving the cached part out of the request-dependent branch so it joins the static shell; or self-hosting on a long-running server.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Plan the caching for a book page in the Reading List app: title, author, description (edited by admins a few times a year); average rating (changes several times a day); "You marked this as read" (per user, from a cookie session); a random "You might also like" pick that should differ per visit. For each part give: cached or streamed, profile, and boundary.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Book details: <code>"use cache"</code> + <code>cacheLife("max")</code> + a tag such as <code>book-&lt;id&gt;</code> to revalidate on edit (Chapter 9). Static shell.</li>
+  <li>Average rating: <code>"use cache"</code> + <code>cacheLife("hours")</code> (or a tag invalidated when someone rates). Static shell, refreshed in the background.</li>
+  <li>Read status: reads the session, so it's runtime data. Stream it in <code>&lt;Suspense&gt;</code>; optionally cache the lookup per user ID passed as an argument.</li>
+  <li>Random pick: <code>await connection()</code> + <code>&lt;Suspense&gt;</code>, so each visit is different; the candidates list itself can be cached.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/caching">Getting Started: Caching</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/directives/use-cache">Directives: use cache</a> · <a href="https://nextjs.org/docs/app/api-reference/directives/use-cache-private">use cache: private</a> · <a href="https://nextjs.org/docs/app/api-reference/directives/use-cache-remote">use cache: remote</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/cacheLife">cacheLife</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/connection">connection</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheComponents">Config: cacheComponents</a> · <a href="https://nextjs.org/docs/app/guides/migrating-to-cache-components">Guide: Migrating to Cache Components</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/caching-without-cache-components">Guide: Caching (Previous Model)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

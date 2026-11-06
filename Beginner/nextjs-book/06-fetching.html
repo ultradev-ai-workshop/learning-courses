@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌊&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Fetching Data &amp; Streaming · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Rendering &amp; Data</div>
+<h1>Fetching Data &amp; Streaming</h1>
+<p class="lead">Server Components can simply <code>await</code> data. That simplicity hides two questions this chapter answers, following the docs' <em>Fetching Data</em> page and the <em>Streaming</em> guide. What does the user see while slow data loads? And how do you avoid waiting for one request after another? You'll stream with <code>loading.tsx</code> and <code>&lt;Suspense&gt;</code>, fetch in parallel, de-duplicate with <code>React.cache</code>, and pass promises to Client Components with <code>use</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Fetching with <code>fetch</code> or a database in an <code>async</code> Server Component.</li>
+  <li>Why uncached data must be streamed (or cached) with Cache Components.</li>
+  <li>Streaming a whole page with <code>loading.tsx</code>, or parts of it with <code>&lt;Suspense&gt;</code>.</li>
+  <li>Sequential vs parallel fetching, measured.</li>
+  <li><code>React.cache</code> to share one result between components in a request.</li>
+  <li>Streaming a promise to a Client Component with React's <code>use</code>.</li>
+</ul>
+</div>
+
+<h2 id="server">Fetching in Server Components</h2>
+<p>Make the component <code>async</code> and <code>await</code> any asynchronous I/O: the <code>fetch</code> API, a database client, an ORM, the file system. Because the code runs on the server, credentials and query logic never reach the browser.</p>
+<p>Most examples in this chapter use a pretend database that answers after a delay, like a real one over the network:</p>
+<script type="text/plain" class="code" data-file="lib/db.ts">
+export type Book = { id: string; title: string; author: string };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien" },
+  { id: "2", title: "Dune", author: "Frank Herbert" },
+  { id: "3", title: "Beloved", author: "Toni Morrison" },
+];
+
+export async function getBooks(delay = 800): Promise<Book[]> {
+  await sleep(delay);                       // simulate a slow query
+  return books;
+}
+
+export async function getReviews(bookId: string, delay = 800) {
+  await sleep(delay);
+  return bookId === "2" ? ["A masterpiece.", "Long, but worth it."] : ["Lovely."];
+}
+</script>
+
+<h3 id="rule">The rule: uncached data is streamed, or cached</h3>
+<p>Try to await it at the top of a page, as you would in a tutorial for an older version:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="blocking">
+import { getBooks } from "@/lib/db";
+
+export default async function Page() {
+  const books = await getBooks();
+  return <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-file="lib/db.ts" data-app="blocking">
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export async function getBooks() {
+  await sleep(800);
+  return [{ id: "1", title: "The Hobbit" }];
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="blocking">
+...
+Error: Route "/": Next.js encountered uncached or runtime data during prerendering.
+...
+Ways to fix this:
+  - [stream] Provide a placeholder with `<Suspense fallback={...}>` around the data access
+  - [cache] For uncached data (`fetch`, database calls): cache the access with `"use cache"` (does not apply to `connection()`)
+...
+</script>
+<p>It's the same error as for <code>params</code> in Chapter 4. With Cache Components, <code>fetch</code> calls and database queries are <strong>not cached</strong> by default. When Next.js prerenders the page and hits I/O that doesn't finish right away, it treats it as <strong>uncached data</strong>. That data has two valid homes:</p>
+<ul>
+  <li><strong>Stream it</strong>: render it inside <code>&lt;Suspense&gt;</code> (or below a <code>loading.tsx</code>), so it's fetched fresh on every request while the rest of the page is prerendered. This chapter.</li>
+  <li><strong>Cache it</strong>: mark the function with <code>"use cache"</code>, so the result is computed once and reused, and can be part of the prerendered page. Chapter 8.</li>
+</ul>
+<div class="note">
+<p>📝 The earlier chapters' data modules returned their arrays immediately, without real I/O, so prerendering could finish them. A real database call always counts as uncached data.</p>
+</div>
+
+<h2 id="loading-js">Streaming a whole page with loading.tsx</h2>
+<p>The simplest fix is a <code>loading.tsx</code> file next to the page. Next.js wraps the page in a <code>&lt;Suspense&gt;</code> boundary with your component as the fallback:</p>
+<script type="text/plain" class="code" data-file="app/books/loading.tsx">
+export default function Loading() {
+  return <p>⏳ Loading books…</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx">
+import { getBooks } from "@/lib/db";
+
+export default async function BooksPage() {
+  const books = await getBooks();
+  return (
+    <ul>
+      {books.map((b) => (
+        <li key={b.id}>{b.title} by {b.author}</li>
+      ))}
+    </ul>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books">
+The Hobbit by J.R.R. Tolkien
+Dune by Frank Herbert
+Beloved by Toni Morrison
+</script>
+<p>The final page shows all three books. What happened in between is visible from the terminal. The server answers immediately with the static shell, which here is the fallback, and finishes the response when the data arrives:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "first byte after %{time_starttransfer}s, complete after %{time_total}s\n" localhost:3000/books
+first byte after 0.…s, complete after 0.8…s
+$ curl -s localhost:3000/books | grep -o "⏳ Loading books…" | head -1
+⏳ Loading books…
+</script>
+<p>The first bytes arrive in a few milliseconds; the response completes after about 0.8 seconds, the time of the "query". The HTML contains the fallback, followed later in the same response by the real list and a tiny script that swaps them. This is <strong>streaming</strong>: one HTTP response, sent in chunks.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a restaurant that brings bread and water the moment you sit down, then each dish as it's ready, instead of making you wait at an empty table until the whole meal is cooked. <code>loading.tsx</code> is the bread for the whole table. <code>&lt;Suspense&gt;</code> lets each dish have its own placeholder.</p>
+</div>
+
+<h2 id="suspense">Streaming parts of a page with Suspense</h2>
+<p><code>loading.tsx</code> replaces the whole page while it loads. With <code>&lt;Suspense&gt;</code> you choose which parts wait. Content outside the boundaries is shown at once, and each boundary streams in on its own:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx">
+import { Suspense } from "react";
+import { getReviews } from "@/lib/db";
+
+export function generateStaticParams() {
+  return [{ id: "2" }];
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const { id } = await params;
+  return (
+    <main>
+      <h1>Book #{id}</h1>
+      <p>Static description, prerendered at build time.</p>
+      <h2>Reviews</h2>
+      <Suspense fallback={<p>Loading reviews…</p>}>
+        <Reviews bookId={id} />
+      </Suspense>
+    </main>
+  );
+}
+
+async function Reviews({ bookId }: { bookId: string }) {
+  const reviews = await getReviews(bookId);
+  return <ul>{reviews.map((r) => <li key={r}>{r}</li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2">
+Book #2
+Static description, prerendered at build time.
+Reviews
+A masterpiece.
+Long, but worth it.
+</script>
+<p>The heading and description are part of the prerendered static shell; the reviews are fetched on each request and streamed in. Put boundaries close to the slow data, so as much as possible appears immediately.</p>
+<div class="tip">
+<p>💡 <strong>Meaningful loading states.</strong> A fallback should look like what's coming: a skeleton with the shape of the list, a cover image placeholder, a title. That tells the user the app is responding. You can preview fallbacks in React DevTools, or with the Navigation Inspector in the Next.js DevTools.</p>
+</div>
+<div class="note">
+<p>📝 <strong>Bots and crawlers</strong> aren't streamed to. Next.js waits for all data and sends the complete page, so search engines see the full content.</p>
+</div>
+
+<h2 id="sequential-parallel">Sequential vs parallel fetching</h2>
+<p>Each <code>await</code> waits for the one before it. If two requests don't depend on each other, start both first and await them together with <code>Promise.all</code>. The page below measures how long each approach takes, rounded to 100&nbsp;ms:</p>
+<script type="text/plain" class="code" data-file="app/timing/page.tsx">
+import { Suspense } from "react";
+import { getBooks, getReviews } from "@/lib/db";
+
+const round = (ms: number) => Math.round(ms / 100) * 100;
+
+async function Sequential() {
+  const t0 = performance.now();
+  const books = await getBooks(500);          // waits 500 ms…
+  const reviews = await getReviews("2", 500); // …then another 500 ms
+  return <p>Sequential: {books.length} books, {reviews.length} reviews in ~{round(performance.now() - t0)} ms</p>;
+}
+
+async function Parallel() {
+  const t0 = performance.now();
+  const [books, reviews] = await Promise.all([getBooks(500), getReviews("2", 500)]);  // both start now
+  return <p>Parallel: {books.length} books, {reviews.length} reviews in ~{round(performance.now() - t0)} ms</p>;
+}
+
+export default function TimingPage() {
+  return (
+    <Suspense fallback={<p>Measuring…</p>}>
+      <Sequential />
+      <Parallel />
+    </Suspense>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/timing">
+Sequential: 3 books, 2 reviews in ~1000 ms
+Parallel: 3 books, 2 reviews in ~500 ms
+</script>
+<p>Sequential fetching is right when one request needs the result of another (you need an artist's ID before you can load their playlists). Then the docs suggest showing what you have and streaming the dependent part:</p>
+<script type="text/plain" class="code" data-file="app/artist/page.tsx" data-norun>
+export default async function Page() {
+  const artist = await getArtist("ada");          // needed by everything below
+  return (
+    <>
+      <h1>{artist.name}</h1>
+      <Suspense fallback={<div>Loading playlists…</div>}>
+        <Playlists artistID={artist.id} />      {/* depends on artist.id */}
+      </Suspense>
+    </>
+  );
+}
+</script>
+<div class="pitfall">
+<p>⚠️ If one promise in <code>Promise.all</code> rejects, the whole thing rejects. Use <code>Promise.allSettled</code> when partial results are acceptable. Also note that layouts and pages of one route already render in parallel: a slow layout doesn't delay the page's fetches from starting.</p>
+</div>
+
+<h2 id="react-cache">Sharing one result: React.cache</h2>
+<p>Often several components need the same data: a header shows the user's name, the page shows their books. Passing it down as props is tedious. Instead, call the data function wherever it's needed, and wrap it in <code>React.cache</code> so that, <strong>within one request</strong>, the same arguments return the same result without a second query. (Identical <code>fetch</code> calls are memoized like this automatically.)</p>
+<script type="text/plain" class="code" data-file="lib/user.ts" data-app="dedupe">
+import { cache } from "react";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// a per-request counter, so we can see how many "queries" ran
+export const queryLog = cache(() => ({ count: 0 }));
+
+async function queryUser(id: string) {
+  queryLog().count++;
+  await sleep(200);
+  return { id, name: "Ada" };
+}
+
+export const getUserUncached = queryUser;
+export const getUser = cache(queryUser);
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="dedupe">
+import { Suspense } from "react";
+import { getUser, getUserUncached, queryLog } from "@/lib/user";
+
+async function Greeting({ cached }: { cached: boolean }) {
+  const user = await (cached ? getUser("1") : getUserUncached("1"));
+  return <span>Hi {user.name}! </span>;
+}
+
+async function Report({ cached }: { cached: boolean }) {
+  await (cached ? getUser("1") : getUserUncached("1"));
+  return <p>Queries run: {queryLog().count}</p>;
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<p>Loading…</p>}>
+      <Greeting cached /><Greeting cached /><Report cached />
+    </Suspense>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="dedupe">
+Hi Ada! Hi Ada!
+Queries run: 1
+</script>
+<p>Three components asked for user 1; one query ran. Change the three <code>cached</code> props to <code>cached={false}</code> and the report says 3. <code>React.cache</code> is scoped to a single request: the next visitor starts with an empty cache. (Caching <em>across</em> requests is what <code>"use cache"</code> does, in Chapter 8.)</p>
+
+<h2 id="client">Fetching for Client Components</h2>
+<h3 id="use">Streaming a promise with use</h3>
+<p>A Server Component can start a query <em>without awaiting it</em> and pass the promise to a Client Component. The Client Component reads it with React's <code>use</code> API, which suspends until the value arrives. Wrap it in <code>&lt;Suspense&gt;</code> as usual:</p>
+<script type="text/plain" class="code" data-file="app/ui/book-picker.tsx" data-app="use">
+"use client";
+
+import { use, useState } from "react";
+
+export default function BookPicker({ books }: { books: Promise<{ id: string; title: string }[]> }) {
+  const all = use(books);                         // suspends until the promise resolves
+  const [picked, setPicked] = useState(all[0].title);
+  return (
+    <div>
+      <ul>
+        {all.map((b) => <li key={b.id}><button onClick={() => setPicked(b.title)}>{b.title}</button></li>)}
+      </ul>
+      <p>Picked: {picked}</p>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="use">
+import { Suspense } from "react";
+import BookPicker from "./ui/book-picker";
+import { getBooks } from "@/lib/db";
+
+export default function Page() {
+  const books = getBooks();       // not awaited: a promise
+  return (
+    <Suspense fallback={<p>Loading picker…</p>}>
+      <BookPicker books={books} />
+    </Suspense>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="lib/db.ts" data-app="use">
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export async function getBooks() {
+  await sleep(500);
+  return [{ id: "1", title: "The Hobbit" }, { id: "2", title: "Dune" }];
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="use" data-steps="click:li:nth-of-type(2) button">
+The Hobbit
+Dune
+Picked: Dune
+</script>
+<p>The query runs on the server, the promise is serialized into the stream, and the interactive picker renders as soon as the data arrives.</p>
+
+<h3 id="libraries">Community libraries</h3>
+<p>For data that the browser must fetch itself (polling, infinite scroll, data that changes while the page is open), use a library such as <strong>SWR</strong> or <strong>TanStack Query</strong> in a Client Component. They handle caching, revalidation and loading states in the browser:</p>
+<script type="text/plain" class="code" data-file="app/blog/page.tsx" data-norun>
+"use client";
+
+import useSWR from "swr";
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+export default function BlogPage() {
+  const { data, error, isLoading } = useSWR("https://api.vercel.app/blog", fetcher);
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+  return <ul>{data.map((post: { id: number; title: string }) => <li key={post.id}>{post.title}</li>)}</ul>;
+}
+</script>
+<p>Prefer server fetching where you can: it's faster on first load, keeps secrets on the server, and needs no client JavaScript.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Fetching from a real API.</strong> The docs' own example reads a demo blog API with <code>fetch</code>. <code>fetch</code> is uncached, so the list goes in a boundary:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="fetch">
+import { Suspense } from "react";
+
+type Post = { id: number; title: string };
+
+async function Posts() {
+  const res = await fetch("https://api.vercel.app/blog");
+  const posts: Post[] = await res.json();
+  return <ul>{posts.slice(0, 3).map((p) => <li key={p.id}>{p.title}</li>)}</ul>;
+}
+
+export default function Page() {
+  return (
+    <main>
+      <h1>Latest posts</h1>
+      <Suspense fallback={<p>Loading…</p>}>
+        <Posts />
+      </Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="fetch">
+Latest posts
+Lorem Ipsum - What Is It and How to Use It?
+The Benefits of Regular Exercise
+…
+</script>
+<p>(The last line depends on what the demo API returns today.)</p>
+
+<p><strong>Independent boundaries.</strong> Two boundaries with different delays stream in separately; the fast one doesn't wait for the slow one. Checking the HTML right after the first byte would show both fallbacks; the final page shows both results:</p>
+<script type="text/plain" class="code" data-file="app/dashboard/page.tsx">
+import { Suspense } from "react";
+import { getBooks, getReviews } from "@/lib/db";
+
+async function Fast() {
+  const books = await getBooks(200);
+  return <p>Books: {books.length}</p>;
+}
+
+async function Slow() {
+  const reviews = await getReviews("2", 1200);
+  return <p>Reviews for Dune: {reviews.length}</p>;
+}
+
+export default function Dashboard() {
+  return (
+    <main>
+      <h1>Dashboard</h1>
+      <Suspense fallback={<p>Loading books…</p>}><Fast /></Suspense>
+      <Suspense fallback={<p>Loading reviews…</p>}><Slow /></Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/dashboard">
+Dashboard
+Books: 3
+Reviews for Dune: 2
+</script>
+
+<p><strong>The build output.</strong> All routes in this chapter's main app have a static shell with streamed parts:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+...
+Route (app)
+┌ ○ /_not-found
+├ ◐ /books
+├   /books/[id]
+│ ├ ◐ /books/[id]
+│ └ ◐ /books/2
+├ ◐ /dashboard
+└ ◐ /timing
+...
+</script>
+<p>Even <code>/books/2</code>, listed in <code>generateStaticParams</code>, is <code>◐</code>: its heading is prerendered, but the reviews are uncached and streamed on each request.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Server Components <code>await</code> data directly from <code>fetch</code>, databases or files; credentials stay on the server.</li>
+  <li>With Cache Components, uncached I/O must be inside <code>&lt;Suspense&gt;</code> (streamed per request) or cached with <code>"use cache"</code>.</li>
+  <li><code>loading.tsx</code> streams the whole page; <code>&lt;Suspense&gt;</code> streams parts. The first byte arrives at once; content follows in the same response.</li>
+  <li>Start independent requests together with <code>Promise.all</code>; stream what depends on earlier results.</li>
+  <li><code>React.cache</code> de-duplicates calls within one request; identical <code>fetch</code> calls are memoized automatically.</li>
+  <li>Pass a promise to a Client Component and read it with <code>use</code>; use SWR or TanStack Query for browser-driven fetching.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Name the two ways the build error "encountered uncached or runtime data during prerendering" suggests for a slow database query, and say what each does for the user.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><strong>Stream</strong> it with <code>&lt;Suspense&gt;</code> (or <code>loading.tsx</code>): the user gets the static shell immediately and fresh data shortly after, on every request. <strong>Cache</strong> it with <code>"use cache"</code>: the result is computed once and reused, so the data can be part of the prerendered page and appears instantly, at the cost of possibly being stale until revalidated (Chapters 8–9).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>Three independent queries take 300, 500 and 200 ms. How long does a component take if it awaits them one after another? With <code>Promise.all</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Sequentially about 1000 ms (300 + 500 + 200). In parallel about 500 ms, the slowest one.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">loading.tsx or Suspense?</span></h3>
+<p>Choose <code>loading.tsx</code> or <code>&lt;Suspense&gt;</code>: (a) a search results page where everything depends on the query; (b) a product page whose price and stock are slow but whose description is static; (c) a dashboard with four independent widgets.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>loading.tsx</code> is fine: there's nothing useful to show without the data. (b) <code>&lt;Suspense&gt;</code> around price and stock, so the description shows at once. (c) One <code>&lt;Suspense&gt;</code> per widget, so each appears when ready.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>React.cache</code> shares results between different users' requests. (2) A <code>loading.tsx</code> covers slow data in the layout of the same folder. (3) Search engine bots receive the fallback HTML. (4) Identical <code>fetch</code> calls in one render are memoized.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: it's per request. (2) False: <code>loading.tsx</code> sits <em>inside</em> the layout, so it can't cover the layout's own data; wrap that in its own <code>&lt;Suspense&gt;</code>. (3) False: bots get the complete page. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Make the playground's data layer behave like a real database: give <code>getBooks()</code> and <code>getBook()</code> a 500 ms delay. Then fix the build: add <code>app/books/loading.tsx</code> with a skeleton of three grey lines, and make the book detail page stream its content inside <code>&lt;Suspense&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+export type Book = { id: string; title: string; author: string; year: number };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+  { id: "2", title: "Dune", author: "Frank Herbert", year: 1965 },
+];
+
+export async function getBooks() { await sleep(500); return books; }
+export async function getBook(id: string) { await sleep(500); return books.find((b) => b.id === id); }
+</script>
+<script type="text/plain" class="code" data-file="app/books/loading.tsx" data-app="ex5">
+export default function Loading() {
+  return (
+    <ul aria-busy="true" aria-label="Loading books">
+      {[1, 2, 3].map((i) => <li key={i} style={{ background: "#ddd", height: "1em", margin: ".5em 0", listStyle: "none" }} />)}
+    </ul>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex5">
+import Link from "next/link";
+import { getBooks } from "@/lib/books";
+
+export default async function Books() {
+  const books = await getBooks();
+  return <ul>{books.map((b) => <li key={b.id}><Link href={`/books/${b.id}`}>{b.title}</Link></li>)}</ul>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { getBook } from "@/lib/books";
+
+export default function BookPage({ params }: PageProps<"/books/[id]">) {
+  return (
+    <Suspense fallback={<p>Loading book…</p>}>
+      <BookDetails params={params} />
+    </Suspense>
+  );
+}
+
+async function BookDetails({ params }: { params: Promise<{ id: string }> }) {
+  const book = await getBook((await params).id);
+  if (!book) notFound();
+  return <h1>{book.title} ({book.year})</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex5" data-steps="click:a[href='/books/2']; wait:800">
+Dune (1965)
+</script>
+<p>What about <code>generateStaticParams</code> on the detail page? It's allowed, but it doesn't help much here: the book data itself is uncached, so it would still be fetched and streamed on every request. Chapter 8 caches <code>getBook</code>, and then the whole page can be prerendered.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor</span></h3>
+<p>Rewrite this component so the two queries run in parallel. Keep the types.</p>
+<script type="text/plain" class="code" data-file="app/profile.tsx" data-norun>
+async function Profile({ id }: { id: string }) {
+  const user = await getUser(id);
+  const orders = await getOrders(id);
+  return <p>{user.name} has {orders.length} orders</p>;
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/profile.tsx" data-norun>
+async function Profile({ id }: { id: string }) {
+  const [user, orders] = await Promise.all([getUser(id), getOrders(id)]);
+  return <p>{user.name} has {orders.length} orders</p>;
+}
+</script>
+<p>This works because <code>getOrders</code> only needs <code>id</code>, not <code>user</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">React.cache</span></h3>
+<p>The playground's layout shows "📚 <em>n</em> books" in the header and the home page lists the books. Both call <code>getBooks()</code>. How many queries run per request now? Make it one.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Two: the layout and the page each run the query. Wrap the function: <code>export const getBooks = cache(async () =&gt; { … })</code> with <code>cache</code> from <code>react</code>. Both calls in one request then share one result. (The header's count is uncached data in a layout, so it also needs its own <code>&lt;Suspense&gt;</code>, as Exercise 4 explained.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">use</span></h3>
+<p>Build a Client Component <code>&lt;BookCount books={promise} /&gt;</code> that reads a promise with <code>use</code> and shows "<em>n</em> books". Render it from a Server Component without awaiting <code>getBooks()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/book-count.tsx" data-app="ex8">
+"use client";
+
+import { use } from "react";
+
+export function BookCount({ books }: { books: Promise<unknown[]> }) {
+  return <p>{use(books).length} books</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="ex8">
+import { Suspense } from "react";
+import { BookCount } from "./book-count";
+
+async function getBooks() {
+  await new Promise((r) => setTimeout(r, 300));
+  return ["The Hobbit", "Dune", "Beloved"];
+}
+
+export default function Page() {
+  return <Suspense fallback={<p>…</p>}><BookCount books={getBooks()} /></Suspense>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="ex8">
+3 books
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>A teammate wraps the entire root layout's <code>{children}</code> in one <code>&lt;Suspense fallback={&lt;Spinner /&gt;}&gt;</code> "to fix all the build errors at once". The build passes. What's wrong with this for users?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The static shell becomes almost empty: just a spinner. Every page shows a full-screen spinner until <em>all</em> its slow data has loaded, even parts that could have been prerendered (headings, descriptions, navigation inside pages). Users lose the instant, meaningful first paint that Cache Components is designed to give. Boundaries should sit close to the slow data, with fallbacks shaped like the content.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">preload</span></h3>
+<p>A page awaits <code>checkIsAvailable(id)</code> (300 ms), then renders <code>&lt;Item id={id} /&gt;</code>, which awaits <code>getItem(id)</code> (500 ms). Total: 800 ms. Using the docs' <em>preloading</em> pattern, get it to about 500 ms. What must be true of <code>getItem</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/item/[id]/item.tsx" data-norun>
+import { cache } from "react";
+
+const getItem = cache(async (id: string) => { /* 500 ms query */ });
+
+export const preload = (id: string) => { void getItem(id); };
+
+export default async function Item({ id }: { id: string }) {
+  const item = await getItem(id);
+  return <div>{item.name}</div>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/item/[id]/page.tsx" data-norun>
+// inside the page component, before the blocking check:
+preload(id);                               // starts getItem now
+const isAvailable = await checkIsAvailable(id);
+return isAvailable ? <Item id={id} /> : null;
+</script>
+<p>The item query runs during the availability check, so the total is about max(300, 500) = 500 ms. <code>getItem</code> must <strong>de-duplicate</strong> calls (here with <code>React.cache</code>; <code>fetch</code> does it automatically; with Cache Components, <code>"use cache"</code> also works), so <code>Item</code> reuses the request <code>preload</code> started instead of starting a second one.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/fetching-data">Getting Started: Fetching Data</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/streaming">Guide: Streaming</a> (the HTTP contract, status codes, bots)</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/loading">File conventions: loading.js</a></li>
+  <li><a href="https://react.dev/reference/react/Suspense">react.dev: Suspense</a> · <a href="https://react.dev/reference/react/use">use</a> · <a href="https://react.dev/reference/react/cache">cache</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/client-side-data-fetching">Guide: Client-side data fetching</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

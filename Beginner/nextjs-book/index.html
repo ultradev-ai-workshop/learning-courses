@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'&gt;&lt;circle cx='90' cy='90' r='90'/&gt;&lt;path d='M149.5 157.5 69.1 54H54v72h12.1V69.4l73.9 95.4c3.3-2.2 6.5-4.7 9.5-7.3Z' fill='white'/&gt;&lt;rect x='115' y='54' width='12' height='72' fill='white'/&gt;&lt;/svg&gt;">
+<title>Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Beginner · Next.js 16.4 · React 19.3 · following the official Next.js docs</div>
+<h1><svg class="next-mark" viewBox="0 0 180 180" aria-hidden="true"><circle cx="90" cy="90" r="90" fill="currentColor"/><path d="M149.5 157.5 69.1 54H54v72h12.1V69.4l73.9 95.4c3.3-2.2 6.5-4.7 9.5-7.3Z" fill="var(--bg)"/><rect x="115" y="54" width="12" height="72" fill="var(--bg)"/></svg> Next.js Study Book</h1>
+<p class="lead"><em>Next.js is a React framework for building full-stack web applications.</em> This book teaches it the official way: chapter by chapter through the <a href="https://nextjs.org/docs/app/getting-started">Getting Started</a> section of the Next.js docs, plus the guides every real app needs (environment variables, authentication, testing, self-hosting). It uses the App Router and the defaults <code>create-next-app</code> gives you today, including Cache Components. It ends by building a complete, tested Reading List app.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 19 chapters follow the docs' Getting Started pages, grouped into five parts. Each chapter uses only ideas from earlier ones, or says where an idea is explained.</li>
+  <li><strong>Trust the outputs.</strong> Every example is a file in a real Next.js 16.4.5 app. The apps were built with <code>next build</code> and started with <code>next start</code>; 🌐 <em>browser</em> blocks show the text Chrome displayed (after the clicks and typing described), terminal blocks were run against the same server, and error blocks are the real build errors.</li>
+  <li><strong>Build often.</strong> Many of the most important lessons (the Cache Components rules, type errors, caching) only appear in a production build. The book shows you each of those errors so you recognise them.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. <em>Playground</em> exercises build the Chapter 19 capstone step by step. 🧠 boxes give an everyday analogy for each hard idea.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000 and scores you per chapter.</li>
+  <li><strong>Questions?</strong> The <a href="faq.html">FAQ</a> answers "what's the difference between Next.js and React?" and "when is Next.js the better choice?"; the <a href="glossary.html">Glossary</a> defines every term.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>Comes after:</strong> the <a href="../react-book/index.html">React Beginner Book</a>. You should be comfortable with components, props, state and events; <a href="appendix-react.html">Appendix A</a> is a refresher. TypeScript helps (all examples use it); the <a href="../typescript-book/index.html">TypeScript Study Book</a> covers it. New here? Start with <a href="playground-howto.html">Using the Playground</a> and <a href="01-what.html">Chapter 1</a>.</p>
+</div>
+
+<div class="tip">
+<p>🟩 <strong>Next step:</strong> the <a href="../../Intermediate/nodejs-book/index.html">Node.js Study Book</a> goes deeper into the server side Next.js runs on: modules, the event loop, streams, HTTP servers and testing.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Node.js 20.9 or newer (<code>node --version</code>), then clone the practice project, <a href="https://github.com/coderhop-learning/nextjs-playground">coderhop-learning/nextjs-playground</a>, with <code>git clone https://github.com/coderhop-learning/nextjs-playground.git</code>, run <code>npm install</code> and <code>npm run dev</code>. It's the exact app <code>create-next-app</code> generates with Next.js 16.4.5, plus the finished capstone in <code>reference/</code>.</p>
+</div>
+
+<div class="pitfall">
+<p>⚠️ <strong>Facts that change.</strong> Next.js releases often, and its caching and rendering model changed a lot between versions 13 and 16. Everything here was checked with Next.js 16.4.5 and React 19.3 in November 2026, including details such as the build's route symbols, error messages, the deprecation of <code>priority</code> on images, and a Partial Prefetching issue found while testing the capstone (Chapter 19). Your version's docs ship in <code>node_modules/next/dist/docs/</code>; check the <a href="https://nextjs.org/blog">Next.js blog</a> for newer releases.</p>
+</div>
+
+<div id="cards"></div>
+
+<h2>Keep practising</h2>
+<div class="cards">
+  <a class="card" href="../../problems/index.html"><div class="num">Problem Set · any language</div><h3>🧩 100 Practice Problems</h3><p>25 easy, 25 medium, 25 hard and 25 object-oriented problems with exact test cases. Solve them in TypeScript to sharpen the language you write Next.js in; check with <code>node runner/run-tests.mjs E01 -- node e01.js</code>.</p></a>
+  <a class="card" href="https://nextjs.org/learn/dashboard-app"><div class="num">Official course</div><h3>🎓 Next.js Learn: Dashboard App</h3><p>The Next.js team's own free course builds a financial dashboard with a Postgres database: a great second project after the capstone.</p></a>
+</div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Clone the playground (a create-next-app starter plus the finished capstone), the dev → build → start loop, and a troubleshooting table.",
+  "faq.html": "Next.js vs React, what problems it solves and when to use it, Vercel, back ends, rendering words, routers, caching, SEO, AI agents.",
+  "01-what.html": "Library vs framework, HTML from the server, Client Components, an API in the same project, the rendering words, when (not) to use Next.js.",
+  "02-install.html": "create-next-app and its defaults, dev/build/start, a tour of every generated file, the conventions map, @/ imports, a real type error.",
+  "03-layouts-pages.html": "Pages, nested layouts that keep their state (proved in the browser), templates, usePathname, route groups and private folders.",
+  "04-linking.html": "Dynamic segments with generateStaticParams or Suspense, notFound and status codes, Link and prefetching, search params, useRouter.",
+  "05-server-client.html": "When to use each, the RSC Payload, \"use client\" as a boundary, serializable props, interleaving, context, server-only, real build errors.",
+  "06-fetching.html": "Uncached data and the static shell, loading.tsx and Suspense streaming (measured), sequential vs parallel, React.cache, use().",
+  "07-mutating.html": "Server Functions and Actions, forms that work without JavaScript, useActionState with Zod, refresh/revalidate/redirect, cookies, security.",
+  "08-caching.html": "\"use cache\" for data and components, cacheLife profiles, cache keys, static + cached + streamed on one page, random values, runtime APIs.",
+  "09-revalidating.html": "Stale-while-revalidate (watched with real requests), cacheTag, updateTag vs revalidateTag, webhooks, revalidatePath, forgotten revalidation.",
+  "10-errors.html": "Expected errors as values, notFound and not-found.tsx, error.tsx with retry, production digests, catchError, global-error, event handlers.",
+  "11-css.html": "Tailwind CSS v4 the create-next-app way, theme variables, CSS Modules with hashed names, global and external CSS, ordering.",
+  "12-images-fonts.html": "<Image>: srcset, lazy loading, WebP from /_next/image, static imports and blur, remotePatterns; self-hosted fonts with next/font.",
+  "13-metadata.html": "Static metadata and title templates, generateMetadata, Open Graph tags, robots.ts and sitemap.ts, OG images and icons from JSX.",
+  "14-route-handlers.html": "A JSON API with GET/POST/DELETE, RouteContext, NextRequest/NextResponse, cookies, ○ vs ƒ handlers, CSV and CORS, route vs action.",
+  "15-proxy.html": "proxy.ts (formerly middleware): redirects, A/B rewrites, headers, optimistic auth checks, matchers, next.config redirects, execution order.",
+  "16-env-auth.html": ".env load order and NEXT_PUBLIC_ inlining, a signed httpOnly session cookie, login with Server Actions, a data access layer and DTOs.",
+  "17-testing.html": "Vitest + React Testing Library set up as in the docs, testing functions, components and actions; Playwright end-to-end tests.",
+  "18-deploying.html": "Node server, Docker, static export and adapters; standalone output; self-hosting essentials; instrumentation; next upgrade and codemods.",
+  "19-project.html": "Build the Reading List: cached pages, search, login, admin actions with updateTag, a JSON API, SEO files, and Vitest + Playwright tests.",
+  "appendix-react.html": "Components and props types, state and events, lists and keys, effects, context, refs and custom hooks, with the TypeScript you'll meet.",
+  "appendix-pages-router.html": "pages/, _app, getStaticProps/getStaticPaths/getServerSideProps, API Routes, a full map to the App Router, migrating from CRA and Vite.",
+  "glossary.html": "Every Next.js term in the book in plain words, from App Shell to updateTag, with links to the chapter that explains it.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

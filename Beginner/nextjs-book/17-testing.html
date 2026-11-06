@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧪&lt;/text&gt;&lt;/svg&gt;">
+<title>17. Testing with Vitest &amp; Playwright · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 17 · The Backend Side</div>
+<h1>Testing with Vitest &amp; Playwright</h1>
+<p class="lead">Tests let you change code without fear. The docs' <em>Testing</em> guide describes the kinds of tests and gives setup guides for four tools. This chapter uses two of them: <strong>Vitest</strong> for fast unit and component tests, and <strong>Playwright</strong> for end-to-end tests in a real browser, which is also how the docs recommend testing <code>async</code> Server Components. Every test run below was really executed against the chapter's app.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The kinds of tests: unit, component, integration, end-to-end, snapshot.</li>
+  <li>Setting up Vitest with React Testing Library and jsdom, as in the docs.</li>
+  <li>Testing pure functions, Client Components with interactions, and Server Actions.</li>
+  <li>Why <code>async</code> Server Components are tested end to end.</li>
+  <li>Writing a Playwright test that clicks through the real app.</li>
+</ul>
+</div>
+
+<h2 id="kinds">Types of tests</h2>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Tests…</th><th>Tool in this chapter</th></tr>
+<tr><td><strong>Unit</strong></td><td>One function, hook or component, in isolation</td><td>Vitest</td></tr>
+<tr><td><strong>Component</strong></td><td>How a React component renders and reacts to props and events</td><td>Vitest + React Testing Library</td></tr>
+<tr><td><strong>Integration</strong></td><td>Several units working together</td><td>Vitest</td></tr>
+<tr><td><strong>End-to-end (E2E)</strong></td><td>A real user flow in a real browser against a production-like build</td><td>Playwright</td></tr>
+<tr><td><strong>Snapshot</strong></td><td>Rendered output compared with a saved copy</td><td>Vitest (<code>toMatchSnapshot</code>)</td></tr>
+</table></div>
+<p>The docs also have guides for Jest (an older alternative to Vitest) and Cypress (an alternative to Playwright).</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> building a car. Unit tests check each bolt and gear on the workbench. Component tests check the dashboard lights when you press each button. End-to-end tests are a test drive: start the engine, drive to the shop, park. You need many quick bench tests and a few test drives.</p>
+</div>
+
+<h2 id="vitest-setup">Setting up Vitest</h2>
+<p>Install Vitest, the React plugin for Vite, a simulated browser (jsdom), React Testing Library, and a plugin that understands the <code>@/</code> paths from <code>tsconfig.json</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install -D vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/dom vite-tsconfig-paths
+</script>
+<p>Create <code>vitest.config.mts</code> in the project root, exactly as in the docs, and add <code>"test": "vitest"</code> to the scripts in <code>package.json</code>:</p>
+<script type="text/plain" class="code" data-file="vitest.config.mts">
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import tsconfigPaths from "vite-tsconfig-paths";
+
+export default defineConfig({
+  plugins: [tsconfigPaths(), react()],
+  test: {
+    environment: "jsdom",
+    exclude: ["e2e/**", "node_modules/**"],     // Playwright's tests live in e2e/
+  },
+});
+</script>
+<p><code>npm run test</code> starts Vitest in <strong>watch mode</strong>: it re-runs affected tests as you save. <code>npx vitest run</code> runs once, which is what CI uses and what the outputs below show.</p>
+
+<h2 id="first-test">A first component test</h2>
+<p>The docs' first test renders the home page and checks for its heading. React Testing Library's <code>render</code> draws a component into jsdom, and <code>screen</code> finds elements the way a user (or a screen reader) would: by role and name:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import Link from "next/link";
+
+export default function Page() {
+  return (
+    <div>
+      <h1>Home</h1>
+      <Link href="/about">About</Link>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="__tests__/page.test.tsx">
+import { expect, test } from "vitest";
+import { render, screen } from "@testing-library/react";
+import Page from "../app/page";
+
+test("Page", () => {
+  render(<Page />);
+  expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeDefined();
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run __tests__/page.test.tsx
+...
+ ✓ __tests__/page.test.tsx (1 test) …
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+...
+</script>
+<p>This page is a <em>synchronous</em> Server Component that doesn't use server-only APIs, so it renders fine in jsdom like any React component.</p>
+
+<h2 id="unit">Unit tests for plain functions</h2>
+<p>Logic in plain functions is the easiest thing to test, and a good reason to keep it out of components:</p>
+<script type="text/plain" class="code" data-file="lib/reading.ts">
+export type Book = { title: string; pages: number; read: boolean };
+
+export function readingStats(books: Book[]) {
+  const read = books.filter((b) => b.read);
+  return {
+    total: books.length,
+    read: read.length,
+    pagesRead: read.reduce((sum, b) => sum + b.pages, 0),
+    percent: books.length ? Math.round((read.length / books.length) * 100) : 0,
+  };
+}
+</script>
+<script type="text/plain" class="code" data-file="__tests__/reading.test.ts">
+import { describe, expect, it } from "vitest";
+import { readingStats } from "@/lib/reading";
+
+describe("readingStats", () => {
+  it("counts read books and pages", () => {
+    const stats = readingStats([
+      { title: "Dune", pages: 412, read: true },
+      { title: "Beloved", pages: 324, read: false },
+      { title: "The Hobbit", pages: 310, read: true },
+    ]);
+    expect(stats).toEqual({ total: 3, read: 2, pagesRead: 722, percent: 67 });
+  });
+
+  it("handles an empty list", () => {
+    expect(readingStats([]).percent).toBe(0);
+  });
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run __tests__/reading.test.ts
+...
+ ✓ __tests__/reading.test.ts (2 tests) …
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+...
+</script>
+<p>The <code>@/lib/reading</code> import works thanks to <code>vite-tsconfig-paths</code>.</p>
+
+<h2 id="interaction">Testing a Client Component's behaviour</h2>
+<p>For interactive components, fire events and check what the user would see next:</p>
+<script type="text/plain" class="code" data-file="app/ui/want-button.tsx">
+"use client";
+
+import { useState } from "react";
+
+export function WantButton({ title }: { title: string }) {
+  const [want, setWant] = useState(false);
+  return (
+    <button aria-pressed={want} onClick={() => setWant(!want)}>
+      {want ? `♥ ${title} is on your list` : "♡ Want to read"}
+    </button>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="__tests__/want-button.test.tsx">
+import { afterEach, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { WantButton } from "@/app/ui/want-button";
+
+afterEach(cleanup);
+
+test("toggles when clicked", () => {
+  render(<WantButton title="Dune" />);
+  const button = screen.getByRole("button", { name: "♡ Want to read" });
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+
+  fireEvent.click(button);
+
+  expect(screen.getByRole("button").textContent).toBe("♥ Dune is on your list");
+  expect(screen.getByRole("button").getAttribute("aria-pressed")).toBe("true");
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run __tests__/want-button.test.tsx
+...
+ ✓ __tests__/want-button.test.tsx (1 test) …
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+...
+</script>
+<p><code>cleanup</code> removes rendered components between tests, so they don't see each other's output.</p>
+
+<h2 id="actions">Testing Server Actions</h2>
+<p>A Server Action is an <code>async</code> function, so a unit test can call it directly with a <code>FormData</code> object, as long as it doesn't use request-only APIs like <code>cookies()</code> (those need a request, so test them end to end, or move the logic into a plain function you can test):</p>
+<script type="text/plain" class="code" data-file="app/books/actions.ts">
+"use server";
+
+export type AddState = { error?: string; title?: string };
+
+export async function validateNewBook(_prev: AddState, formData: FormData): Promise<AddState> {
+  const title = String(formData.get("title") ?? "").trim();
+  const year = Number(formData.get("year"));
+  if (!title) return { error: "Title is required." };
+  if (!Number.isInteger(year) || year < 1450 || year > 2100) return { error: "Year must be between 1450 and 2100." };
+  return { title };
+}
+</script>
+<script type="text/plain" class="code" data-file="__tests__/actions.test.ts">
+import { expect, test } from "vitest";
+import { validateNewBook } from "@/app/books/actions";
+
+function form(fields: Record<string, string>) {
+  const data = new FormData();
+  for (const [k, v] of Object.entries(fields)) data.set(k, v);
+  return data;
+}
+
+test.each([
+  [{ title: "", year: "1965" }, { error: "Title is required." }],
+  [{ title: "Dune", year: "65000" }, { error: "Year must be between 1450 and 2100." }],
+  [{ title: " Dune ", year: "1965" }, { title: "Dune" }],
+])("validateNewBook(%o)", async (fields, expected) => {
+  expect(await validateNewBook({}, form(fields))).toEqual(expected);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run __tests__/actions.test.ts
+...
+ ✓ __tests__/actions.test.ts (3 tests) …
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+...
+</script>
+
+<h2 id="async-rsc">Async Server Components: test them end to end</h2>
+<p><code>async</code> Server Components are new to the React ecosystem, and unit-testing tools don't fully support them yet. The docs recommend <strong>end-to-end tests</strong> for them. There's a second reason: their behaviour depends on Next.js itself (caching, streaming, Suspense, redirects), which only a real build reproduces.</p>
+<script type="text/plain" class="code" data-file="app/books/page.tsx">
+import { Suspense } from "react";
+import { WantButton } from "../ui/want-button";
+
+async function getBooks() {
+  await new Promise((r) => setTimeout(r, 300));
+  return ["The Hobbit", "Dune"];
+}
+
+async function BookList() {
+  const books = await getBooks();
+  return <ul>{books.map((t) => <li key={t}>{t} <WantButton title={t} /></li>)}</ul>;
+}
+
+export default function BooksPage() {
+  return (
+    <main>
+      <h1>Books</h1>
+      <Suspense fallback={<p>Loading…</p>}><BookList /></Suspense>
+    </main>
+  );
+}
+</script>
+
+<h2 id="playwright">End-to-end tests with Playwright</h2>
+<p>Playwright drives real browsers (Chromium, Firefox, WebKit). Install it with <code>npm init playwright</code>, or add <code>@playwright/test</code> and run <code>npx playwright install</code> to download the browsers. The config below uses the Chrome already installed on your computer (<code>channel: "chrome"</code>) and the app's URL. The docs' setup adds a <code>webServer</code> entry so Playwright starts the app itself; here the app is already running.</p>
+<script type="text/plain" class="code" data-file="playwright.config.ts">
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  use: {
+    baseURL: `http://localhost:${process.env.PORT ?? 3000}`,
+    channel: "chrome",
+  },
+  // to let Playwright build and start the app itself:
+  // webServer: { command: "npm run build && npm run start", url: "http://localhost:3000" },
+});
+</script>
+<script type="text/plain" class="code" data-file="e2e/books.spec.ts">
+import { expect, test } from "@playwright/test";
+
+test("lists books and adds one to the reading list", async ({ page }) => {
+  await page.goto("/books");
+  await expect(page.getByRole("heading", { name: "Books" })).toBeVisible();
+
+  // the streamed list appears after the Suspense fallback
+  await expect(page.getByRole("listitem")).toHaveCount(2);
+
+  await page.getByRole("listitem").filter({ hasText: "Dune" }).getByRole("button").click();
+  await expect(page.getByRole("button", { name: "♥ Dune is on your list" })).toBeVisible();
+});
+
+test("home page links to about", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ PORT=3000 npx playwright test --reporter=line
+Running 2 tests using 1 worker
+
+[1/2] e2e/books.spec.ts:3:1 › lists books and adds one to the reading list
+[2/2] e2e/books.spec.ts:14:1 › home page links to about
+  2 passed (…)
+</script>
+<p>Playwright's assertions like <code>toBeVisible()</code> and <code>toHaveCount()</code> <strong>wait and retry</strong> until they pass or time out, so the test doesn't need to know how long the streamed list takes. Run E2E tests against a production build (<code>next build</code> + <code>next start</code>), because development mode behaves differently (no prefetching, rendering on every request).</p>
+<div class="tip">
+<p>💡 In CI, a common pipeline is: <code>npm ci</code> → <code>npm run lint</code> → <code>npx tsc --noEmit</code> (or <code>next typegen</code> + <code>tsc</code>) → <code>npx vitest run</code> → <code>npm run build</code> → <code>npx playwright test</code> (with <code>webServer</code> starting <code>npm run start</code>).</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Snapshot test.</strong> A snapshot saves the rendered HTML the first time and fails if it changes later. Review snapshot changes carefully: it's easy to accept a wrong one.</p>
+<script type="text/plain" class="code" data-file="__tests__/snapshot.test.tsx">
+import { expect, test } from "vitest";
+import { render } from "@testing-library/react";
+import { WantButton } from "@/app/ui/want-button";
+
+test("WantButton markup", () => {
+  const { container } = render(<WantButton title="Dune" />);
+  expect(container.innerHTML).toMatchInlineSnapshot(`"<button aria-pressed="false">♡ Want to read</button>"`);
+});
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run __tests__/snapshot.test.tsx
+...
+ ✓ __tests__/snapshot.test.tsx (1 test) …
+...
+</script>
+
+<p><strong>All Vitest tests at once.</strong></p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx vitest run
+...
+ Test Files  5 passed (5)
+      Tests  8 passed (8)
+...
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use many fast unit and component tests (Vitest + React Testing Library + jsdom) and a few end-to-end tests (Playwright).</li>
+  <li>The docs' Vitest config: <code>plugins: [tsconfigPaths(), react()]</code>, <code>environment: "jsdom"</code>; <code>npx vitest run</code> runs once.</li>
+  <li>Find elements by role and name; fire events and assert on what the user sees.</li>
+  <li>Server Actions without request APIs can be called directly with <code>FormData</code>.</li>
+  <li>Test <code>async</code> Server Components (and streaming, caching, redirects) end to end, against a production build.</li>
+  <li>Playwright's web-first assertions wait and retry automatically.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Which type of test is each? (a) <code>slugify("Hello World")</code> returns <code>"hello-world"</code>. (b) A user logs in, adds a book and sees it on their list. (c) Clicking a button shows a modal. (d) The rendered footer HTML hasn't changed.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Unit. (b) End-to-end. (c) Component. (d) Snapshot.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>What do <code>environment: "jsdom"</code> and <code>tsconfigPaths()</code> do in the Vitest config?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>jsdom</code> gives tests a simulated browser (<code>document</code>, <code>window</code>) so components can render. <code>tsconfigPaths()</code> makes Vite resolve the <code>paths</code> from <code>tsconfig.json</code>, so <code>@/lib/…</code> imports work in tests.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>npm run test</code> with <code>"test": "vitest"</code> runs once and exits. (2) The docs recommend unit tests for <code>async</code> Server Components. (3) Playwright's <code>toBeVisible()</code> retries until it passes or times out. (4) E2E tests should run against <code>next dev</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: it watches; use <code>vitest run</code> in CI. (2) False: E2E. (3) True. (4) False: against a production build.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">queries</span></h3>
+<p>Write Testing Library queries for: the "Add book" button, the email input labelled "Email", and the page's main heading.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>screen.getByRole("button", { name: "Add book" })</code>, <code>screen.getByLabelText("Email")</code> (or <code>getByRole("textbox", { name: "Email" })</code>), and <code>screen.getByRole("heading", { level: 1 })</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Set up Vitest in the playground (config and <code>test</code> script) and write tests for the Chapter 7 <code>addBook</code> validation: missing title, bad year, and success. Mock the data module with <code>vi.mock("@/lib/books")</code> so the success case doesn't write anything, and mock <code>next/cache</code>'s <code>updateTag</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="__tests__/add-book.test.ts" data-norun>
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/cache", () => ({ updateTag: vi.fn(), revalidatePath: vi.fn() }));
+vi.mock("@/lib/books", () => ({ createBook: vi.fn(async (b) => ({ ...b, id: "9" })) }));
+
+import { addBook } from "@/app/books/actions";
+
+const form = (o: Record<string, string>) => { const f = new FormData(); for (const k in o) f.set(k, o[k]); return f; };
+
+describe("addBook", () => {
+  it("requires a title", async () => {
+    const r = await addBook({}, form({ title: "", author: "X", year: "2000" }));
+    expect(r.errors?.title?.[0]).toBe("Title is required.");
+  });
+  it("checks the year", async () => {
+    const r = await addBook({}, form({ title: "Dune", author: "Frank Herbert", year: "65000" }));
+    expect(r.errors?.year).toBeDefined();
+  });
+  it("adds a valid book", async () => {
+    const r = await addBook({}, form({ title: "Dune", author: "Frank Herbert", year: "1965" }));
+    expect(r.message).toBe("Added “Dune”.");
+  });
+});
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">component test</span></h3>
+<p>Write a test for the Chapter 4 <code>SearchBox</code>? It uses <code>useRouter</code> and <code>useSearchParams</code>, which need Next.js's router. How can a unit test handle that?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Mock the module: <code>vi.mock("next/navigation", () =&gt; ({ useRouter: () =&gt; ({ replace: replaceMock }), usePathname: () =&gt; "/books", useSearchParams: () =&gt; new URLSearchParams("q=du") }))</code>. Then render, type with <code>fireEvent.change(input, { target: { value: "dune" } })</code>, and assert <code>replaceMock</code> was called with <code>"/books?q=dune"</code>. Alternatively, test the behaviour end to end with Playwright, which needs no mocks.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">E2E</span></h3>
+<p>Write a Playwright test for the Chapter 16 login flow: going to <code>/dashboard</code> lands on <code>/login</code>; a wrong password shows the error; the right one shows "Welcome back, Ada!".</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="e2e/login.spec.ts" data-norun>
+import { expect, test } from "@playwright/test";
+
+test("login flow", async ({ page }) => {
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByPlaceholder("Email").fill("ada@example.com");
+  await page.getByPlaceholder("Password").fill("wrong");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Wrong email or password.");
+
+  await page.getByPlaceholder("Password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByText("Welcome back, Ada!")).toBeVisible();
+});
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor for testability</span></h3>
+<p>A Server Action reads <code>cookies()</code>, validates the form, computes a due date 14 days from today, and saves a loan. Which part would you extract to make it unit-testable, and how would you test the date logic without depending on today's date?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Extract the pure parts: <code>validateLoan(formData)</code> and <code>dueDate(from: Date)</code> in <code>lib/loans.ts</code>. Test <code>dueDate(new Date("2026-11-06"))</code> → <code>2026-11-20</code>, passing the date in instead of calling <code>new Date()</code> inside (or use <code>vi.setSystemTime</code>). Keep the action a thin shell that reads the session, calls these, and saves; cover the shell with an E2E test.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Your Vitest test of a Server Component passes, but the page fails in production with "Next.js encountered uncached or runtime data during prerendering". Why didn't the test catch it, and which test would have?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Vitest only renders the component with React; it doesn't prerender, apply Cache Components rules, stream, or cache. The error comes from Next.js's build. <code>npm run build</code> itself is the first test that catches it (run it in CI), and an E2E test against <code>next start</code> checks the behaviour users actually get.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">strategy</span></h3>
+<p>Write a short test plan for the Reading List capstone: what you'd unit-test, what you'd component-test, and which three E2E flows matter most.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><strong>Unit</strong>: validation schemas, <code>readingStats</code>, date and formatting helpers, the session <code>encrypt</code>/<code>decrypt</code> round trip, the store's read/write functions (with a temp file).</li>
+  <li><strong>Component</strong>: <code>WantButton</code>, the add-book form's error display (with a mocked action), <code>NavLinks</code> active state (with a mocked <code>usePathname</code>).</li>
+  <li><strong>E2E</strong>: (1) browse: home → books → book detail with correct title and metadata; (2) admin: log in, add a book, see it in the list immediately (tests <code>updateTag</code>); (3) security: anonymous <code>/admin</code> redirects to login, and the API returns 401 without a session.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/guides/testing">Guide: Testing</a> (overview)</li>
+  <li><a href="https://nextjs.org/docs/app/guides/testing/vitest">Guide: Vitest</a> · <a href="https://nextjs.org/docs/app/guides/testing/playwright">Playwright</a> · <a href="https://nextjs.org/docs/app/guides/testing/jest">Jest</a> · <a href="https://nextjs.org/docs/app/guides/testing/cypress">Cypress</a></li>
+  <li><a href="https://vitest.dev/">Vitest</a> · <a href="https://testing-library.com/docs/react-testing-library/intro/">React Testing Library</a> · <a href="https://playwright.dev/docs/intro">Playwright</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

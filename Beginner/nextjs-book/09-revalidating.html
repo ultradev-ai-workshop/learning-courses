@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔄&lt;/text&gt;&lt;/svg&gt;">
+<title>9. Revalidating · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Rendering &amp; Data</div>
+<h1>Revalidating</h1>
+<p class="lead">A cache is only useful if it's refreshed when the data changes. <strong>Revalidation</strong> updates cached data while you keep serving fast responses. This chapter follows the docs' <em>Revalidating</em> page. It covers the two strategies (time-based and on-demand), tags, and the difference between <code>updateTag</code> and <code>revalidateTag</code>. You'll watch stale-while-revalidate happen in real requests, and connect the "Add a book" form from Chapter 7 to the cache from Chapter 8.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Time-based revalidation with <code>cacheLife</code>, and what "stale-while-revalidate" means.</li>
+  <li>Tagging cached data with <code>cacheTag</code>.</li>
+  <li><code>updateTag</code> for read-your-own-writes, <code>revalidateTag</code> for background refreshes.</li>
+  <li><code>revalidatePath</code>, and why tags are usually better.</li>
+  <li>Revalidating from outside the app: a webhook Route Handler.</li>
+  <li>What happens when you forget to revalidate.</li>
+</ul>
+</div>
+
+<h2 id="strategies">Two strategies</h2>
+<ul>
+  <li><strong>Time-based</strong>: the cache refreshes itself after a set time, configured with <code>cacheLife</code>. Good for data that changes on its own schedule: news, prices, "trending" lists.</li>
+  <li><strong>On-demand</strong>: your code invalidates the cache when it knows the data changed (after a mutation, or when a CMS sends a webhook), with <code>updateTag</code>, <code>revalidateTag</code> or <code>revalidatePath</code>.</li>
+</ul>
+<p>They're often combined: a long lifetime (<code>max</code>) plus a tag you invalidate on every edit.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a supermarket shelf. <em>Time-based</em> revalidation is the "best before" date: after it passes, the next customer still gets the old carton while staff restock in the back. <em>On-demand</em> revalidation is a recall: the supplier phones and says "these are wrong", and the shelf is cleared. <code>updateTag</code> is clearing it while you, the customer who reported it, wait at the shelf, so you get the new carton. <code>revalidateTag</code> just marks it for restocking: the next shopper might get one last old carton.</p>
+</div>
+
+<h2 id="time">Time-based revalidation</h2>
+<p>Chapter 8 introduced <code>cacheLife</code>. Its <code>revalidate</code> time is what drives time-based revalidation, using <strong>stale-while-revalidate</strong> (SWR) semantics: once an entry is older than <code>revalidate</code>, the next request is still served the old (stale) value <em>immediately</em>, and that request triggers a refresh in the background. The request after that gets the fresh value. Nobody waits.</p>
+<p>To see it, cache a timestamp with a very short <code>revalidate</code> of 2 seconds. <code>expire</code> stays long (an <code>expire</code> under 5 minutes would make it a dynamic hole):</p>
+<script type="text/plain" class="code" data-file="app/clock/page.tsx" data-app="time">
+import { cacheLife } from "next/cache";
+
+async function CachedClock() {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 2, expire: 3600 });
+  return <p>generated at {Date.now()}</p>;
+}
+
+export default function Page() {
+  return <CachedClock />;
+}
+</script>
+<p>This script asks for the page several times. For each response it records the value and the <code>x-nextjs-cache</code> response header, which says how Next.js served the page: <code>HIT</code> (fresh from the cache) or <code>STALE</code> (from the cache, past its revalidate time, refresh started):</p>
+<script type="text/plain" class="code" data-file="check-clock.sh" data-app="time">
+# get: prints "<cache header> <value>" for one request
+get() {
+  body=$(curl -s -D headers.txt localhost:${PORT:-3000}/clock | sed 's/<!-- -->//g')
+  value=$(echo "$body" | grep -o 'generated at [0-9]*' | head -1)
+  cache=$(grep -i '^x-nextjs-cache' headers.txt | tr -d '\r' | cut -d' ' -f2)
+  echo "$cache $value"
+}
+
+a=$(get); b=$(get)
+[ "${a#* }" = "${b#* }" ] && echo "1. two quick requests: same value"
+
+sleep 3; c=$(get)
+echo "2. after 3 s: ${c%% *} (served from cache, refresh started)"
+
+sleep 1; d=$(get)
+[ "${d#* }" != "${c#* }" ] && echo "3. 1 s later: ${d%% *}, with a new value"
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="time">
+$ PORT=3000 sh check-clock.sh
+1. two quick requests: same value
+2. after 3 s: STALE (served from cache, refresh started)
+3. 1 s later: HIT, with a new value
+</script>
+<p>The request that arrived after the 2-second window was answered instantly from the cache (<code>STALE</code>) and started a refresh; the next one got the new value (<code>HIT</code>). This is also how prerendered pages are refreshed: the <code>Revalidate</code> column of the build output from Chapter 8.</p>
+
+<h2 id="tags">Tagging cached data: cacheTag</h2>
+<p>For on-demand revalidation, give cache entries a <strong>tag</strong>: a string you choose, like <code>"books"</code> or <code>"book-42"</code>. Call <code>cacheTag</code> inside the <code>"use cache"</code> scope. One entry can have several tags, and one tag can be shared by many functions, so invalidating it refreshes them all.</p>
+<p>The "database" in this chapter is a JSON file, so that every part of the app (pages, Server Actions, Route Handlers) reads and writes the same data. Module-level variables, as in Chapter 7, aren't safe for that: each route can be bundled with its own copy of a module.</p>
+<script type="text/plain" class="code" data-file="data/books.json">
+[{ "id": "1", "title": "The Hobbit" }]
+</script>
+<script type="text/plain" class="code" data-file="lib/books.ts">
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { cacheLife, cacheTag } from "next/cache";
+
+export type Book = { id: string; title: string };
+
+const FILE = join(process.cwd(), "data", "books.json");
+const load = async (): Promise<Book[]> => JSON.parse(await readFile(FILE, "utf8"));
+
+export async function getBooks(): Promise<Book[]> {
+  "use cache";
+  cacheLife("max");                 // never refresh on a timer…
+  cacheTag("books");                // …only when someone invalidates "books"
+  return load();
+}
+
+export async function getBookCount(): Promise<number> {
+  "use cache";
+  cacheLife("max");
+  cacheTag("books");                // same tag: refreshed together
+  return (await load()).length;
+}
+
+// writes go straight to the "database" (no cache)
+export async function insertBook(title: string): Promise<Book> {
+  const books = await load();
+  const book = { id: String(books.length + 1), title };
+  await writeFile(FILE, JSON.stringify([...books, book], null, 2));
+  return book;
+}
+</script>
+
+<h2 id="update-tag">updateTag: the user sees their own change</h2>
+<p>When a user submits a form, they expect to see the result straight away. <code>updateTag(tag)</code> <strong>expires</strong> the tagged entries immediately, and the page the action re-renders already uses fresh data. This is called <em>read-your-own-writes</em>. <code>updateTag</code> can only be called in Server Actions.</p>
+<script type="text/plain" class="code" data-file="app/actions.ts">
+"use server";
+
+import { updateTag } from "next/cache";
+import { insertBook } from "@/lib/books";
+
+export async function addBook(formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return;
+  await insertBook(title);
+  updateTag("books");
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+import { getBooks, getBookCount } from "@/lib/books";
+import { addBook } from "./actions";
+
+export default async function Page() {
+  const [books, count] = await Promise.all([getBooks(), getBookCount()]);
+  return (
+    <main>
+      <h1>{count} books</h1>
+      <ul>{books.map((b) => <li key={b.id}>{b.title}</li>)}</ul>
+      <form action={addBook}>
+        <input name="title" />
+        <button>Add</button>
+      </form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-steps="fill:input[name=title]=Dune; click:button; wait:800">
+2 books
+The Hobbit
+Dune
+Add
+</script>
+<p>The page is fully prerendered (both functions are cached), yet after adding "Dune" the user immediately sees "2 books". One <code>updateTag("books")</code> refreshed both cached functions. A new visitor gets the fresh page too:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/ | sed 's/<!-- -->//g' | grep -o "<h1>[^<]*</h1>"
+<h1>2 books</h1>
+</script>
+
+<h2 id="revalidate-tag">revalidateTag: refresh in the background</h2>
+<p><code>revalidateTag(tag, profile)</code> marks tagged entries as <strong>stale</strong> instead of expiring them. The next request gets the stale data immediately and triggers a background refresh, the same SWR behaviour as time-based revalidation. Use it when a short delay is acceptable (a product catalogue, a blog). It works in Server Actions <em>and</em> Route Handlers. The second argument says how long stale content may be served; the docs recommend <code>"max"</code>.</p>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>updateTag</code></th><th><code>revalidateTag</code></th></tr>
+<tr><td>Where</td><td>Server Actions only</td><td>Server Actions and Route Handlers</td></tr>
+<tr><td>Behaviour</td><td>Expires immediately</td><td>Stale-while-revalidate</td></tr>
+<tr><td>Use case</td><td>The user sees their own change</td><td>Background refresh, slight delay OK</td></tr>
+</table></div>
+
+<h3 id="webhook">Revalidating from outside: a webhook</h3>
+<p>Content often changes outside your app, in a CMS for example. The CMS can call a <strong>Route Handler</strong> (Chapter 14 covers them) when an editor publishes. Here, a <code>POST</code> to <code>/api/revalidate</code> pretends to be that CMS: it changes the data and revalidates the tag:</p>
+<script type="text/plain" class="code" data-file="app/api/revalidate/route.ts">
+import { revalidateTag } from "next/cache";
+import { insertBook } from "@/lib/books";
+
+export async function POST(request: Request) {
+  const { title } = await request.json();
+  await insertBook(title);               // the CMS changed the content…
+  revalidateTag("books", "max");         // …and tells us to refresh in the background
+  return Response.json({ revalidated: true });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -X POST localhost:3000/api/revalidate -H "Content-Type: application/json" -d '{"title":"Beloved"}'
+{"revalidated":true}
+$ curl -s localhost:3000/ | sed 's/<!-- -->//g' | grep -o "<h1>[^<]*</h1>"
+<h1>2 books</h1>
+$ sleep 1; curl -s localhost:3000/ | sed 's/<!-- -->//g' | grep -o "<h1>[^<]*</h1>"
+<h1>3 books</h1>
+</script>
+<p>The first request after the webhook still shows 2 books (stale, served instantly) and triggers the refresh; one second later the page shows 3. Note that the revalidation is triggered by <em>requests</em>, not by the <code>revalidateTag</code> call itself: each page refreshes when it's next visited.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Protect webhook endpoints.</strong> Anyone can <code>POST</code> to a public URL. A real webhook route checks a shared secret (for example a header compared with an environment variable, Chapter 16) before revalidating. When a webhook needs the data gone <em>immediately</em>, and <code>updateTag</code> isn't available because it's not a Server Action, pass <code>{ expire: 0 }</code> as the second argument.</p>
+</div>
+
+<h2 id="revalidate-path">revalidatePath</h2>
+<p><code>revalidatePath("/books")</code> invalidates the cached data and output of a <strong>route</strong>. Use it when you don't know (or haven't set up) the tags a page depends on. Chapter 7 used it with uncached data, where it simply re-rendered the page. With a type argument it can cover a whole dynamic route or a layout and everything below: <code>revalidatePath("/books/[id]", "page")</code>, <code>revalidatePath("/", "layout")</code>.</p>
+<div class="tip">
+<p>💡 The docs recommend tags over paths when possible. A tag follows the <em>data</em>: change a book and <code>updateTag(`book-${id}`)</code> refreshes the detail page, the list, the home page widget and the search results, wherever that data is used. A path refreshes one route, so you must remember every page that shows the book.</p>
+</div>
+
+<h2 id="forgot">What if you forget to revalidate?</h2>
+<p>The mutation succeeds, but the cache keeps serving the old data until its lifetime runs out. With <code>cacheLife("max")</code>, that's 30 days:</p>
+<script type="text/plain" class="code" data-file="lib/notes.ts" data-app="forgot">
+import { cacheLife } from "next/cache";
+
+const notes = ["first note"];
+
+export async function getNotes() {
+  "use cache";
+  cacheLife("max");
+  await new Promise((r) => setTimeout(r, 50));
+  return [...notes];
+}
+
+export async function saveNote(text: string) { notes.push(text); }
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="forgot">
+import { getNotes, saveNote } from "@/lib/notes";
+
+export default async function Page() {
+  async function add(formData: FormData) {
+    "use server";
+    await saveNote(String(formData.get("text")));
+    // forgot: updateTag(…) or revalidatePath("/")
+  }
+  const notes = await getNotes();
+  return (
+    <main>
+      <ul>{notes.map((n) => <li key={n}>{n}</li>)}</ul>
+      <form action={add}><input name="text" /><button>Save</button></form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="forgot" data-steps="fill:input[name=text]=second note; click:button; wait:800; reload; wait:300">
+first note
+Save
+</script>
+<p>"second note" was saved on the server, but even after a reload the page shows only the first. If "my change doesn't show up" happens to you, look for a missing <code>updateTag</code>, <code>revalidateTag</code> or <code>revalidatePath</code>.</p>
+
+<h2 id="what-to-cache">What should I cache?</h2>
+<ul>
+  <li>Cache data that doesn't depend on the request (cookies, headers, search params) and that may be served from a cache for a while.</li>
+  <li>For content that changes only when someone edits it (CMS content, product data): <code>cacheLife("max")</code> + <code>cacheTag</code>, and revalidate from the edit action or a webhook. This avoids pointless timed refreshes.</li>
+  <li>For content that changes on its own (rankings, prices from another system): a time-based profile like <code>minutes</code> or <code>hours</code>.</li>
+  <li>For per-user or per-request data: don't share it in a cache; stream it in <code>&lt;Suspense&gt;</code>.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Per-item tags.</strong> Tag each book with its own tag <em>and</em> the list tag, so editing one book refreshes its page and the list, but not every other book:</p>
+<script type="text/plain" class="code" data-file="lib/catalog.ts" data-app="items">
+import { cacheLife, cacheTag } from "next/cache";
+
+const titles = new Map([["1", "The Hobbit"], ["2", "Dune"]]);
+
+export async function getTitle(id: string) {
+  "use cache";
+  cacheLife("max");
+  cacheTag("books", `book-${id}`);       // two tags on one entry
+  await new Promise((r) => setTimeout(r, 50));
+  return titles.get(id) ?? "?";
+}
+
+export async function rename(id: string, title: string) { titles.set(id, title); }
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="items">
+import { updateTag } from "next/cache";
+import { getTitle, rename } from "@/lib/catalog";
+
+export function generateStaticParams() {
+  return [{ id: "1" }, { id: "2" }];
+}
+
+export default async function Page({ params }: PageProps<"/books/[id]">) {
+  const { id } = await params;
+  async function save(formData: FormData) {
+    "use server";
+    await rename(id, String(formData.get("title")));
+    updateTag(`book-${id}`);             // only this book's entries
+  }
+  return (
+    <main>
+      <h1>{await getTitle(id)}</h1>
+      <form action={save}><input name="title" /><button>Rename</button></form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-app="items" data-steps="fill:input[name=title]=Dune Messiah; click:button; wait:800">
+Dune Messiah
+Rename
+</script>
+<p>The server action closes over <code>id</code>; Next.js encrypts captured values like this in the page, but the action should still check that the user may rename that book.</p>
+
+<p><strong>refresh() is not revalidation.</strong> <code>refresh()</code> re-renders the current page, but cached functions keep returning cached values. It's for uncached data (as in Chapter 7) or client-side state that depends on the server. After changing <em>cached</em> data, use a tag or path.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Time-based: <code>cacheLife</code>'s <code>revalidate</code> refreshes entries in the background with stale-while-revalidate.</li>
+  <li><code>cacheTag("tag")</code> labels cached entries; one tag can cover many functions, one entry can have many tags.</li>
+  <li><code>updateTag</code> (Server Actions only) expires entries now, so users see their own writes. <code>revalidateTag(tag, "max")</code> marks them stale for a background refresh, and works in Route Handlers too.</li>
+  <li><code>revalidatePath</code> refreshes a route; prefer tags, which follow the data.</li>
+  <li>Protect revalidation webhooks with a secret. A missing revalidation means stale data until the lifetime ends.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">definitions</span></h3>
+<p>Explain "stale-while-revalidate" in two sentences.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>When cached data is past its revalidate time (or has been marked stale), the next request is still answered immediately with the old data. That request triggers a refresh in the background, so later requests get the new data.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p><code>updateTag</code> or <code>revalidateTag</code>? (a) A user edits their profile name and is sent back to their profile page. (b) A nightly job imports new books and calls an API route. (c) An admin publishes a blog post; readers may see it a few seconds later.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>updateTag</code>: they must see their change. (b) <code>revalidateTag(…, "max")</code> in the Route Handler (<code>updateTag</code> isn't allowed there). (c) <code>revalidateTag(…, "max")</code>; <code>updateTag</code> in the publish action is fine too if the admin should see it at once.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>updateTag</code> can be called from a Route Handler. (2) One <code>cacheTag</code> call can add several tags. (3) <code>refresh()</code> invalidates cached functions. (4) Revalidation happens when a page is next requested.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: Server Actions only. (2) True: <code>cacheTag("books", "book-1")</code>. (3) False. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>A function uses <code>cacheLife("hours")</code> and no tag. Data changes at 10:00; the entry was created at 9:30. When will users first see the change, at the earliest?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The entry becomes stale at 10:30 (revalidate = 1 hour). The first request after 10:30 still gets the old data and triggers a refresh; the request after that sees the change. So shortly after 10:30, not at 10:00. Add a tag and revalidate on change if that's too slow.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Connect the playground's Chapter 7 "Add a book" action to the Chapter 8 cache: tag <code>getBooks</code> with <code>"books"</code> and <code>getBook(id)</code> with <code>"books"</code> and <code>`book-${id}`</code>, use <code>cacheLife("max")</code>, and replace <code>revalidatePath("/books")</code> with <code>updateTag("books")</code>. Check that a new book appears at once.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+import { cacheLife, cacheTag } from "next/cache";
+
+export type Book = { id: string; title: string; author: string; year: number };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const books: Book[] = [{ id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 }];
+
+export async function getBooks() {
+  "use cache";
+  cacheLife("max");
+  cacheTag("books");
+  await sleep(200);
+  return [...books];
+}
+
+export async function getBook(id: string) {
+  "use cache";
+  cacheLife("max");
+  cacheTag("books", `book-${id}`);
+  await sleep(200);
+  return books.find((b) => b.id === id);
+}
+
+export async function createBook(data: Omit<Book, "id">) {
+  const book = { ...data, id: String(books.length + 1) };
+  books.push(book);
+  return book;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/actions.ts" data-app="ex5">
+"use server";
+
+import { updateTag } from "next/cache";
+import { createBook } from "@/lib/books";
+
+export async function addBook(formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  const author = String(formData.get("author") ?? "").trim();
+  const year = Number(formData.get("year"));
+  if (!title || !author || !Number.isInteger(year)) return;
+  await createBook({ title, author, year });
+  updateTag("books");
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/page.tsx" data-app="ex5">
+import { getBooks } from "@/lib/books";
+import { addBook } from "./actions";
+
+export default async function Books() {
+  const books = await getBooks();
+  return (
+    <main>
+      <ul>{books.map((b) => <li key={b.id}>{b.title} ({b.year})</li>)}</ul>
+      <form action={addBook}>
+        <input name="title" /> <input name="author" /> <input name="year" />
+        <button>Add</button>
+      </form>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books" data-app="ex5" data-steps="fill:input[name=title]=Dune; fill:input[name=author]=Frank Herbert; fill:input[name=year]=1965; click:button; wait:800">
+The Hobbit (1937)
+Dune (1965)
+Add
+</script>
+<p>(For brevity this solution validates by hand; keep your Zod version from Chapter 7.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">tags design</span></h3>
+<p>A book appears on: its detail page, the full list, "Books by this author", and the home page's "Recently added" widget. Design tags so that (a) editing a book refreshes all four, (b) adding a book refreshes the list, the author page and the widget, but no other book's detail page.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Detail: <code>cacheTag(`book-${id}`)</code>. List: <code>cacheTag("books")</code>. Author page: <code>cacheTag(`author-${authorId}`)</code>. Widget: <code>cacheTag("books")</code>. Editing calls <code>updateTag(`book-${id}`)</code>, <code>updateTag("books")</code> and <code>updateTag(`author-${authorId}`)</code>. Adding calls <code>updateTag("books")</code> and <code>updateTag(`author-${authorId}`)</code>. Other books' detail pages only carry their own tag, so they're untouched.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">webhook</span></h3>
+<p>Write <code>app/api/revalidate/route.ts</code> that accepts <code>POST</code> requests with a JSON body <code>{ "tag": "books" }</code> and header <code>x-revalidate-secret</code>. It returns 401 if the secret doesn't match <code>process.env.REVALIDATE_SECRET</code>, otherwise calls <code>revalidateTag(tag, "max")</code> and returns <code>{ revalidated: true }</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/api/revalidate/route.ts" data-norun>
+import { revalidateTag } from "next/cache";
+
+export async function POST(request: Request) {
+  if (request.headers.get("x-revalidate-secret") !== process.env.REVALIDATE_SECRET) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { tag } = await request.json();
+  if (typeof tag !== "string" || tag.length > 256) {
+    return Response.json({ error: "bad tag" }, { status: 400 });
+  }
+  revalidateTag(tag, "max");
+  return Response.json({ revalidated: true });
+}
+</script>
+<p>Chapter 14 tests a handler like this with <code>curl</code>; Chapter 16 sets the secret.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>An admin renames a book with a Server Action that calls <code>refresh()</code>. The admin page shows the new name (it reads uncached data), but the public book page still shows the old one. Why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>refresh()</code> only re-renders the current page; it doesn't touch the cache. The public page reads the book through a cached function, which keeps returning the old value. Fix: call <code>updateTag(`book-${id}`)</code> (and <code>updateTag("books")</code> if the list shows the name) in the action.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does <code>revalidateTag</code> take a second argument (a profile), and what does <code>{ expire: 0 }</code> change? When would you use it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The second argument sets how long stale content may still be served while the refresh runs. With <code>"max"</code> (a year), requests always get an instant, possibly stale answer. With <code>{ expire: 0 }</code>, stale content is never served: the next request waits for fresh data (a cache miss). Use it from a Route Handler (where <code>updateTag</code> isn't available) when correctness matters more than speed, for example after a price correction or a legal takedown.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your bookshop gets prices from a supplier system that updates them at random times, roughly hourly, with no webhook. Customers must never be charged a stale price at checkout, but the catalogue can be up to an hour old. Design the caching and revalidation.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Catalogue pages: cache the price lookup with <code>cacheLife("hours")</code> (time-based). They're fast and at most about an hour stale.</li>
+  <li>Checkout: <strong>don't use the cached price</strong>. Read the price fresh from the supplier inside the order Server Action, compare it with the price the customer saw, and ask them to confirm if it changed.</li>
+  <li>Optionally: when checkout detects a changed price, call <code>updateTag(`price-${id}`)</code> so the catalogue catches up early.</li>
+</ul>
+<p>Caching is for reading; decisions that involve money or permissions should use fresh data.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/revalidating">Getting Started: Revalidating</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/cacheTag">cacheTag</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/updateTag">updateTag</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/revalidateTag">revalidateTag</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/revalidatePath">revalidatePath</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/how-revalidation-works">Guide: How Revalidation Works</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/incremental-static-regeneration-cache-components">Guide: ISR with Cache Components</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

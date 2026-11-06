@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚧&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Error Handling · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Rendering &amp; Data</div>
+<h1>Error Handling</h1>
+<p class="lead">Things go wrong: a form is filled in badly, a book doesn't exist, a database is down, a component has a bug. The docs' <em>Error Handling</em> page splits errors into two kinds, <strong>expected errors</strong> and <strong>uncaught exceptions</strong>, and handles them differently. This chapter covers both: returning errors from actions, <code>notFound()</code> and <code>not-found.tsx</code>, error boundaries with <code>error.tsx</code> and <code>catchError</code>, global errors, and what production shows (and hides) from users.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The difference between expected errors and uncaught exceptions.</li>
+  <li>Modelling expected errors as return values, not exceptions.</li>
+  <li><code>notFound()</code>, <code>not-found.tsx</code>, and the HTTP status codes you actually get.</li>
+  <li>Error boundaries: <code>error.tsx</code>, <code>retry()</code>, nesting, and <code>catchError</code>.</li>
+  <li><code>global-error.tsx</code> for errors in the root layout.</li>
+  <li>Why production hides server error messages, and how <code>digest</code> helps you find them.</li>
+  <li>Errors in event handlers, which boundaries don't catch.</li>
+</ul>
+</div>
+
+<h2 id="two-kinds">Two kinds of errors</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>Expected errors</th><th>Uncaught exceptions</th></tr>
+<tr><td>Examples</td><td>Invalid form input, "book not found", a failed payment, an API that returned 404</td><td>A bug (<code>undefined</code> is not a function), the database is unreachable</td></tr>
+<tr><td>Part of normal operation?</td><td>Yes</td><td>No</td></tr>
+<tr><td>How to handle</td><td>Check for them and <strong>return</strong> a result the UI can show; call <code>notFound()</code></td><td><strong>Throw</strong>, and let an error boundary show a fallback</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a shop. "We're out of that size" is an <em>expected</em> error: the assistant tells you politely and suggests another. A burst water pipe is an <em>uncaught exception</em>: you don't plan the conversation for it, you close that aisle (the error boundary), put up a sign, and keep the rest of the shop open.</p>
+</div>
+
+<h2 id="expected">Expected errors: return them</h2>
+<h3 id="actions">In Server Functions</h3>
+<p>Don't throw for errors the user can fix. Return them as part of the action's state, and show them with <code>useActionState</code>, exactly as the Chapter 7 signup form did. The docs' example:</p>
+<script type="text/plain" class="code" data-file="app/actions.ts">
+"use server";
+
+export type State = { message: string };
+
+export async function createPost(_prev: State, formData: FormData): Promise<State> {
+  const title = String(formData.get("title") ?? "");
+  // pretend the API rejects short titles
+  const ok = title.length >= 3;
+  if (!ok) {
+    return { message: "Failed to create post" };
+  }
+  return { message: `Created “${title}”` };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/form/page.tsx">
+"use client";
+
+import { useActionState } from "react";
+import { createPost, type State } from "../actions";
+
+const initialState: State = { message: "" };
+
+export default function FormPage() {
+  const [state, formAction, pending] = useActionState(createPost, initialState);
+  return (
+    <form action={formAction}>
+      <label htmlFor="title">Title</label> <input id="title" name="title" />
+      {state.message && <p aria-live="polite">{state.message}</p>}
+      <button disabled={pending}>Create Post</button>
+    </form>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/form" data-steps="fill:input[name=title]=Hi; click:button; wait:500">
+Title
+Failed to create post
+Create Post
+</script>
+<p><code>aria-live="polite"</code> makes screen readers announce the message when it appears.</p>
+
+<h3 id="server-components">In Server Components</h3>
+<p>When a fetch fails in a way you expect, render a message (or <code>redirect</code>) instead of throwing:</p>
+<script type="text/plain" class="code" data-file="app/weather/page.tsx" data-norun>
+export default async function Page() {
+  const res = await fetch("https://api.example.com/weather");
+  if (!res.ok) {
+    return <p>The weather service is unavailable. Try again later.</p>;
+  }
+  const data = await res.json();
+  return <p>{data.summary}</p>;
+}
+</script>
+
+<h2 id="not-found">Not found</h2>
+<p>A missing record is the most common expected error. Call <code>notFound()</code> (from <code>next/navigation</code>); Next.js stops rendering and shows the nearest <code>not-found.tsx</code>:</p>
+<script type="text/plain" class="code" data-file="lib/posts.ts">
+const posts: Record<string, { title: string }> = { hello: { title: "Hello, World" } };
+
+export function getPostBySlug(slug: string) {
+  return posts[slug];
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/[slug]/page.tsx">
+import { notFound } from "next/navigation";
+import { getPostBySlug } from "@/lib/posts";
+
+export function generateStaticParams() {
+  return [{ slug: "hello" }];
+}
+
+export default async function Page({ params }: PageProps<"/blog/[slug]">) {
+  const { slug } = await params;
+  const post = getPostBySlug(slug);
+  if (!post) {
+    notFound();
+  }
+  return <h1>{post.title}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/blog/[slug]/not-found.tsx">
+import Link from "next/link";
+
+export default function NotFound() {
+  return (
+    <div>
+      <h2>404 - Post Not Found</h2>
+      <Link href="/blog/hello">Read our first post instead</Link>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/blog/nope">
+404 - Post Not Found
+Read our first post instead
+</script>
+<p>For URLs that don't match any route at all, Next.js uses <code>app/not-found.tsx</code> (or its built-in page if you don't have one):</p>
+<script type="text/plain" class="code" data-file="app/not-found.tsx">
+export default function NotFound() {
+  return <p>📚 We couldn't find that page.</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/no/such/page
+404
+$ curl -s localhost:3000/no/such/page | grep -o "📚 We couldn't find that page." | head -1
+📚 We couldn't find that page.
+</script>
+
+<h3 id="status">Status codes and streaming</h3>
+<p>As you saw in Chapter 4, the HTTP status depends on <em>when</em> <code>notFound()</code> runs. If it runs before the response starts streaming, the status is <strong>404</strong>. Once streaming has started (a Suspense fallback or the static shell has been sent), the status is already <strong>200</strong> and can't change. Next.js then streams the not-found UI and adds <code>&lt;meta name="robots" content="noindex"&gt;</code>, so search engines don't index the page. The same applies to <code>redirect()</code>: before streaming it's an HTTP redirect; mid-stream it becomes a client-side redirect.</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/blog/hello
+200
+$ curl -s localhost:3000/blog/missing | grep -o '<meta name="robots" content="noindex"/>' | head -1
+<meta name="robots" content="noindex"/>
+</script>
+<p>To return a real 404 status for a dynamic page, check for the missing record <em>before</em> any <code>&lt;Suspense&gt;</code> boundary or slow work, or prerender the valid IDs with <code>generateStaticParams</code> so unknown IDs are rare.</p>
+
+<h2 id="uncaught">Uncaught exceptions: error boundaries</h2>
+<p>An <strong>error boundary</strong> catches errors thrown while rendering its children and shows a fallback UI instead of crashing the whole page. Add an <code>error.tsx</code> file to a route segment. It must be a <strong>Client Component</strong>, and it receives the <code>error</code> and a <code>retry</code> function:</p>
+<script type="text/plain" class="code" data-file="lib/stats.ts" data-app="boundary">
+let firstCall: number | undefined;
+
+// fails during the first second after it's first used: like a database that was briefly down
+export async function getStats() {
+  await new Promise((r) => setTimeout(r, 50));
+  firstCall ??= Date.now();
+  if (Date.now() - firstCall < 1000) throw new Error("Database connection lost");
+  return { books: 42, readers: 7 };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/dashboard/page.tsx" data-app="boundary">
+import { Suspense } from "react";
+import { getStats } from "@/lib/stats";
+
+async function Stats() {
+  const stats = await getStats();
+  return <p>{stats.books} books, {stats.readers} readers</p>;
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<p>Loading stats…</p>}>
+      <Stats />
+    </Suspense>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/dashboard/error.tsx" data-app="boundary">
+"use client"; // Error boundaries must be Client Components
+
+import { useEffect } from "react";
+
+export default function ErrorPage({ error, retry }: { error: unknown; retry: () => void }) {
+  useEffect(() => {
+    console.error(error);       // send it to your error reporting service here
+  }, [error]);
+
+  return (
+    <div>
+      <h2>Something went wrong!</h2>
+      <button onClick={() => retry()}>Try again</button>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/dashboard/layout.tsx" data-app="boundary">
+export default function Layout({ children }: LayoutProps<"/dashboard">) {
+  return <section><h1>Dashboard</h1>{children}</section>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/dashboard" data-app="boundary">
+Dashboard
+Something went wrong!
+Try again
+</script>
+<p>The render threw, so <code>error.tsx</code> replaced the page. The layout above it, with the "Dashboard" heading, stays visible and interactive: an <code>error.tsx</code> boundary sits <em>inside</em> its segment's layout (the component hierarchy in Chapter 3). Clicking <em>Try again</em> (here, a second later) calls <code>retry()</code>, which re-fetches and re-renders the segment. This time <code>getStats</code> works:</p>
+<script type="text/plain" class="code" data-lang="text" data-app="boundary" data-steps="wait:1200; click:button; wait:800">
+Dashboard
+42 books, 7 readers
+</script>
+<p>(<code>error.tsx</code> also gets a <code>reset()</code> function, which re-renders <em>without</em> re-fetching. The docs recommend <code>retry()</code> in most cases.)</p>
+
+<h3 id="production">What production shows</h3>
+<p>The real error message ("Database connection lost") may contain sensitive details, so in production builds the message of an error thrown in a Server Component is never sent to the browser. The error that reaches <code>error.tsx</code> has a generic message (with React 19.3, a "minified React error") and a <code>digest</code>: a hash that the server also prints next to the real error in its log, so you can match a user's report to the real stack trace.</p>
+<script type="text/plain" class="code" data-file="app/broken/page.tsx" data-app="boundary">
+import { Suspense } from "react";
+import { connection } from "next/server";
+
+async function Thrower(): Promise<React.ReactNode> {
+  await connection();                       // render at request time, not during the build
+  throw new Error("Secret detail: password=hunter2");
+}
+
+export default function Broken() {
+  return <Suspense fallback={<p>…</p>}><Thrower /></Suspense>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/broken/error.tsx" data-app="boundary">
+"use client";
+
+export default function BrokenError({ error }: { error: unknown }) {
+  const e = error as Error & { digest?: string };
+  return <p>Message: {e.message} | digest present: {String(Boolean(e.digest))}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/broken" data-app="boundary">
+Message: Minified React error #441; visit https://react.dev/errors/441 for the full message or use the non-minified dev environment for full errors and additional helpful warnings. | digest present: true
+</script>
+<p>Meanwhile, the server log of <code>next start</code> shows the real error with the same digest:</p>
+<script type="text/plain" class="code" data-lang="text" data-title="server log" data-norun>
+⨯ Error: Secret detail: password=hunter2
+    at e (.next/server/chunks/ssr/_1hi60kn9wp62w._.js:1:129) {
+  digest: '2605939174'
+}
+</script>
+<p>In <code>next dev</code> you see the full message and stack in the error overlay. Errors thrown in Client Components keep their message, because their code is in the browser anyway.</p>
+<div class="pitfall">
+<p>⚠️ Don't use error messages to communicate with users. A message you throw on the server won't reach them in production. For anything the user should read, return a value (expected errors) or render it yourself.</p>
+</div>
+
+<h3 id="nested">Nested boundaries</h3>
+<p>An error bubbles up to the <strong>nearest</strong> error boundary above it. Put <code>error.tsx</code> files at different levels to control how much of the page is replaced: a boundary in <code>app/dashboard/stats/</code> only replaces the stats panel, while one in <code>app/</code> replaces everything below the root layout.</p>
+
+<h3 id="catch-error">Component-level boundaries: catchError</h3>
+<p><code>error.tsx</code> covers a whole route segment. To wrap any part of a page, Next.js 16 adds <code>catchError</code> (from <code>next/error</code>). It turns a fallback function into an error boundary component, and the fallback can receive its own props:</p>
+<script type="text/plain" class="code" data-file="app/custom-error-boundary.tsx" data-app="catch">
+"use client";
+
+import { catchError, type ErrorInfo } from "next/error";
+
+function ErrorFallback(props: { title: string }, { error, retry }: ErrorInfo) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    <div>
+      <h2>{props.title}</h2>
+      <p>{message}</p>
+      <button onClick={() => retry()}>Try again</button>
+    </div>
+  );
+}
+
+export default catchError(ErrorFallback);
+</script>
+<script type="text/plain" class="code" data-file="app/widgets.tsx" data-app="catch">
+"use client";
+
+import { useEffect, useState } from "react";
+
+// renders "Loading…" on the server, then fails in the browser after hydration
+export function BrokenWidget() {
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => setLoaded(true), []);
+  if (loaded) throw new Error("Widget failed to load");
+  return <p>Loading recommendations…</p>;
+}
+
+export function WorkingWidget() {
+  return <p>✅ This widget works</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="catch">
+import ErrorBoundary from "./custom-error-boundary";
+import { BrokenWidget, WorkingWidget } from "./widgets";
+
+export default function Page() {
+  return (
+    <main>
+      <WorkingWidget />
+      <ErrorBoundary title="Recommendations unavailable">
+        <BrokenWidget />
+      </ErrorBoundary>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="catch">
+✅ This widget works
+Recommendations unavailable
+Widget failed to load
+Try again
+</script>
+<p>Only the wrapped part was replaced; the working widget is untouched. The message is visible here because the error was thrown by a Client Component in the browser.</p>
+<div class="pitfall">
+<p>⚠️ <strong>Errors during prerendering fail the build.</strong> Boundaries handle errors at request time and in the browser. If a component throws while <code>next build</code> prerenders it (here, if <code>BrokenWidget</code> threw on its first render), the build stops with "Error occurred prerendering page". That's why the examples above make their errors happen at request time, after <code>connection()</code> or after hydration. Fix errors that happen at build time; don't try to catch them.</p>
+</div>
+
+<h2 id="global">Global errors</h2>
+<p>An <code>error.tsx</code> can't catch errors in the layout of its own segment, and so <code>app/error.tsx</code> can't catch errors in the <strong>root layout</strong>. For that, add <code>app/global-error.tsx</code>. Because it replaces the root layout when active, it must render its own <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>:</p>
+<script type="text/plain" class="code" data-file="app/global-error.tsx" data-app="catch">
+"use client"; // Error boundaries must be Client Components
+
+export default function GlobalError({ retry }: { error: unknown; retry: () => void }) {
+  return (
+    // global-error must include html and body tags
+    <html lang="en">
+      <body>
+        <h2>Something went wrong!</h2>
+        <button onClick={() => retry()}>Try again</button>
+      </body>
+    </html>
+  );
+}
+</script>
+<p>It's a last resort, rarely seen. Keep it simple: it can't rely on anything from your root layout (fonts, providers, CSS imported there).</p>
+
+<h2 id="events">Errors in event handlers</h2>
+<p>Error boundaries catch errors <em>during rendering</em>. They don't catch errors in event handlers or other async code that runs later, such as a failed <code>fetch</code> after a click. Catch those yourself and keep the error in state:</p>
+<script type="text/plain" class="code" data-file="app/events/page.tsx" data-app="catch">
+"use client";
+
+import { useState } from "react";
+
+export default function Page() {
+  const [error, setError] = useState<string | null>(null);
+  const handleClick = () => {
+    try {
+      JSON.parse("{ not json");         // some work that fails
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  return (
+    <main>
+      <button type="button" onClick={handleClick}>Import file</button>
+      {error && <p role="alert">Import failed: {error}</p>}
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/events" data-app="catch" data-steps="click:button">
+Import file
+Import failed: Expected property name or '}' in JSON at position 2 (line 1 column 3)
+</script>
+<p>One exception: an error thrown inside <code>startTransition</code> (from <code>useTransition</code>) <em>does</em> bubble up to the nearest error boundary, and so does an unhandled error thrown by a Server Action called from a form.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A typed "result" helper for expected errors.</strong> Many teams return a discriminated union from data functions, so callers must handle failure:</p>
+<script type="text/plain" class="code" data-file="lib/result.ts" data-node>
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function parseYear(input: string): Result<number> {
+  const year = Number(input);
+  if (!Number.isInteger(year)) return { ok: false, error: `"${input}" is not a whole number` };
+  if (year < 1450 || year > 2100) return { ok: false, error: `${year} is out of range` };
+  return { ok: true, value: year };
+}
+
+for (const input of ["1965", "19.5", "3000"]) {
+  const r = parseYear(input);
+  console.log(r.ok ? `ok: ${r.value}` : `error: ${r.error}`);
+}
+</script>
+<script type="text/plain" class="code" data-lang="text">
+ok: 1965
+error: "19.5" is not a whole number
+error: 3000 is out of range
+</script>
+<p>(This block is plain TypeScript, run with Node.) TypeScript won't let you read <code>r.value</code> until you've checked <code>r.ok</code>.</p>
+
+<p><strong>forbidden() and unauthorized().</strong> Besides <code>notFound()</code> (404), Next.js has <code>forbidden()</code> (403) and <code>unauthorized()</code> (401), with matching <code>forbidden.tsx</code> and <code>unauthorized.tsx</code> files. They're still experimental: enable them with <code>experimental: { authInterrupts: true }</code> in <code>next.config.ts</code>. Chapter 16 uses redirects to the login page instead.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Expected errors (bad input, missing records, failed requests) are returned as values and shown by the UI; uncaught exceptions are thrown and caught by boundaries.</li>
+  <li><code>notFound()</code> renders the nearest <code>not-found.tsx</code>; <code>app/not-found.tsx</code> handles unmatched URLs. After streaming starts, the status stays 200 with a <code>noindex</code> tag.</li>
+  <li><code>error.tsx</code> (a Client Component) is a segment's error boundary; <code>retry()</code> re-fetches and re-renders. It sits inside the segment's layout.</li>
+  <li>In production, Server Component error messages are replaced by a generic message and a <code>digest</code> that matches the server log.</li>
+  <li><code>catchError</code> creates boundaries for any part of a page; <code>global-error.tsx</code> covers the root layout.</li>
+  <li>Event handler errors need <code>try</code>/<code>catch</code> and state; errors in transitions and actions bubble to boundaries.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">classify</span></h3>
+<p>Expected error or uncaught exception? (a) The email is already registered. (b) <code>Cannot read properties of undefined</code>. (c) The payment provider declines the card. (d) The disk is full.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Expected: return a message. (b) Uncaught: a bug, let a boundary catch it and fix the code. (c) Expected: return a message so the user can try another card. (d) Uncaught: infrastructure failure.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Why must <code>error.tsx</code> be a Client Component? Which two props does it receive?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It's a React error boundary that handles errors in the browser and offers interactivity (the retry button), so it needs client code. It receives <code>error</code> and <code>retry</code> (plus <code>reset</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>app/error.tsx</code> catches errors thrown in <code>app/layout.tsx</code>. (2) Error boundaries catch errors in <code>onClick</code> handlers. (3) In production, the browser sees the message of an error thrown in a Server Component. (4) <code>global-error.tsx</code> must render <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: use <code>global-error.tsx</code>. (2) False. (3) False: it gets a generic message and a <code>digest</code>. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">where does it go?</span></h3>
+<p>Where do you put a <code>not-found.tsx</code> to customise (a) the 404 for unknown book IDs under <code>/books/[id]</code>, (b) the 404 for any unknown URL in the app?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>app/books/[id]/not-found.tsx</code> (shown when the page calls <code>notFound()</code>). (b) <code>app/not-found.tsx</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add <code>app/books/[id]/not-found.tsx</code> to the playground ("We don't have that book" with a link back to <code>/books</code>), and <code>app/books/error.tsx</code> with a "Try again" button that calls <code>retry()</code>. Test the 404 with <code>/books/999</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/books/[id]/not-found.tsx" data-app="ex5">
+import Link from "next/link";
+
+export default function BookNotFound() {
+  return (
+    <div>
+      <h2>We don&apos;t have that book</h2>
+      <Link href="/books">Back to all books</Link>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/error.tsx" data-app="ex5">
+"use client";
+
+export default function BooksError({ retry }: { error: unknown; retry: () => void }) {
+  return (
+    <div role="alert">
+      <h2>Couldn&apos;t load books</h2>
+      <button onClick={() => retry()}>Try again</button>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import { notFound } from "next/navigation";
+
+const books: Record<string, string> = { "1": "The Hobbit", "2": "Dune" };
+
+export function generateStaticParams() {
+  return Object.keys(books).map((id) => ({ id }));
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const title = books[(await params).id];
+  if (!title) notFound();
+  return <h1>{title}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/999" data-app="ex5">
+We don't have that book
+Back to all books
+</script>
+<p><code>&amp;apos;</code> avoids the "unescaped entity" lint rule for apostrophes in JSX text.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">refactor</span></h3>
+<p>This action throws for a validation error. Rewrite it to return the error, and say what the user sees before and after the change in production.</p>
+<script type="text/plain" class="code" data-file="app/actions.ts" data-norun>
+"use server";
+export async function rename(_prev: unknown, formData: FormData) {
+  const name = String(formData.get("name"));
+  if (name.length < 2) throw new Error("Name too short");
+  await save(name);
+}
+</script>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/actions.ts" data-norun>
+"use server";
+export async function rename(_prev: { error?: string }, formData: FormData) {
+  const name = String(formData.get("name"));
+  if (name.length < 2) return { error: "Name must be at least 2 characters." };
+  await save(name);
+  return {};
+}
+</script>
+<p>Before: the thrown error goes to the nearest error boundary, replacing the form with "Something went wrong!", and in production the message is hidden anyway. After: the form stays, and <code>useActionState</code> shows the message next to the field.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">catchError</span></h3>
+<p>The playground's home page will show a "Recommended for you" section (Chapter 16). Wrap it in a <code>catchError</code> boundary that shows "Recommendations are taking a break" without a retry button, so a failure there never breaks the home page.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/_components/soft-boundary.tsx" data-norun>
+"use client";
+
+import { catchError, type ErrorInfo } from "next/error";
+
+function Fallback(props: { message: string }, _info: ErrorInfo) {
+  return <p className="muted">{props.message}</p>;
+}
+
+export const SoftBoundary = catchError(Fallback);
+
+// in app/page.tsx:
+// <SoftBoundary message="Recommendations are taking a break">
+//   <Suspense fallback={<p>…</p>}><Recommendations /></Suspense>
+// </SoftBoundary>
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">digest</span></h3>
+<p>A user reports "the page says something went wrong" and sends a screenshot of your <code>error.tsx</code>. Describe how you find the cause, using what this chapter showed about production errors.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Ask for (or log on the client, in <code>error.tsx</code>'s effect) the error's <code>digest</code>. Search the server logs for that digest: Next.js logs the full error with the same digest, including the real message and stack trace. Then reproduce locally, where <code>next dev</code> shows the full error overlay.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">status codes</span></h3>
+<p>Search engines report many "soft 404s" (status 200 with a not-found page) for <code>/books/[id]</code> URLs of deleted books. Explain why this happens with Cache Components, and propose two improvements.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Unlisted IDs are served the static shell first, which commits a 200 status before <code>notFound()</code> runs, so the first response is a 200 with the 404 UI and a <code>noindex</code> tag. Improvements: (1) check whether the book exists <em>before</em> any streaming starts, for example in <code>proxy.ts</code> (Chapter 15) or with a fast lookup before Suspense boundaries, so Next.js can send a real 404; (2) when a book is deleted, redirect its URL permanently (308) to the list, or keep returning <code>notFound()</code>: once the result is saved, later requests get a real 404, and the <code>noindex</code> tag already keeps the first one out of search results.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design the error handling for the Reading List's "Add a book" flow end to end: invalid input, a duplicate title, the data file being unreadable, and a bug in the list component. For each, say where it's detected and what the user sees.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li><strong>Invalid input</strong>: Zod in the Server Action; returned as field errors via <code>useActionState</code>; shown next to the fields.</li>
+  <li><strong>Duplicate title</strong>: checked in the action against the store; returned as <code>{ message: "You already have that book" }</code>.</li>
+  <li><strong>Unreadable data file</strong>: unexpected, so let it throw. In the action, the error reaches the nearest boundary (<code>app/books/error.tsx</code>, "Couldn't load books · Try again"); log it on the server.</li>
+  <li><strong>Bug in the list component</strong>: thrown during rendering; caught by <code>app/books/error.tsx</code>; the layout and navigation stay usable; the digest links the user's report to the log.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/error-handling">Getting Started: Error Handling</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/error">File conventions: error.js and global-error.js</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/not-found">not-found.js</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/catchError">catchError</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/not-found">notFound</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/forbidden">forbidden</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/unauthorized">unauthorized</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/streaming">Guide: Streaming</a> (status codes)</li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

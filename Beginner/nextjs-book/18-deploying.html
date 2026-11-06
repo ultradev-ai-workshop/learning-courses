@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚀&lt;/text&gt;&lt;/svg&gt;">
+<title>18. Deploying, Self-hosting &amp; Upgrading · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 18 · Ship It</div>
+<h1>Deploying, Self-hosting &amp; Upgrading</h1>
+<p class="lead">An app on your laptop helps nobody. This chapter follows the docs' <em>Deploying</em> and <em>Upgrading</em> pages and the <em>Self-Hosting</em> guide. It covers the four ways to run Next.js in production and what each supports, the settings that matter when you host it yourself, and how to keep up with new versions. You'll build a standalone server and a static export, and see what a static export can't do.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The deployment options: Node.js server, Docker, static export, platform adapters.</li>
+  <li><code>output: "standalone"</code> for small server images, and <code>output: "export"</code> for static hosting.</li>
+  <li>Self-hosting essentials: reverse proxy, streaming, images, caches, multiple instances.</li>
+  <li>Running code at server start with <code>instrumentation.ts</code>.</li>
+  <li>Upgrading with <code>next upgrade</code> and codemods.</li>
+  <li>A short production checklist.</li>
+</ul>
+</div>
+
+<h2 id="options">Deployment options</h2>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>Feature support</th><th>What it is</th></tr>
+<tr><td><strong>Node.js server</strong></td><td>All</td><td><code>npm run build</code> then <code>npm run start</code> on any machine with Node.js.</td></tr>
+<tr><td><strong>Docker container</strong></td><td>All</td><td>The same server in a container, for Kubernetes or a cloud container service.</td></tr>
+<tr><td><strong>Static export</strong></td><td>Limited</td><td>Plain HTML/CSS/JS files for any web server or bucket (S3, nginx, GitHub Pages). No server features.</td></tr>
+<tr><td><strong>Adapters</strong></td><td>Varies</td><td>Platform integrations via the Deployment Adapter API. Verified adapters (Vercel, Bun) run the full Next.js test suite; Cloudflare, Netlify and others have their own integrations.</td></tr>
+</table></div>
+<p>This book's examples all ran on the first option: <code>next build</code> + <code>next start</code>. It supports every feature and is what you'd use on a VPS, a PaaS like Railway or Render, or behind your company's load balancer.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a food business. A Node.js server is your own restaurant: full menu, cooking to order. Docker is the same restaurant in a shipping container you can drop anywhere. A static export is selling pre-packed sandwiches through vending machines: cheap and everywhere, but nothing made to order. An adapter is a franchise agreement with a food court that has its own kitchens and rules.</p>
+</div>
+
+<h2 id="standalone">Standalone output for small images</h2>
+<p>A normal deployment needs your whole <code>node_modules</code>. With <code>output: "standalone"</code>, the build traces which files are actually used and copies only those, plus a minimal <code>server.js</code>, into <code>.next/standalone</code>. That folder runs on its own with <code>node server.js</code>, which is what the official Docker example uses.</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="standalone">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  partialPrefetching: true,
+  output: "standalone",
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="standalone">
+export default function Page() {
+  return <h1>Shipped!</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="standalone">
+$ find .next/standalone -name server.js -not -path "*/node_modules/*" | wc -l | tr -d ' '
+1
+</script>
+<p>The standalone server doesn't copy <code>public/</code> and <code>.next/static/</code>, because ideally a CDN serves them. Copy them next to <code>server.js</code> (into <code>standalone/public</code> and <code>standalone/.next/static</code>) if the server should serve them itself. A typical multi-stage Dockerfile installs dependencies, runs <code>npm run build</code>, and copies only <code>.next/standalone</code>, <code>.next/static</code> and <code>public</code> into a small final image that runs <code>node server.js</code>. Use the docs' <em>with-docker</em> example as your starting point.</p>
+
+<h2 id="export">Static export</h2>
+<p>With <code>output: "export"</code>, <code>next build</code> writes every page as HTML into an <code>out/</code> folder. Any static host can serve it, and you can add a server later.</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="export">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  output: "export",
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="export">
+import Link from "next/link";
+
+export default function Home() {
+  return <main><h1>Reading List</h1><Link href="/about">About</Link></main>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="export">
+export default function About() {
+  return <h1>About</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="export">
+$ ls out/*.html
+out/404.html
+out/_not-found.html
+out/about.html
+out/index.html
+$ ls out/index.txt out/about.txt
+out/about.txt
+out/index.txt
+$ grep -o "<h1>[^<]*</h1>" out/about.html
+<h1>About</h1>
+</script>
+<p>Each page has an <code>.html</code> file for the first visit and a <code>.txt</code> file with its RSC payload, which <code>&lt;Link&gt;</code> loads for client-side navigation. Files from <code>public/</code> are copied too, and <code>_next/</code> holds the JavaScript and CSS. The whole <code>out/</code> folder can be uploaded anywhere. Features that need a server at request time don't work in a static export: <code>cookies()</code> and <code>headers()</code>, Route Handlers that read the request, Server Actions, Proxy, ISR and revalidation, dynamic params without <code>generateStaticParams</code>, and default image optimization (you need a custom loader or <code>unoptimized</code>). The build tells you when you use one:</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="export-bad">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  output: "export",
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/api/time/route.ts" data-app="export-bad">
+export async function GET(request: Request) {
+  return Response.json({ url: request.url });
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="export-bad">
+...
+Error: export const dynamic = "force-static"/export const revalidate not configured on route "/api/time" with "output: export". See more info here: https://nextjs.org/docs/advanced-features/static-html-export
+...
+> Build error occurred
+Error: Failed to collect page data for /api/time
+...
+</script>
+<p>A Route Handler is only allowed in a static export if it can be turned into a file at build time; this one reads the request, so the build stops.</p>
+<p>(This app was built without <code>cacheComponents</code>: it's a server feature that a static export doesn't use.)</p>
+
+<h2 id="self-hosting">Self-hosting essentials</h2>
+<p>When you run <code>next start</code> yourself, the docs' <em>Self-Hosting</em> guide lists what to set up:</p>
+<ul>
+  <li><strong>Reverse proxy.</strong> Put nginx (or a load balancer) in front of Next.js instead of exposing it directly. It handles TLS, malformed requests, slow-connection attacks, payload limits and rate limiting.</li>
+  <li><strong>Streaming end to end.</strong> Streaming and Partial Prerendering need every layer to pass chunks through. In nginx, disable buffering (Next.js sends <code>X-Accel-Buffering: no</code> for this); make sure load balancers support chunked responses. Otherwise the static shell and the streamed parts arrive together at the end, and PPR's fast first byte is lost.</li>
+  <li><strong>Images.</strong> <code>next/image</code> optimization works with <code>next start</code> with no configuration (it uses the <code>sharp</code> library). On some Linux systems, follow sharp's memory-allocator advice; or use a separate image service with a custom loader.</li>
+  <li><strong>Caching.</strong> Prerendered pages and cache entries are stored on disk and in memory per instance. Several instances need a shared cache handler (<code>cacheHandlers</code> in the config) so they don't serve different versions, and so revalidation reaches all of them.</li>
+  <li><strong>Several instances.</strong> Set the same <code>NEXT_SERVER_ACTIONS_ENCRYPTION_KEY</code> on all of them (Server Function closures are encrypted with it; a per-build random key would break actions across instances), and a <code>deploymentId</code> for version-skew protection during rolling deploys.</li>
+  <li><strong>Build cache.</strong> Keep <code>.next/cache</code> between CI builds to make them faster: that's the "No build cache found" warning you've seen in every build output.</li>
+  <li><strong>Graceful shutdown and <code>after()</code>.</strong> Work scheduled with <code>after()</code> runs after the response is sent; give the server time to finish it on shutdown.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="standalone">
+$ curl -s -o /dev/null -D - localhost:3000/ | grep -i "^x-powered-by"
+X-Powered-By: Next.js
+</script>
+<div class="tip">
+<p>💡 Every response says <code>X-Powered-By: Next.js</code>. Set <code>poweredByHeader: false</code> in <code>next.config.ts</code> to remove it, a small thing reviewers often ask for.</p>
+</div>
+
+<h2 id="instrumentation">Running code at startup: instrumentation.ts</h2>
+<p>A <code>register()</code> function exported from <code>instrumentation.ts</code> in the project root runs once when a server instance starts. Use it to set up monitoring (OpenTelemetry), check required environment variables, or warm connections:</p>
+<script type="text/plain" class="code" data-file="instrumentation.ts" data-norun>
+export async function register() {
+  for (const name of ["SESSION_SECRET", "DATABASE_URL"]) {
+    if (!process.env[name]) throw new Error(`Missing environment variable ${name}`);
+  }
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    // await import("./lib/otel");   // start tracing, metrics…
+  }
+}
+</script>
+<p>Failing fast at startup is much better than failing on the first request that needs the variable.</p>
+
+<h2 id="upgrading">Upgrading</h2>
+<p>Next.js has a release roughly every month and a major version about once a year. Since Next.js 16.1 the CLI can upgrade itself:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx next upgrade                        # latest Next.js, React and types
+$ npx @next/codemod@canary upgrade latest # for versions before 16.1
+$ npm i next@latest react@latest react-dom@latest eslint-config-next@latest   # by hand
+</script>
+<p>For major versions, read the version guide (<em>Upgrading to Version 16</em> lists every breaking change) and run the <strong>codemods</strong> it mentions: scripts that rewrite your code automatically. Examples from this book:</p>
+<ul>
+  <li><code>middleware-to-proxy</code>: renames <code>middleware.ts</code> to <code>proxy.ts</code> (Chapter 15).</li>
+  <li><code>next-lint-to-eslint-cli</code>: replaces the removed <code>next lint</code> with the ESLint CLI (Chapter 2).</li>
+  <li>The Next.js 15 codemods that made <code>params</code>, <code>searchParams</code>, <code>cookies()</code> and <code>headers()</code> asynchronous.</li>
+</ul>
+<p>The docs also describe upgrading with a coding agent, which uses the docs bundled in <code>node_modules/next/dist/docs/</code> and the <code>AGENTS.md</code> file that <code>create-next-app</code> writes.</p>
+<div class="pitfall">
+<p>⚠️ Upgrade on a branch, then run the whole pipeline: <code>npm run lint</code>, type-checking, unit tests, <code>npm run build</code>, and the E2E tests against <code>next start</code>. Many behaviour changes (caching, prerendering rules) only show up in a production build, as you've seen throughout this book.</p>
+</div>
+
+<h2 id="checklist">A production checklist</h2>
+<p>Condensed from the docs' <em>Production Checklist</em>:</p>
+<ul>
+  <li>✅ <code>npm run build</code> passes with no type errors; the route table shows the rendering you expect (<code>○</code>, <code>◐</code>, <code>ƒ</code>).</li>
+  <li>✅ Every Server Function and Route Handler checks authentication, authorization and input.</li>
+  <li>✅ Secrets are server-only environment variables; nothing secret starts with <code>NEXT_PUBLIC_</code>.</li>
+  <li>✅ Every <code>"use cache"</code> has a <code>cacheLife</code>, and mutations revalidate the right tags.</li>
+  <li>✅ Slow data sits inside <code>&lt;Suspense&gt;</code> with meaningful fallbacks; <code>error.tsx</code> and <code>not-found.tsx</code> exist for important segments.</li>
+  <li>✅ Images use <code>&lt;Image&gt;</code> with <code>alt</code>, fonts use <code>next/font</code>, and metadata, <code>metadataBase</code>, <code>robots</code> and <code>sitemap</code> are set.</li>
+  <li>✅ Logging and monitoring are set up (<code>instrumentation.ts</code>), and you can find an error by its <code>digest</code>.</li>
+  <li>✅ The hosting supports streaming; caches are shared if you run several instances.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Removing the X-Powered-By header.</strong></p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="nopowered">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  partialPrefetching: true,
+  poweredByHeader: false,
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="nopowered">
+export default function Page() { return <h1>Quiet server</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="nopowered">
+$ curl -s -o /dev/null -D - localhost:3000/ | grep -ci "^x-powered-by"
+0
+</script>
+
+<p><strong>Static export with dynamic routes.</strong> A dynamic segment works in a static export as long as every value is listed in <code>generateStaticParams</code>:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="export">
+export function generateStaticParams() {
+  return [{ id: "1" }, { id: "2" }];
+}
+
+export default async function Book({ params }: PageProps<"/books/[id]">) {
+  return <h1>Book {(await params).id}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="export">
+$ ls out/books/*.html
+out/books/1.html
+out/books/2.html
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Node.js server and Docker support every feature; static export is limited; adapters vary by platform.</li>
+  <li><code>output: "standalone"</code> copies only the needed files plus <code>server.js</code>; copy <code>public</code> and <code>.next/static</code> or serve them from a CDN.</li>
+  <li><code>output: "export"</code> writes HTML into <code>out/</code>; server features (cookies, actions, Proxy, revalidation, request-reading handlers) aren't available.</li>
+  <li>Self-hosting: a reverse proxy, streaming without buffering, a shared cache and the same encryption key across instances, a <code>deploymentId</code>, a persisted build cache.</li>
+  <li><code>instrumentation.ts</code>'s <code>register()</code> runs at server start.</li>
+  <li>Upgrade with <code>npx next upgrade</code>, read the version guide, run codemods, and test a production build.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Pick a deployment option: (a) a documentation site with no logins, hosted on GitHub Pages; (b) the Reading List with logins and Server Actions on a company VM; (c) the same app on Kubernetes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Static export. (b) Node.js server (<code>next build</code> + <code>next start</code>, behind nginx). (c) Docker, ideally with <code>output: "standalone"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) A static export supports Server Actions. (2) <code>next/image</code> optimization works with <code>next start</code> without configuration. (3) The standalone folder includes <code>public/</code> by default. (4) <code>npx next upgrade</code> exists since Next.js 16.1.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False. (2) True. (3) False. (4) True.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">explain</span></h3>
+<p>Why does the docs' guide recommend a reverse proxy in front of <code>next start</code>? Name three things it handles.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Next.js isn't designed to face the internet directly. A reverse proxy handles TLS termination, malformed requests, slow-connection attacks, payload size limits and rate limiting, so the Node.js process can focus on rendering.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>What does a codemod do? Name one you'd run when upgrading an app from Next.js 15 to 16.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A codemod is a script that rewrites your source code automatically for an API change. From 15 to 16: <code>npx @next/codemod@canary middleware-to-proxy .</code> (or <code>next-lint-to-eslint-cli</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Build the playground with <code>output: "standalone"</code>, copy <code>public</code> and <code>.next/static</code> into <code>.next/standalone</code>, and start it with <code>PORT=4000 node .next/standalone/server.js</code>. Check that pages, images and styles load.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm run build
+$ cp -r public .next/standalone/
+$ cp -r .next/static .next/standalone/.next/
+$ PORT=4000 node .next/standalone/server.js
+</script>
+<p>Without the two <code>cp</code> commands, HTML loads but CSS, JavaScript chunks and public images return 404. The data file (<code>data/books.json</code>) must also be present in the standalone folder; check that file tracing copied it, or copy it in your Dockerfile.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">static export</span></h3>
+<p>Could the Reading List capstone be a static export? Go through its features (book pages, add-book form, login, admin, API, revalidation) and say which would have to go or change.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Book pages: yes, with <code>generateStaticParams</code>, but new books need a rebuild. The add-book form (Server Action), login (cookies, sessions), the admin area (Proxy, DAL), the JSON API (request-reading handlers) and revalidation all need a server: they'd have to go, or move to a separate backend called from the browser. So no: it's a full-stack app, and the Node.js server is the right target.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">instrumentation</span></h3>
+<p>Write an <code>instrumentation.ts</code> that throws at startup if <code>SESSION_SECRET</code> is missing or shorter than 32 characters.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="instrumentation.ts" data-norun>
+export async function register() {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("SESSION_SECRET must be set and at least 32 characters long");
+  }
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>After moving behind nginx, users say pages "feel slower": the loading skeletons never appear; the whole page shows up at once after a second. What's the likely cause and the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>nginx is buffering the response, so streamed chunks (the static shell first, then Suspense content) are held back and delivered together at the end. Disable proxy buffering for the app (<code>proxy_buffering off;</code>, or respect the <code>X-Accel-Buffering: no</code> header Next.js sends), and check any load balancer in front for the same problem.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">multi-instance</span></h3>
+<p>You scale the Reading List from one to three instances behind a load balancer. Users report two problems: "Failed to find Server Action" errors, and sometimes seeing a book they just deleted. Explain both and fix them.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Each instance's build generated its own encryption key for Server Function closures, so an action rendered by instance A can't be decrypted by B. Build once and deploy the same artifact everywhere, and set the same <code>NEXT_SERVER_ACTIONS_ENCRYPTION_KEY</code> on all instances. (2) Each instance has its own in-memory and on-disk cache; <code>updateTag</code> on instance A doesn't clear B's and C's caches. Configure a shared cache handler (<code>cacheHandlers</code>, for example backed by Redis) and the docs' multi-instance cache coordination. Add a <code>deploymentId</code> for rolling deploys.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">plan</span></h3>
+<p>Write an upgrade plan for moving a team's app from Next.js 16.4 to a future 17.0. Include where you read, what you run, and how you verify.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>Read the release blog post and the "Upgrading to Version 17" guide (in the docs and in the new package's <code>node_modules/next/dist/docs/</code>); list breaking changes that affect you.</li>
+  <li>On a branch: <code>npx next upgrade</code>, then the codemods the guide lists.</li>
+  <li>Fix what's left by hand: search for deprecated APIs from the guide.</li>
+  <li>Verify: lint, type-check, unit tests, <code>npm run build</code> (compare the route table with the old one), E2E tests against <code>next start</code>, a manual smoke test of key flows.</li>
+  <li>Deploy to staging, watch logs and error digests, then roll out.</li>
+</ol>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/deploying">Getting Started: Deploying</a> · <a href="https://nextjs.org/docs/app/getting-started/upgrading">Upgrading</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/self-hosting">Guide: Self-Hosting</a> · <a href="https://nextjs.org/docs/app/guides/static-exports">Static Exports</a> · <a href="https://nextjs.org/docs/app/guides/deploying-to-platforms">Deploying to Platforms</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/output">Config: output</a> · <a href="https://nextjs.org/docs/app/guides/instrumentation">Guide: Instrumentation</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/upgrading/version-16">Upgrading to Version 16</a> · <a href="https://nextjs.org/docs/app/guides/upgrading/codemods">Codemods</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/production-checklist">Guide: Production Checklist</a> · <a href="https://github.com/vercel/next.js/tree/canary/examples/with-docker">Example: with-docker</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

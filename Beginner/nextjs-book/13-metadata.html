@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🏷️&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Metadata &amp; OG Images · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Styling &amp; Assets</div>
+<h1>Metadata &amp; OG Images</h1>
+<p class="lead">Search engines, browser tabs and link previews in chat apps all read a page's <code>&lt;head&gt;</code>: its title, description, icons and preview image. Chapter 1 named this as one of the problems Next.js solves. This chapter follows the docs' <em>Metadata and OG images</em> page: static <code>metadata</code>, <code>generateMetadata</code> for data-driven pages, file-based metadata (icons, Open Graph images, <code>robots.txt</code>, sitemaps) and images generated from JSX.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The two default meta tags, and why you never write <code>&lt;head&gt;</code> by hand.</li>
+  <li>The static <code>metadata</code> object, title templates, and how metadata merges from layouts to pages.</li>
+  <li><code>generateMetadata</code> for pages whose title comes from data, without fetching twice.</li>
+  <li>Open Graph and Twitter fields for link previews.</li>
+  <li>File-based metadata: <code>favicon.ico</code>, <code>icon</code>, <code>opengraph-image</code>, <code>robots</code>, <code>sitemap</code>.</li>
+  <li>Generating OG images with <code>ImageResponse</code>.</li>
+</ul>
+</div>
+
+<h2 id="default">Default fields</h2>
+<p>Every page gets two meta tags even without any metadata: the character set and the viewport (which makes pages scale properly on phones):</p>
+<script type="text/plain" class="code" data-file="app/plain/page.tsx">
+export default function Page() {
+  return <p>No metadata here</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/plain" data-eval="[...document.head.querySelectorAll('meta')].slice(0, 2).map(function (m) { return m.outerHTML; }).join('\n')">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</script>
+<p>Everything else comes from the Metadata APIs. They're only supported in <strong>Server Components</strong> (layouts and pages), and Next.js generates the right <code>&lt;head&gt;</code> tags from them, handling streaming and de-duplication. That's why Chapter 3 said not to add <code>&lt;title&gt;</code> to the root layout by hand.</p>
+
+<h2 id="static">Static metadata</h2>
+<p>Export a <code>metadata</code> object of type <code>Metadata</code> from a layout or page:</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx">
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: {
+    template: "%s · Reading List",     // pages fill in %s
+    default: "Reading List",           // used when a page sets no title
+  },
+  description: "Track the books you want to read.",
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx">
+export default function Home() {
+  return <h1>Home</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx">
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "About",
+  description: "Who built Reading List, and why.",
+};
+
+export default function About() {
+  return <h1>About</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-eval="document.title + '\n' + document.querySelector('meta[name=description]').content">
+Reading List
+Track the books you want to read.
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/about" data-eval="document.title + '\n' + document.querySelector('meta[name=description]').content">
+About · Reading List
+Who built Reading List, and why.
+</script>
+<p>Metadata is <strong>merged</strong> from the root layout down to the page. A page's field replaces the same field from above (the description here), and the layout's title template wraps page titles. The full list of fields (keywords, authors, canonical URLs, <code>robots</code>, alternates for other languages…) is in the <code>generateMetadata</code> reference.</p>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> metadata is the label on a jar. The layout prints the brand at the bottom of every label ("· Reading List"); each page writes its own contents above it. A shopper (search engine) or a friend you send a photo to (link preview) reads the label before opening the jar.</p>
+</div>
+
+<h2 id="generated">Generated metadata</h2>
+<p>When the title depends on data, as on a book's page, export an <code>async</code> function called <code>generateMetadata</code> instead. It receives the same <code>params</code> as the page. The page and the metadata need the same book, so the data function is cached and fetched once:</p>
+<script type="text/plain" class="code" data-file="lib/books.ts">
+import { cacheLife } from "next/cache";
+
+const books: Record<string, { title: string; author: string; blurb: string }> = {
+  "2": { title: "Dune", author: "Frank Herbert", blurb: "A desert planet, a prophecy, and the spice." },
+};
+
+export async function getBook(id: string) {
+  "use cache";
+  cacheLife("hours");
+  await new Promise((r) => setTimeout(r, 100));
+  return books[id];
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx">
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { getBook } from "@/lib/books";
+
+export function generateStaticParams() {
+  return [{ id: "2" }];
+}
+
+export async function generateMetadata({ params }: PageProps<"/books/[id]">): Promise<Metadata> {
+  const book = await getBook((await params).id);
+  if (!book) return { title: "Book not found" };
+  return {
+    title: book.title,
+    description: book.blurb,
+    openGraph: {
+      title: `${book.title} by ${book.author}`,
+      description: book.blurb,
+      type: "book",
+    },
+  };
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  const book = await getBook((await params).id);
+  if (!book) notFound();
+  return <h1>{book.title}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-eval="[document.title].concat([...document.head.querySelectorAll('meta[property^=og]')].map(function (m) { return m.getAttribute('property') + ' = ' + m.content; })).join('\n')">
+Dune · Reading List
+og:title = Dune by Frank Herbert
+og:description = A desert planet, a prophecy, and the spice.
+og:image = http://localhost:3000/books/2/opengraph-image?…
+og:image:type = image/png
+og:image:width = 1200
+og:image:height = 630
+og:image:alt = Book cover card
+og:type = book
+</script>
+<p>The title still uses the layout's template. (The <code>og:image</code> tags come from an <code>opengraph-image.tsx</code> file in the same folder, shown later in this chapter.) The <code>openGraph</code> fields become <code>&lt;meta property="og:…"&gt;</code> tags, which chat apps and social networks use for link previews (<code>twitter</code> fields work the same way for X).</p>
+<div class="tip">
+<p>💡 <strong>Fetching once.</strong> Here <code>getBook</code> is a <code>"use cache"</code> function, so the second call is a cache hit. For uncached data, wrap the function in <code>React.cache</code> (Chapter 6) so <code>generateMetadata</code> and the page share one request.</p>
+</div>
+
+<h3 id="streaming">Streaming metadata</h3>
+<p>For pages rendered at request time, <code>generateMetadata</code> might be slow. Next.js doesn't make the page wait: it <strong>streams</strong> the metadata separately and injects it into the HTML when it's ready. Prerendered pages are unaffected, because their metadata was resolved at build time. Bots that need metadata in the initial <code>&lt;head&gt;</code> (Twitterbot, Slackbot, Bingbot…) are detected by their user agent and get the complete page; the <code>htmlLimitedBots</code> config option changes that list. With Cache Components, uncached data in <code>generateMetadata</code> triggers the same "use cache or Suspense" errors as in a page.</p>
+
+<h2 id="files">File-based metadata</h2>
+<p>Some metadata is easier to provide as a file in the <code>app/</code> folder. Next.js finds these files and adds the right tags:</p>
+<div class="table-wrap"><table>
+<tr><th>File</th><th>What it produces</th></tr>
+<tr><td><code>favicon.ico</code> (root of <code>app/</code> only)</td><td>The browser tab icon</td></tr>
+<tr><td><code>icon.png|svg|ico</code>, <code>apple-icon.png</code></td><td>App icons, including the iOS home-screen icon</td></tr>
+<tr><td><code>opengraph-image.png|jpg</code>, <code>twitter-image.png|jpg</code></td><td>Link preview images, for that segment and below</td></tr>
+<tr><td><code>robots.txt</code></td><td>Instructions for crawlers</td></tr>
+<tr><td><code>sitemap.xml</code></td><td>The list of URLs for search engines</td></tr>
+<tr><td><code>manifest.json</code></td><td>A web app manifest</td></tr>
+</table></div>
+<p>Each can also be <strong>generated with code</strong> by using a <code>.ts</code>/<code>.tsx</code> file of the same name, which is useful when it depends on data.</p>
+
+<h3 id="robots-sitemap">robots.ts and sitemap.ts</h3>
+<script type="text/plain" class="code" data-file="app/robots.ts">
+import type { MetadataRoute } from "next";
+
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: { userAgent: "*", allow: "/", disallow: "/admin/" },
+    sitemap: "https://reading-list.example.com/sitemap.xml",
+  };
+}
+</script>
+<script type="text/plain" class="code" data-file="app/sitemap.ts">
+import type { MetadataRoute } from "next";
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  const base = "https://reading-list.example.com";
+  return [
+    { url: base, changeFrequency: "weekly", priority: 1 },
+    { url: `${base}/about`, changeFrequency: "yearly", priority: 0.5 },
+    { url: `${base}/books/2`, changeFrequency: "monthly", priority: 0.8 },
+  ];
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/robots.txt
+User-Agent: *
+Allow: /
+Disallow: /admin/
+
+Sitemap: https://reading-list.example.com/sitemap.xml
+$ curl -s localhost:3000/sitemap.xml | grep -o "<loc>[^<]*</loc>"
+<loc>https://reading-list.example.com</loc>
+<loc>https://reading-list.example.com/about</loc>
+<loc>https://reading-list.example.com/books/2</loc>
+</script>
+<p>In a real app, <code>sitemap()</code> would be <code>async</code> and list every book from your data (cache it, so the sitemap isn't rebuilt on every request).</p>
+
+<h2 id="og-images">Open Graph images</h2>
+<p>An <strong>Open Graph image</strong> is the picture shown in a link preview. For a fixed image, drop an <code>opengraph-image.png</code> into a folder: it applies to that route and everything below, and a deeper file takes precedence. For an image per book, generate it from JSX with <code>ImageResponse</code> (from <code>next/og</code>) in an <code>opengraph-image.tsx</code> file:</p>
+<script type="text/plain" class="code" data-file="app/books/[id]/opengraph-image.tsx">
+import { ImageResponse } from "next/og";
+import { getBook } from "@/lib/books";
+
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+export const alt = "Book cover card";
+
+export function generateStaticParams() {
+  return [{ id: "2" }];
+}
+
+export default async function Image({ params }: { params: Promise<{ id: string }> }) {
+  const book = await getBook((await params).id);
+  return new ImageResponse(
+    (
+      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column",
+        justifyContent: "center", padding: 80, background: "#0a5fc4", color: "white" }}>
+        <div style={{ fontSize: 96, fontWeight: 700 }}>{book?.title ?? "Reading List"}</div>
+        <div style={{ fontSize: 48 }}>{book ? `by ${book.author}` : ""}</div>
+      </div>
+    ),
+    size,
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/2" data-eval="['og:image', 'og:image:width', 'og:image:height', 'og:image:type'].map(function (p) { var m = document.head.querySelector('meta[property=&quot;' + p + '&quot;]'); return p + ' = ' + (m ? m.content : 'missing'); }).join('\n')">
+og:image = http://localhost:3000/books/2/opengraph-image?…
+og:image:width = 1200
+og:image:height = 630
+og:image:type = image/png
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o og.png localhost:3000/books/2/opengraph-image && file og.png | cut -d, -f1-2
+og.png: PNG image data, 1200 x 630
+</script>
+<p>Next.js added the <code>og:image</code> tags automatically and serves a real 1200&nbsp;×&nbsp;630 PNG. <code>ImageResponse</code> turns JSX and a subset of CSS into a PNG (it uses <code>satori</code> and <code>resvg</code> under the hood). Only flexbox layout and common properties are supported: <code>display: grid</code>, for example, won't work. Try designs in the Vercel OG Playground.</p>
+<div class="note">
+<p>📝 The <code>og:image</code> URL uses <code>http://localhost:3000</code> because no base URL is set. In production, set <code>metadataBase: new URL("https://your-site.example")</code> in the root layout's metadata, so link previews get absolute, public URLs.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>A generated icon.</strong> <code>app/icon.tsx</code> uses the same <code>ImageResponse</code> to draw the site's icon:</p>
+<script type="text/plain" class="code" data-file="app/icon.tsx">
+import { ImageResponse } from "next/og";
+
+export const size = { width: 32, height: 32 };
+export const contentType = "image/png";
+
+export default function Icon() {
+  return new ImageResponse(
+    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "#171717", color: "white", fontSize: 22, borderRadius: 6 }}>📚</div>,
+    size,
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-eval="(function () { var l = document.head.querySelector('link[rel=icon]'); return l.getAttribute('href').split('?')[0] + ' ' + l.getAttribute('sizes') + ' ' + l.getAttribute('type'); })()">
+/icon 32x32 image/png
+</script>
+
+<p><strong>Viewport and theme colour.</strong> Settings that belong to the <code>viewport</code> meta tag, such as <code>themeColor</code> (the colour of the browser's address bar on phones), are exported separately as <code>viewport</code> (or <code>generateViewport</code>):</p>
+<script type="text/plain" class="code" data-file="app/themed/page.tsx">
+import type { Viewport } from "next";
+
+export const viewport: Viewport = {
+  themeColor: "#0a5fc4",
+};
+
+export default function Page() {
+  return <p>Blue address bar on mobile</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/themed" data-eval="document.head.querySelector('meta[name=theme-color]').content">
+#0a5fc4
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Use the Metadata APIs, not hand-written <code>&lt;head&gt;</code> tags; they work in Server Components (layouts and pages).</li>
+  <li><code>export const metadata</code> for static values; <code>title.template</code> in a layout wraps page titles; fields merge from layouts down.</li>
+  <li><code>generateMetadata</code> builds metadata from data and params; cache or <code>React.cache</code> the data so it's fetched once. For dynamic pages, metadata is streamed (but not to bots).</li>
+  <li>File conventions: <code>favicon.ico</code>, <code>icon</code>, <code>apple-icon</code>, <code>opengraph-image</code>, <code>twitter-image</code>, <code>robots</code>, <code>sitemap</code>, <code>manifest</code>, as files or code.</li>
+  <li><code>ImageResponse</code> from <code>next/og</code> turns JSX into PNG images for OG cards and icons (flexbox only).</li>
+  <li>Set <code>metadataBase</code> for absolute URLs; <code>viewport</code> holds <code>themeColor</code> and similar settings.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">predict</span></h3>
+<p>The root layout has <code>title: { template: "%s | Shop", default: "Shop" }</code>. What's the tab title for (a) a page with <code>title: "Cart"</code>, (b) a page without a title, (c) a page with <code>title: { absolute: "Checkout" }</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) "Cart | Shop". (b) "Shop". (c) "Checkout": <code>absolute</code> ignores the template.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">where?</span></h3>
+<p>Where do you put (a) the site's tab icon, (b) a preview image for every page under <code>/blog</code>, (c) the crawler rules, (d) a title that depends on a book's data?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>app/favicon.ico</code> (or <code>app/icon.png</code>). (b) <code>app/blog/opengraph-image.png</code>. (c) <code>app/robots.txt</code> or <code>app/robots.ts</code>. (d) <code>generateMetadata</code> in <code>app/books/[id]/page.tsx</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) A Client Component can export <code>metadata</code>. (2) A page's <code>description</code> overrides the layout's. (3) <code>ImageResponse</code> supports CSS grid. (4) Bots receive streamed metadata.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: only Server Components. (2) True. (3) False: flexbox only. (4) False: they get the metadata in the initial <code>&lt;head&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">types</span></h3>
+<p>Which types do you import for (a) the <code>metadata</code> object, (b) the return value of <code>sitemap()</code>, (c) the <code>viewport</code> export?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>Metadata</code> from <code>next</code>. (b) <code>MetadataRoute.Sitemap</code> from <code>next</code>. (c) <code>Viewport</code> from <code>next</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Give the playground a title template "%s · Reading List" with default "Reading List", a description, and <code>metadataBase</code>. Add <code>generateMetadata</code> to the book page so its title is the book's title and its description is "<em>title</em> by <em>author</em> (<em>year</em>)".</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="ex5">
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  metadataBase: new URL("https://reading-list.example.com"),
+  title: { template: "%s · Reading List", default: "Reading List" },
+  description: "Track the books you want to read.",
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return <html lang="en"><body>{children}</body></html>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx" data-app="ex5">
+import type { Metadata } from "next";
+
+const books: Record<string, { title: string; author: string; year: number }> = {
+  "1": { title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+};
+
+export function generateStaticParams() {
+  return [{ id: "1" }];
+}
+
+export async function generateMetadata({ params }: PageProps<"/books/[id]">): Promise<Metadata> {
+  const b = books[(await params).id];
+  return b ? { title: b.title, description: `${b.title} by ${b.author} (${b.year})` } : { title: "Not found" };
+}
+
+export default async function BookPage({ params }: PageProps<"/books/[id]">) {
+  return <h1>{books[(await params).id]?.title}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/1" data-app="ex5" data-eval="document.title + '\n' + document.querySelector('meta[name=description]').content">
+The Hobbit · Reading List
+The Hobbit by J.R.R. Tolkien (1937)
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">sitemap</span></h3>
+<p>Write an <code>async</code> <code>app/sitemap.ts</code> for the playground that lists the home page, <code>/books</code>, and one entry per book from <code>getBooks()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/sitemap.ts" data-norun>
+import type { MetadataRoute } from "next";
+import { getBooks } from "@/lib/books";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const base = "https://reading-list.example.com";
+  const books = await getBooks();              // cached with "use cache" (Chapter 8)
+  return [
+    { url: base },
+    { url: `${base}/books` },
+    ...books.map((b) => ({ url: `${base}/books/${b.id}` })),
+  ];
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">OG image</span></h3>
+<p>Add <code>app/opengraph-image.tsx</code> to the playground: a 1200×630 card with "📚 Reading List" in large white text on a dark background. Check it at <code>/opengraph-image</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/opengraph-image.tsx" data-norun>
+import { ImageResponse } from "next/og";
+
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+export const alt = "Reading List";
+
+export default function Image() {
+  return new ImageResponse(
+    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "#171717", color: "white", fontSize: 110, fontWeight: 700 }}>📚 Reading List</div>,
+    size,
+  );
+}
+</script>
+<p>It applies to every page that doesn't have a more specific <code>opengraph-image</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A link preview in a chat app shows no image, although the page has an <code>opengraph-image.png</code>. The <code>og:image</code> tag reads <code>http://localhost:3000/opengraph-image.png</code>. What's wrong?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>metadataBase</code> isn't set, so Next.js used a local URL that the chat app's servers can't reach. Set <code>metadataBase: new URL("https://your-domain")</code> in the root layout's metadata (some platforms set a sensible default from their deployment URL).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">Cache Components</span></h3>
+<p>A dynamic page's <code>generateMetadata</code> reads <code>cookies()</code> to put the user's name in the title. With Cache Components, what happens, and is it a good idea?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Reading <code>cookies()</code> is runtime data, so the metadata can't be prerendered; Next.js reports the same kind of insight as in a page, and the metadata is streamed at request time. It's rarely a good idea: personal titles leak into shared screenshots and browser history, and search engines can't use them. Keep metadata about the <em>content</em>, and show personal information in the page body inside <code>&lt;Suspense&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Plan the complete metadata for the Reading List app: which fields go in the root layout, which in each page, which files you add, and how book pages get unique previews. Keep it under ten bullet points.</p>
+<details class="solution"><summary>Show solution</summary>
+<ul>
+  <li>Root layout: <code>metadataBase</code>, title template and default, description, <code>openGraph.siteName</code>.</li>
+  <li><code>app/icon.tsx</code> (or <code>icon.png</code>) and <code>apple-icon.png</code>; <code>favicon.ico</code>.</li>
+  <li><code>app/opengraph-image.tsx</code>: the default site card.</li>
+  <li>Static pages (<code>/about</code>, <code>/books</code>): <code>export const metadata</code> with title and description.</li>
+  <li>Book pages: <code>generateMetadata</code> with title, description and <code>openGraph</code> (<code>type: "book"</code>), reading the cached <code>getBook</code>.</li>
+  <li><code>app/books/[id]/opengraph-image.tsx</code>: a card per book with title and author.</li>
+  <li><code>app/robots.ts</code>: allow everything except <code>/admin</code>; link the sitemap.</li>
+  <li><code>app/sitemap.ts</code>: home, list, and every book.</li>
+  <li>Admin pages: <code>robots: { index: false }</code> in their layout's metadata.</li>
+</ul>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/metadata-and-og-images">Getting Started: Metadata and OG images</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/generate-metadata">generateMetadata</a> (all fields) · <a href="https://nextjs.org/docs/app/api-reference/functions/generate-viewport">generateViewport</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/metadata">File conventions: Metadata files</a> (icons, opengraph-image, robots, sitemap, manifest)</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/image-response">ImageResponse</a> · <a href="https://og-playground.vercel.app/">Vercel OG Playground</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

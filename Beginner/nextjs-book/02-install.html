@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📦&lt;/text&gt;&lt;/svg&gt;">
+<title>2. Installation &amp; Project Structure · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Foundations</div>
+<h1>Installation &amp; Project Structure</h1>
+<p class="lead">This chapter follows the docs' <em>Installation</em> and <em>Project Structure</em> pages. You'll create an app with <code>create-next-app</code>, learn the three scripts you use every day, and take a tour of every file the generator writes. By the end, you'll know which files are Next.js conventions and which are just your code.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The system requirements, and how to create an app with <code>create-next-app</code>.</li>
+  <li>What the recommended defaults switch on: TypeScript, Tailwind CSS, ESLint, App Router, Turbopack, Cache Components.</li>
+  <li><code>next dev</code>, <code>next build</code> and <code>next start</code>: when to use each.</li>
+  <li>What each generated file is for, and which top-level files and folders Next.js recognises.</li>
+  <li>The <code>@/*</code> import alias, the optional <code>src</code> folder, and editor setup.</li>
+</ul>
+</div>
+
+<h2 id="requirements">System requirements</h2>
+<ul>
+  <li><strong>Node.js 20.9 or newer.</strong> Check with <code>node --version</code>. This book used Node 22.</li>
+  <li>macOS, Windows (including WSL) or Linux.</li>
+  <li>A modern browser: Chrome/Edge/Firefox 111+ or Safari 16.4+.</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --version
+v22.13.0
+</script>
+
+<h2 id="create">Create an app with create-next-app</h2>
+<p><code>create-next-app</code> is the official generator. The quickest way to run it is with <code>--yes</code>, which accepts the recommended defaults:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx create-next-app@latest my-app --yes
+Creating a new Next.js app in ~/my-app.
+
+Using npm.
+
+Initializing project with template: app-tw
+
+Installing dependencies:
+- next
+- react
+- react-dom
+
+Installing devDependencies:
+- @tailwindcss/turbopack
+- @types/node
+- @types/react
+- @types/react-dom
+- eslint
+- eslint-config-next
+- tailwindcss
+- typescript
+
+added 361 packages, and audited 368 packages in 25s
+...
+Generating route types...
+✓ Types generated successfully
+
+Initialized a git repository.
+
+Success! Created my-app at ~/my-app
+</script>
+<p>Without <code>--yes</code>, it asks questions. The first one offers the same defaults:</p>
+<script type="text/plain" class="code" data-lang="text" data-title="create-next-app prompts" data-norun>
+What is your project named? my-app
+Would you like to use the recommended Next.js defaults?
+    Yes, use recommended defaults - TypeScript, ESLint, No React Compiler, Tailwind CSS, No src/ directory, App Router, Cache Components, AGENTS.md
+    No, reuse previous settings
+    No, customize settings - Choose your own preferences
+</script>
+<p>Choosing <em>customize settings</em> asks one question per option. Here is what each default means:</p>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>Default</th><th>What it is</th></tr>
+<tr><td>TypeScript</td><td>Yes</td><td>Files are <code>.ts</code>/<code>.tsx</code>; Next.js generates types for your routes. Needs TypeScript 5.1+.</td></tr>
+<tr><td>Linter</td><td>ESLint</td><td>Or Biome, or none. Run it with <code>npm run lint</code>.</td></tr>
+<tr><td>React Compiler</td><td>No</td><td>An optional compiler that memoizes components automatically.</td></tr>
+<tr><td>Tailwind CSS</td><td>Yes</td><td>Utility-class CSS (Chapter 11).</td></tr>
+<tr><td><code>src/</code> directory</td><td>No</td><td>Put <code>app/</code> inside <code>src/</code> to separate code from config files.</td></tr>
+<tr><td>App Router</td><td>Yes</td><td>The <code>app/</code> folder router this book teaches.</td></tr>
+<tr><td>Cache Components</td><td>Yes</td><td>The caching and prerendering model of Chapters 6–9.</td></tr>
+<tr><td>Import alias</td><td><code>@/*</code></td><td><code>@/lib/books</code> instead of <code>../../lib/books</code>.</td></tr>
+<tr><td>AGENTS.md</td><td>Yes</td><td>Instructions for AI coding agents, pointing them at the docs bundled in <code>node_modules/next/dist/docs/</code>.</td></tr>
+</table></div>
+<div class="tip">
+<p>💡 The docs for your exact version ship inside the <code>next</code> package: <code>node_modules/next/dist/docs/</code>. If something in a blog post doesn't work, check there; it always matches the version you installed.</p>
+</div>
+
+<h2 id="scripts">Run it: dev, build, start</h2>
+<p>The generated <code>package.json</code> has four scripts:</p>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</script>
+<p>Start the <strong>development server</strong> and open <a href="http://localhost:3000">http://localhost:3000</a>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ cd my-app
+$ npm run dev
+▲ Next.js 16.4.5 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.202:3000
+✓ Ready in 176ms
+- Cache Components enabled
+- Partial Prefetching enabled
+
+ GET / 200 in 134ms (next.js: 73ms, application-code: 61ms)
+</script>
+<p>Edit <code>app/page.tsx</code> and save: the browser updates in place, keeping component state where it can. That's <strong>Fast Refresh</strong>.</p>
+<div class="table-wrap"><table>
+<tr><th>Script</th><th>Command</th><th>Use it for</th></tr>
+<tr><td><code>npm run dev</code></td><td><code>next dev</code></td><td>Writing code. Renders on every request, shows detailed errors, Fast Refresh. Uses <strong>Turbopack</strong>, the default bundler (<code>--webpack</code> switches back to Webpack).</td></tr>
+<tr><td><code>npm run build</code></td><td><code>next build</code></td><td>Making a production build in <code>.next/</code>: compiles, type-checks, prerenders static pages, and prints the route table.</td></tr>
+<tr><td><code>npm start</code></td><td><code>next start</code></td><td>Serving that build, as in production. Run <code>build</code> first.</td></tr>
+<tr><td><code>npm run lint</code></td><td><code>eslint</code></td><td>Checking code style and common bugs. <code>next build</code> no longer runs the linter since Next.js 16.</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ <strong>Dev is not production.</strong> In <code>next dev</code>, every page is rendered on each request so you see changes at once. Caching, prerendering and build errors only fully show up with <code>npm run build</code>. Build and start your app regularly, not only before you deploy.</p>
+</div>
+
+<h2 id="tour">A tour of the generated project</h2>
+<script type="text/plain" class="code" data-lang="text" data-title="my-app/" data-norun>
+my-app/
+├── app/
+│   ├── favicon.ico      ← the tab icon (a metadata file convention)
+│   ├── globals.css      ← global styles, imports Tailwind
+│   ├── layout.tsx       ← the root layout: <html> and <body>
+│   └── page.tsx         ← the home page, "/"
+├── public/              ← static files served as-is: /next.svg …
+│   ├── file.svg  globe.svg  next.svg  vercel.svg  window.svg
+├── AGENTS.md            ← instructions for AI coding agents
+├── README.md
+├── eslint.config.mjs    ← ESLint configuration
+├── next-env.d.ts        ← Next.js types for TypeScript (generated, don't edit)
+├── next.config.ts       ← Next.js configuration
+├── package.json
+├── package-lock.json
+└── tsconfig.json        ← TypeScript configuration
+</script>
+
+<h3 id="next-config">next.config.ts</h3>
+<script type="text/plain" class="code" data-file="next.config.ts" data-norun>
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+  cacheComponents: true,
+  partialPrefetching: true,
+  turbopack: {
+    rules: {
+      "*.css": {
+        loaders: ["@tailwindcss/turbopack"],
+        as: "*.css",
+      },
+    },
+  },
+};
+
+export default nextConfig;
+</script>
+<ul>
+  <li><code>cacheComponents: true</code> turns on the Cache Components model: data is <em>dynamic</em> unless you cache it with <code>"use cache"</code>, and Next.js prerenders a static shell for every page (Chapter 8).</li>
+  <li><code>partialPrefetching: true</code> lets <code>&lt;Link&gt;</code> prefetch the static part of the next page ahead of time (Chapter 4).</li>
+  <li>The <code>turbopack.rules</code> entry runs every CSS file through Tailwind's Turbopack loader.</li>
+</ul>
+<p>The file is TypeScript, and the <code>NextConfig</code> type gives autocomplete for every option.</p>
+
+<h3 id="tsconfig">tsconfig.json and next-env.d.ts</h3>
+<script type="text/plain" class="code" data-file="tsconfig.json" data-norun>
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts", "**/*.mts"],
+  "exclude": ["node_modules"]
+}
+</script>
+<p>Three lines matter most. <code>"strict": true</code> turns on strict type checking. <code>"noEmit": true</code> means TypeScript only checks, and Next.js compiles. <code>"paths"</code> defines the <code>@/</code> alias. The <code>next</code> plugin teaches your editor Next.js rules, and the <code>.next/types</code> include adds the types Next.js generates from your routes, such as <code>PageProps</code> and <code>LayoutProps</code>.</p>
+
+<h3 id="layout">app/layout.tsx: the root layout</h3>
+<p>The <strong>root layout</strong> wraps every page. It's required, and it must render <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>. The generated one also loads two fonts with <code>next/font</code> (Chapter 12) and sets metadata (Chapter 13):</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="default">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">{children}</body>
+    </html>
+  );
+}
+</script>
+<p><code>LayoutProps&lt;"/"&gt;</code> is a global type (no import needed) that Next.js generates for the layout at <code>/</code>. It types <code>children</code> as <code>React.ReactNode</code>.</p>
+
+<h3 id="page">app/page.tsx and globals.css</h3>
+<p>Here is a shortened version of the generated home page, with the same layout and Tailwind classes:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="default">
+import Image from "next/image";
+
+export default function Home() {
+  return (
+    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
+      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+        <Image className="dark:invert" src="/next.svg" alt="Next.js logo" width={100} height={20} priority />
+        <h1 className="text-3xl font-semibold">To get started, edit the page.tsx file.</h1>
+      </main>
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="app/globals.css" data-app="default">
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="default">
+To get started, edit the page.tsx file.
+</script>
+<script type="text/plain" class="code" data-lang="text" data-eval="document.title" data-app="default">
+Create Next App
+</script>
+<p>The second block is the browser tab's title: it comes from <code>metadata.title</code> in the layout. <code>/next.svg</code> is served from the <code>public/</code> folder.</p>
+
+<h3 id="public">public/</h3>
+<p>Files in <code>public/</code> are served at the site root, unchanged: <code>public/next.svg</code> is <code>/next.svg</code>. Use it for files that need a fixed URL, such as <code>robots.txt</code> or downloadable PDFs.</p>
+<script type="text/plain" class="code" data-file="public/robots.txt" data-app="default">
+User-agent: *
+Allow: /
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="default">
+$ curl -s localhost:3000/robots.txt
+User-agent: *
+Allow: /
+</script>
+<div class="pitfall">
+<p>⚠️ Don't put secrets in <code>public/</code>: everything there is downloadable by anyone. And don't give a file the same path as a route: the public file wins, and the page can't be reached.</p>
+</div>
+
+<h2 id="conventions">Which files and folders are Next.js conventions?</h2>
+<p>The docs' <em>Project Structure</em> page lists every convention. You'll meet each one in this book; here is the map.</p>
+<p><strong>Top-level folders and files:</strong></p>
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>Purpose</th><th>Chapter</th></tr>
+<tr><td><code>app/</code></td><td>The App Router: routes, layouts, pages</td><td>3</td></tr>
+<tr><td><code>pages/</code></td><td>The older Pages Router</td><td>App. B</td></tr>
+<tr><td><code>public/</code></td><td>Static files served as-is</td><td>2</td></tr>
+<tr><td><code>src/</code></td><td>Optional folder that holds <code>app/</code> and your code</td><td>2</td></tr>
+<tr><td><code>next.config.ts</code></td><td>Next.js configuration</td><td>2, 18</td></tr>
+<tr><td><code>proxy.ts</code></td><td>Code that runs before requests are routed (formerly <code>middleware.ts</code>)</td><td>15</td></tr>
+<tr><td><code>instrumentation.ts</code></td><td>Monitoring and OpenTelemetry setup</td><td>18</td></tr>
+<tr><td><code>.env</code>, <code>.env.local</code>, <code>.env.development</code>, <code>.env.production</code></td><td>Environment variables (keep out of git)</td><td>16</td></tr>
+<tr><td><code>next-env.d.ts</code></td><td>Generated TypeScript declarations (keep out of git)</td><td>2</td></tr>
+</table></div>
+<p><strong>Routing files</strong> inside <code>app/</code> (each can be <code>.js</code>, <code>.jsx</code> or <code>.tsx</code>; <code>route</code> is <code>.js</code> or <code>.ts</code>):</p>
+<div class="table-wrap"><table>
+<tr><th>File</th><th>Purpose</th><th>Chapter</th></tr>
+<tr><td><code>layout</code></td><td>Shared UI that wraps a segment and its children</td><td>3</td></tr>
+<tr><td><code>page</code></td><td>The UI of a route; makes it public</td><td>3</td></tr>
+<tr><td><code>loading</code></td><td>Loading UI (a Suspense boundary)</td><td>6</td></tr>
+<tr><td><code>error</code> / <code>global-error</code></td><td>Error UI (an error boundary)</td><td>10</td></tr>
+<tr><td><code>not-found</code></td><td>"Not found" UI</td><td>10</td></tr>
+<tr><td><code>route</code></td><td>An API endpoint</td><td>14</td></tr>
+<tr><td><code>template</code></td><td>A layout that re-mounts on navigation</td><td>3</td></tr>
+<tr><td><code>default</code></td><td>Fallback for a parallel route slot</td><td>4</td></tr>
+</table></div>
+<p><strong>Folder name patterns:</strong> <code>[slug]</code> (dynamic segment), <code>[...slug]</code> (catch-all), <code>[[...slug]]</code> (optional catch-all), <code>(group)</code> (route group, not in the URL), <code>_folder</code> (private, never routed), <code>@slot</code> (parallel route) and <code>(.)folder</code> (intercepting route). Chapters 3 and 4 cover them.</p>
+<p><strong>Metadata files:</strong> <code>favicon.ico</code>, <code>icon</code>, <code>apple-icon</code>, <code>opengraph-image</code>, <code>twitter-image</code>, <code>robots</code>, <code>sitemap</code> and <code>manifest</code>, in Chapter 13.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the <code>app/</code> folder is a building's floor plan. <strong>Folders</strong> are corridors (URL segments). A <strong><code>page</code></strong> file is a door that opens to the public: without one, the corridor exists but nobody can enter. A <strong><code>layout</code></strong> is the wallpaper and lighting shared by everything down that corridor. Any other file you leave in a corridor is furniture: it's there for you, not for visitors.</p>
+</div>
+
+<h2 id="manual">Manual installation: the smallest app</h2>
+<p>To see what's essential, build an app by hand. Install three packages and add the scripts:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm i next@latest react@latest react-dom@latest
+</script>
+<p>Then create two files. The root layout:</p>
+<script type="text/plain" class="code" data-file="app/layout.tsx" data-app="manual">
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+</script>
+<p>And the home page:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="manual">
+export default function Page() {
+  return <h1>Hello, Next.js!</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="manual">
+Hello, Next.js!
+</script>
+<p>That's all a Next.js app needs. When you run <code>next dev</code> or <code>next build</code> with a <code>.tsx</code> file and no <code>tsconfig.json</code>, Next.js installs TypeScript and writes a recommended <code>tsconfig.json</code> for you. (If you forget the root layout, <code>next dev</code> creates one.)</p>
+
+<h2 id="alias">The @/ import alias</h2>
+<p>Deeply nested files lead to imports like <code>../../../lib/format</code>. The <code>paths</code> entry in <code>tsconfig.json</code> lets you write <code>@/lib/format</code> from anywhere:</p>
+<script type="text/plain" class="code" data-file="lib/format.ts" data-app="manual">
+export function formatPages(pages: number): string {
+  return `${pages.toLocaleString("en-US")} pages`;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/books/war-and-peace/page.tsx" data-app="manual">
+import { formatPages } from "@/lib/format";   // not "../../../lib/format"
+
+export default function Page() {
+  return <p>War and Peace: {formatPages(1225)}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/books/war-and-peace" data-app="manual">
+War and Peace: 1,225 pages
+</script>
+<p><code>lib/</code> isn't special to Next.js: it's a common name for shared code. Next.js only cares about <code>app/</code> and the files listed above.</p>
+
+<h2 id="src">The optional src folder</h2>
+<p>Some teams prefer to keep code apart from configuration files. Move <code>app/</code> (and <code>lib/</code>, <code>components/</code>…) into <code>src/</code>. Config files (<code>package.json</code>, <code>next.config.ts</code>, <code>tsconfig.json</code>, <code>.env*</code>) and <code>public/</code> stay at the root. If you use the alias, point it at <code>./src/*</code>. Pick one layout and use it everywhere. This book uses the default: no <code>src/</code>.</p>
+
+<h2 id="editor">Set up your editor</h2>
+<ul>
+  <li><strong>Use the workspace TypeScript.</strong> In VS Code, open the command palette and run <em>TypeScript: Select TypeScript Version → Use Workspace Version</em>. That activates Next.js's TypeScript plugin, which warns about mistakes such as an invalid config export in a page.</li>
+  <li><strong>Label same-named tabs.</strong> The App Router names files by convention, so you'll have many tabs called <code>page.tsx</code>. The docs suggest custom labels in <code>.vscode/settings.json</code>:</li>
+</ul>
+<script type="text/plain" class="code" data-file=".vscode/settings.json" data-norun>
+{
+  "workbench.editor.customLabels.patterns": {
+    "**/app/**/page.tsx": "${dirname(1)}/${dirname} - page.tsx",
+    "**/app/**/layout.tsx": "${dirname(1)}/${dirname} - layout.tsx",
+    "**/app/**/route.ts": "${dirname(1)}/${dirname} - route.ts"
+  }
+}
+</script>
+<p>JetBrains IDEs (WebStorm, IntelliJ) show the folder name for same-named files automatically.</p>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Build and inspect.</strong> Build the "manual" app above and read the route table. The <code>✓ Compiled</code> and <code>Running TypeScript</code> lines show that the build also type-checks your code:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="manual">
+$ npm run build
+▲ Next.js 16.4.5 (Turbopack)
+...
+- Cache Components enabled
+- Partial Prefetching enabled
+
+  Creating an optimized production build ...
+✓ Compiled successfully in …
+  Running TypeScript ...
+  Finished TypeScript in …
+...
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+└ ○ /books/war-and-peace
+
+
+○  (Static)  prerendered as static content
+</script>
+<p><code>/_not-found</code> is the built-in 404 page. Chapter 10 shows how to customise it.</p>
+
+<p><strong>The CLI.</strong> The <code>next</code> command has a few more subcommands worth knowing:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="manual">
+$ npx next --version
+Next.js v16.4.5
+</script>
+<ul>
+  <li><code>next typegen</code> generates the route types (<code>PageProps</code>, <code>LayoutProps</code>) without a full build. It's handy in CI before running <code>tsc</code>.</li>
+  <li><code>next info</code> prints your system and package versions. Paste its output into bug reports.</li>
+  <li><code>next upgrade</code> updates Next.js and React to the latest version (Chapter 18).</li>
+  <li><code>next dev -p 4000</code> or <code>next start -p 4000</code> uses another port.</li>
+</ul>
+
+<p><strong>A type error stops the build.</strong> Pass a string where the function wants a number:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="typo">
+import { formatPages } from "@/lib/format";
+
+export default function Page() {
+  return <p>{formatPages("1225")}</p>;
+}
+</script>
+<script type="text/plain" class="code" data-file="lib/format.ts" data-app="typo">
+export function formatPages(pages: number): string {
+  return `${pages.toLocaleString("en-US")} pages`;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="typo">
+...
+  Creating an optimized production build ...
+✓ Compiled successfully in …
+  Running TypeScript ...
+app/page.tsx(4,26): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+Failed to type check.
+</script>
+<p>The error has the format <code>file(line,column): error TScode: message</code>. <code>next dev</code> would still show the page (it doesn't type-check), but <code>next build</code> refuses to produce a build with type errors. That's one more reason to build often.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>You need Node.js 20.9+. <code>npx create-next-app@latest my-app --yes</code> creates an app with TypeScript, Tailwind, ESLint, the App Router, Turbopack and Cache Components.</li>
+  <li><code>next dev</code> is for writing code; <code>next build</code> compiles, type-checks and prerenders; <code>next start</code> serves the build.</li>
+  <li><code>app/layout.tsx</code> (with <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code>) and <code>app/page.tsx</code> are the only files an app needs.</li>
+  <li><code>public/</code> files are served at the root; <code>next.config.ts</code> configures Next.js; <code>next-env.d.ts</code> is generated.</li>
+  <li><code>@/</code> imports from the project root; <code>src/</code> is optional.</li>
+  <li>Your version's docs are in <code>node_modules/next/dist/docs/</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Which two files must every App Router app have? What must the first one contain?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>app/layout.tsx</code> (the root layout) and at least one <code>page</code> file, usually <code>app/page.tsx</code>. The root layout must render the <code>&lt;html&gt;</code> and <code>&lt;body&gt;</code> tags.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">match</span></h3>
+<p>Which script would you run (a) while editing code, (b) to check that the app compiles and type-checks, (c) on the production server, (d) to find unused variables?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>npm run dev</code>, (b) <code>npm run build</code>, (c) <code>npm start</code> (after a build), (d) <code>npm run lint</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">where does it go?</span></h3>
+<p>Where do these belong: (a) <code>logo.png</code> referenced as <code>/logo.png</code>, (b) the "about us" page, (c) a helper <code>slugify()</code>, (d) the setting <code>cacheComponents</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>public/logo.png</code>. (b) <code>app/about/page.tsx</code>. (c) Anywhere you like, typically <code>lib/slugify.ts</code>, imported as <code>@/lib/slugify</code>. (d) <code>next.config.ts</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>next build</code> runs ESLint. (2) <code>next dev</code> type-checks every file. (3) <code>next-env.d.ts</code> should be committed and edited by hand. (4) The <code>lib</code> folder name has special meaning.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>All false. (1) Since Next.js 16, run the linter yourself. (2) Only <code>next build</code> (or your editor, or <code>tsc</code>) type-checks. (3) It's generated; keep it out of git. (4) It's just a common convention.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, create <code>lib/books.ts</code> with a <code>Book</code> type (<code>id</code>, <code>title</code>, <code>author</code>, <code>year</code>) and a <code>getBooks()</code> function that returns three books. Show the number of books on the home page by importing with <code>@/lib/books</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+export type Book = { id: string; title: string; author: string; year: number };
+
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+  { id: "2", title: "Dune", author: "Frank Herbert", year: 1965 },
+  { id: "3", title: "Beloved", author: "Toni Morrison", year: 1987 },
+];
+
+export async function getBooks(): Promise<Book[]> {
+  return books;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="ex5">
+import { getBooks } from "@/lib/books";
+
+export default async function Home() {
+  const books = await getBooks();
+  return (
+    <main>
+      <h1>Reading List</h1>
+      <p>{books.length} books to read.</p>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="ex5">
+Reading List
+3 books to read.
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">investigate</span></h3>
+<p>Run <code>npm run build</code> in the playground, then look inside <code>.next/</code>. Find the prerendered HTML of the home page. Does it contain your book count?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The file is <code>.next/server/app/index.html</code>. Search it with <code>grep "books to read" .next/server/app/index.html</code>: the text is there, because the page was prerendered at build time. That's also why changing <code>lib/books.ts</code> needs a new build in production. Chapters 8 and 9 show how to refresh content without rebuilding.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">public folder</span></h3>
+<p>Add <code>public/about.txt</code> containing "Reading List v1". Which URL serves it? What happens if you also create <code>app/about.txt/page.tsx</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It's served at <code>/about.txt</code>. If you also add the page, the build succeeds and lists a route <code>/about.txt</code>, but requests for <code>/about.txt</code> still return the public file. The page can never be reached, and nothing warns you (tested with Next.js 16.4.5). Public files and routes share one URL space, so give them different names.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the build</span></h3>
+<p>A teammate's page works in <code>npm run dev</code> but <code>npm run build</code> fails with <code>Type error: Property 'titel' does not exist on type 'Book'</code>. Why didn't dev catch it, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>next dev</code> compiles TypeScript by removing types, without checking them, to stay fast. <code>next build</code> runs the type checker. The fix is to correct the typo (<code>book.title</code>). To catch this earlier, use the workspace TypeScript in your editor, or run <code>npx tsc --noEmit</code> in CI.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">src folder</span></h3>
+<p>Convert the playground to use a <code>src/</code> folder. List every file you move, every file you leave, and the one config change you need.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Move <code>app/</code> and <code>lib/</code> into <code>src/</code>. Leave <code>public/</code>, <code>package.json</code>, <code>next.config.ts</code>, <code>tsconfig.json</code>, <code>eslint.config.mjs</code>, <code>next-env.d.ts</code> and any <code>.env*</code> files at the root. Change the alias in <code>tsconfig.json</code> to <code>"@/*": ["./src/*"]</code>. (If you add <code>proxy.ts</code> or <code>instrumentation.ts</code> later, they go in <code>src/</code> too.) Run <code>npm run build</code> to confirm.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Explain why the docs recommend building and starting your app locally before deploying, using what you learned about <code>next dev</code> versus <code>next build</code>. Give two kinds of problems that only show up in the build.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>next dev</code> renders every page on each request and skips type checking, so it hides problems that production has. Only the build shows: (1) <strong>type errors</strong>, which fail the build; (2) <strong>prerendering errors</strong>, for example the Cache Components rule that request data must be inside <code>&lt;Suspense&gt;</code> (you'll meet it in Chapter 4), which only runs when the build prerenders pages. Caching behaviour is also only realistic with <code>next start</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/installation">Getting Started: Installation</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started/project-structure">Getting Started: Project Structure</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/cli/create-next-app">API Reference: create-next-app</a> · <a href="https://nextjs.org/docs/app/api-reference/cli/next">next CLI</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/config/typescript">API Reference: TypeScript</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/public-folder">File conventions: public</a> · <a href="https://nextjs.org/docs/app/api-reference/file-conventions/src-folder">src</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

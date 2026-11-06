@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚦&lt;/text&gt;&lt;/svg&gt;">
+<title>15. Proxy · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 15 · The Backend Side</div>
+<h1>Proxy</h1>
+<p class="lead"><strong>Proxy</strong> is code that runs <em>before</em> a request reaches your routes. It can redirect, rewrite the URL to a different page, change request or response headers, or answer directly. Until Next.js 15 it was called <em>Middleware</em> (<code>middleware.ts</code>); in Next.js 16 it was renamed to make its purpose clear: a network boundary in front of your app, to be used sparingly. This chapter follows the docs' <em>Proxy</em> page.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <code>proxy.ts</code> convention and the <code>proxy</code> function.</li>
+  <li>Redirects, rewrites, headers and direct responses with <code>NextResponse</code>.</li>
+  <li>Targeting paths with <code>matcher</code>, including negative patterns.</li>
+  <li>Simple redirects in <code>next.config.ts</code> instead.</li>
+  <li>Optimistic auth checks, and why Proxy alone is never enough.</li>
+  <li>The execution order, and migrating from <code>middleware.ts</code>.</li>
+</ul>
+</div>
+
+<h2 id="convention">The convention</h2>
+<p>Create one <code>proxy.ts</code> file in the project root (next to <code>app/</code>, or inside <code>src/</code> if you use it). Export a function named <code>proxy</code> (or a default export), and optionally a <code>config</code> object with a <code>matcher</code>. The function receives a <code>NextRequest</code> and returns a <code>NextResponse</code>, or nothing to let the request continue:</p>
+<script type="text/plain" class="code" data-file="proxy.ts">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  // old URLs from a previous version of the site
+  if (request.nextUrl.pathname.startsWith("/library/")) {
+    const slug = request.nextUrl.pathname.slice("/library/".length);
+    return NextResponse.redirect(new URL(`/books/${slug}`, request.url));
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: "/library/:path*",
+};
+</script>
+<script type="text/plain" class="code" data-file="app/books/[id]/page.tsx">
+export function generateStaticParams() {
+  return [{ id: "dune" }];
+}
+
+export default async function Page({ params }: PageProps<"/books/[id]">) {
+  return <h1>Book: {(await params).id}</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" localhost:3000/library/dune
+307 -> http://localhost:3000/books/dune
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/library/dune">
+Book: dune
+</script>
+<p><code>NextResponse.redirect</code> answers with <code>307 Temporary Redirect</code>, and the browser follows it to <code>/books/dune</code>. The <code>matcher</code> means Proxy only runs for <code>/library/…</code> paths; <code>:path*</code> matches zero or more segments.</p>
+<div class="note">
+<p>📝 Since Next.js 16, Proxy runs in the <strong>Node.js runtime</strong> by default, so Node APIs are available. The <code>runtime</code> option isn't allowed in <code>proxy.ts</code>. Proxy isn't meant for slow data fetching, and <code>fetch</code> caching options have no effect in it.</p>
+</div>
+
+<h2 id="config-redirects">Simple redirects: next.config.ts first</h2>
+<p>For redirects that don't depend on the request's data, the docs recommend the <code>redirects</code> option in <code>next.config.ts</code> before reaching for Proxy. It runs earlier and needs no code:</p>
+<script type="text/plain" class="code" data-file="next.config.ts" data-app="config">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  partialPrefetching: true,
+  async redirects() {
+    return [
+      { source: "/about-us", destination: "/about", permanent: true },
+      { source: "/blog/:slug", destination: "/news/:slug", permanent: false },
+    ];
+  },
+};
+
+export default nextConfig;
+</script>
+<script type="text/plain" class="code" data-file="app/about/page.tsx" data-app="config">
+export default function About() { return <h1>About</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="config">
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" localhost:3000/about-us
+308 -> http://localhost:3000/about
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" localhost:3000/blog/hello
+307 -> http://localhost:3000/news/hello
+</script>
+<p><code>permanent: true</code> gives <code>308</code> (search engines update their links); <code>false</code> gives <code>307</code>. Both keep the request method, unlike the older 301/302.</p>
+
+<h2 id="rewrite">Rewrites: a different page, same URL</h2>
+<p>A <strong>rewrite</strong> serves another route's content while the browser keeps the URL it asked for. A typical use is an A/B test: half the visitors see a new home page. The variant is chosen once and stored in a cookie:</p>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="ab">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  let variant = request.cookies.get("home-variant")?.value;
+  if (variant !== "a" && variant !== "b") variant = Math.random() < 0.5 ? "a" : "b";
+
+  const response = variant === "b"
+    ? NextResponse.rewrite(new URL("/home-b", request.url))
+    : NextResponse.next();
+  response.cookies.set("home-variant", variant, { path: "/", maxAge: 60 * 60 * 24 * 30 });
+  return response;
+}
+
+export const config = {
+  matcher: "/",
+};
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="ab">
+export default function Home() { return <h1>Welcome (version A)</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/home-b/page.tsx" data-app="ab">
+export default function HomeB() { return <h1>Welcome to the new home page (version B)</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="ab">
+$ curl -s -b "home-variant=a" localhost:3000/ | grep -o "<h1>[^<]*</h1>"
+<h1>Welcome (version A)</h1>
+$ curl -s -b "home-variant=b" localhost:3000/ | grep -o "<h1>[^<]*</h1>"
+<h1>Welcome to the new home page (version B)</h1>
+$ curl -s -o /dev/null -D - localhost:3000/ | grep -i "^set-cookie" | cut -d';' -f1 | sed 's/=[ab]$/=a or b/'
+set-cookie: home-variant=a or b
+</script>
+<p>Both answers came from <code>/</code>; the visitor never sees <code>/home-b</code> in the address bar. A first-time visitor gets a random variant and a cookie, so they keep seeing the same one.</p>
+
+<h2 id="headers">Changing headers</h2>
+<p>Proxy can add headers to the <strong>response</strong> (for the browser) and to the <strong>request</strong> (for your routes, which read them with <code>headers()</code>):</p>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="headers">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-request-id", crypto.randomUUID());     // for the app
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("x-frame-options", "DENY");            // for the browser
+  return response;
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="headers">
+import { Suspense } from "react";
+import { headers } from "next/headers";
+
+async function RequestId() {
+  const id = (await headers()).get("x-request-id") ?? "none";
+  return <p>Request ID length: {id.length}</p>;
+}
+
+export default function Page() {
+  return <Suspense fallback={<p>…</p>}><RequestId /></Suspense>;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="headers">
+$ curl -s -D - -o /dev/null localhost:3000/ | grep -i "^x-frame-options"
+x-frame-options: DENY
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/" data-app="headers">
+Request ID length: 36
+</script>
+<p>The matcher is the docs' <strong>negative pattern</strong>: everything except Next.js's static files and the favicon. Without a matcher, Proxy runs on <em>every</em> request, including <code>/_next/static</code> scripts and images, which wastes time and can accidentally block your CSS and JavaScript.</p>
+<div class="tip">
+<p>💡 The matcher must be a constant (Next.js reads it at build time). It accepts a string, an array, regular-expression paths, and objects with <code>has</code>/<code>missing</code> conditions on headers or cookies.</p>
+</div>
+
+<h2 id="auth">Optimistic auth checks</h2>
+<p>A common use is to send anonymous visitors away from private pages <em>before</em> any rendering. The docs call this an <strong>optimistic check</strong>: Proxy only looks at whether a session cookie exists (fast, no database), not whether it's valid:</p>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="auth">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  const hasSession = request.cookies.has("session");
+  if (!hasSession) {
+    const login = new URL("/login", request.url);
+    login.searchParams.set("from", request.nextUrl.pathname);
+    return NextResponse.redirect(login);
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/admin/:path*"],
+};
+</script>
+<script type="text/plain" class="code" data-file="app/admin/page.tsx" data-app="auth">
+export default function Admin() { return <h1>Admin dashboard</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/login/page.tsx" data-app="auth">
+export default function Login() { return <h1>Please log in</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="auth">
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" localhost:3000/admin/books
+307 -> http://localhost:3000/login?from=%2Fadmin%2Fbooks
+$ curl -s -b "session=anything" localhost:3000/admin | grep -o "<h1>[^<]*</h1>"
+<h1>Admin dashboard</h1>
+</script>
+<div class="pitfall">
+<p>⚠️ Notice the second request: <em>any</em> cookie named <code>session</code> got through. Proxy is a fast first filter, not security. Always verify the session and the user's permissions where the data is: in the page's data access, in every Server Function and in every Route Handler (Chapter 16). The docs warn that Server Functions are POST requests to the page that uses them, so a change to the matcher or a moved action can silently lose Proxy coverage.</p>
+</div>
+
+<h2 id="respond">Answering directly</h2>
+<p>Proxy can also return a response itself, for example to block API calls without a key:</p>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="respond">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  if (request.headers.get("x-api-key") !== "demo-key") {
+    return NextResponse.json({ error: "missing or wrong API key" }, { status: 401 });
+  }
+}
+
+export const config = {
+  matcher: "/api/:path*",
+};
+</script>
+<script type="text/plain" class="code" data-file="app/api/books/route.ts" data-app="respond">
+export async function GET() {
+  return Response.json(["The Hobbit", "Dune"]);
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="respond">
+$ curl -s -w " %{http_code}\n" localhost:3000/api/books
+{"error":"missing or wrong API key"} 401
+$ curl -s -H "x-api-key: demo-key" localhost:3000/api/books
+["The Hobbit","Dune"]
+</script>
+<p>Returning nothing (as in the second request) is the same as <code>NextResponse.next()</code>: carry on to the route.</p>
+
+<h2 id="order">Execution order</h2>
+<p>For each request, Next.js applies these steps in order:</p>
+<ol>
+  <li><code>headers</code> from <code>next.config</code></li>
+  <li><code>redirects</code> from <code>next.config</code></li>
+  <li><strong>Proxy</strong> (rewrites, redirects, headers, responses)</li>
+  <li><code>beforeFiles</code> rewrites from <code>next.config</code></li>
+  <li>Filesystem routes: <code>public/</code>, <code>_next/static/</code>, <code>app/</code>…</li>
+  <li><code>afterFiles</code> rewrites</li>
+  <li>Dynamic routes (<code>/blog/[slug]</code>)</li>
+  <li><code>fallback</code> rewrites</li>
+</ol>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> Proxy is the doorman of a building. He can point visitors to another door (redirect), quietly walk them to a different room while their ticket still says the same room number (rewrite), put a badge on them (request header), or turn them away (direct response). But he only glances at badges; the office with the safe still checks ID itself.</p>
+</div>
+
+<h2 id="migrate">Migrating from middleware.ts</h2>
+<p>Older projects have a <code>middleware.ts</code> file exporting <code>middleware()</code>. It still works but is deprecated. The official codemod renames the file and the function:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx @next/codemod@canary middleware-to-proxy .
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Several rules in one Proxy.</strong> Only one <code>proxy.ts</code> is allowed, but it can delegate to small modules. Here one function handles a maintenance switch and a country header:</p>
+<script type="text/plain" class="code" data-file="lib/proxy/maintenance.ts" data-app="combo">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function maintenance(request: NextRequest) {
+  if (process.env.MAINTENANCE === "1" && !request.nextUrl.pathname.startsWith("/status")) {
+    return NextResponse.rewrite(new URL("/status", request.url));
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="combo">
+import { NextResponse, type NextRequest } from "next/server";
+import { maintenance } from "@/lib/proxy/maintenance";
+
+export function proxy(request: NextRequest) {
+  const blocked = maintenance(request);
+  if (blocked) return blocked;
+  const response = NextResponse.next();
+  response.headers.set("x-country", request.headers.get("x-vercel-ip-country") ?? "unknown");
+  return response;
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
+</script>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="combo">
+export default function Home() { return <h1>Reading List</h1>; }
+</script>
+<script type="text/plain" class="code" data-file="app/status/page.tsx" data-app="combo">
+export default function Status() { return <h1>We'll be right back</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="combo">
+$ curl -s -D - localhost:3000/ | grep -i "^x-country\|<h1>" | sed 's/.*<h1>/<h1>/; s/<\/h1>.*/<\/h1>/'
+x-country: unknown
+<h1>Reading List</h1>
+</script>
+<p>Set <code>MAINTENANCE=1</code> in the server's environment and restart, and every page shows the status page. (<code>x-vercel-ip-country</code> is a header that some hosting platforms add; locally it's missing.)</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>proxy.ts</code> (formerly <code>middleware.ts</code>) at the project root runs before routes; it runs in Node.js by default.</li>
+  <li><code>NextResponse.redirect</code>, <code>.rewrite</code>, <code>.next({ request: { headers } })</code> and <code>.json</code> redirect, rewrite, pass headers or answer directly.</li>
+  <li>Always set a <code>matcher</code>, often the negative pattern that skips <code>_next/static</code> and <code>_next/image</code>.</li>
+  <li>Prefer <code>redirects</code> in <code>next.config.ts</code> for fixed redirects (308/307).</li>
+  <li>Use Proxy for optimistic checks only; verify sessions and permissions in data access, Server Functions and Route Handlers.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>What was Proxy called before Next.js 16, and why was it renamed?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Middleware (<code>middleware.ts</code>). "Middleware" was often confused with Express middleware and encouraged overuse. "Proxy" describes what it is: a network boundary in front of the app, best used as a last resort.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">redirect or rewrite?</span></h3>
+<p>Redirect or rewrite? (a) <code>/old-page</code> moved to <code>/new-page</code> forever. (b) Show a "coming soon" page at <code>/shop</code> without changing the URL. (c) Send logged-out users from <code>/account</code> to <code>/login</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Redirect, permanent (308), ideally in <code>next.config.ts</code>. (b) Rewrite. (c) Redirect (307), in Proxy because it depends on a cookie.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">matchers</span></h3>
+<p>Which paths does <code>matcher: "/dashboard/:path*"</code> match? <code>/dashboard</code>, <code>/dashboard/stats</code>, <code>/dashboard/a/b</code>, <code>/dashboards</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>/dashboard</code>, <code>/dashboard/stats</code> and <code>/dashboard/a/b</code> (<code>*</code> means zero or more segments). Not <code>/dashboards</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) You can have one <code>proxy.ts</code> per folder. (2) Proxy runs in the Edge runtime by default. (3) Without a matcher, Proxy runs for static files too. (4) Proxy is a good place to load a user's orders from the database.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) False: one per project. (2) False: Node.js. (3) True. (4) False: it's not for slow data fetching.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add <code>proxy.ts</code> to the playground: requests to <code>/admin</code> and below without a <code>session</code> cookie are redirected to <code>/login?from=…</code>. Create a simple <code>/admin</code> page and a <code>/login</code> page that shows where the user came from.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Use the <code>proxy.ts</code> from <a href="#auth">Optimistic auth checks</a> with <code>matcher: ["/admin/:path*"]</code>. The login page reads <code>from</code>:</p>
+<script type="text/plain" class="code" data-file="app/login/page.tsx" data-app="ex5">
+import { Suspense } from "react";
+
+async function From({ searchParams }: { searchParams: Promise<{ from?: string }> }) {
+  const { from } = await searchParams;
+  return from ? <p>Log in to continue to {from}</p> : null;
+}
+
+export default function Login({ searchParams }: PageProps<"/login">) {
+  return (
+    <main>
+      <h1>Log in</h1>
+      <Suspense fallback={null}><From searchParams={searchParams} /></Suspense>
+    </main>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="proxy.ts" data-app="ex5">
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  if (!request.cookies.has("session")) {
+    const login = new URL("/login", request.url);
+    login.searchParams.set("from", request.nextUrl.pathname);
+    return NextResponse.redirect(login);
+  }
+}
+
+export const config = { matcher: ["/admin/:path*"] };
+</script>
+<script type="text/plain" class="code" data-file="app/admin/page.tsx" data-app="ex5">
+export default function Admin() { return <h1>Admin</h1>; }
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="/admin" data-app="ex5">
+Log in
+Log in to continue to /admin
+</script>
+<p>Chapter 16 replaces "any <code>session</code> cookie" with a real, signed session.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">config</span></h3>
+<p>Write <code>next.config.ts</code> redirects for: <code>/books/all</code> → <code>/books</code> (permanent), and <code>/author/:name</code> → <code>/books?author=:name</code> (temporary).</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="next.config.ts" data-norun>
+async redirects() {
+  return [
+    { source: "/books/all", destination: "/books", permanent: true },
+    { source: "/author/:name", destination: "/books?author=:name", permanent: false },
+  ];
+},
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">headers</span></h3>
+<p>Write a Proxy that adds <code>Cache-Control: no-store</code> to every response under <code>/account</code>, and nothing elsewhere.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="proxy.ts" data-norun>
+import { NextResponse } from "next/server";
+
+export function proxy() {
+  const response = NextResponse.next();
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+export const config = { matcher: "/account/:path*" };
+</script>
+<p>For fixed headers like this, the <code>headers()</code> option in <code>next.config.ts</code> also works and runs even earlier.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>After adding a Proxy that redirects anonymous users to <code>/login</code> with no matcher, the login page loads without any styling and the browser console shows errors loading <code>/_next/static/…</code>. What happened?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without a matcher, Proxy also runs for the CSS and JavaScript files under <code>/_next/static</code> (and images under <code>/_next/image</code>). Anonymous users are redirected for those too, so the login page's assets never load. Add a matcher, such as the negative pattern that skips <code>_next/static</code>, <code>_next/image</code> and <code>favicon.ico</code>, or limit it to the private paths.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">security</span></h3>
+<p>A team protects <code>/admin</code> only with Proxy (<code>matcher: "/admin/:path*"</code>). The admin page has a Server Action <code>deleteBook</code>. Later someone moves the delete form into a component also used on <code>/books/[id]</code>. What's the risk?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Server Actions are POST requests to the page that renders them. On <code>/books/[id]</code>, the Proxy matcher doesn't apply, so <code>deleteBook</code> can now be called without any check. Even before the move, the action's ID could be called from other pages. The fix is the one the docs insist on: verify the session and permissions <em>inside</em> <code>deleteBook</code> (and in the admin page's data access), and treat Proxy as a convenience only.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design an internationalised Reading List: <code>/en/books</code> and <code>/fr/books</code>. Visitors arriving at <code>/books</code> should be redirected to their language, from a <code>lang</code> cookie or the <code>Accept-Language</code> header, defaulting to English. Sketch the Proxy and the folder structure.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="proxy.ts" data-norun>
+import { NextResponse, type NextRequest } from "next/server";
+
+const locales = ["en", "fr"];
+
+function pickLocale(request: NextRequest) {
+  const fromCookie = request.cookies.get("lang")?.value;
+  if (fromCookie && locales.includes(fromCookie)) return fromCookie;
+  const header = request.headers.get("accept-language") ?? "";
+  return locales.find((l) => header.toLowerCase().startsWith(l)) ?? "en";
+}
+
+export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (locales.some((l) => pathname === `/${l}` || pathname.startsWith(`/${l}/`))) return;
+  return NextResponse.redirect(new URL(`/${pickLocale(request)}${pathname}`, request.url));
+}
+
+export const config = { matcher: ["/((?!_next|api|favicon.ico|.*\\..*).*)"] };
+</script>
+<p>Folders: <code>app/[lang]/layout.tsx</code> (the root layout, with <code>&lt;html lang={lang}&gt;</code>), <code>app/[lang]/books/page.tsx</code>, and <code>generateStaticParams</code> returning <code>[{ lang: "en" }, { lang: "fr" }]</code> so both languages are prerendered. The docs' <em>Internationalization</em> guide follows the same pattern.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/proxy">Getting Started: Proxy</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/proxy">File conventions: proxy.js</a> (matcher, execution order, migration)</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/redirects">Config: redirects</a> · <a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/rewrites">rewrites</a> · <a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/headers">headers</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/authentication#optimistic-checks-with-proxy-optional">Guide: Authentication, optimistic checks with Proxy</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/internationalization">Guide: Internationalization</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

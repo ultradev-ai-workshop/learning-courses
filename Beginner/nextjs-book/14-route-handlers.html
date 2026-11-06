@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔌&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Route Handlers · Next.js Study Book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · The Backend Side</div>
+<h1>Route Handlers</h1>
+<p class="lead">Pages return HTML for people. Sometimes you need an endpoint that returns data for <em>programs</em>: a mobile app, a partner's system, a webhook from a payment provider, a <code>fetch</code> from a browser extension. <strong>Route Handlers</strong> are those endpoints. They use the web-standard <code>Request</code> and <code>Response</code> APIs, and this chapter, following the docs' <em>Route Handlers</em> page, builds a small JSON API for the Reading List and tests it with <code>curl</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The <code>route.ts</code> convention and the supported HTTP methods.</li>
+  <li>Reading params (<code>RouteContext</code>), the query string, the body, headers and cookies.</li>
+  <li>Returning JSON, status codes and headers with <code>Response</code> and <code>NextResponse</code>.</li>
+  <li>How <code>GET</code> handlers are prerendered or run per request with Cache Components.</li>
+  <li>Why a <code>route.ts</code> and a <code>page.tsx</code> can't share a folder.</li>
+  <li>When to use a Route Handler and when a Server Function is better.</li>
+</ul>
+</div>
+
+<h2 id="convention">The convention</h2>
+<p>A <code>route.ts</code> file in <code>app/</code> defines an endpoint for its folder's URL. Export a function named after each HTTP method you support: <code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code>, <code>HEAD</code> or <code>OPTIONS</code>. A request with any other method gets <code>405 Method Not Allowed</code>.</p>
+<p>The examples share a tiny data module that stores books in a JSON file (Chapter 9 explained why a file, not a variable):</p>
+<script type="text/plain" class="code" data-file="data/books.json">
+[
+  { "id": "1", "title": "The Hobbit", "author": "J.R.R. Tolkien", "year": 1937 },
+  { "id": "2", "title": "Dune", "author": "Frank Herbert", "year": 1965 }
+]
+</script>
+<script type="text/plain" class="code" data-file="lib/store.ts">
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+export type Book = { id: string; title: string; author: string; year: number };
+
+const FILE = join(process.cwd(), "data", "books.json");
+
+export async function readBooks(): Promise<Book[]> {
+  return JSON.parse(await readFile(FILE, "utf8"));
+}
+
+export async function writeBooks(books: Book[]): Promise<void> {
+  await writeFile(FILE, JSON.stringify(books, null, 2));
+}
+</script>
+
+<h2 id="get">GET: listing books</h2>
+<script type="text/plain" class="code" data-file="app/api/books/route.ts">
+import { readBooks, writeBooks, type Book } from "@/lib/store";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const author = searchParams.get("author");
+  const books = await readBooks();
+  const result = author ? books.filter((b) => b.author.includes(author)) : books;
+  return Response.json(result);
+}
+
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.title !== "string" || typeof body.author !== "string" || !Number.isInteger(body.year)) {
+    return Response.json({ error: "title, author and year are required" }, { status: 400 });
+  }
+  const books = await readBooks();
+  const book: Book = { id: String(books.length + 1), title: body.title, author: body.author, year: body.year };
+  await writeBooks([...books, book]);
+  return Response.json(book, { status: 201, headers: { Location: `/api/books/${book.id}` } });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/api/books
+[{"id":"1","title":"The Hobbit","author":"J.R.R. Tolkien","year":1937},{"id":"2","title":"Dune","author":"Frank Herbert","year":1965}]
+$ curl -s "localhost:3000/api/books?author=Herbert"
+[{"id":"2","title":"Dune","author":"Frank Herbert","year":1965}]
+</script>
+<p><code>Response.json(data, init?)</code> serializes the data and sets <code>Content-Type: application/json</code>. The query string is read from <code>request.url</code> with the standard <code>URL</code> class.</p>
+
+<h2 id="post">POST: creating a book</h2>
+<p>The same file's <code>POST</code> reads the JSON body, validates it, and answers <code>201 Created</code> with a <code>Location</code> header, or <code>400 Bad Request</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -i -X POST localhost:3000/api/books -H "Content-Type: application/json" -d '{"title":"Beloved","author":"Toni Morrison","year":1987}' | grep -i "^HTTP\|^location\|^{"
+HTTP/1.1 201 Created
+location: /api/books/3
+{"id":"3","title":"Beloved","author":"Toni Morrison","year":1987}
+$ curl -s -w " %{http_code}\n" -X POST localhost:3000/api/books -d 'not json'
+{"error":"title, author and year are required"} 400
+$ curl -s -o /dev/null -w "%{http_code}\n" -X PUT localhost:3000/api/books
+405
+</script>
+<p><code>PUT</code> isn't exported from this file, so Next.js answered 405 by itself.</p>
+<div class="pitfall">
+<p>⚠️ Like Server Functions, Route Handlers are public. Anyone can call them with any body. Validate input (with Zod, as in Chapter 7) and check who the caller is before changing data. Chapter 16 adds authentication.</p>
+</div>
+
+<h2 id="params">Dynamic segments: one book</h2>
+<p>A <code>route.ts</code> in a dynamic folder receives the params in its second argument, the <strong>context</strong>. Type it with the global <code>RouteContext</code> helper, which works like <code>PageProps</code>:</p>
+<script type="text/plain" class="code" data-file="app/api/books/[id]/route.ts">
+import { readBooks, writeBooks } from "@/lib/store";
+
+export async function GET(_request: Request, ctx: RouteContext<"/api/books/[id]">) {
+  const { id } = await ctx.params;
+  const book = (await readBooks()).find((b) => b.id === id);
+  if (!book) return Response.json({ error: "not found" }, { status: 404 });
+  return Response.json(book);
+}
+
+export async function DELETE(_request: Request, ctx: RouteContext<"/api/books/[id]">) {
+  const { id } = await ctx.params;
+  const books = await readBooks();
+  if (!books.some((b) => b.id === id)) return Response.json({ error: "not found" }, { status: 404 });
+  await writeBooks(books.filter((b) => b.id !== id));
+  return new Response(null, { status: 204 });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/api/books/2
+{"id":"2","title":"Dune","author":"Frank Herbert","year":1965}
+$ curl -s -w " %{http_code}\n" localhost:3000/api/books/42
+{"error":"not found"} 404
+$ curl -s -o /dev/null -w "%{http_code}\n" -X DELETE localhost:3000/api/books/3
+204
+$ curl -s localhost:3000/api/books | grep -o '"title":"[^"]*"'
+"title":"The Hobbit"
+"title":"Dune"
+</script>
+
+<h2 id="request">Headers, cookies and NextRequest</h2>
+<p>The handler's <code>request</code> is a standard <code>Request</code>, so <code>request.headers.get(…)</code> works. Next.js also offers:</p>
+<ul>
+  <li><code>headers()</code> and <code>cookies()</code> from <code>next/headers</code>, the same functions as in Server Components and Server Actions.</li>
+  <li><code>NextRequest</code> and <code>NextResponse</code> (from <code>next/server</code>), which extend the standard classes with conveniences: <code>request.nextUrl</code> (a parsed URL), <code>request.cookies.get()</code>, <code>response.cookies.set()</code>, and <code>NextResponse.redirect()</code>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="app/api/whoami/route.ts">
+import { NextResponse, type NextRequest } from "next/server";
+
+export async function GET(request: NextRequest) {
+  const visits = Number(request.cookies.get("visits")?.value ?? 0) + 1;
+  const response = NextResponse.json({
+    path: request.nextUrl.pathname,
+    agent: request.headers.get("user-agent"),
+    visits,
+  });
+  response.cookies.set("visits", String(visits), { httpOnly: true, path: "/" });
+  return response;
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -A "book-client/1.0" -c jar.txt -b jar.txt localhost:3000/api/whoami
+{"path":"/api/whoami","agent":"book-client/1.0","visits":1}
+$ curl -s -A "book-client/1.0" -c jar.txt -b jar.txt localhost:3000/api/whoami
+{"path":"/api/whoami","agent":"book-client/1.0","visits":2}
+</script>
+<p><code>-c</code>/<code>-b</code> make curl store and send cookies like a browser, so the second call sees <code>visits=1</code>.</p>
+
+<h2 id="caching">Caching GET handlers</h2>
+<p>With Cache Components, <code>GET</code> handlers follow the same model as pages:</p>
+<ul>
+  <li>A handler that uses no uncached or runtime data is <strong>prerendered</strong> at build time.</li>
+  <li>One that reads the request (<code>request.url</code>, headers, cookies), uncached I/O (database, <code>fetch</code>, async file reads) or random values runs at <strong>request time</strong>.</li>
+  <li>Data from a <code>"use cache"</code> helper can be part of a prerendered response. You can't put <code>"use cache"</code> directly in the handler body: extract a helper function.</li>
+</ul>
+<p>Other methods (<code>POST</code>, <code>DELETE</code>…) are never cached.</p>
+<script type="text/plain" class="code" data-file="app/api/info/route.ts">
+export async function GET() {
+  return Response.json({ name: "Reading List API", version: 1 });
+}
+</script>
+<script type="text/plain" class="code" data-file="app/api/genres/route.ts">
+import { cacheLife } from "next/cache";
+
+async function getGenres() {
+  "use cache";
+  cacheLife("days");
+  await new Promise((r) => setTimeout(r, 200));       // slow, but cached
+  return ["fantasy", "sci-fi", "literary"];
+}
+
+export async function GET() {
+  return Response.json(await getGenres());
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+...
+Route (app)          Revalidate  Expire
+┌ ○ /_not-found
+├ ƒ /api/books
+├ ƒ /api/books.csv
+├ ƒ /api/books/[id]
+├ ○ /api/genres              1d      1w
+├ ○ /api/info
+├ ƒ /api/public
+└ ƒ /api/whoami
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+</script>
+<p>Here's the third symbol: <code>ƒ</code> (Dynamic) for handlers that run on every request. <code>/api/books</code> reads the request URL and the data file, <code>/api/whoami</code> reads cookies, so they're dynamic. <code>/api/info</code> and the cached <code>/api/genres</code> are prerendered (<code>○</code>), the latter revalidated daily. (The table also lists two handlers from <a href="#more-examples">More examples</a>.)</p>
+
+<h2 id="conflict">A route and a page can't share a folder</h2>
+<p>A <code>route.ts</code> takes over <em>all</em> HTTP methods of its URL, and a <code>page.tsx</code> answers <code>GET</code> with HTML, so they can't be in the same folder. That's why APIs usually live under <code>app/api/</code>:</p>
+<script type="text/plain" class="code" data-file="app/page.tsx" data-app="conflict">
+export default function Page() {
+  return <h1>Hello, Next.js!</h1>;
+}
+</script>
+<script type="text/plain" class="code" data-file="app/route.ts" data-app="conflict">
+export async function POST() {
+  return Response.json({ ok: true });
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors" data-app="conflict">
+...
+Conflicting route and page at /: route at /route and page at /page
+...
+</script>
+<p>Route Handlers also don't take part in layouts or client-side navigation: they're the lowest-level routing primitive. Special files like <code>sitemap.ts</code>, <code>robots.ts</code> and <code>opengraph-image.tsx</code> (Chapter 13) are Route Handlers too, cached like any <code>GET</code>.</p>
+
+<h2 id="when">Route Handler or Server Function?</h2>
+<div class="table-wrap"><table>
+<tr><th>Use a…</th><th>When</th></tr>
+<tr><td><strong>Server Function</strong> (Chapter 7)</td><td>Your own UI changes data: forms, buttons. You get type-safe calls, progressive enhancement and UI updates in one round trip, with no URL to design.</td></tr>
+<tr><td><strong>Route Handler</strong></td><td>Something <em>other than your UI</em> calls you: webhooks, mobile apps, third parties, cron jobs; or you need a specific URL, method, status code, header or content type (CSV, RSS, files).</td></tr>
+<tr><td><strong>Server Component</strong> (Chapter 6)</td><td>Your own pages read data. Don't call your own Route Handlers from Server Components: call the data function directly.</td></tr>
+</table></div>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> Server Functions are the internal phone line between departments of one company: quick, and nobody outside needs the number. A Route Handler is the public reception desk with a published address: anyone can walk in, so it has fixed procedures and checks ID.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<p><strong>Returning something other than JSON.</strong> A <code>Response</code> can carry any body. Here the handler exports the books as CSV with a download header:</p>
+<script type="text/plain" class="code" data-file="app/api/books.csv/route.ts">
+import { readBooks } from "@/lib/store";
+
+export async function GET() {
+  const rows = (await readBooks()).map((b) => `${b.id},"${b.title}","${b.author}",${b.year}`);
+  return new Response(["id,title,author,year", ...rows].join("\n") + "\n", {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="books.csv"',
+    },
+  });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s localhost:3000/api/books.csv
+id,title,author,year
+1,"The Hobbit","J.R.R. Tolkien",1937
+2,"Dune","Frank Herbert",1965
+</script>
+
+<p><strong>CORS for a browser client on another domain.</strong> Browsers block cross-origin <code>fetch</code> calls unless the server allows them. Answer the preflight <code>OPTIONS</code> request and add the header to real responses:</p>
+<script type="text/plain" class="code" data-file="app/api/public/route.ts">
+const CORS = {
+  "Access-Control-Allow-Origin": "https://partner.example.com",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS });
+}
+
+export async function GET() {
+  return Response.json({ books: 2 }, { headers: CORS });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ curl -s -i -X OPTIONS localhost:3000/api/public | grep -i "^HTTP\|^access-control-allow-origin"
+HTTP/1.1 204 No Content
+access-control-allow-origin: https://partner.example.com
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>route.ts</code> exports functions named after HTTP methods; unexported methods get 405.</li>
+  <li>Handlers use web-standard <code>Request</code>/<code>Response</code>; <code>Response.json(data, { status, headers })</code> is the usual reply.</li>
+  <li>Params come from the context, typed with <code>RouteContext&lt;"/path/[id]"&gt;</code>; the query string from <code>new URL(request.url)</code> or <code>request.nextUrl</code>.</li>
+  <li><code>NextRequest</code>/<code>NextResponse</code> add parsed URLs, cookie helpers and redirects; <code>headers()</code>/<code>cookies()</code> work too.</li>
+  <li>With Cache Components, <code>GET</code> handlers are prerendered (<code>○</code>) unless they use request or uncached data (<code>ƒ</code>); cache data in a <code>"use cache"</code> helper.</li>
+  <li>A <code>route.ts</code> can't share a folder with a <code>page.tsx</code>. Use Server Functions for your own UI and Route Handlers for external callers.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">map</span></h3>
+<p>What URL does each file serve? (a) <code>app/api/route.ts</code>, (b) <code>app/api/books/[id]/route.ts</code>, (c) <code>app/feed.xml/route.ts</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>/api</code>. (b) <code>/api/books/1</code>, <code>/api/books/abc</code>… (c) <code>/feed.xml</code>: a dot in a folder name is fine, handy for RSS feeds.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">status codes</span></h3>
+<p>Which status would you return for: (a) a successful create, (b) a successful delete with no body, (c) invalid JSON, (d) a missing record, (e) a method your file doesn't export?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) 201 Created. (b) 204 No Content. (c) 400 Bad Request. (d) 404 Not Found. (e) Nothing: Next.js returns 405 automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">true or false</span></h3>
+<p>True or false? (1) <code>POST</code> handlers can be cached. (2) <code>app/books/page.tsx</code> and <code>app/books/route.ts</code> can coexist. (3) <code>RouteContext</code> must be imported. (4) A <code>GET</code> handler that reads <code>request.headers</code> is prerendered.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>All false. (1) Only <code>GET</code>. (2) Conflict. (3) It's global. (4) Reading the request makes it dynamic.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Route Handler or Server Function? (a) The "Add book" form in your app. (b) Stripe telling you a payment succeeded. (c) An iOS app listing books. (d) A "Mark as read" button.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) Server Function. (b) Route Handler (a webhook). (c) Route Handler. (d) Server Function.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Add <code>app/api/books/route.ts</code> to the playground with <code>GET</code> (all books, optional <code>?q=</code> title search, case-insensitive) and <code>app/api/books/[id]/route.ts</code> with <code>GET</code> (404 if missing). Test with <code>curl</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="lib/books.ts" data-app="ex5">
+export type Book = { id: string; title: string; author: string; year: number };
+const books: Book[] = [
+  { id: "1", title: "The Hobbit", author: "J.R.R. Tolkien", year: 1937 },
+  { id: "2", title: "Dune", author: "Frank Herbert", year: 1965 },
+];
+export async function getBooks() { return books; }
+export async function getBook(id: string) { return books.find((b) => b.id === id); }
+</script>
+<script type="text/plain" class="code" data-file="app/api/books/route.ts" data-app="ex5">
+import type { NextRequest } from "next/server";
+import { getBooks } from "@/lib/books";
+
+export async function GET(request: NextRequest) {
+  const q = request.nextUrl.searchParams.get("q")?.toLowerCase() ?? "";
+  const books = await getBooks();
+  return Response.json(books.filter((b) => b.title.toLowerCase().includes(q)));
+}
+</script>
+<script type="text/plain" class="code" data-file="app/api/books/[id]/route.ts" data-app="ex5">
+import { getBook } from "@/lib/books";
+
+export async function GET(_req: Request, ctx: RouteContext<"/api/books/[id]">) {
+  const book = await getBook((await ctx.params).id);
+  return book ? Response.json(book) : Response.json({ error: "not found" }, { status: 404 });
+}
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run data-app="ex5">
+$ curl -s "localhost:3000/api/books?q=HOB"
+[{"id":"1","title":"The Hobbit","author":"J.R.R. Tolkien","year":1937}]
+$ curl -s -w " %{http_code}\n" localhost:3000/api/books/9
+{"error":"not found"} 404
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">validation</span></h3>
+<p>Rewrite this chapter's <code>POST</code> validation with Zod, returning <code>{ errors: … }</code> from <code>z.flattenError</code> with status 400.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/api/books/route.ts" data-norun>
+import { z } from "zod";
+
+const NewBook = z.object({
+  title: z.string().trim().min(1),
+  author: z.string().trim().min(1),
+  year: z.number().int().min(1450).max(2100),
+});
+
+export async function POST(request: Request) {
+  const parsed = NewBook.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ errors: z.flattenError(parsed.error).fieldErrors }, { status: 400 });
+  }
+  // … save parsed.data, return 201 …
+}
+</script>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">predict</span></h3>
+<p>Which symbol (<code>○</code> or <code>ƒ</code>) does each <code>GET</code> handler get in the build? (a) returns a constant object, (b) reads <code>cookies()</code>, (c) awaits a <code>"use cache"</code> helper with <code>cacheLife("hours")</code>, (d) returns <code>Date.now()</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>○</code>. (b) <code>ƒ</code>. (c) <code>○</code>, with Revalidate 1h. (d) <code>ƒ</code>: prerendering stops at the non-deterministic call and defers to request time (unlike pages, a handler doesn't need a Suspense boundary for this).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">RSS</span></h3>
+<p>Write <code>app/feed.xml/route.ts</code> that returns an RSS 2.0 feed of the books with <code>Content-Type: application/rss+xml</code>. Make it prerendered by reading the books through a cached helper.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-file="app/feed.xml/route.ts" data-norun>
+import { cacheLife } from "next/cache";
+import { getBooks } from "@/lib/books";
+
+async function feed() {
+  "use cache";
+  cacheLife("hours");
+  const items = (await getBooks())
+    .map((b) => `<item><title>${b.title}</title><link>https://reading-list.example.com/books/${b.id}</link></item>`)
+    .join("");
+  return `<?xml version="1.0"?><rss version="2.0"><channel><title>Reading List</title>${items}</channel></rss>`;
+}
+
+export async function GET() {
+  return new Response(await feed(), { headers: { "Content-Type": "application/rss+xml" } });
+}
+</script>
+<p>Escape <code>&amp;</code>, <code>&lt;</code> and <code>&gt;</code> in titles in real code.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">anti-pattern</span></h3>
+<p>A Server Component does <code>await fetch("http://localhost:3000/api/books")</code>. List three problems with this, and the fix.</p>
+<details class="solution"><summary>Show solution</summary>
+<ol>
+  <li>An extra HTTP round trip from the server to itself, with serialization both ways: slower for nothing.</li>
+  <li>The URL is environment-specific (port, host, HTTPS), and during <code>next build</code> no server is running, so prerendering fails.</li>
+  <li>It loses type safety and makes caching and error handling harder (now there's a network error to handle).</li>
+</ol>
+<p>Fix: import and call the data function (<code>getBooks()</code>) directly. Keep the Route Handler for external clients.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Design a small versioned REST API for the Reading List's future mobile app: list, read, create, update and delete books, plus "mark as read" per user. Give the folder layout, methods and status codes, and say where authentication goes.</p>
+<details class="solution"><summary>Show solution</summary>
+<script type="text/plain" class="code" data-lang="text" data-title="app/api/v1/" data-norun>
+app/api/v1/
+├── books/
+│   ├── route.ts            GET (200, ?q=, ?page=)   POST (201 + Location, 400, 401)
+│   └── [id]/
+│       ├── route.ts        GET (200, 404)  PATCH (200, 400, 401, 403, 404)  DELETE (204, 401, 403, 404)
+│       └── read/route.ts   PUT (204: mark read)  DELETE (204: unmark)   — per user, 401 if anonymous
+└── me/route.ts             GET (200 profile, 401)
+</script>
+<p>Every handler starts by reading the session or a bearer token (Chapter 16) and returns 401/403 before touching data; share that check in a helper (e.g. <code>requireUser(request)</code>). Validate bodies with Zod. Keep business logic in <code>lib/</code> so the web UI's Server Functions and this API share it. The <code>v1</code> folder lets you change the API later without breaking old app versions.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://nextjs.org/docs/app/getting-started/route-handlers">Getting Started: Route Handlers</a></li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/file-conventions/route">File conventions: route.js</a> (RouteContext, all options)</li>
+  <li><a href="https://nextjs.org/docs/app/api-reference/functions/next-request">NextRequest</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/next-response">NextResponse</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/headers">headers</a> · <a href="https://nextjs.org/docs/app/api-reference/functions/cookies">cookies</a></li>
+  <li><a href="https://nextjs.org/docs/app/guides/backend-for-frontend">Guide: Backend for Frontend</a></li>
+  <li><a href="https://developer.mozilla.org/docs/Web/API/Response">MDN: Response</a> · <a href="https://developer.mozilla.org/docs/Web/HTTP/Status">HTTP status codes</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
