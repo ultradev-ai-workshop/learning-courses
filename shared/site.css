@@ -1,0 +1,55 @@
+/* coderhop learn — shared site header for every course page (see shared/site.js). */
+:root {
+  --ch-h: 60px;
+  --ch-bg: rgba(255, 255, 255, .86); --ch-card: #ffffff; --ch-text: #0f172a; --ch-muted: #5b6478; --ch-faint: #8a93a6;
+  --ch-border: #e3e7f0; --ch-border-2: #d3d9e6; --ch-accent: #4f46e5; --ch-accent-soft: #eef0ff;
+  --ch-shadow: 0 1px 2px rgba(15, 23, 42, .06); --ch-pop: 0 18px 40px -16px rgba(15, 23, 42, .35);
+}
+:root[data-theme="dark"] {
+  --ch-bg: rgba(11, 16, 32, .86); --ch-card: #131b30; --ch-text: #e6e9f2; --ch-muted: #a0a9bd; --ch-faint: #7a849a;
+  --ch-border: #222c45; --ch-border-2: #2e3a59; --ch-accent: #8b8cf8; --ch-accent-soft: #1d2246;
+  --ch-shadow: 0 1px 2px rgba(0, 0, 0, .4); --ch-pop: 0 18px 40px -16px rgba(0, 0, 0, .8);
+}
+.ch-header { position: sticky; top: 0; z-index: 50; height: var(--ch-h); background: var(--ch-bg); border-bottom: 1px solid var(--ch-border);
+  backdrop-filter: saturate(160%) blur(12px); -webkit-backdrop-filter: saturate(160%) blur(12px);
+  font: 15px/1.4 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ch-text); }
+.ch-header * { box-sizing: border-box; }
+.ch-wrap { height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+.ch-logo { display: flex; align-items: center; gap: 9px; flex: none; font-weight: 800; font-size: 1.02rem; letter-spacing: -.01em; color: var(--ch-text) !important; text-decoration: none !important; }
+.ch-logo svg { width: 30px; height: 30px; }
+.ch-logo small { font-weight: 600; color: var(--ch-muted); font-size: inherit; }
+.ch-search { position: relative; flex: 1; max-width: 440px; margin-left: auto; }
+.ch-search > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ch-faint); pointer-events: none; }
+.ch-search input { width: 100%; height: 38px; font-size: 14.5px; font-family: inherit; color: var(--ch-text); background: var(--ch-card);
+  border: 1px solid var(--ch-border); border-radius: 11px; padding: 0 12px 0 36px; box-shadow: var(--ch-shadow); }
+.ch-search input::placeholder { color: var(--ch-faint); }
+.ch-search input:focus { outline: 3px solid color-mix(in srgb, var(--ch-accent) 40%, transparent); outline-offset: 1px; }
+.ch-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; margin: 0; padding: 6px; list-style: none; max-height: 60vh; overflow-y: auto;
+  background: var(--ch-card); border: 1px solid var(--ch-border); border-radius: 12px; box-shadow: var(--ch-pop); }
+.ch-results[hidden] { display: none; }
+.ch-results a { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-radius: 8px; color: var(--ch-text) !important; text-decoration: none !important; font-size: 14px; }
+.ch-results a:hover, .ch-results a.ch-active { background: var(--ch-accent-soft); }
+.ch-lbl { flex: none; min-width: 48px; font-size: 12px; font-weight: 700; color: var(--ch-accent); }
+.ch-all { border-top: 1px solid var(--ch-border); margin-top: 4px; padding-top: 4px; }
+.ch-all a { color: var(--ch-accent) !important; font-weight: 600; }
+.ch-yt, .ch-theme { flex: none; height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 11px;
+  border: 1px solid var(--ch-border); background: var(--ch-card); color: var(--ch-text) !important; text-decoration: none !important; box-shadow: var(--ch-shadow);
+  font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
+.ch-yt { padding: 0 12px; }
+.ch-theme { width: 38px; padding: 0; }
+.ch-yt svg { width: 20px; height: 20px; }
+.ch-theme svg { width: 17px; height: 17px; }
+.ch-yt:hover, .ch-theme:hover { border-color: var(--ch-border-2); }
+.ch-logo:focus-visible, .ch-yt:focus-visible, .ch-theme:focus-visible { outline: 3px solid color-mix(in srgb, var(--ch-accent) 50%, transparent); outline-offset: 2px; }
+
+/* course layouts: keep the sticky sidebar below the header on wide screens */
+@media (min-width: 901px) {
+  .ch-has-header #sidebar { top: var(--ch-h); height: calc(100vh - var(--ch-h)); }
+}
+@media (max-width: 640px) {
+  .ch-wrap { padding: 0 12px; gap: 8px; }
+  .ch-logo small, .ch-yt span { display: none; }
+  .ch-yt { padding: 0 9px; }
+}
+@media (max-width: 380px) { .ch-logo span { display: none; } }
+@media print { .ch-header { display: none; } }

@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='12' fill='url(%23g)'/%3E%3Cpath d='M15 13h13a6 6 0 0 1 6 6v16H21a6 6 0 0 1-6-6z' fill='white' opacity='.95'/%3E%3Cpath d='M20 20h9M20 25h9' stroke='%234f46e5' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <title>coderhop learn · Study Books</title>
+<script>
+  // Light by default; the choice is shared with every course page (shared/site.js uses the same key).
+  (function () { var t = null; try { t = localStorage.getItem('notes.theme'); } catch (e) { /* storage blocked */ }
+    document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light'); })();
+</script>
 <meta name="description" content="Free, hands-on study books for Python, JavaScript, TypeScript, React, Next.js, Node.js, AI and Spring Boot, with exercises, playgrounds and 1000-question assessments.">
 <style>
   :root {
@@ -602,16 +607,12 @@ var ICONS = {
 
   // ---------- theme ----------
   var themeBtn = document.getElementById('theme');
-  function currentTheme() {
-    var t = document.documentElement.getAttribute('data-theme');
-    return t || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  }
+  function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
   function paintThemeButton() {
     themeBtn.innerHTML = currentTheme() === 'dark'
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
       : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
   }
-  try { var st = localStorage.getItem('notes.theme'); if (st === 'dark' || st === 'light') document.documentElement.setAttribute('data-theme', st); } catch (e) { /* ignore */ }
   themeBtn.addEventListener('click', function () {
     var next = currentTheme() === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
@@ -886,7 +887,10 @@ var ICONS = {
 
   renderHero();
   renderPath();
+  var q0 = new URLSearchParams(location.search).get('q');
+  if (q0) { filter.value = q0; query = q0.trim().toLowerCase(); }
   renderCatalog();
+  if (q0) document.getElementById('catalog').scrollIntoView();
   renderModel();
   // deep link: index.html#nextjs opens that course
   function openFromHash() { var c = byId[decodeURIComponent(location.hash.slice(1))]; if (c) open(c); }

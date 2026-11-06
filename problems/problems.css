@@ -13,7 +13,8 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  /* no theme chosen yet (scripts off): follow the OS */
+  :root:not([data-theme]) {
     --bg: #15171b; --bg-soft: #1c1f24; --panel: #1d2026; --text: #e6e6e3; --muted: #a3a8b0;
     --border: #30343c; --accent: #7fb0ff; --accent-soft: #1f2b40;
     --code-bg: #101215; --code-head: #1a1d22;
@@ -23,6 +24,17 @@
     --shadow: 0 1px 3px rgba(0,0,0,.4);
     color-scheme: dark;
   }
+}
+/* the theme chosen in the site header (shared/site.js) */
+:root[data-theme="dark"] {
+  --bg: #15171b; --bg-soft: #1c1f24; --panel: #1d2026; --text: #e6e6e3; --muted: #a3a8b0;
+  --border: #30343c; --accent: #7fb0ff; --accent-soft: #1f2b40;
+  --code-bg: #101215; --code-head: #1a1d22;
+  --easy: #4fbf7f; --medium: #e5b53b; --hard: #ff7b72; --oop: #c39bff;
+  --good-bg: #15291d; --good-bd: #4fbf7f; --bad-bg: #331a1a; --bad-bd: #ff7b72;
+  --note-bg: #172235; --note-bd: #7fb0ff; --pit-bg: #2d2511; --pit-bd: #e5b53b;
+  --shadow: 0 1px 3px rgba(0,0,0,.4);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }

@@ -21,7 +21,8 @@
   --sidebar-w: 270px;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  /* no theme chosen yet (scripts off): follow the OS */
+  :root:not([data-theme]) {
     --bg: #16181d;
     --surface: #1e2128;
     --surface-2: #262a33;
@@ -41,6 +42,27 @@
     --bad-bg: #2b1717;
     --bad-border: #ef4444;
   }
+}
+/* the theme chosen in the site header (shared/site.js) */
+:root[data-theme="dark"] {
+  --bg: #16181d;
+  --surface: #1e2128;
+  --surface-2: #262a33;
+  --border: #2e323b;
+  --text: #d1d5db;
+  --muted: #9ca3af;
+  --heading: #f3f4f6;
+  --accent: #58c4dc;
+  --accent-soft: #1b2c33;
+  --code-bg: #1c1f26;
+  --code-text: #e5e7eb;
+  --code-comment: #8b949e;
+  --tip-bg: #13261b;
+  --tip-border: #22c55e;
+  --warn-bg: #2a2416;
+  --warn-border: #c9922a;
+  --bad-bg: #2b1717;
+  --bad-border: #ef4444;
 }
 
 * { box-sizing: border-box; }
@@ -164,3 +186,6 @@ details.solution summary { cursor: pointer; color: var(--accent); font-weight: 6
 .card p { margin: 0; font-size: 0.9rem; color: var(--muted); }
 
 .docs-links { font-size: 0.92rem; color: var(--muted); }
+
+/* long URLs and identifiers in inline code wrap on narrow screens */
+:not(pre) > code { overflow-wrap: anywhere; }
