@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎞️&lt;/text&gt;&lt;/svg&gt;">
+<title>17. Transitions, Transforms &amp; Animation · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 17 · Utilities in Depth</div>
+<h1>Transitions, Transforms &amp; Animation</h1>
+<p class="lead">Small, quick movement makes an interface feel responsive: a button that darkens smoothly, a card that lifts on hover, a spinner while something loads. This chapter covers the docs' <em>Transitions &amp; Animation</em> and <em>Transforms</em> groups: <code>transition</code> with duration and easing, <code>scale</code>/<code>rotate</code>/<code>translate</code> (including 3D), the four built-in animations and custom ones, entry animations with <code>starting:</code>, and respecting users who prefer less motion.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How <code>transition</code>, <code>duration-*</code>, <code>ease-*</code> and <code>delay-*</code> work together.</li>
+  <li>Transforms: <code>scale-*</code>, <code>rotate-*</code>, <code>translate-*</code>, <code>skew-*</code>, <code>origin-*</code>, and 3D.</li>
+  <li><code>animate-spin</code>, <code>animate-ping</code>, <code>animate-pulse</code>, <code>animate-bounce</code> and custom animations.</li>
+  <li>Entry animations with <code>starting:</code> and <code>transition-discrete</code>.</li>
+  <li><code>motion-safe:</code> and <code>motion-reduce:</code>.</li>
+</ul>
+</div>
+
+<h2 id="transition">Transitions</h2>
+<p>Without a transition, a hover style changes instantly. Add <code>transition</code> and the change is animated over 150&nbsp;ms:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<button id="b" class="rounded-lg bg-sky-500 px-4 py-2 text-white transition duration-300 ease-in-out hover:-translate-y-1 hover:scale-110 hover:bg-indigo-500">Hover me</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.transition|transition-property|transition-timing|transition-duration|^  \.duration|^  \.ease">
+  .transition {
+    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter, display, content-visibility, overlay, pointer-events;
+    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+    transition-duration: var(--tw-duration, var(--default-transition-duration));
+  .duration-300 {
+    transition-duration: 300ms;
+  .ease-in-out {
+    transition-timing-function: var(--ease-in-out);
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="eval:document.body.dataset.a = getComputedStyle(b).scale; hover:#b; wait:500" data-eval="'before hover: scale ' + document.body.dataset.a + '\nafter 500ms of hover: scale ' + getComputedStyle(b).scale + ', translate ' + getComputedStyle(b).translate">
+before hover: scale none
+after 500ms of hover: scale 1.1, translate 0px -4px
+</script>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>What it transitions</th></tr>
+<tr><td><code>transition</code></td><td>Colours, opacity, shadows, transforms, filters (the common set)</td></tr>
+<tr><td><code>transition-colors</code></td><td>Only colours</td></tr>
+<tr><td><code>transition-opacity</code>, <code>transition-shadow</code>, <code>transition-transform</code></td><td>One kind</td></tr>
+<tr><td><code>transition-all</code></td><td>Every property (can be slow; use sparingly)</td></tr>
+<tr><td><code>transition-none</code></td><td>Nothing</td></tr>
+</table></div>
+<p><code>duration-75</code> … <code>duration-1000</code> (any number of ms), <code>ease-linear</code>, <code>ease-in</code>, <code>ease-out</code>, <code>ease-in-out</code>, and <code>delay-*</code> fine-tune it. Good defaults: 150–300&nbsp;ms, <code>ease-out</code> for things appearing, <code>ease-in</code> for things leaving.</p>
+
+<h2 id="transforms">Transforms</h2>
+<p>In v4 each transform is its own CSS property (<code>scale</code>, <code>rotate</code>, <code>translate</code>), so they combine without a <code>transform</code> class:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="tf">
+<div class="flex gap-8 p-6">
+  <div class="size-14 rounded bg-sky-400 scale-75"></div>
+  <div class="size-14 rounded bg-sky-400 rotate-12"></div>
+  <div class="size-14 rounded bg-sky-400 translate-x-4 translate-y-2"></div>
+  <div class="size-14 rounded bg-sky-400 skew-x-12"></div>
+  <div class="size-14 origin-top-left rounded bg-sky-400 rotate-45"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="17-transforms" data-width="520" data-clip=".flex">Five sky squares: scaled to 75%, rotated 12 degrees, moved right and down, skewed, and rotated 45 degrees around its top-left corner.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^    (scale|rotate|translate|transform|transform-origin):">
+    transform-origin: 0 0;
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+    scale: var(--tw-scale-x) var(--tw-scale-y);
+    rotate: 12deg;
+    rotate: 45deg;
+    transform: var(--tw-rotate-x, ) var(--tw-rotate-y, ) var(--tw-rotate-z, ) var(--tw-skew-x, ) var(--tw-skew-y, );
+</script>
+<p>Negative values use a leading dash (<code>-rotate-6</code>, <code>-translate-x-1/2</code>). Translate takes the spacing scale, fractions (<code>-translate-x-1/2</code> to centre), <code>full</code>, and arbitrary values.</p>
+
+<h3 id="three-d">3D</h3>
+<p><code>perspective-*</code> on a parent, <code>transform-3d</code> to keep children in 3D space, and <code>rotate-x-*</code>, <code>rotate-y-*</code>, <code>translate-z-*</code> on the children. <code>backface-hidden</code> hides the back of a flipped card:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="3d">
+<div class="p-8 perspective-near">
+  <div class="size-28 rounded-xl bg-linear-to-br from-indigo-500 to-sky-400 rotate-x-45 rotate-z-12"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="17-3d" data-width="240">A gradient square tilted backwards in perspective and turned slightly, like a tile lying on a table.</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a transform is <strong>moving a sticker on a window</strong>: you can slide, turn or stretch the sticker, but the window (the layout) doesn't change. Neighbours don't move out of the way, which is why transforms are cheap to animate. Changing <code>width</code> or <code>margin</code> is <strong>rearranging the furniture</strong>: everything around it has to move too.</p>
+</div>
+
+<h2 id="animation">Animations</h2>
+<p>Four animations are built in:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="anim">
+<div class="flex items-center gap-8 p-4">
+  <svg class="size-6 animate-spin text-sky-600" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4"/></svg>
+  <span class="relative flex size-3"><span class="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75"></span><span class="relative inline-flex size-3 rounded-full bg-sky-500"></span></span>
+  <div class="h-4 w-24 animate-pulse rounded bg-slate-300"></div>
+  <span class="animate-bounce">⬇️</span>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="^  \.animate|^    animation:|^@keyframes">
+  .animate-bounce {
+    animation: var(--animate-bounce);
+  .animate-ping {
+    animation: var(--animate-ping);
+  .animate-pulse {
+    animation: var(--animate-pulse);
+  .animate-spin {
+    animation: var(--animate-spin);
+@keyframes spin {
+@keyframes ping {
+@keyframes pulse {
+@keyframes bounce {
+</script>
+<ul>
+  <li><code>animate-spin</code>: a loading spinner.</li>
+  <li><code>animate-ping</code>: a radar ripple, for notification dots.</li>
+  <li><code>animate-pulse</code>: fades in and out, for skeleton placeholders while content loads.</li>
+  <li><code>animate-bounce</code>: a "scroll down" hint.</li>
+</ul>
+<p>Their <code>@keyframes</code> are only output when used. Custom animations go in <code>@theme</code> as <code>--animate-*</code> with their keyframes (Chapter 8 showed <code>animate-fade-in</code>); one-offs can use <code>animate-[wiggle_1s_ease-in-out_infinite]</code> with keyframes in your CSS.</p>
+
+<h2 id="starting">Entry animations: <code>starting:</code></h2>
+<p>CSS can now animate an element <em>appearing</em> (being added to the page, or going from <code>display: none</code> to visible) with <code>@starting-style</code>. Tailwind's <code>starting:</code> variant sets the values the element starts from:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="start">
+<div popover id="toast" class="rounded-lg bg-slate-900 px-4 py-3 text-white opacity-100 transition-all transition-discrete duration-300 starting:open:translate-y-4 starting:open:opacity-0">
+  Saved!
+</div>
+<button popovertarget="toast" class="rounded bg-sky-600 px-3 py-1 text-white">Show toast</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="starting-style|popover-open|transition-behavior">
+    transition-behavior: allow-discrete;
+  @starting-style {
+    .starting\:open\:translate-y-4:is([open], :popover-open, :open) {
+    .starting\:open\:opacity-0:is([open], :popover-open, :open) {
+</script>
+<p>When the popover opens, it starts 1&nbsp;rem lower and transparent, then transitions to its normal place. <code>transition-discrete</code> (<code>transition-behavior: allow-discrete</code>) lets properties like <code>display</code> take part in the transition, so the element can also animate out.</p>
+
+<h2 id="reduced">Respecting reduced motion</h2>
+<p>Some people get dizzy or nauseous from movement and turn on "reduce motion" in their system settings. <code>motion-reduce:</code> and <code>motion-safe:</code> let you respond:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="reduce">
+<svg id="s" class="size-6 animate-spin motion-reduce:animate-none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg>
+<div id="card" class="transition motion-safe:hover:-translate-y-1">card</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'spinner animation with reduce-motion on: ' + getComputedStyle(s).animationName">
+spinner animation with reduce-motion on: none
+</script>
+<p>(The book's checker runs Chrome with "reduce motion" on, so the spinner stops.) A good habit: keep essential feedback (a colour change) for everyone and make big movement <code>motion-safe:</code>.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A card that lifts on hover</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="lift">
+<div class="bg-slate-50 p-6">
+  <a id="c" href="#" class="block w-60 rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5 transition duration-200 ease-out hover:-translate-y-1 hover:shadow-lg">
+    <h3 class="font-semibold">Hover card</h3>
+    <p class="text-sm text-slate-500">Lifts and casts a bigger shadow.</p>
+  </a>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="17-lift" data-width="320" data-steps="hover:#c; wait:400">The card while hovered: raised slightly with a larger, softer shadow.</script>
+
+<h3>Skeleton loading state</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="skeleton">
+<div class="flex w-72 animate-pulse gap-3 p-2">
+  <div class="size-10 rounded-full bg-slate-200"></div>
+  <div class="flex-1 space-y-2 py-1">
+    <div class="h-2 rounded bg-slate-200"></div>
+    <div class="h-2 w-2/3 rounded bg-slate-200"></div>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="17-skeleton" data-width="320" data-clip=".flex">A grey placeholder: a circle and two bars, the shape of a comment before it loads.</script>
+
+<h3>A custom wiggle</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="wiggle">
+@import "tailwindcss";
+
+@theme {
+  --animate-wiggle: wiggle 1s ease-in-out infinite;
+  @keyframes wiggle {
+    0%, 100% { rotate: -3deg; }
+    50% { rotate: 3deg; }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="wiggle">
+<span class="inline-block motion-safe:animate-wiggle">🔔</span>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="wiggle|rotate">
+    .motion-safe\:animate-wiggle {
+      animation: var(--animate-wiggle);
+@keyframes wiggle {
+    rotate: -3deg;
+    rotate: 3deg;
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>transition</code> (+ <code>duration-*</code>, <code>ease-*</code>, <code>delay-*</code>) animates state changes like <code>hover:</code>.</li>
+  <li><code>scale-*</code>, <code>rotate-*</code>, <code>translate-*</code>, <code>skew-*</code>, <code>origin-*</code>; each transform is independent in v4.</li>
+  <li>3D: <code>perspective-*</code>, <code>transform-3d</code>, <code>rotate-x-*</code>, <code>backface-hidden</code>.</li>
+  <li><code>animate-spin/ping/pulse/bounce</code>; custom ones as <code>--animate-*</code> with <code>@keyframes</code> in <code>@theme</code>.</li>
+  <li><code>starting:</code> + <code>transition-discrete</code> for entry and exit animations.</li>
+  <li>Use <code>motion-safe:</code>/<code>motion-reduce:</code> to respect reduced-motion settings.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">transition</span></h3>
+<p>A link changes colour on hover. Make the change smooth over 200&nbsp;ms, colours only.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>transition-colors duration-200 hover:text-sky-700</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">transform</span></h3>
+<p>Rotate a chevron icon 180° when its <code>&lt;details&gt;</code> parent is open.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;details class="group"&gt;</code> and on the icon <code>transition-transform group-open:rotate-180</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">spinner</span></h3>
+<p>Show a spinning loader inside a "Saving…" button.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;button disabled class="inline-flex items-center gap-2"&gt;&lt;svg class="size-4 animate-spin" …&gt;…&lt;/svg&gt;Saving…&lt;/button&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">centre</span></h3>
+<p>Centre an absolutely positioned element in its parent with translate.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">performance</span></h3>
+<p>Why is animating <code>translate</code> or <code>scale</code> smoother than animating <code>margin-top</code> or <code>width</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Transforms don't change the layout, so the browser can move the element's already-painted layer on the GPU (compositing). Changing <code>margin</code> or <code>width</code> forces a new layout and repaint of the element and its neighbours on every frame.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">reduced motion</span></h3>
+<p>Rewrite <code>animate-bounce</code> on a "scroll down" arrow so it only bounces for users who haven't asked for reduced motion.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>motion-safe:animate-bounce</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/17/</code>, build a notification dot with <code>animate-ping</code> on a bell icon, and make the bell wiggle on hover using a custom animation.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Bell wrapper <code>relative inline-block</code>; dot as in the "Animations" example, placed with <code>absolute -top-1 -right-1</code>. Define <code>--animate-wiggle</code> as in "More examples" and add <code>hover:animate-wiggle</code> (or <code>motion-safe:hover:animate-wiggle</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">easing</span></h3>
+<p>A dropdown appears with <code>ease-in</code> and feels sluggish. Which easing is better for appearing elements, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>ease-out</code>: it starts fast and slows down at the end, so the element responds immediately and settles gently. <code>ease-in</code> starts slow, which feels like a delay. Use <code>ease-in</code> for elements leaving.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">flip card</span></h3>
+<p>Build a card that flips over on hover to show a back side, using 3D utilities.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Wrapper <code>group perspective-normal</code>; inner <code>relative size-40 transition duration-500 transform-3d group-hover:rotate-y-180</code>; front <code>absolute inset-0 backface-hidden</code>; back <code>absolute inset-0 rotate-y-180 backface-hidden</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">entry</span></h3>
+<p>A <code>&lt;dialog&gt;</code> should fade and scale in from 95% when opened. Write the classes using <code>starting:</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;dialog class="transition-all transition-discrete duration-200 opacity-100 scale-100 starting:open:opacity-0 starting:open:scale-95"&gt;</code>. The <code>open:</code> part targets the open state; <code>starting:</code> gives the values for the first frame.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/transition-property">transition-property</a> · <a href="https://tailwindcss.com/docs/transition-duration">duration</a> · <a href="https://tailwindcss.com/docs/transition-timing-function">easing</a></li>
+  <li><a href="https://tailwindcss.com/docs/scale">scale</a> · <a href="https://tailwindcss.com/docs/rotate">rotate</a> · <a href="https://tailwindcss.com/docs/translate">translate</a> · <a href="https://tailwindcss.com/docs/perspective">perspective</a></li>
+  <li><a href="https://tailwindcss.com/docs/animation">animation</a> · <a href="https://tailwindcss.com/docs/hover-focus-and-other-states#starting-style">starting-style</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

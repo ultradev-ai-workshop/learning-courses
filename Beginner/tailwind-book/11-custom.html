@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧩&lt;/text&gt;&lt;/svg&gt;">
+<title>11. Custom Styles, Directives &amp; Detection · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 11 · Core Concepts</div>
+<h1>Custom Styles, Directives &amp; Detection</h1>
+<p class="lead">Tailwind is extended in CSS, with a handful of <strong>directives</strong>: at-rules like <code>@utility</code>, <code>@custom-variant</code> and <code>@source</code>. This chapter covers the docs' <em>Adding custom styles</em>, <em>Functions and directives</em> and <em>Detecting classes in source files</em> pages: base styles, your own utilities (simple and with values), your own variants, and exactly how Tailwind decides which classes to generate, including how to add or exclude files and safelist classes.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to add base styles in <code>@layer base</code>.</li>
+  <li>How to create utilities with <code>@utility</code>, including functional ones with <code>--value()</code>.</li>
+  <li>How to create variants with <code>@custom-variant</code>, and use variants in CSS with <code>@variant</code>.</li>
+  <li>How class detection works and what it ignores.</li>
+  <li>How to use <code>@source</code> to add paths, exclude paths and safelist classes.</li>
+  <li>A summary of every directive and function.</li>
+</ul>
+</div>
+
+<h2 id="base">Base styles</h2>
+<p>Preflight leaves headings and links unstyled. To give elements defaults (a page font, a link colour), add rules to the <code>base</code> layer, where any utility can override them:</p>
+<script type="text/plain" class="code" data-file="input.css">
+@import "tailwindcss";
+
+@layer base {
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-bold);
+  }
+  a {
+    color: var(--color-sky-700);
+    text-decoration-line: underline;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html">
+<h1>Default heading</h1>
+<h1 class="text-4xl">Overridden by a utility</h1>
+<a href="#">default link</a>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...document.querySelectorAll('h1')].map((h) => h.textContent + ': ' + getComputedStyle(h).fontSize).join('\n') + '\nlink: ' + getComputedStyle(document.querySelector('a')).textDecorationLine">
+Default heading: 24px
+Overridden by a utility: 36px
+link: underline
+</script>
+<p>For the <code>&lt;html&gt;</code> or <code>&lt;body&gt;</code> background and text colour, you can also just add utilities to those tags: <code>&lt;body class="bg-white text-slate-900 antialiased"&gt;</code>.</p>
+
+<h2 id="utility">Your own utilities: <code>@utility</code></h2>
+<p>A custom utility behaves like a built-in one: it's only output when used, it's sorted with the other utilities, and it works with every variant:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="util">
+@import "tailwindcss";
+
+@utility content-auto {
+  content-visibility: auto;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="util">
+<section class="content-auto lg:hover:content-auto">…</section>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .content-auto {
+    content-visibility: auto;
+  }
+  @media (width >= 64rem) {
+    @media (hover: hover) {
+      .lg\:hover\:content-auto:hover {
+        content-visibility: auto;
+      }
+    }
+  }
+}
+</script>
+<p>Compare with a class in <code>@layer components</code> (Chapter 10), which is always output and can't take variants. Rule of thumb: <strong>one job, needs variants → <code>@utility</code>; a bundle of styles for a component → <code>@layer components</code></strong>.</p>
+
+<h3 id="functional">Functional utilities: <code>--value()</code></h3>
+<p>Add <code>-*</code> to the name to accept a value. <code>--value()</code> says which values are allowed: theme keys, bare values of a type, or arbitrary values in brackets:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="func">
+@import "tailwindcss";
+
+@theme {
+  --depth-dropdown: 10;
+  --depth-modal: 50;
+  --depth-toast: 60;
+}
+
+/* z-index from named theme values, or any integer */
+@utility depth-* {
+  z-index: --value(--depth-*, integer);
+}
+
+/* responsive cards: columns at least N spacing units wide */
+@utility grid-fill-* {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(--spacing(--value(integer)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(--value([length]), 1fr));
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="func">
+<div class="depth-modal depth-3 grid-fill-48 grid-fill-[12rem]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .depth-3 {
+    z-index: 3;
+  }
+  .depth-modal {
+    z-index: var(--depth-modal);
+  }
+  .grid-fill-48 {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--spacing) * 48), 1fr));
+  }
+  .grid-fill-\[12rem\] {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  }
+}
+</script>
+<p>A declaration whose <code>--value()</code> doesn't match the class is dropped, which is why <code>grid-fill-48</code> only kept the first <code>grid-template-columns</code> and <code>grid-fill-[12rem]</code> only the second. <code>--value()</code> accepts:</p>
+<ul>
+  <li><code>--value(--depth-*)</code>: a key from a theme namespace (<code>depth-modal</code>).</li>
+  <li><code>--value(integer)</code>, <code>number</code>, <code>percentage</code>, <code>ratio</code>: a bare value of that type (<code>depth-3</code>).</li>
+  <li><code>--value([length])</code>, <code>[color]</code>, <code>[*]</code>…: an arbitrary value in brackets of that type.</li>
+  <li><code>--value("inherit", "auto")</code>: literal keywords.</li>
+</ul>
+<p>Since v4.3 a functional utility can also have a default for the bare name: <code>--value(integer, --default(4))</code> makes <code>stack</code> alone mean <code>stack-4</code>. And <code>--modifier()</code> reads the part after a slash, like <code>/50</code> in <code>bg-sky-500/50</code>.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> <code>@utility depth-*</code> is a <strong>vending machine</strong>. The <code>*</code> is the slot for the button you press, and <code>--value()</code> is the list of buttons that work: named products from the theme, any number, or a custom order in brackets. Press a button that isn't on the list, and nothing comes out.</p>
+</div>
+
+<h2 id="variants">Your own variants: <code>@custom-variant</code></h2>
+<p>You met <code>@custom-variant</code> for dark mode (Chapter 7). Any selector or at-rule can become a variant:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="cv">
+@import "tailwindcss";
+
+@custom-variant theme-midnight (&:where([data-theme="midnight"] *));
+@custom-variant hocus (&:hover, &:focus-visible);
+@custom-variant can-hover (@media (hover: hover) and (pointer: fine));
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="cv">
+<button class="hocus:underline theme-midnight:bg-indigo-950 can-hover:opacity-90">…</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .theme-midnight\:bg-indigo-950:where([data-theme="midnight"] *) {
+    background-color: var(--color-indigo-950);
+  }
+  .hocus\:underline:hover, .hocus\:underline:focus-visible {
+    text-decoration-line: underline;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .can-hover\:opacity-90 {
+      opacity: 90%;
+    }
+  }
+}
+</script>
+
+<h3 id="variant">Variants inside your CSS: <code>@variant</code></h3>
+<p>In custom CSS, <code>@variant</code> applies a Tailwind variant to a block of declarations, so your CSS follows the same dark mode or breakpoints as your utilities:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="atvar">
+@import "tailwindcss";
+
+.panel {
+  background: white;
+  @variant dark {
+    background: var(--color-slate-900);
+  }
+  @variant md {
+    padding: --spacing(8);
+  }
+  @variant hover:focus-within {
+    outline: 2px solid var(--color-sky-500);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="atvar">
+<div class="panel"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="^\.panel|^  [a-z@&]|^    [a-z@&]|^      [a-z@&]|^        [a-z]">
+.panel {
+  background: white;
+  @media (prefers-color-scheme: dark) {
+    background: var(--color-slate-900);
+  @media (width >= 48rem) {
+    padding: calc(var(--spacing) * 8);
+  &:hover {
+    @media (hover: hover) {
+      &:focus-within {
+        outline: 2px solid var(--color-sky-500);
+</script>
+<p>Stacked variants like <code>@variant hover:focus-within</code> are new in v4.3.</p>
+
+<h2 id="detection">How Tailwind detects classes</h2>
+<p>Tailwind doesn't understand HTML, JSX or templates. It reads every source file <strong>as plain text</strong>, splits it into tokens that <em>could</em> be class names, and generates CSS for the tokens that match a utility. That's why it works with any language, and why it has two quirks.</p>
+<p><strong>Quirk 1: dynamic class names don't work.</strong> Tailwind sees the text, not the result of your code:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="dyn">
+<div id="out"></div>
+<script>
+  const color = "red";
+  out.className = `text-${color}-600`;   // never written in full: not generated
+  const ok = { red: "text-red-700" }[color];   // written in full: generated
+<\/script>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-red-700 {
+    color: var(--color-red-700);
+  }
+}
+</script>
+<p><strong>Quirk 2: ordinary words can become classes.</strong> Words in your text that happen to be utility names generate CSS. In Chapter 6, the words "resize me" in an example generated a <code>.resize</code> rule. It's harmless: a few unused bytes. (Below, "hidden." isn't picked up because of the full stop after it: a class name can't end with a dot.)</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="words">
+<p>Make the table fixed and the block hidden.</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.">
+  .fixed {
+  .block {
+  .table {
+</script>
+
+<h3 id="ignored">Which files are scanned</h3>
+<p>Tailwind starts from the current working directory (for the CLI) or the project root (for Vite and PostCSS) and scans every file except:</p>
+<ul>
+  <li>files and folders in your <code>.gitignore</code>;</li>
+  <li><code>node_modules</code>;</li>
+  <li>binary files (images, videos, zip files);</li>
+  <li>CSS files;</li>
+  <li>common package-manager lock files.</li>
+</ul>
+<script type="text/plain" class="code" data-file=".gitignore" data-app="ignore">
+drafts/
+</script>
+<script type="text/plain" class="code" data-file="drafts/old.html" data-app="ignore">
+<p class="underline">ignored folder</p>
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="ignore">
+<p class="italic">scanned</p>
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ git init -q && npx @tailwindcss/cli -i input.css -o output.css --silent
+$ grep -c "^  .underline" output.css
+0
+$ grep -c "^  .italic" output.css
+1
+</script>
+
+<h2 id="source">Controlling detection: <code>@source</code></h2>
+<div class="table-wrap"><table>
+<tr><th>Need</th><th>Write</th></tr>
+<tr><td>Scan a folder that's ignored, e.g. a UI library in <code>node_modules</code></td><td><code>@source "../node_modules/@acme/ui";</code></td></tr>
+<tr><td>Scan only one folder, not the whole project</td><td><code>@import "tailwindcss" source("../src");</code></td></tr>
+<tr><td>Turn off automatic detection, list paths yourself</td><td><code>@import "tailwindcss" source(none);</code> + <code>@source</code> lines</td></tr>
+<tr><td>Exclude a path</td><td><code>@source not "./src/legacy";</code></td></tr>
+<tr><td>Always generate some classes (safelist)</td><td><code>@source inline("underline");</code></td></tr>
+<tr><td>Never generate a class</td><td><code>@source not inline("container");</code></td></tr>
+</table></div>
+<p>Paths in <code>@source</code> are relative to the CSS file. A safelist with <strong>brace expansion</strong> generates many classes at once, useful when class names come from a CMS or database:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="inline">
+@import "tailwindcss" source(none);
+@source inline("{hover:,}bg-sky-{100,500}");
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="inline">
+<p class="text-red-500">source(none): this file isn't scanned</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^\s+\.">
+  .bg-sky-100 {
+  .bg-sky-500 {
+    .hover\:bg-sky-100:hover {
+    .hover\:bg-sky-500:hover {
+</script>
+<p><code>{hover:,}</code> means "with <code>hover:</code> or with nothing", and <code>{100,500}</code> lists shades; <code>{100..900..100}</code> would be a range in steps of 100. <code>text-red-500</code> wasn't generated because <code>source(none)</code> turned off scanning.</p>
+
+<h2 id="reference-table">All directives and functions</h2>
+<div class="table-wrap"><table>
+<tr><th>Directive / function</th><th>What it does</th><th>Chapter</th></tr>
+<tr><td><code>@import "tailwindcss"</code></td><td>Imports theme, Preflight and utilities</td><td>2</td></tr>
+<tr><td><code>@theme</code></td><td>Defines theme variables (and utilities)</td><td>8</td></tr>
+<tr><td><code>@source</code></td><td>Adds/excludes paths, safelists classes</td><td>11</td></tr>
+<tr><td><code>@utility</code></td><td>Defines a custom utility</td><td>11</td></tr>
+<tr><td><code>@variant</code></td><td>Applies a variant inside custom CSS</td><td>11</td></tr>
+<tr><td><code>@custom-variant</code></td><td>Defines a custom variant</td><td>7, 11</td></tr>
+<tr><td><code>@apply</code></td><td>Inlines utilities into custom CSS</td><td>10</td></tr>
+<tr><td><code>@reference</code></td><td>Makes a stylesheet's theme known without output</td><td>10</td></tr>
+<tr><td><code>@plugin</code></td><td>Loads a JavaScript plugin</td><td>App. B</td></tr>
+<tr><td><code>@config</code></td><td>Loads a legacy <code>tailwind.config.js</code></td><td>App. A</td></tr>
+<tr><td><code>--alpha(color / 50%)</code></td><td>Colour with opacity</td><td>8</td></tr>
+<tr><td><code>--spacing(4)</code></td><td>Multiple of <code>--spacing</code></td><td>8</td></tr>
+<tr><td><code>--theme(--color-x)</code></td><td>A theme value, optionally inline</td><td>2</td></tr>
+<tr><td><code>--value()</code>, <code>--modifier()</code></td><td>Values inside <code>@utility</code></td><td>11</td></tr>
+</table></div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A utility with a modifier</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="mod">
+@import "tailwindcss";
+
+@utility glow-* {
+  box-shadow: 0 0 --value([length], integer)px --alpha(var(--color-sky-400) / calc(--modifier(integer) * 1%));
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="mod">
+<div class="glow-12/60"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="glow|box-shadow">
+  .glow-12\/60 {
+    box-shadow: 0 0 12px color-mix(in srgb, oklch(74.6% 0.16 232.661) calc(60 * 1%), transparent);
+      box-shadow: 0 0 12px color-mix(in oklab, var(--color-sky-400) calc(60 * 1%), transparent);
+</script>
+
+<h3>A Markdown-friendly safelist</h3>
+<p>Content from a CMS can contain classes Tailwind never sees in your files. Safelist only what editors are allowed to use:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="cms">
+@import "tailwindcss";
+@source inline("text-{left,center,right}");
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="cms">
+<p>CMS content arrives at runtime.</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.">
+  .text-center {
+  .text-left {
+  .text-right {
+</script>
+
+<h3>Base styles with theme functions</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="basefn">
+@import "tailwindcss";
+
+@layer base {
+  ::selection {
+    background: --alpha(var(--color-sky-400) / 30%);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="basefn">
+<p>Select me</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="base" data-grep="selection|^    background|^      background">
+    background-color: transparent;
+  ::selection {
+    background: color-mix(in srgb, oklch(74.6% 0.16 232.661) 30%, transparent);
+      background: color-mix(in oklab, var(--color-sky-400) 30%, transparent);
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Element defaults go in <code>@layer base</code>; utilities override them.</li>
+  <li><code>@utility name { … }</code> creates a utility that's output on demand and supports variants.</li>
+  <li><code>@utility name-* { prop: --value(…); }</code> accepts theme keys, bare values and bracket values; <code>--modifier()</code> reads <code>/x</code>; <code>--default()</code> (v4.3) sets the bare name's value.</li>
+  <li><code>@custom-variant</code> defines variants from selectors or at-rules; <code>@variant</code> uses them inside custom CSS.</li>
+  <li>Detection reads files as plain text: write full class names; stray words may generate harmless CSS.</li>
+  <li>Ignored: <code>.gitignore</code>d paths, <code>node_modules</code>, binaries, CSS, lock files. <code>@source</code> adds, excludes (<code>not</code>) and safelists (<code>inline()</code>).</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">base</span></h3>
+<p>Give every <code>h2</code> a default size of <code>text-xl</code> and weight semibold, in a way utilities can still override.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@layer base { h2 { font-size: var(--text-xl); line-height: var(--text-xl--line-height); font-weight: var(--font-weight-semibold); } }</code> (or <code>@apply text-xl font-semibold;</code> inside the rule).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">utility</span></h3>
+<p>Create a utility <code>no-scrollbar</code> that sets <code>scrollbar-width: none</code>, and use it only on large screens.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@utility no-scrollbar { scrollbar-width: none; }</code> and <code>class="lg:no-scrollbar"</code>. (v4.3 also has a built-in <code>scrollbar-none</code>.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">detection</span></h3>
+<p>Will Tailwind generate <code>bg-blue-500</code> for: <code>className={isActive ? "bg-blue-500" : "bg-white"}</code>? And for <code>className={"bg-" + color + "-500"}</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Yes for the first (both full names appear in the file). No for the second (no full name appears).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">source</span></h3>
+<p>Your design system's components are in <code>node_modules/@acme/ui</code>. Their classes aren't generated. Fix it from <code>src/app.css</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@source "../node_modules/@acme/ui";</code> (relative to <code>src/app.css</code>), after <code>@import "tailwindcss";</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">functional</span></h3>
+<p>Write a utility <code>stack-*</code> that makes a vertical flex column with a gap of N spacing units, where plain <code>stack</code> means <code>stack-4</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@utility stack-* { display: flex; flex-direction: column; gap: --spacing(--value(integer, --default(4))); }</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">variant</span></h3>
+<p>Create a variant <code>rtl-only</code> that applies when the element is inside <code>dir="rtl"</code>, and use it to flip an arrow icon.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@custom-variant rtl-only (&amp;:where([dir="rtl"] *));</code> and <code>class="rtl-only:-scale-x-100"</code>. (Tailwind already has <code>rtl:</code> and <code>ltr:</code> variants; this is for practice.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">safelist</span></h3>
+<p>Editors may pick a background from <code>bg-{red,amber,emerald}-{100,200}</code> in a CMS. Safelist exactly those six classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@source inline("bg-{red,amber,emerald}-{100,200}");</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/11/</code> define a <code>depth-*</code> utility with three named layers from the theme, and a <code>hocus</code> variant. Use both on a dropdown button and its menu. Then check <code>output.css</code>: is <code>--depth-toast</code> there if you don't use <code>depth-toast</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No: like other theme variables, it's only output when a utility uses it. Use <code>@theme static</code> if you need it anyway.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">monorepo</span></h3>
+<p>A monorepo has <code>apps/web/src/app.css</code>, <code>apps/web/src/**</code>, <code>packages/ui/src/**</code> and a huge <code>apps/web/src/generated/</code> folder with no classes. Write the CSS to scan exactly the web app's source and the UI package, minus <code>generated</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@import "tailwindcss" source(none);</code> then <code>@source "./";</code> (the <code>src</code> folder), <code>@source "../../../packages/ui/src";</code>, and <code>@source not "./generated";</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Explain why <code>@utility</code> classes support <code>hover:</code> but classes in <code>@layer components</code> don't.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@utility</code> registers a name with Tailwind's engine, so when it sees <code>hover:name</code> it knows how to generate a rule for that candidate. A class in <code>@layer components</code> is plain CSS that Tailwind just passes through; the engine doesn't know <code>name</code> is a utility, so <code>hover:name</code> matches nothing.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/adding-custom-styles">Adding custom styles</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives">Functions and directives</a></li>
+  <li><a href="https://tailwindcss.com/docs/detecting-classes-in-source-files">Detecting classes in source files</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

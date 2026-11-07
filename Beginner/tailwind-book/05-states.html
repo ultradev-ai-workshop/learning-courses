@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🖱️&lt;/text&gt;&lt;/svg&gt;">
+<title>5. Hover, Focus &amp; Other States · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 5 · Core Concepts</div>
+<h1>Hover, Focus &amp; Other States</h1>
+<p class="lead">In CSS you style states with pseudo-classes like <code>:hover</code> and <code>:focus</code>. In Tailwind you add a <strong>variant</strong> in front of a utility: <code>hover:bg-sky-700</code> means "<code>bg-sky-700</code>, but only on hover". This chapter covers the variants you'll use every day: interaction states, structural ones like <code>first:</code> and <code>odd:</code>, styling based on a parent (<code>group</code>) or a sibling (<code>peer</code>), <code>has-</code>, pseudo-elements, form states, ARIA and data attributes. The screenshots were taken with the mouse really over the element or the field really focused.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How a variant turns into CSS, and how to stack variants.</li>
+  <li>Interaction states: <code>hover</code>, <code>focus</code>, <code>focus-visible</code>, <code>active</code>, <code>disabled</code>.</li>
+  <li>Structural variants: <code>first</code>, <code>last</code>, <code>odd</code>, <code>even</code>, <code>*</code>.</li>
+  <li>Styling from a parent with <code>group</code>, from a sibling with <code>peer</code>, and from children with <code>has-</code>.</li>
+  <li>Pseudo-elements: <code>before</code>, <code>after</code>, <code>placeholder</code>, <code>file</code>, <code>marker</code>, <code>selection</code>.</li>
+  <li>Form, ARIA, data-attribute and media variants.</li>
+</ul>
+</div>
+
+<h2 id="basics">Hover, focus and active</h2>
+<script type="text/plain" class="code" data-file="index.html">
+<button id="save" class="rounded-lg bg-sky-500 px-5 py-2 font-semibold text-white hover:bg-sky-700 focus:outline-2 focus:outline-offset-2 focus:outline-sky-500 active:bg-sky-800">
+  Save changes
+</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^\s+\.(hover|focus|active)|^  @media \(hover">
+  @media (hover: hover) {
+    .hover\:bg-sky-700:hover {
+  .focus\:outline-2:focus {
+  .focus\:outline-offset-2:focus {
+  .focus\:outline-sky-500:focus {
+  .active\:bg-sky-800:active {
+</script>
+<p>These are the selectors Tailwind generated (the declarations inside are the same as for the plain utilities). Each variant adds a pseudo-class to the selector, and <code>hover:</code> is also wrapped in <code>@media (hover: hover)</code>. Here is the same button in three states, captured in Chrome:</p>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-normal" data-width="260" data-clip="#save">The button in its normal state: sky blue.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-hover" data-width="260" data-clip="#save" data-steps="hover:#save">The button with the mouse over it: a darker blue.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-focus" data-width="260" data-steps="focus:#save">The focused button with a 2px sky-blue outline drawn 2px outside it.</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="hover:#save" data-eval="'background while hovered: ' + getComputedStyle(document.getElementById('save')).backgroundColor">
+background while hovered: oklch(0.5 0.134 242.749)
+</script>
+<div class="table-wrap"><table>
+<tr><th>Variant</th><th>CSS</th><th>When</th></tr>
+<tr><td><code>hover:</code></td><td><code>:hover</code> inside <code>@media (hover: hover)</code></td><td>The mouse is over the element (devices that can hover).</td></tr>
+<tr><td><code>focus:</code></td><td><code>:focus</code></td><td>The element has keyboard focus, from a click or the Tab key.</td></tr>
+<tr><td><code>focus-visible:</code></td><td><code>:focus-visible</code></td><td>Focus the browser thinks should be visible, usually from the keyboard and not a mouse click.</td></tr>
+<tr><td><code>focus-within:</code></td><td><code>:focus-within</code></td><td>The element <em>or something inside it</em> has focus.</td></tr>
+<tr><td><code>active:</code></td><td><code>:active</code></td><td>While the element is being pressed.</td></tr>
+<tr><td><code>visited:</code></td><td><code>:visited</code></td><td>A link the user has visited (only colours can change, for privacy).</td></tr>
+<tr><td><code>disabled:</code> / <code>enabled:</code></td><td><code>:disabled</code> / <code>:enabled</code></td><td>Form controls with or without the <code>disabled</code> attribute.</td></tr>
+</table></div>
+
+<div class="tip">
+<p>💡 <strong>Accessibility:</strong> for buttons and links, prefer <code>focus-visible:</code> for the focus ring. Keyboard users get a clear outline; mouse users don't see a ring every time they click. Never remove the outline without replacing it.</p>
+</div>
+
+<h2 id="stacking">Stacking variants</h2>
+<p>Variants combine: <code>md:hover:bg-sky-700</code> means "on medium screens and up, on hover". In v4, stacked variants apply <strong>left to right</strong>, like nested CSS:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="stack">
+<button class="dark:md:hover:bg-sky-700 disabled:hover:bg-slate-300">Stacked</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  @media (hover: hover) {
+    .disabled\:hover\:bg-slate-300:disabled:hover {
+      background-color: var(--color-slate-300);
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    @media (width >= 48rem) {
+      @media (hover: hover) {
+        .dark\:md\:hover\:bg-sky-700:hover {
+          background-color: var(--color-sky-700);
+        }
+      }
+    }
+  }
+}
+</script>
+<p>For most variants the order doesn't change the result. It matters for variants that select <em>other</em> elements, like <code>*:</code> or <code>group-</code>, which you'll meet below.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a variant is an <strong>"only if" sticker</strong> on a utility. <code>bg-sky-700</code> is a can of paint; <code>hover:bg-sky-700</code> is the same can with a sticker "only while someone points at it". Stack stickers and every condition must be true: "only in dark mode, only on wide screens, only while pointed at".</p>
+</div>
+
+<h2 id="structural">First, last, odd, even</h2>
+<p>Structural variants style an element based on its position among its siblings. They save you from adding special classes in a loop:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="rows">
+<ul class="w-64 rounded-lg border border-slate-200">
+  <li class="px-3 py-2 odd:bg-slate-50 first:rounded-t-lg first:font-semibold last:text-slate-400">Title</li>
+  <li class="px-3 py-2 odd:bg-slate-50 first:rounded-t-lg first:font-semibold last:text-slate-400">Row one</li>
+  <li class="px-3 py-2 odd:bg-slate-50 first:rounded-t-lg first:font-semibold last:text-slate-400">Row two</li>
+  <li class="px-3 py-2 odd:bg-slate-50 first:rounded-t-lg first:font-semibold last:text-slate-400">Row three</li>
+  <li class="px-3 py-2 odd:bg-slate-50 first:rounded-t-lg first:font-semibold last:text-slate-400">Footer</li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-rows" data-width="320">A five-row list: the first row bold, rows 1, 3 and 5 with a light grey stripe, the last row in light grey text.</script>
+<p>Every <code>&lt;li&gt;</code> has the same classes (as it would in a loop); CSS decides which ones apply. Also available: <code>only:</code>, <code>first-of-type:</code>, <code>last-of-type:</code>, <code>empty:</code>, and <code>nth-3:</code> or <code>nth-[3n+1]:</code> for any <code>:nth-child()</code> formula.</p>
+
+<h2 id="group">Styling based on a parent: <code>group</code></h2>
+<p>To change a child when the <em>parent</em> is hovered, mark the parent with the class <code>group</code> and use <code>group-hover:</code> on the child:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="group">
+<a id="card" href="#" class="group block w-72 rounded-lg p-4 ring-1 ring-slate-900/5 hover:bg-sky-500">
+  <h3 class="font-semibold text-slate-900 group-hover:text-white">New project</h3>
+  <p class="text-sm text-slate-500 group-hover:text-sky-100">Create from a template.</p>
+</a>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-group" data-width="340" data-steps="hover:#card">With the mouse over the card: blue background, white title, light-blue description.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="group">
+    :is(:where(.group):hover .group-hover\:text-sky-100) {
+    :is(:where(.group):hover .group-hover\:text-white) {
+</script>
+<p>Read the selector as "an element with this class that is inside a hovered <code>.group</code>". The <code>:where()</code> around <code>.group</code> adds no specificity, so the rule is exactly as strong as a plain <code>hover:</code> utility. Every state works: <code>group-focus:</code>, <code>group-active:</code>, <code>group-odd:</code>, <code>group-has-[…]:</code>… When groups are nested, <strong>name them</strong> with <code>group/name</code> and <code>group-hover/name:</code>, so a child reacts to the right ancestor:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="named">
+<ul>
+  <li class="group/item flex justify-between p-2 hover:bg-slate-100">
+    <span>Leslie</span>
+    <a class="group/edit invisible group-hover/item:visible" href="#">
+      <span class="group-hover/edit:underline">Call</span>
+    </a>
+  </li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="hover:li" data-eval="'link visibility while the row is hovered: ' + getComputedStyle(document.querySelector('a')).visibility">
+link visibility while the row is hovered: visible
+</script>
+
+<h2 id="peer">Styling based on a sibling: <code>peer</code></h2>
+<p>To style an element based on a <em>previous sibling</em>, mark the sibling with <code>peer</code> and use <code>peer-*:</code>. The classic use is showing an error message for an invalid field. Here we type an invalid email:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="peer">
+<form class="w-72">
+  <label for="email" class="block text-sm font-medium text-slate-700">Email</label>
+  <input id="email" type="email" class="peer mt-1 w-full rounded-md border border-slate-300 px-3 py-2 user-invalid:border-pink-500 user-invalid:text-pink-600">
+  <p class="invisible mt-2 text-sm text-pink-600 peer-user-invalid:visible">Please enter a valid email address.</p>
+</form>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-peer" data-width="340" data-steps="fill:#email=not-an-email">An email field with a pink border containing "not-an-email", and a pink message below: "Please enter a valid email address."</script>
+<p><code>user-invalid:</code> (the CSS <code>:user-invalid</code> pseudo-class, added in v4.1) only matches after the user has interacted with the field, so the form doesn't start covered in errors the way plain <code>invalid:</code> would. <code>peer</code> works with the CSS sibling combinator <code>~</code>, so it only affects siblings <strong>after</strong> the peer; that's a CSS limit, not a Tailwind one. Peers can be named too: <code>peer/email</code> and <code>peer-checked/email:</code>.</p>
+
+<h2 id="has">Styling based on children: <code>has-</code></h2>
+<p>The CSS <code>:has()</code> pseudo-class styles an element based on what it contains. Tailwind writes it as <code>has-[selector]:</code> or with a built-in state, such as <code>has-checked:</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="has">
+<label id="plan" class="flex w-64 items-center justify-between rounded-lg p-3 ring-1 ring-slate-200 has-checked:bg-sky-50 has-checked:ring-sky-500">
+  <span class="font-medium">Pro plan</span>
+  <input type="radio" name="plan" class="accent-sky-600">
+</label>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-has" data-width="320" data-steps="click:input">A selected radio option: the whole label has a light blue background and a blue ring.</script>
+<p>Before <code>:has()</code>, this needed JavaScript. <code>group-has-*</code> and <code>peer-has-*</code> also exist, and <code>not-*</code> negates any variant: <code>not-first:border-t</code>, <code>not-has-checked:opacity-60</code>.</p>
+
+<h2 id="pseudo-elements">Pseudo-elements</h2>
+<p><code>before:</code> and <code>after:</code> style the <code>::before</code> and <code>::after</code> pseudo-elements. Tailwind adds <code>content: var(--tw-content)</code> automatically, so they appear even without a <code>content-</code> class; use <code>content-['…']</code> for text:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="pseudo">
+<label class="block">
+  <span class="text-sm font-medium after:ml-0.5 after:text-red-500 after:content-['*']">Name</span>
+  <input class="mt-1 block w-60 rounded-md border border-slate-300 px-3 py-2 placeholder:text-slate-400 placeholder:italic" placeholder="Ada Lovelace">
+</label>
+<ol class="mt-4 list-decimal pl-6 marker:text-sky-600 marker:font-bold">
+  <li>Markers can be coloured</li>
+</ol>
+<p class="mt-2 selection:bg-amber-200">Select this text to see a custom highlight.</p>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-pseudo" data-width="340">A "Name" label followed by a red asterisk, an input with an italic grey placeholder "Ada Lovelace", a numbered list whose marker "1." is bold sky blue, and a line of text.</script>
+<div class="table-wrap"><table>
+<tr><th>Variant</th><th>Targets</th></tr>
+<tr><td><code>before:</code>, <code>after:</code></td><td><code>::before</code>, <code>::after</code></td></tr>
+<tr><td><code>placeholder:</code></td><td>The placeholder text of inputs</td></tr>
+<tr><td><code>file:</code></td><td>The button of <code>&lt;input type="file"&gt;</code></td></tr>
+<tr><td><code>marker:</code></td><td>List bullets and numbers (inherited, so it can go on the <code>&lt;ul&gt;</code>)</td></tr>
+<tr><td><code>selection:</code></td><td>Text the user selects (also inherited)</td></tr>
+<tr><td><code>first-line:</code>, <code>first-letter:</code></td><td>The first line or letter of a paragraph</td></tr>
+<tr><td><code>backdrop:</code></td><td>The backdrop behind a <code>&lt;dialog&gt;</code> opened as a modal</td></tr>
+</table></div>
+
+<h2 id="forms">Form states</h2>
+<p>Variants exist for every form pseudo-class: <code>required:</code>, <code>invalid:</code>, <code>user-valid:</code>, <code>user-invalid:</code>, <code>checked:</code>, <code>indeterminate:</code>, <code>disabled:</code>, <code>read-only:</code>, <code>placeholder-shown:</code>, <code>autofill:</code>, <code>in-range:</code>, <code>out-of-range:</code>, <code>default:</code>, <code>optional:</code>. A disabled input:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="disabled">
+<input value="read only" disabled class="rounded-md border border-slate-300 px-3 py-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500">
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const s = getComputedStyle(document.querySelector('input')); return 'cursor: ' + s.cursor + '\nbackground: ' + s.backgroundColor; })()">
+cursor: not-allowed
+background: oklch(0.984 0.003 247.858)
+</script>
+
+<h2 id="aria-data">ARIA and data attributes</h2>
+<p>Components often expose their state as attributes: <code>aria-expanded="true"</code>, <code>aria-selected</code>, <code>data-state="open"</code>. Style them directly:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="aria">
+<button aria-pressed="true" class="rounded-md px-3 py-1 ring-1 ring-slate-300 aria-pressed:bg-slate-900 aria-pressed:text-white">Bold</button>
+<div data-size="large" class="p-2 data-[size=large]:p-8">Large</div>
+<div data-active class="data-active:font-bold">Active</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="aria|data">
+  .aria-pressed\:bg-slate-900[aria-pressed="true"] {
+  .aria-pressed\:text-white[aria-pressed="true"] {
+  .data-active\:font-bold[data-active] {
+  .data-\[size\=large\]\:p-8[data-size="large"] {
+</script>
+<p>Boolean ARIA attributes (<code>aria-checked</code>, <code>aria-disabled</code>, <code>aria-expanded</code>, <code>aria-hidden</code>, <code>aria-pressed</code>, <code>aria-readonly</code>, <code>aria-required</code>, <code>aria-selected</code>) have built-in variants that match <code>="true"</code>. For others use brackets: <code>aria-[sort=ascending]:</code>. <code>data-active:</code> matches the attribute being present.</p>
+
+<h2 id="media">Media and feature variants</h2>
+<div class="table-wrap"><table>
+<tr><th>Variant</th><th>Applies when</th></tr>
+<tr><td><code>motion-reduce:</code> / <code>motion-safe:</code></td><td>The user asked the system to reduce motion / didn't</td></tr>
+<tr><td><code>contrast-more:</code> / <code>contrast-less:</code></td><td>The user asked for more / less contrast</td></tr>
+<tr><td><code>forced-colors:</code></td><td>Windows high-contrast mode is on</td></tr>
+<tr><td><code>print:</code></td><td>The page is printed</td></tr>
+<tr><td><code>portrait:</code> / <code>landscape:</code></td><td>Viewport orientation</td></tr>
+<tr><td><code>pointer-fine:</code> / <code>pointer-coarse:</code></td><td>A mouse / a touch screen is the main pointer (v4.1)</td></tr>
+<tr><td><code>supports-[display:grid]:</code></td><td>The browser supports a CSS feature</td></tr>
+<tr><td><code>noscript:</code></td><td>JavaScript is disabled (v4.1)</td></tr>
+<tr><td><code>open:</code></td><td><code>&lt;details&gt;</code> or <code>&lt;dialog&gt;</code> is open</td></tr>
+<tr><td><code>inert:</code></td><td>The element is inside an <code>inert</code> subtree</td></tr>
+<tr><td><code>starting:</code></td><td><code>@starting-style</code>: the first frame of an element appearing, for entry animations (Chapter 17)</td></tr>
+</table></div>
+<p>Responsive breakpoints (<code>md:</code>) and dark mode (<code>dark:</code>) are variants too; they have their own chapters.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A toggle switch with no JavaScript</h3>
+<p>A checkbox as the <code>peer</code>, visually hidden with <code>sr-only</code> (still focusable and announced by screen readers), and a styled track and knob after it:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="toggle">
+<label id="t" class="inline-flex cursor-pointer items-center gap-3">
+  <input type="checkbox" class="peer sr-only">
+  <span class="relative h-6 w-11 rounded-full bg-slate-300 transition-colors peer-checked:bg-emerald-500 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-emerald-500 after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5"></span>
+  <span class="text-sm">Notifications</span>
+</label>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-toggle-off" data-width="260" data-clip="#t">The toggle switched off: grey track, white knob on the left.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-toggle-on" data-width="260" data-clip="#t" data-steps="click:#t">The toggle switched on after a click: green track, knob on the right.</script>
+<p>Note <code>peer-checked:after:translate-x-5</code>: two variants stacked, "when the peer is checked, on the <code>::after</code>".</p>
+
+<h3>An accordion with <code>&lt;details&gt;</code> and <code>open:</code></h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="details">
+<details id="faq" class="w-72 rounded-lg p-4 ring-1 ring-slate-200 open:bg-slate-50 open:ring-sky-400">
+  <summary class="cursor-pointer font-medium">Is Tailwind free?</summary>
+  <p class="mt-2 text-sm text-slate-600">Yes, it's open source under the MIT license.</p>
+</details>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="05-details" data-width="340" data-steps="click:summary">The open accordion: grey background, sky ring, and the answer visible below the question.</script>
+
+<h3>Highlighting the field being edited: <code>focus-within</code></h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="within">
+<div id="box" class="flex w-72 items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-slate-300 focus-within:ring-2 focus-within:ring-sky-500">
+  <span>🔍</span>
+  <input id="q" class="w-full outline-none" placeholder="Search">
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="focus:#q" data-eval="'box-shadow layers while the input is focused:\n' + getComputedStyle(document.getElementById('box')).boxShadow.split(/, (?=rgba|oklch)/).join('\n')">
+box-shadow layers while the input is focused:
+rgba(0, 0, 0, 0) 0px 0px 0px 0px
+rgba(0, 0, 0, 0) 0px 0px 0px 0px
+rgba(0, 0, 0, 0) 0px 0px 0px 0px
+oklch(0.685 0.169 237.323) 0px 0px 0px 2px
+rgba(0, 0, 0, 0) 0px 0px 0px 0px
+</script>
+<p>Rings are made with <code>box-shadow</code>. Tailwind always writes five shadow layers (inset shadow, inset ring, ring offset, ring, shadow) so that <code>ring-*</code>, <code>shadow-*</code> and <code>inset-shadow-*</code> can be combined on one element; unused layers are transparent. The fourth layer is the ring: no blur and a 2&nbsp;px spread in sky-500.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>A variant (<code>hover:</code>, <code>focus:</code>…) applies a utility only in a state; it compiles to a pseudo-class, attribute selector or media query.</li>
+  <li>Variants stack and apply left to right: <code>md:hover:bg-sky-700</code>.</li>
+  <li><code>hover:</code> only applies on devices that can hover; use <code>focus-visible:</code> for keyboard focus rings.</li>
+  <li><code>first:</code>, <code>last:</code>, <code>odd:</code>, <code>even:</code>, <code>nth-*:</code> style by position.</li>
+  <li><code>group</code> + <code>group-hover:</code> styles children from a parent; <code>peer</code> + <code>peer-*:</code> styles later siblings; <code>has-*:</code> styles a parent from its children. Name them with <code>/name</code>.</li>
+  <li><code>before:</code>, <code>after:</code>, <code>placeholder:</code>, <code>marker:</code>, <code>selection:</code>, <code>file:</code> style pseudo-elements.</li>
+  <li>Form (<code>user-invalid:</code>, <code>disabled:</code>), ARIA (<code>aria-pressed:</code>), data (<code>data-[state=open]:</code>) and media variants cover the rest.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>A link should be grey, turn black on hover, and show an underline when focused with the keyboard. Write its classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>text-slate-500 hover:text-black focus-visible:underline</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">zebra</span></h3>
+<p>Give every even row of a table a light grey background without adding classes to specific rows.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Put <code>even:bg-slate-50</code> on every <code>&lt;tr&gt;</code> (the same class on all rows, as a loop would), or once on the table body with <code>*:even:bg-slate-50</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">read</span></h3>
+<p>What does <code>md:disabled:opacity-50</code> do?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>On screens 48&nbsp;rem (768&nbsp;px) and wider, a disabled element gets 50% opacity.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">pseudo-element</span></h3>
+<p>Add a red asterisk after a label's text using only classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;span class="after:ml-0.5 after:text-red-500 after:content-['*']"&gt;Email&lt;/span&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">group</span></h3>
+<p>A product card contains an image and a title. On card hover, the image should get slightly smaller opacity and the title should turn sky-blue. Write the markup.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;a class="group block"&gt;&lt;img class="group-hover:opacity-75" …&gt;&lt;h3 class="group-hover:text-sky-600"&gt;…&lt;/h3&gt;&lt;/a&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">peer</span></h3>
+<p>Why does this not work, and how do you fix it? <code>&lt;p class="peer-invalid:visible invisible"&gt;Error&lt;/p&gt;&lt;input class="peer" required&gt;</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>peer-*</code> compiles to <code>.peer:invalid ~ p</code>, and the CSS <code>~</code> combinator only selects siblings that come <em>after</em> the peer. Move the <code>&lt;p&gt;</code> after the <code>&lt;input&gt;</code>. Use <code>peer-user-invalid:</code> so it doesn't show before the user types.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">has</span></h3>
+<p>A form row should get a red left border when the input inside it is invalid after the user has typed. Use <code>has-</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div class="border-l-4 border-transparent has-user-invalid:border-red-500"&gt;&lt;input type="email"&gt;&lt;/div&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/05/index.html</code> build the toggle switch from "More examples", then change it to use <code>sky</code> instead of <code>emerald</code> and add <code>motion-reduce:transition-none</code> to both transitions. Why add the last part?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Replace the three <code>emerald-500</code> classes. <code>motion-reduce:transition-none</code> turns the animation off for users who set "reduce motion" in their system settings (some people get dizzy from movement).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">named groups</span></h3>
+<p>A sidebar menu item (a group) contains a "more" button (also a group) with an icon. The icon should appear when the <em>item</em> is hovered, and turn blue when the <em>button</em> is hovered. Write the classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Item: <code>group/item</code>. Button: <code>group/more invisible group-hover/item:visible</code>. Icon: <code>text-slate-400 group-hover/more:text-sky-600</code>. Without names, <code>group-hover:</code> reacts to <em>any</em> <code>.group</code> ancestor being hovered, so hovering the item would also turn the icon blue.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">read the CSS</span></h3>
+<p>Predict the selector Tailwind generates for <code>group-hover:underline</code> and for <code>peer-checked:bg-sky-500</code>, then check with the CLI.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>:is(:where(.group):hover .group-hover\:underline)</code> inside <code>@media (hover: hover)</code>, and <code>:is(:where(.peer):checked ~ .peer-checked\:bg-sky-500)</code>. <code>:where()</code> adds zero specificity, so each has the specificity of one class plus one pseudo-class, the same as <code>.hover\:bg-sky-700:hover</code>. (Print them with <code>npx @tailwindcss/cli -i input.css</code>; older 4.x versions wrote them in a different but equivalent form.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/hover-focus-and-other-states">Hover, focus, and other states</a></li>
+  <li><a href="https://tailwindcss.com/docs/hover-focus-and-other-states#quick-reference">Quick reference of all variants</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/CSS/:has">MDN: :has()</a> · <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/:user-invalid">MDN: :user-invalid</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

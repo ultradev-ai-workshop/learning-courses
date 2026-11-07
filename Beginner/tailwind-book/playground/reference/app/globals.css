@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Dark mode follows a .dark class on <html> (set by the theme script in layout.tsx). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Brand tokens: each one creates utilities such as bg-brand-600 and font-display. */
+@theme {
+  --color-brand-50: oklch(0.97 0.02 285);
+  --color-brand-100: oklch(0.94 0.04 285);
+  --color-brand-400: oklch(0.7 0.16 285);
+  --color-brand-500: oklch(0.6 0.2 285);
+  --color-brand-600: oklch(0.52 0.21 285);
+  --color-brand-700: oklch(0.45 0.19 285);
+  --font-display: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --animate-fade-up: fade-up 0.5s ease-out both;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      translate: 0 1rem;
+    }
+  }
+}
+
+/* Semantic colours: their values change in dark mode, the class names don't. */
+:root {
+  --surface: var(--color-white);
+  --surface-muted: var(--color-slate-50);
+  --ink: var(--color-slate-900);
+  --muted: var(--color-slate-600);
+  --line: var(--color-slate-200);
+}
+.dark {
+  --surface: var(--color-slate-950);
+  --surface-muted: var(--color-slate-900);
+  --ink: var(--color-slate-100);
+  --muted: var(--color-slate-400);
+  --line: var(--color-slate-800);
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-surface text-ink antialiased;
+  }
+}
+
+/* The page container used by every section. */
+@utility container-page {
+  margin-inline: auto;
+  max-width: var(--container-6xl);
+  padding-inline: --spacing(4);
+  @variant sm {
+    padding-inline: --spacing(6);
+  }
+  @variant lg {
+    padding-inline: --spacing(8);
+  }
+}

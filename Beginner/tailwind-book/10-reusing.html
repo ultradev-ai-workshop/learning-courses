@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;♻️&lt;/text&gt;&lt;/svg&gt;">
+<title>10. Reusing Styles · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 10 · Core Concepts</div>
+<h1>Reusing Styles</h1>
+<p class="lead">"Won't I repeat the same classes everywhere?" is the first objection everyone has to Tailwind. The docs' answer is a ladder of techniques: leave small repetition alone, use loops, extract components in your template language, and only then write a custom CSS class with <code>@apply</code>. This chapter climbs that ladder, shows exactly how <code>@apply</code> and the <code>components</code> layer behave, and covers <code>@reference</code> for component frameworks with their own <code>&lt;style&gt;</code> blocks.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The order to reach for reuse techniques, and why components come before <code>@apply</code>.</li>
+  <li>How to write a component class in <code>@layer components</code> with <code>@apply</code>.</li>
+  <li>Why a utility on the element always beats a component class.</li>
+  <li>How to use <code>@apply</code> with variants and in Vue/Svelte/CSS-module style blocks (<code>@reference</code>).</li>
+  <li>What not to abstract.</li>
+</ul>
+</div>
+
+<h2 id="ladder">The ladder</h2>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>Technique</th><th>Use when</th></tr>
+<tr><td>1</td><td>Do nothing; use multi-cursor editing</td><td>The repetition is in one file, in a few nearby places</td></tr>
+<tr><td>2</td><td>A loop</td><td>The repeated elements come from a list of data</td></tr>
+<tr><td>3</td><td>A component or partial (React, Vue, Svelte, Blade, Jinja, Thymeleaf…)</td><td>A piece of UI is reused across files</td></tr>
+<tr><td>4</td><td>A custom CSS class (<code>@apply</code> or plain CSS)</td><td>You can't share markup: Markdown, CMS content, third-party HTML, or very small things like <code>.btn</code></td></tr>
+</table></div>
+<p>Steps 2 and 3 keep the <em>markup and its styles together</em>. A component isn't just classes; it's the HTML structure, the accessibility attributes, the icon, the behaviour. A CSS class can only share the styles.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a CSS class is a <strong>recipe for the sauce</strong>; a component is the <strong>whole frozen meal</strong>: sauce, pasta, portion size, packaging. If every kitchen needs the whole meal, ship the meal (a component). Ship only the sauce recipe (<code>@apply</code>) when other cooks make their own pasta (content you can't control).</p>
+</div>
+
+<h2 id="loops">Loops</h2>
+<p>Most "repetition" in a finished page is generated. In a template, these classes exist once:</p>
+<script type="text/plain" class="code" data-file="list.js" data-node>
+const contributors = ["Ada", "Grace", "Linus", "Margaret"];
+
+const html = `<div class="flex -space-x-2">
+${contributors.map((name) => `  <span class="inline-flex size-8 items-center justify-center rounded-full bg-sky-600 text-xs text-white ring-2 ring-white">${name[0]}</span>`).join("\n")}
+</div>`;
+
+console.log(html.split("\n").length - 2, "avatars, classes written once");
+</script>
+<script type="text/plain" class="code" data-lang="text">
+4 avatars, classes written once
+</script>
+
+<h2 id="components">Components</h2>
+<p>When a piece of UI is used in several files, make it a component. Here's a framework-free version: a function that returns HTML, the same idea as a React component (Appendix C) or a template partial. The <code>VARIANTS</code> object lists <strong>complete</strong> class names, so Tailwind finds them all when it scans the file:</p>
+<script type="text/plain" class="code" data-file="button.js" data-app="comp">
+const VARIANTS = {
+  primary: "bg-sky-600 text-white hover:bg-sky-700",
+  secondary: "bg-white text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50",
+  danger: "bg-red-600 text-white hover:bg-red-700",
+};
+
+export function button(label, variant = "primary") {
+  return `<button class="rounded-md px-3.5 py-2 text-sm font-semibold shadow-xs ${VARIANTS[variant]}">${label}</button>`;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="comp">
+<div id="app" class="flex gap-2"></div>
+<script type="module">
+  import { button } from "./button.js";
+  app.innerHTML = button("Save") + button("Cancel", "secondary") + button("Delete", "danger");
+<\/script>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="10-buttons" data-width="360">Three buttons: a blue "Save", a white outlined "Cancel", a red "Delete".</script>
+
+<h2 id="apply">Custom classes with <code>@apply</code></h2>
+<p><code>@apply</code> copies the declarations of utilities into your own CSS rule. Put component classes in the <code>components</code> layer, so utilities can still override them:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="apply">
+@import "tailwindcss";
+
+@layer components {
+  .btn {
+    @apply rounded-md px-3.5 py-2 text-sm font-semibold shadow-xs;
+  }
+  .btn-primary {
+    @apply bg-sky-600 text-white hover:bg-sky-700;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="apply">
+<button id="a" class="btn btn-primary">Save</button>
+<button id="b" class="btn btn-primary bg-red-600">Delete</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="components">
+@layer components {
+  .btn {
+    border-radius: var(--radius-md);
+    padding-inline: calc(var(--spacing) * 3.5);
+    padding-block: calc(var(--spacing) * 2);
+    font-size: var(--text-sm);
+    line-height: var(--tw-leading, var(--text-sm--line-height));
+    --tw-font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-semibold);
+    --tw-shadow: 0 1px 2px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.05));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .btn-primary {
+    background-color: var(--color-sky-600);
+    color: var(--color-white);
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-sky-700);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="['a', 'b'].map((id) => id + ': ' + getComputedStyle(document.getElementById(id)).backgroundColor).join('\n')">
+a: oklch(0.588 0.158 241.966)
+b: oklch(0.577 0.245 27.325)
+</script>
+<p>Button <code>b</code> is red: <code>bg-red-600</code> is in the <code>utilities</code> layer, which comes after <code>components</code>, so it wins even though <code>.btn-primary</code> appears later in the class attribute and in the file. That's the reason to use <code>@layer components</code>: a component class is a default you can tweak with utilities.</p>
+<div class="note">
+<p>📝 Classes in <code>@layer components</code> are always output, even if unused, and they can't take variants: <code>hover:btn</code> doesn't exist. If you want variants on your own class, define it with <code>@utility</code> instead (Chapter 11).</p>
+</div>
+
+<h2 id="reference">Using <code>@apply</code> in separate stylesheets: <code>@reference</code></h2>
+<p>Vue and Svelte <code>&lt;style&gt;</code> blocks, CSS modules and Astro components are compiled <em>separately</em> from your main CSS file, so they don't know your theme. <code>@apply text-brand</code> there fails with "unknown utility". Import your main stylesheet <strong>as a reference</strong>: it makes the theme and utilities known without outputting any CSS again:</p>
+<script type="text/plain" class="code" data-file="main.css" data-app="ref">
+@import "tailwindcss";
+@theme {
+  --color-brand: oklch(0.6 0.2 300);
+}
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="ref">
+@reference "./main.css";
+
+.card-title {
+  @apply text-lg font-bold text-brand;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="ref">
+<p class="card-title">x</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="full" data-grep="^\.card-title|^  (font|line|color|--tw-font-weight: var)">
+.card-title {
+  font-size: var(--text-lg, 1.125rem);
+  line-height: var(--tw-leading, var(--text-lg--line-height, calc(1.75 / 1.125)));
+  --tw-font-weight: var(--font-weight-bold, 700);
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--color-brand, oklch(0.6 0.2 300));
+</script>
+<p>Those are the important lines of the output: your rule, with each theme value written as <code>var(--text-lg, 1.125rem)</code> so it works even on a page where the variable isn't defined, plus a few internal <code>@property</code> declarations. No Preflight, no theme block, no utilities; they're already on the page from the main stylesheet. If you only use the default theme, <code>@reference "tailwindcss";</code> is enough. (Here, input.css plays the role of a component's style block.)</p>
+<p>In a Vue single-file component it looks like this:</p>
+<script type="text/plain" class="code" data-file="Card.vue" data-norun>
+<template>
+  <h2 class="card-title">{{ title }}</h2>
+</template>
+
+<style scoped>
+@reference "../assets/main.css";
+
+.card-title {
+  @apply text-lg font-bold text-brand;
+}
+</style>
+</script>
+<div class="tip">
+<p>💡 Even simpler: skip <code>@apply</code> and use the theme variables directly, which needs no <code>@reference</code> because they're plain CSS variables on the page: <code>.card-title { color: var(--color-brand); font-size: var(--text-lg); }</code>.</p>
+</div>
+
+<h2 id="dont">What not to abstract</h2>
+<ul>
+  <li><strong>Don't make a class for every element</strong> (<code>.sidebar-header-title</code>). That's regular CSS with extra steps: you're back to naming things and growing a stylesheet.</li>
+  <li><strong>Don't abstract too early.</strong> Two similar cards aren't a component yet; wait until the third, when you know what's really shared.</li>
+  <li><strong>Don't <code>@apply</code> everything</strong> to "clean up the HTML". Short-term tidier, long-term you lose the "change one element without breaking others" benefit.</li>
+</ul>
+<div class="pitfall">
+<p>⚠️ Tailwind's creator has said he'd remove <code>@apply</code> if he could, because people overuse it. Treat it as a tool for the few cases where markup can't be shared.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Styling Markdown output with component classes</h3>
+<p>Markdown turns into plain <code>&lt;h2&gt;</code> and <code>&lt;p&gt;</code> tags; you can't add classes. A component class scoped to a wrapper is a good use of step 4 (the Typography plugin in Appendix B does this at scale):</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="md">
+@import "tailwindcss";
+
+@layer components {
+  .article h2 {
+    @apply mt-6 text-xl font-bold text-slate-900;
+  }
+  .article p {
+    @apply mt-2 leading-7 text-slate-700;
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="md">
+<div class="article max-w-sm">
+  <h2>From Markdown</h2>
+  <p>These tags came from a Markdown file and have no classes of their own.</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="10-article" data-width="420">A bold heading "From Markdown" followed by a grey paragraph with relaxed line spacing.</script>
+
+<h3>@apply with variants and important</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="var">
+@import "tailwindcss";
+
+.link {
+  @apply text-sky-700 underline-offset-4 hover:underline md:text-lg dark:text-sky-400;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="var">
+<a class="link">x</a>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="^\.link|^  [&@a-z]|^    [&@a-z]|^      [a-z]">
+.link {
+  color: var(--color-sky-700);
+  text-underline-offset: 4px;
+  &:hover {
+    @media (hover: hover) {
+      text-decoration-line: underline;
+  @media (width >= 48rem) {
+    font-size: var(--text-lg);
+    line-height: var(--tw-leading, var(--text-lg--line-height));
+  @media (prefers-color-scheme: dark) {
+    color: var(--color-sky-400);
+</script>
+<p>Variants inside <code>@apply</code> become nested rules. This <code>.link</code> class is not in any layer, so it would beat utilities; put it in <code>@layer components</code> if you want utilities to override it.</p>
+
+<h3>@apply of a class that doesn't exist</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="err">
+@import "tailwindcss";
+
+.title {
+  @apply text-brand font-bold;
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+≈ tailwindcss v4.3.5
+
+Error:
+┌
+│ Error: Cannot apply unknown utility class `text-brand`
+└
+</script>
+<p>No <code>--color-brand</code> in the theme means no <code>text-brand</code> utility. This is also the error you'd see in a Vue <code>&lt;style&gt;</code> block without <code>@reference</code>.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Reuse ladder: leave it → loop → component/partial → custom class.</li>
+  <li>Components share markup and styles; prefer them over CSS classes.</li>
+  <li>List complete class names in components (a lookup object), never build them from pieces.</li>
+  <li><code>@apply</code> copies utilities into a rule; put shared classes in <code>@layer components</code> so utilities can override them.</li>
+  <li><code>@reference "./main.css";</code> lets separately compiled style blocks use your theme with <code>@apply</code>, without duplicating CSS.</li>
+  <li>Don't name every element or <code>@apply</code> everything; abstract on the third repetition.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">ladder</span></h3>
+<p>Which technique fits best: (a) a navigation bar used on every page of a Django site, (b) twenty rows of a product table, (c) blog posts written in Markdown?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) a template partial (<code>{% include "nav.html" %}</code>); (b) a loop; (c) component classes or the Typography plugin, since you can't add classes to Markdown output.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>Write a <code>.badge</code> class with <code>@apply</code>: small rounded pill, light green background, dark green text, small font.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@layer components { .badge { @apply inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800; } }</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">override</span></h3>
+<p>With <code>.badge</code> in <code>@layer components</code>, what colour is <code>&lt;span class="badge bg-red-100"&gt;</code>? Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Red-100. <code>bg-red-100</code> is in the <code>utilities</code> layer, which comes after <code>components</code>, so it wins.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">error</span></h3>
+<p>In a Svelte component's <code>&lt;style&gt;</code> block, <code>@apply bg-brand</code> fails with "Cannot apply unknown utility class". Your main CSS defines <code>--color-brand</code>. What do you add?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@reference "../app.css";</code> (the path to the main stylesheet) at the top of the style block.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">component</span></h3>
+<p>Extend the <code>button()</code> function with a <code>size</code> argument (<code>sm</code>, <code>md</code>, <code>lg</code>) without building class names from pieces.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>const SIZES = { sm: "px-2.5 py-1.5 text-xs", md: "px-3.5 py-2 text-sm", lg: "px-5 py-3 text-base" };</code> and use <code>${SIZES[size]}</code> instead of the fixed padding and font size.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">layers</span></h3>
+<p>You define <code>.card { @apply p-6; }</code> <em>outside</em> any layer, then write <code>&lt;div class="card p-2"&gt;</code>. What padding does it get, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>24&nbsp;px (<code>p-6</code>): unlayered styles beat all layered ones, including utilities. Wrap the rule in <code>@layer components { … }</code> and <code>p-2</code> wins.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/10/</code>, the page has six buttons with copy-pasted classes. Refactor it twice: once with the <code>button()</code> function, once with <code>.btn</code> classes. Which version is easier to give an icon to every button?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The function: you add the icon markup in one place and every button gets it. With <code>.btn</code> you'd still edit six places in the HTML, because CSS classes can't add markup.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">reference</span></h3>
+<p>Why does <code>@reference</code> exist instead of just writing <code>@import "../main.css"</code> in every component's style block?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@import</code> would output all of the main CSS (Preflight, theme, utilities) again in every component's styles, duplicating it many times. <code>@reference</code> only makes the theme and utilities <em>known</em> for <code>@apply</code> and theme functions; nothing is output.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">review</span></h3>
+<p>A teammate converted every element of a page to semantic classes with <code>@apply</code> (<code>.hero-title</code>, <code>.hero-subtitle</code>, <code>.hero-cta</code>…), 40 classes in total, "to keep the HTML clean". Give three concrete downsides.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) Naming and finding things again: every change means jumping between files. (2) The CSS grows with every new class and dead classes are hard to spot, as with regular CSS. (3) Classes get reused in places they weren't meant for, so changing <code>.hero-title</code> can break another page. Also: <code>@layer components</code> classes can't take variants, and you lose co-location.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">read the CSS</span></h3>
+<p>Compare the generated CSS for <code>.btn-primary</code> (with <code>hover:bg-sky-700</code> inside <code>@apply</code>) with the utility <code>hover:bg-sky-700</code> from Chapter 5. What's the same, what's different?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Same: the declaration <code>background-color: var(--color-sky-700)</code>, the <code>:hover</code> condition and the <code>@media (hover: hover)</code> guard. Different: in <code>@apply</code> it's nested inside <code>.btn-primary</code> (<code>&amp;:hover { @media (hover: hover) { … } }</code>) in the <code>components</code> layer; the utility has its own selector <code>.hover\:bg-sky-700:hover</code> in the <code>utilities</code> layer.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/styling-with-utility-classes#managing-duplication">Managing duplication</a></li>
+  <li><a href="https://tailwindcss.com/docs/adding-custom-styles#adding-component-classes">Adding component classes</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives#apply-directive">@apply</a> · <a href="https://tailwindcss.com/docs/functions-and-directives#reference-directive">@reference</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

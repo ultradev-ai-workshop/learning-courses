@@ -1,0 +1,29 @@
+{
+  "name": "tailwind-book-tools",
+  "private": true,
+  "type": "module",
+  "description": "Pinned Tailwind CSS toolchain used by the checkers. Run `npm install` here once.",
+  "dependencies": {
+    "@tailwindcss/cli": "4.3.5",
+    "@tailwindcss/forms": "0.5.11",
+    "@tailwindcss/postcss": "4.3.5",
+    "@tailwindcss/turbopack": "^4",
+    "@tailwindcss/typography": "0.5.20",
+    "@tailwindcss/vite": "4.3.5",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "clsx": "^2.1.1",
+    "next": "16.4.5",
+    "postcss": "^8",
+    "prettier": "^3",
+    "prettier-plugin-tailwindcss": "^0.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "4.3.5",
+    "typescript": "^5",
+    "vite": "8.3.6"
+  }
+}

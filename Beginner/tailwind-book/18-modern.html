@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧪&lt;/text&gt;&lt;/svg&gt;">
+<title>18. Container Queries &amp; Modern CSS · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 18 · Utilities in Depth</div>
+<h1>Container Queries &amp; Modern CSS</h1>
+<p class="lead">Tailwind v4 was built on modern CSS, and each release adds utilities for new browser features. This chapter starts with <strong>container queries</strong>, which let components respond to the space they're given instead of the screen size, and then covers the interactivity utilities from the docs' sidebar and the newest additions: auto-growing text areas, scroll snapping, styled scrollbars and <code>zoom</code> (v4.3), and form-control styling with <code>accent-*</code> and <code>appearance-none</code>.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Container queries: <code>@container</code>, <code>@sm:</code> … <code>@7xl:</code>, <code>@max-*</code>, named containers, arbitrary sizes.</li>
+  <li>Container query units and <code>@container-size</code> (v4.3).</li>
+  <li>Forms: <code>accent-*</code>, <code>appearance-none</code>, <code>caret-*</code>, <code>field-sizing-content</code>.</li>
+  <li>Scrolling: <code>scroll-smooth</code>, scroll snap, <code>scroll-mt-*</code>, and the v4.3 scrollbar utilities.</li>
+  <li><code>zoom-*</code> and <code>tab-*</code> (v4.3), <code>cursor-*</code>, <code>select-*</code>, <code>pointer-events-*</code>.</li>
+</ul>
+</div>
+
+<h2 id="cq">Container queries</h2>
+<p>Mark an element with <code>@container</code>. Its descendants can then use <code>@sm:</code>, <code>@md:</code>, <code>@lg:</code>… which apply when the <strong>container</strong> is at least that wide, whatever the screen size:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="flex gap-4">
+  <div class="@container w-64">
+    <div class="flex flex-col gap-3 rounded-lg p-3 ring-1 ring-slate-200 @sm:flex-row @sm:items-center">
+      <div class="size-12 shrink-0 rounded-full bg-sky-500"></div>
+      <div><b>Ada Lovelace</b><p class="text-sm text-slate-500">Analyst</p></div>
+    </div>
+  </div>
+  <div class="@container w-96">
+    <div class="flex flex-col gap-3 rounded-lg p-3 ring-1 ring-slate-200 @sm:flex-row @sm:items-center">
+      <div class="size-12 shrink-0 rounded-full bg-sky-500"></div>
+      <div><b>Ada Lovelace</b><p class="text-sm text-slate-500">Analyst</p></div>
+    </div>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="18-cq" data-width="720">The same profile card twice on one page: in the 256px-wide container the avatar sits above the name; in the 384px-wide container the avatar is to the left of the name.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="@container|container-type|^\s+\.\\@">
+  .\@container {
+    container-type: inline-size;
+  @container (width >= 24rem) {
+    .\@sm\:flex-row {
+    .\@sm\:items-center {
+</script>
+<p>Container sizes come from the <code>--container-*</code> theme variables, which are smaller than the screen breakpoints because components are smaller than screens:</p>
+<div class="table-wrap"><table>
+<tr><th>Variant</th><th>Min width</th><th>Variant</th><th>Min width</th></tr>
+<tr><td><code>@3xs:</code></td><td>16rem (256px)</td><td><code>@2xl:</code></td><td>42rem (672px)</td></tr>
+<tr><td><code>@2xs:</code></td><td>18rem (288px)</td><td><code>@3xl:</code></td><td>48rem (768px)</td></tr>
+<tr><td><code>@xs:</code></td><td>20rem (320px)</td><td><code>@4xl:</code></td><td>56rem (896px)</td></tr>
+<tr><td><code>@sm:</code></td><td>24rem (384px)</td><td><code>@5xl:</code></td><td>64rem (1024px)</td></tr>
+<tr><td><code>@md:</code></td><td>28rem (448px)</td><td><code>@6xl:</code></td><td>72rem (1152px)</td></tr>
+<tr><td><code>@lg:</code></td><td>32rem (512px)</td><td><code>@7xl:</code></td><td>80rem (1280px)</td></tr>
+<tr><td><code>@xl:</code></td><td>36rem (576px)</td><td></td><td></td></tr>
+</table></div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> media queries ask "<strong>how big is the room?</strong>"; container queries ask "<strong>how big is my table?</strong>". A plate setting that adapts to the room would look silly on a small side table in a large hall. With container queries, each table lays out its own plates.</p>
+</div>
+
+<h3 id="cq-more">Ranges, names and arbitrary sizes</h3>
+<ul>
+  <li><code>@max-md:</code> applies <em>below</em> a container size; <code>@sm:@max-md:</code> targets a range.</li>
+  <li><code>@min-[475px]:</code> and <code>@max-[960px]:</code> for one-off sizes.</li>
+  <li><strong>Named containers</strong>: <code>@container/main</code> on an ancestor and <code>@lg/main:</code> on a descendant query that specific container, not the nearest one.</li>
+</ul>
+<script type="text/plain" class="code" data-file="index.html" data-app="named">
+<div class="@container/main w-[40rem]">
+  <div class="@container w-60">
+    <p id="p" class="@lg/main:font-bold @lg:italic">I check two containers</p>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'font-weight ' + getComputedStyle(p).fontWeight + ' (main is 640px ≥ 512px)\nfont-style ' + getComputedStyle(p).fontStyle + ' (nearest container is 240px < 512px)'">
+font-weight 700 (main is 640px ≥ 512px)
+font-style normal (nearest container is 240px < 512px)
+</script>
+
+<h3 id="cq-units">Container units and <code>@container-size</code></h3>
+<p>Inside a container, the CSS units <code>cqw</code> (1% of the container's width) and <code>cqh</code> work in arbitrary values: <code>text-[8cqw]</code> scales text with its container. <code>@container</code> only tracks <em>width</em> (<code>container-type: inline-size</code>). New in v4.3, <code>@container-size</code> tracks both dimensions (<code>container-type: size</code>), so height queries and <code>cqh</code>/<code>cqb</code> units work. The container then needs an explicit height.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="units">
+<div class="@container w-80">
+  <h2 id="h" class="text-[10cqw] font-black">Scales</h2>
+</div>
+<div class="@container-size h-40"></div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'heading font-size in a 320px container: ' + getComputedStyle(h).fontSize">
+heading font-size in a 320px container: 32px
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="container-type">
+    container-type: inline-size;
+    container-type: size;
+</script>
+
+<h2 id="forms">Form controls</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>Does</th></tr>
+<tr><td><code>accent-pink-500</code></td><td>Colours native checkboxes, radios, range sliders and progress bars</td></tr>
+<tr><td><code>appearance-none</code></td><td>Removes the browser's built-in look so you can style it fully</td></tr>
+<tr><td><code>caret-sky-500</code></td><td>The text cursor colour</td></tr>
+<tr><td><code>field-sizing-content</code></td><td>A <code>&lt;textarea&gt;</code> or input that grows with its content</td></tr>
+<tr><td><code>resize-none</code>, <code>resize-y</code></td><td>Whether the user can resize a textarea</td></tr>
+<tr><td><code>placeholder-shown:</code>, <code>user-invalid:</code></td><td>Variants from Chapter 5</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="forms">
+<div class="space-y-3 p-2">
+  <label class="flex items-center gap-2"><input type="checkbox" checked class="size-4 accent-pink-500"> accent-pink-500</label>
+  <input type="range" class="w-56 accent-emerald-500">
+  <textarea id="t" class="field-sizing-content w-56 min-h-10 resize-none rounded-md border border-slate-300 p-2" placeholder="I grow as you type"></textarea>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="18-forms" data-width="320" data-steps="fill:#t=Line one\nLine two\nLine three">A pink checked checkbox, an emerald range slider, and a textarea that has grown to fit three lines of text.</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="eval:document.body.dataset.a = t.offsetHeight; fill:#t=1\n2\n3\n4" data-eval="'textarea grew: ' + (t.offsetHeight > Number(document.body.dataset.a))">
+textarea grew: true
+</script>
+
+<h2 id="scroll">Scrolling</h2>
+<p><code>scroll-smooth</code> on <code>&lt;html&gt;</code> animates jumps to <code>#anchors</code>. <code>scroll-mt-20</code> on a heading leaves room for a sticky header when jumping to it. <strong>Scroll snap</strong> builds carousels with no JavaScript: <code>snap-x snap-mandatory</code> on the scroller, <code>snap-center</code> or <code>snap-start</code> on the items:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="snap">
+<div id="s" class="flex w-72 snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-sky-500 scrollbar-track-sky-100 pb-2">
+  <div class="h-24 w-56 shrink-0 snap-center rounded-lg bg-sky-300"></div>
+  <div class="h-24 w-56 shrink-0 snap-center rounded-lg bg-indigo-300"></div>
+  <div class="h-24 w-56 shrink-0 snap-center rounded-lg bg-rose-300"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="scroll-snap|scrollbar">
+    scroll-snap-type: x var(--tw-scroll-snap-strictness);
+    --tw-scroll-snap-strictness: mandatory;
+    scroll-snap-align: center;
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  .scrollbar-thumb-sky-500 {
+    --tw-scrollbar-thumb: var(--color-sky-500);
+    scrollbar-color: var(--tw-scrollbar-thumb) var(--tw-scrollbar-track);
+  .scrollbar-track-sky-100 {
+    --tw-scrollbar-track: var(--color-sky-100);
+    scrollbar-color: var(--tw-scrollbar-thumb) var(--tw-scrollbar-track);
+</script>
+<p>Each scrollbar colour utility sets its own variable and writes both into <code>scrollbar-color</code>, so thumb and track can be set separately. The last three classes are the new <strong>scrollbar utilities</strong> from v4.3: <code>scrollbar-thin</code>, <code>scrollbar-auto</code>, <code>scrollbar-none</code> set the width; <code>scrollbar-thumb-*</code> and <code>scrollbar-track-*</code> take any colour; <code>scrollbar-gutter-stable</code> reserves space so content doesn't jump when a scrollbar appears.</p>
+
+<h2 id="interactivity">More interactivity utilities</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>Does</th></tr>
+<tr><td><code>cursor-pointer</code>, <code>cursor-not-allowed</code>, <code>cursor-grab</code>…</td><td>The mouse cursor. Preflight gives buttons <code>cursor: default</code>, so add <code>cursor-pointer</code> if you want the hand.</td></tr>
+<tr><td><code>select-none</code>, <code>select-all</code></td><td>Whether text can be selected</td></tr>
+<tr><td><code>pointer-events-none</code></td><td>Clicks pass through the element (for decorative overlays)</td></tr>
+<tr><td><code>touch-manipulation</code>, <code>touch-pan-x</code></td><td>Which touch gestures the browser handles</td></tr>
+<tr><td><code>will-change-transform</code></td><td>Hint for animations (use sparingly)</td></tr>
+<tr><td><code>zoom-75</code>, <code>zoom-125</code>, <code>zoom-[1.1]</code></td><td>Scales an element <em>and</em> its layout box (v4.3)</td></tr>
+<tr><td><code>tab-2</code>, <code>tab-8</code></td><td><code>tab-size</code> for code blocks (v4.3)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="zoom">
+<div id="z" class="w-40 zoom-125">zoomed</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'layout width: ' + z.getBoundingClientRect().width + 'px (160px × 1.25)'">
+layout width: 200px (160px × 1.25)
+</script>
+<p>Unlike <code>scale-125</code>, which only changes how the element is drawn, <code>zoom</code> changes the space it takes, so neighbours move.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A dashboard widget that adapts to its column</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="widget">
+<div class="grid grid-cols-[14rem_1fr] gap-4">
+  <div class="@container rounded-lg p-3 ring-1 ring-slate-200">
+    <div class="grid grid-cols-1 gap-2 @md:grid-cols-3"><b>12</b><b>48</b><b>7</b></div>
+  </div>
+  <div class="@container rounded-lg p-3 ring-1 ring-slate-200">
+    <div class="grid grid-cols-1 gap-2 @md:grid-cols-3"><b>12</b><b>48</b><b>7</b></div>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="18-widget" data-width="720">Two copies of a stats widget: in the narrow left column the three numbers are stacked; in the wide right column they sit in a row of three.</script>
+
+<h3>Hiding a scrollbar but keeping scrolling</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="noscroll">
+<div class="flex gap-2 overflow-x-auto scrollbar-none">…tags…</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="scrollbar">
+  .scrollbar-none {
+    scrollbar-width: none;
+</script>
+
+<h3>A sticky header and anchor offsets</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="anchor">
+<html class="scroll-smooth">
+<head><link href="./output.css" rel="stylesheet"></head>
+<body>
+  <header class="sticky top-0 h-16 bg-white/90">Nav</header>
+  <h2 id="pricing" class="scroll-mt-20">Pricing</h2>
+</body>
+</html>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'scroll-margin-top: ' + getComputedStyle(pricing).scrollMarginTop + ', html scroll-behavior: ' + getComputedStyle(document.documentElement).scrollBehavior">
+scroll-margin-top: 80px, html scroll-behavior: smooth
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>@container</code> on a parent, <code>@sm:</code>…<code>@7xl:</code> on children: layouts follow the container's width.</li>
+  <li><code>@max-*</code>, <code>@min-[…]</code>, named containers (<code>@container/main</code> + <code>@lg/main:</code>), and <code>cqw</code> units.</li>
+  <li><code>@container-size</code> (v4.3) queries both dimensions.</li>
+  <li>Forms: <code>accent-*</code>, <code>appearance-none</code>, <code>caret-*</code>, <code>field-sizing-content</code>.</li>
+  <li>Scrolling: <code>scroll-smooth</code>, <code>scroll-mt-*</code>, <code>snap-*</code>, and <code>scrollbar-*</code> (v4.3).</li>
+  <li><code>cursor-pointer</code>, <code>select-none</code>, <code>pointer-events-none</code>, <code>zoom-*</code> and <code>tab-*</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">container</span></h3>
+<p>Make a card's content switch from a column to a row when the card's container is at least 28&nbsp;rem wide.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Parent <code>@container</code>; content <code>flex flex-col @md:flex-row</code> (<code>@md</code> = 28&nbsp;rem).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">accent</span></h3>
+<p>Colour all checkboxes in a form with your brand colour <code>violet-600</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>accent-color</code> is inherited, so <code>accent-violet-600</code> once on the <code>&lt;form&gt;</code> colours every checkbox, radio and slider inside it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">anchors</span></h3>
+<p>Jumping to <code>#faq</code> hides the heading under a 64&nbsp;px sticky header. Fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;h2 id="faq" class="scroll-mt-16"&gt;</code> (16 × 4 = 64&nbsp;px; <code>scroll-mt-20</code> leaves extra room).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">textarea</span></h3>
+<p>Make a comment box that grows with its content, starting at 3 lines high and never resizable by dragging.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;textarea class="field-sizing-content min-h-[3lh] resize-none"&gt;</code> (<code>lh</code> is one line height; <code>min-h-18</code> also works).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">named</span></h3>
+<p>A sidebar widget is inside a card (itself a container) inside the main layout (a named container <code>layout</code>). Hide the widget's chart when the <em>layout</em> is narrower than 48&nbsp;rem.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Layout: <code>@container/layout</code>. Chart: <code>@max-3xl/layout:hidden</code> (<code>@3xl</code> = 48&nbsp;rem).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">carousel</span></h3>
+<p>Build a horizontally scrolling list of cards that always snaps so a card's left edge aligns with the list's left edge.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>List: <code>flex snap-x snap-mandatory gap-4 overflow-x-auto</code>; cards: <code>w-64 shrink-0 snap-start</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/18/</code>, put the same "profile card" in a 16&nbsp;rem sidebar and in a 40&nbsp;rem main column. Make it adapt with container queries only (no <code>md:</code>), with three layouts: stacked, row, and row with an extra "Follow" button from <code>@lg</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Wrap each card in <code>@container</code>; card <code>flex flex-col @sm:flex-row @sm:items-center</code>; button <code>hidden @lg:block @lg:ml-auto</code>. The sidebar copy stays stacked, the main copy shows the row with the button.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">zoom vs scale</span></h3>
+<p>You want a badge to look 25% bigger and push its neighbours away. Which class, <code>scale-125</code> or <code>zoom-125</code>? Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>zoom-125</code>: it changes the layout size, so neighbours move. <code>scale-125</code> is a transform: it draws the badge bigger but keeps its original layout box, so it would overlap its neighbours.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">container units</span></h3>
+<p>A product card's title should be 7% of the card's width, but never smaller than 1&nbsp;rem or larger than 2&nbsp;rem. Write the class.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Card <code>@container</code>; title <code>text-[clamp(1rem,7cqw,2rem)]</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does <code>@container</code> use <code>container-type: inline-size</code> and not <code>size</code> by default? What do you have to do differently with <code>@container-size</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>size</code>, the container's height can't depend on its content (that would create a loop: content depends on container height, which depends on content). So <code>size</code> containers collapse to zero height unless you give them one. Width containers are what most layouts need. With <code>@container-size</code> you must set a height (<code>h-40</code>, <code>h-dvh</code>, a grid row…).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/responsive-design#container-queries">Container queries</a></li>
+  <li><a href="https://tailwindcss.com/docs/accent-color">accent-color</a> · <a href="https://tailwindcss.com/docs/field-sizing">field-sizing</a> · <a href="https://tailwindcss.com/docs/scroll-snap-type">scroll-snap</a></li>
+  <li><a href="https://tailwindcss.com/docs/scrollbar-width">scrollbar</a> · <a href="https://tailwindcss.com/docs/zoom">zoom</a> · <a href="https://tailwindcss.com/blog/tailwindcss-v4-3">Tailwind CSS v4.3 announcement</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

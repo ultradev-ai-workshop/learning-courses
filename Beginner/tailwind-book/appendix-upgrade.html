@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⬆️&lt;/text&gt;&lt;/svg&gt;">
+<title>A. Coming from v2 or v3 · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix A</div>
+<h1>Coming from v2 or v3</h1>
+<p class="lead">A lot of Tailwind code online, in tutorials, Stack Overflow answers and older projects, was written for v2 (2020–2021) or v3 (2021–2024). Much of it still works, but the setup, the configuration and some class names changed in v4. This appendix maps old code to new, shows the automatic upgrade tool, and lists the renamed and removed utilities, each checked against Tailwind 4.3.5.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to recognise v2 and v3 code at a glance.</li>
+  <li>How setup and configuration moved from <code>tailwind.config.js</code> into CSS.</li>
+  <li>How to run the official upgrade tool, and how to keep a JavaScript config with <code>@config</code>.</li>
+  <li>Which utilities were renamed or removed, and which defaults changed.</li>
+</ul>
+</div>
+
+<h2 id="spot">Spotting old code</h2>
+<div class="table-wrap"><table>
+<tr><th>You see</th><th>Version</th><th>v4 equivalent</th></tr>
+<tr><td><code>@tailwind base; @tailwind components; @tailwind utilities;</code></td><td>v2, v3</td><td><code>@import "tailwindcss";</code></td></tr>
+<tr><td><code>purge: ['./src/**/*.html']</code> in the config</td><td>v2</td><td>Nothing: automatic detection (Chapter 11)</td></tr>
+<tr><td><code>content: ['./src/**/*.{html,js}']</code></td><td>v3</td><td>Nothing, or <code>@source</code> for extra paths</td></tr>
+<tr><td><code>mode: 'jit'</code></td><td>v2.1+</td><td>Nothing: v3 and v4 always work this way</td></tr>
+<tr><td><code>darkMode: 'class'</code></td><td>v2, v3</td><td><code>@custom-variant dark (&amp;:where(.dark, .dark *));</code></td></tr>
+<tr><td><code>theme.extend.colors</code> in JavaScript</td><td>v2, v3</td><td><code>@theme { --color-…: …; }</code> in CSS</td></tr>
+<tr><td><code>plugins: [require('@tailwindcss/typography')]</code></td><td>v2, v3</td><td><code>@plugin "@tailwindcss/typography";</code></td></tr>
+<tr><td><code>bg-opacity-50</code>, <code>text-opacity-75</code></td><td>v2, v3</td><td><code>bg-black/50</code>, <code>text-sky-700/75</code></td></tr>
+<tr><td><code>bg-[--brand]</code></td><td>v3</td><td><code>bg-(--brand)</code></td></tr>
+<tr><td><code>!font-bold</code></td><td>v3</td><td><code>font-bold!</code></td></tr>
+<tr><td><code>tailwindcss</code> in <code>postcss.config.js</code> plugins</td><td>v2, v3</td><td><code>"@tailwindcss/postcss"</code> (or the Vite plugin)</td></tr>
+</table></div>
+
+<h2 id="config">Configuration moved into CSS</h2>
+<p>A typical v3 project had a JavaScript config:</p>
+<script type="text/plain" class="code" data-file="tailwind.config.js" data-norun>
+module.exports = {
+  content: ["./src/**/*.{html,js}"],
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: { brand: "#ff4f00" },
+      fontFamily: { display: ["Georgia", "serif"] },
+      screens: { "3xl": "1920px" },
+    },
+  },
+  plugins: [require("@tailwindcss/typography")],
+};
+</script>
+<p>In v4 the same thing is CSS, in the file you already have:</p>
+<script type="text/plain" class="code" data-file="input.css">
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand: #ff4f00;
+  --font-display: "Georgia", serif;
+  --breakpoint-3xl: 120rem;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html">
+<article class="prose dark:prose-invert 3xl:prose-xl"><h1 class="font-display text-brand">Moved</h1></article>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.[a-z\\:-]+ \{$|^  @media|^    \.\\33 xl\\:prose-xl \{$">
+  .prose {
+  .font-display {
+  .text-brand {
+  @media (width >= 120rem) {
+    .\33 xl\:prose-xl {
+</script>
+<p>No <code>content</code> list (detection is automatic), no <code>darkMode</code> key, and the theme values are now CSS variables you can use anywhere.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> v3 kept the recipe (config) in one notebook and the cooking (CSS) in another, and you had to keep them in sync. v4 writes the recipe on the first page of the cookbook itself. Old notebooks still work if you clip them in with <code>@config</code>, but new ones don't need them.</p>
+</div>
+
+<h3 id="at-config">Keeping a JavaScript config: <code>@config</code></h3>
+<p>For a gradual migration, or for a shared config package you can't change yet, load the old file with <code>@config</code>. Most of the v3 config format still works:</p>
+<script type="text/plain" class="code" data-file="tailwind.config.js" data-app="cfg">
+module.exports = {
+  theme: {
+    extend: {
+      colors: { brand: "#ff4f00" },
+      spacing: { 18: "4.5rem" },
+    },
+  },
+};
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="cfg">
+@import "tailwindcss";
+@config "./tailwind.config.js";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="cfg">
+<p class="bg-brand mt-18">From the JavaScript config</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .mt-18 {
+    margin-top: 4.5rem;
+  }
+  .bg-brand {
+    background-color: #ff4f00;
+  }
+}
+</script>
+<p>Not supported any more: the <code>corePlugins</code>, <code>safelist</code> and <code>separator</code> options. Use <code>@source inline()</code> for safelisting (Chapter 11).</p>
+
+<h2 id="tool">The upgrade tool</h2>
+<p>For a v3 project, Tailwind provides an automatic migration. It updates dependencies, converts the config file into CSS, rewrites renamed classes in your templates, and updates the PostCSS or Vite setup. Run it in a clean Git branch so you can review the diff (it needs Node.js 20 or newer):</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ git switch -c upgrade-tailwind-v4
+$ npx @tailwindcss/upgrade
+$ git diff
+</script>
+<p>For v2 projects, upgrade to v3 first with the official v3 upgrade guide, or treat it as a rewrite of the setup: install v4 fresh (Chapter 2), move your theme into <code>@theme</code>, and fix renamed classes with the tables below.</p>
+
+<h2 id="renamed">Renamed utilities</h2>
+<p>v4 made the scales consistent: the "bare" name is no longer the default size, and every scale has an <code>-xs</code> step. Old names that still exist now mean something different, so a blind find-and-replace in the wrong order would shift everything by one size:</p>
+<div class="table-wrap"><table>
+<tr><th>v3</th><th>v4</th></tr>
+<tr><td><code>shadow-sm</code></td><td><code>shadow-xs</code></td></tr>
+<tr><td><code>shadow</code></td><td><code>shadow-sm</code></td></tr>
+<tr><td><code>drop-shadow-sm</code> / <code>drop-shadow</code></td><td><code>drop-shadow-xs</code> / <code>drop-shadow-sm</code></td></tr>
+<tr><td><code>blur-sm</code> / <code>blur</code></td><td><code>blur-xs</code> / <code>blur-sm</code></td></tr>
+<tr><td><code>backdrop-blur-sm</code> / <code>backdrop-blur</code></td><td><code>backdrop-blur-xs</code> / <code>backdrop-blur-sm</code></td></tr>
+<tr><td><code>rounded-sm</code> / <code>rounded</code></td><td><code>rounded-xs</code> / <code>rounded-sm</code></td></tr>
+<tr><td><code>outline-none</code> (transparent outline)</td><td><code>outline-hidden</code></td></tr>
+<tr><td><code>ring</code> (3&nbsp;px, blue)</td><td><code>ring-3 ring-blue-500</code></td></tr>
+<tr><td><code>bg-gradient-to-r</code></td><td><code>bg-linear-to-r</code></td></tr>
+<tr><td><code>flex-shrink-0</code>, <code>flex-grow</code></td><td><code>shrink-0</code>, <code>grow</code></td></tr>
+<tr><td><code>overflow-ellipsis</code></td><td><code>text-ellipsis</code></td></tr>
+<tr><td><code>decoration-slice</code>, <code>decoration-clone</code></td><td><code>box-decoration-slice</code>, <code>box-decoration-clone</code></td></tr>
+<tr><td><code>start-*</code>, <code>end-*</code> (deprecated in v4.2)</td><td><code>inset-s-*</code>, <code>inset-e-*</code></td></tr>
+</table></div>
+<p>Some old names still compile for compatibility, and some are gone. Here are a few v3 classes fed to Tailwind 4.3.5:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="old">
+<div class="bg-opacity-50 text-opacity-75 flex-shrink-0 bg-gradient-to-r shadow rounded ring"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.">
+  .flex-shrink-0 {
+  .rounded {
+  .bg-gradient-to-r {
+  .shadow {
+  .ring {
+</script>
+<p>The <code>*-opacity-*</code> utilities produce nothing: use the slash syntax instead (<code>bg-black/50</code>). The others still compile, but <code>shadow</code>, <code>rounded</code> and <code>ring</code> now produce v4's values, which may differ from what the old design expected.</p>
+
+<h2 id="defaults">Changed defaults</h2>
+<div class="table-wrap"><table>
+<tr><th>What</th><th>v3</th><th>v4</th><th>Restore the old look</th></tr>
+<tr><td>Default border colour</td><td><code>gray-200</code></td><td><code>currentColor</code></td><td>Always add a colour: <code>border border-gray-200</code></td></tr>
+<tr><td><code>ring</code> width / colour</td><td>3&nbsp;px / blue-500</td><td>1&nbsp;px / <code>currentColor</code></td><td><code>ring-3 ring-blue-500</code></td></tr>
+<tr><td>Placeholder colour</td><td><code>gray-400</code></td><td>current text colour at 50%</td><td><code>placeholder:text-gray-400</code></td></tr>
+<tr><td>Button cursor</td><td><code>pointer</code></td><td><code>default</code></td><td><code>cursor-pointer</code>, or a base style</td></tr>
+<tr><td><code>hover:</code></td><td>Always</td><td>Only on devices that can hover</td><td>A custom variant if you need the old one</td></tr>
+<tr><td><code>space-*</code> / <code>divide-*</code> selector</td><td><code>&gt; :not([hidden]) ~ :not([hidden])</code></td><td><code>&gt; :not(:last-child)</code></td><td>Prefer <code>gap</code></td></tr>
+<tr><td>Stacked variant order</td><td>Right to left</td><td>Left to right</td><td>Reverse order-sensitive variants like <code>*:</code></td></tr>
+<tr><td>Browser support</td><td>Safari 14+</td><td>Safari 16.4+, Chrome 111+, Firefox 128+</td><td>Stay on v3.4 for older browsers</td></tr>
+</table></div>
+
+<div class="pitfall">
+<p>⚠️ <strong>The border colour change is the one people notice.</strong> In v3, <code>class="border"</code> drew a light grey line. In v4 it draws a line in the text colour, often black. The upgrade tool adds a compatibility base style; in new code, always name a border colour.</p>
+</div>
+
+<h2 id="v2">Extra notes for v2 code</h2>
+<ul>
+  <li>v2 had separate <code>@tailwindcss/jit</code> and a <code>mode: 'jit'</code> switch; v3 made just-in-time the only mode, and v4 kept it.</li>
+  <li>v2's <code>purge</code> option became v3's <code>content</code>, and v4 removed it.</li>
+  <li>v2 used <code>transform</code> and <code>filter</code> classes to enable transforms and filters (<code>transform rotate-45</code>). Since v3 they're unnecessary; v4 still accepts them, but they do nothing useful.</li>
+  <li>v2's colour palette differs from v3's and v4's (v4 moved to OKLCH and slightly more vivid colours). Hex values copied from v2 designs won't match <code>bg-blue-500</code> exactly.</li>
+  <li>Arbitrary values (<code>top-[117px]</code>) only arrived with JIT; v2 code without JIT uses the config for every custom value.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Opacity, then and now</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="opacity">
+<!-- v2/v3: <div class="bg-black bg-opacity-50"> -->
+<div id="o" class="bg-black/50 p-4 text-white">50% black</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="getComputedStyle(o).backgroundColor">
+oklab(0 0 0 / 0.5)
+</script>
+
+<h3>A v3-style theme function in custom CSS</h3>
+<p>v3 code often used <code>theme('colors.blue.500')</code> in CSS. In v4, prefer the variable; the old function still works for a smoother migration:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="themefn">
+@import "tailwindcss";
+
+.old { color: theme(colors.blue.500); }
+.new { color: var(--color-blue-500); }
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="themefn">
+<p class="old">old</p><p class="new">new</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="^\.|color:">
+.old {
+  color: oklch(62.3% 0.214 259.815);
+.new {
+  color: var(--color-blue-500);
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>@tailwind</code> directives, <code>purge</code>/<code>content</code> and <code>tailwind.config.js</code> mark old code.</li>
+  <li>v4 setup: <code>@import "tailwindcss";</code>; config: <code>@theme</code>, <code>@custom-variant</code>, <code>@plugin</code>, <code>@source</code>.</li>
+  <li><code>npx @tailwindcss/upgrade</code> migrates v3 projects; <code>@config</code> keeps a JavaScript config working.</li>
+  <li>Scales shifted: v3 <code>shadow</code>/<code>rounded</code>/<code>blur</code> = v4 <code>-sm</code>; v3 <code>-sm</code> = v4 <code>-xs</code>.</li>
+  <li><code>*-opacity-*</code> is gone (use <code>/50</code>); <code>outline-none</code> → <code>outline-hidden</code>; <code>ring</code> is 1&nbsp;px.</li>
+  <li>Borders default to <code>currentColor</code>; buttons have a default cursor; <code>hover:</code> needs a hover-capable device.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">identify</span></h3>
+<p>A tutorial's CSS file has three <code>@tailwind</code> lines and its config has <code>purge</code>. Which version is it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>v2 (<code>purge</code> was renamed <code>content</code> in v3).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">rewrite</span></h3>
+<p>Rewrite for v4: <code>bg-white bg-opacity-75 shadow rounded flex-shrink-0</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>bg-white/75 shadow-sm rounded-sm shrink-0</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">dark mode</span></h3>
+<p>Convert <code>darkMode: 'class'</code> to v4.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@custom-variant dark (&amp;:where(.dark, .dark *));</code> in the CSS file.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">border</span></h3>
+<p>After upgrading, card borders look black instead of light grey. Why, and what's the cleanest fix in your templates?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>v4's default border colour is <code>currentColor</code>. Add an explicit colour wherever <code>border</code> is used: <code>border border-gray-200</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">config</span></h3>
+<p>Convert to CSS: <code>theme: { extend: { colors: { primary: { 500: '#3b82f6', 700: '#1d4ed8' } }, borderRadius: { card: '1.25rem' } } }</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme { --color-primary-500: #3b82f6; --color-primary-700: #1d4ed8; --radius-card: 1.25rem; }</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">order</span></h3>
+<p>You must replace v3's <code>shadow-sm</code> and <code>shadow</code> by hand. In which order do you do the two find-and-replace operations, and why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>First <code>shadow-sm</code> → <code>shadow-xs</code>, then <code>shadow</code> → <code>shadow-sm</code> (as a whole word). The other order would turn the new <code>shadow-sm</code> classes into <code>shadow-xs</code> too.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">safelist</span></h3>
+<p>A v3 config has <code>safelist: ['bg-red-500', 'bg-green-500']</code>. What's the v4 equivalent?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@source inline("bg-{red,green}-500");</code> (the <code>safelist</code> option isn't supported by <code>@config</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>The playground has <code>chapters/appendix-a/old.html</code>, a page written for v3. Fix every class so it looks as the comment at the top describes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Use the "Renamed utilities" and "Changed defaults" tables. Typical fixes: <code>bg-opacity-*</code> → slash opacity, <code>shadow</code> → <code>shadow-sm</code>, <code>outline-none</code> → <code>outline-hidden</code>, explicit border colours, <code>cursor-pointer</code> on buttons.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">plan</span></h3>
+<p>Plan the upgrade of a large v3 app that must also support Safari 15 users for another year.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Don't upgrade yet: v4 targets Safari 16.4+. Stay on v3.4 (still maintained as <code>v3-lts</code>), clean up in the meantime (remove <code>*-opacity-*</code>, add explicit border colours, replace <code>flex-shrink</code>), and run <code>npx @tailwindcss/upgrade</code> in a branch when the browser requirement allows, reviewing the diff and visual changes page by page.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Explain why v4 changed <code>outline-none</code>, and what the old behaviour was useful for.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>v3's <code>outline-none</code> set a 2&nbsp;px <em>transparent</em> outline, not <code>outline: none</code>, so Windows high-contrast mode (which makes transparent colours visible) still showed a focus indicator. The name was misleading, so v4 renamed that behaviour to <code>outline-hidden</code> and made <code>outline-none</code> really set <code>outline-style: none</code>.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/upgrade-guide">Upgrade guide</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives#config-directive">@config</a> · <a href="https://tailwindcss.com/docs/compatibility">Compatibility</a></li>
+  <li><a href="https://v3.tailwindcss.com/docs">Tailwind CSS v3 docs</a> · <a href="https://v2.tailwindcss.com/docs">Tailwind CSS v2 docs</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

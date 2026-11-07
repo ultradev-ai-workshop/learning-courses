@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📖&lt;/text&gt;&lt;/svg&gt;">
+<title>Glossary · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+<style>
+  dl.gloss dt { font-weight: 700; margin-top: 1em; }
+  dl.gloss dd { margin: .2em 0 0 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Glossary</h1>
+<p class="lead">The Tailwind CSS terms used in this book, in plain words, each with the chapter where it's explained.</p>
+
+<dl class="gloss">
+<dt id="apply">@apply</dt><dd>Copies the declarations of utilities into your own CSS rule: <code>.btn { @apply px-4 py-2; }</code>. Use sparingly. <a href="10-reusing.html#apply">Ch. 10</a></dd>
+<dt id="arbitrary-property">Arbitrary property</dt><dd>Any CSS declaration as a class: <code>[mask-type:luminance]</code>, <code>[--gap:2rem]</code>. <a href="09-arbitrary.html#properties">Ch. 9</a></dd>
+<dt id="arbitrary-value">Arbitrary value</dt><dd>Any value in square brackets after a utility name: <code>top-[117px]</code>, <code>bg-[#bada55]</code>. <a href="09-arbitrary.html#values">Ch. 9</a></dd>
+<dt id="arbitrary-variant">Arbitrary variant</dt><dd>A selector or at-rule in brackets used as a variant: <code>[&amp;.is-active]:font-bold</code>. <a href="09-arbitrary.html#variants">Ch. 9</a></dd>
+<dt id="breakpoint">Breakpoint</dt><dd>A minimum screen width where responsive variants start applying: <code>sm</code> 40rem, <code>md</code> 48rem, <code>lg</code> 64rem, <code>xl</code> 80rem, <code>2xl</code> 96rem. <a href="06-responsive.html#breakpoints">Ch. 6</a></dd>
+<dt id="cascade-layers">Cascade layers</dt><dd>The CSS <code>@layer</code> feature. Tailwind's output has <code>theme</code>, <code>base</code>, <code>components</code> and <code>utilities</code> layers; later layers win. <a href="01-what.html#the-file">Ch. 1</a></dd>
+<dt id="canonicalize">canonicalize</dt><dd>A CLI command that rewrites classes into their simplest form: <code>w-12 h-12</code> → <code>size-12</code>. <a href="04-editor.html#canonicalize">Ch. 4</a></dd>
+<dt id="cli">CLI (@tailwindcss/cli)</dt><dd>The standalone command that turns an input CSS file into an output CSS file: <code>npx @tailwindcss/cli -i in.css -o out.css</code>. <a href="02-install.html#cli">Ch. 2</a></dd>
+<dt id="container-query">Container query</dt><dd>A style that depends on a parent's width instead of the screen's: <code>@container</code> on the parent, <code>@md:</code> on children. <a href="18-modern.html#cq">Ch. 18</a></dd>
+<dt id="custom-variant">@custom-variant</dt><dd>Defines a new variant from a selector or at-rule, e.g. class-based dark mode. <a href="11-custom.html#variants">Ch. 11</a></dd>
+<dt id="dark-mode">Dark mode</dt><dd>The <code>dark:</code> variant; by default it follows <code>prefers-color-scheme</code>, or a class/attribute with <code>@custom-variant</code>. <a href="07-dark-mode.html">Ch. 7</a></dd>
+<dt id="detection">Detection (source detection)</dt><dd>How Tailwind finds class names: it reads source files as plain text and generates CSS for tokens that match utilities. <a href="11-custom.html#detection">Ch. 11</a></dd>
+<dt id="group">group / group-*</dt><dd>Mark a parent with <code>group</code> to style children based on its state: <code>group-hover:text-white</code>. <a href="05-states.html#group">Ch. 5</a></dd>
+<dt id="intellisense">IntelliSense</dt><dd>The official editor extension: autocomplete, hover previews and linting for classes. <a href="04-editor.html#intellisense">Ch. 4</a></dd>
+<dt id="important">Important modifier</dt><dd>A <code>!</code> at the end of a class adds <code>!important</code>: <code>bg-red-500!</code>. <a href="03-utility-first.html#important">Ch. 3</a></dd>
+<dt id="mobile-first">Mobile first</dt><dd>Unprefixed utilities apply at every size; breakpoint variants override them from that width up. <a href="06-responsive.html#mobile-first">Ch. 6</a></dd>
+<dt id="modifier">Modifier</dt><dd>The part after a slash: opacity in <code>bg-sky-500/50</code>, line height in <code>text-lg/7</code>, a group name in <code>group-hover/item</code>. <a href="08-theme.html#opacity">Ch. 8</a></dd>
+<dt id="namespace">Namespace</dt><dd>The prefix of a theme variable that decides which utilities it creates: <code>--color-*</code>, <code>--font-*</code>, <code>--breakpoint-*</code>. <a href="08-theme.html#namespaces">Ch. 8</a></dd>
+<dt id="oklch">OKLCH</dt><dd>The colour space Tailwind's palette is defined in: lightness, chroma, hue. Steps in lightness look even. <a href="08-theme.html#colors">Ch. 8</a></dd>
+<dt id="peer">peer / peer-*</dt><dd>Mark an element with <code>peer</code> to style its <em>later</em> siblings based on its state: <code>peer-invalid:visible</code>. <a href="05-states.html#peer">Ch. 5</a></dd>
+<dt id="play-cdn">Play CDN</dt><dd>A script tag that runs Tailwind in the browser; for experiments, not production. <a href="02-install.html#cdn">Ch. 2</a></dd>
+<dt id="plugin">@plugin</dt><dd>Loads a JavaScript plugin such as Typography or Forms. <a href="appendix-plugins.html">App. B</a></dd>
+<dt id="postcss">PostCSS plugin (@tailwindcss/postcss)</dt><dd>Tailwind as a PostCSS plugin, for frameworks that run PostCSS, such as Next.js. <a href="02-install.html#postcss">Ch. 2</a></dd>
+<dt id="preflight">Preflight</dt><dd>Tailwind's reset in the <code>base</code> layer: no margins, unstyled headings and lists, border-box sizing. <a href="03-utility-first.html#preflight">Ch. 3</a></dd>
+<dt id="prose">prose</dt><dd>The Typography plugin's class that styles uncontrolled HTML such as Markdown output. <a href="appendix-plugins.html#typography">App. B</a></dd>
+<dt id="reference">@reference</dt><dd>Makes a stylesheet's theme and utilities known (for <code>@apply</code>) without outputting its CSS. <a href="10-reusing.html#reference">Ch. 10</a></dd>
+<dt id="ring">Ring</dt><dd>An outline drawn with <code>box-shadow</code>: <code>ring-2 ring-sky-500</code>. Takes no space. <a href="16-color-effects.html#ring">Ch. 16</a></dd>
+<dt id="safelist">Safelist</dt><dd>Classes generated even though they don't appear in your files: <code>@source inline("…")</code>. <a href="11-custom.html#source">Ch. 11</a></dd>
+<dt id="semantic-colour">Semantic colour</dt><dd>A colour named for its role (<code>surface</code>, <code>ink</code>) whose value changes per theme, registered with <code>@theme inline</code>. <a href="07-dark-mode.html#variables">Ch. 7</a></dd>
+<dt id="source">@source</dt><dd>Adds paths to scan, excludes paths (<code>not</code>), or safelists classes (<code>inline()</code>). <a href="11-custom.html#source">Ch. 11</a></dd>
+<dt id="spacing-scale">Spacing scale</dt><dd>Spacing and sizing utilities are multiples of <code>--spacing</code> (0.25rem): <code>p-4</code> = 1rem. <a href="03-utility-first.html#spacing">Ch. 3</a></dd>
+<dt id="subgrid">Subgrid</dt><dd>A nested grid that uses its parent's tracks: <code>grid-cols-subgrid</code>, <code>grid-rows-subgrid</code>. <a href="13-flex-grid.html#subgrid">Ch. 13</a></dd>
+<dt id="theme">@theme / theme variable</dt><dd>A CSS variable defined in <code>@theme</code>: a design token that also creates utilities. <a href="08-theme.html">Ch. 8</a></dd>
+<dt id="utility">Utility (utility class)</dt><dd>A small single-purpose class such as <code>flex</code> or <code>pt-4</code>, generated on demand. <a href="01-what.html">Ch. 1</a></dd>
+<dt id="custom-utility">@utility</dt><dd>Defines your own utility, simple or functional (<code>name-*</code> with <code>--value()</code>). <a href="11-custom.html#utility">Ch. 11</a></dd>
+<dt id="variant">Variant</dt><dd>A prefix that applies a utility conditionally: <code>hover:</code>, <code>md:</code>, <code>dark:</code>, <code>aria-pressed:</code>. They stack: <code>md:hover:</code>. <a href="05-states.html">Ch. 5</a></dd>
+<dt id="vite-plugin">Vite plugin (@tailwindcss/vite)</dt><dd>The recommended integration for Vite and frameworks built on it. <a href="02-install.html#vite">Ch. 2</a></dd>
+</dl>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

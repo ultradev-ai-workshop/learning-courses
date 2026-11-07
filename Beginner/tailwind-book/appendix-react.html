@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;⚛️&lt;/text&gt;&lt;/svg&gt;">
+<title>C. Tailwind with React Components · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix C</div>
+<h1>Tailwind with React Components</h1>
+<p class="lead">Tailwind and component frameworks fit together naturally: the component holds the markup and the classes in one place, so reuse is solved by the framework, not by CSS. This appendix shows the patterns React developers use every day: a Vite + React setup, conditional classes with <code>clsx</code>, variant lookups, letting callers override classes safely with <code>tailwind-merge</code>, and styling state through <code>data-*</code> and <code>aria-*</code> attributes. The same ideas apply to Vue, Svelte and others.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to set up Tailwind in a Vite + React project.</li>
+  <li><code>className</code>, conditional classes, and the <code>clsx</code> helper.</li>
+  <li>Variant lookups for component props, and why they beat string building.</li>
+  <li>How <code>tailwind-merge</code> resolves conflicts when a caller passes <code>className</code>.</li>
+  <li>Styling component state with <code>data-*</code> and <code>aria-*</code> variants.</li>
+</ul>
+</div>
+
+<h2 id="setup">Setup: Vite + React</h2>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm create vite@latest my-app -- --template react-ts
+$ cd my-app
+$ npm install tailwindcss @tailwindcss/vite
+</script>
+<script type="text/plain" class="code" data-file="vite.config.ts">
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+});
+</script>
+<script type="text/plain" class="code" data-file="src/index.css">
+@import "tailwindcss";
+</script>
+<script type="text/plain" class="code" data-file="index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React + Tailwind</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"><\/script>
+  </body>
+</html>
+</script>
+<script type="text/plain" class="code" data-file="src/main.tsx">
+import { StrictMode, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import { Button } from "./Button";
+
+function App() {
+  const [count, setCount] = useState(0);
+  return (
+    <main className="flex flex-col items-start gap-3 p-6">
+      <h1 className="text-2xl font-bold">Clicked {count} times</h1>
+      <div className="flex gap-2">
+        <Button id="inc" onClick={() => setCount(count + 1)}>Add one</Button>
+        <Button variant="secondary" onClick={() => setCount(0)}>Reset</Button>
+        <Button variant="danger" size="sm" className="px-6">Delete</Button>
+      </div>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+</script>
+<p>In JSX, the attribute is <code>className</code>; everything else is the same as in HTML. Now the component.</p>
+
+<h2 id="button">A component with variants</h2>
+<script type="text/plain" class="code" data-file="src/Button.tsx">
+import type { ComponentProps } from "react";
+import { cn } from "./cn";
+
+const variants = {
+  primary: "bg-sky-600 text-white hover:bg-sky-700",
+  secondary: "bg-white text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50",
+  danger: "bg-red-600 text-white hover:bg-red-700",
+};
+const sizes = { sm: "px-2.5 py-1.5 text-xs", md: "px-3.5 py-2 text-sm" };
+
+type ButtonProps = ComponentProps<"button"> & {
+  variant?: keyof typeof variants;
+  size?: keyof typeof sizes;
+};
+
+export function Button({ variant = "primary", size = "md", className, ...props }: ButtonProps) {
+  return (
+    <button
+      className={cn("rounded-md font-semibold shadow-xs", variants[variant], sizes[size], className)}
+      {...props}
+    />
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="src/cn.ts">
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+// clsx: join classes, skip falsy ones. twMerge: when two classes conflict, keep the last one.
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="c-buttons" data-url="" data-width="420" data-steps="click:#inc; click:#inc">After two clicks: the heading reads "Clicked 2 times", followed by a blue "Add one" button, a white "Reset" button and a small red "Delete" button.</script>
+<script type="text/plain" class="code" data-lang="text" data-url="" data-eval="[...document.querySelectorAll('button')].map((b) => b.textContent + ': ' + b.className).join('\n')">
+Add one: rounded-md font-semibold shadow-xs bg-sky-600 text-white hover:bg-sky-700 px-3.5 py-2 text-sm
+Reset: rounded-md font-semibold shadow-xs bg-white text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50 px-3.5 py-2 text-sm
+Delete: rounded-md font-semibold shadow-xs bg-red-600 text-white hover:bg-red-700 py-1.5 text-xs px-6
+</script>
+<p>Look at the Delete button: the caller passed <code>className="px-6"</code>, and <code>twMerge</code> <strong>removed</strong> the conflicting <code>px-2.5</code> from the size. Without it, both <code>px-2.5</code> and <code>px-6</code> would be on the element, and the winner would depend on Tailwind's CSS order, not on your intent (Chapter 3).</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> <code>clsx</code> is a <strong>packing list</strong>: write down everything, cross out what doesn't apply (<code>isActive &amp;&amp; "…"</code>). <code>tailwind-merge</code> is the <strong>person checking the suitcase</strong>: if you packed two jackets for the same weather (<code>px-2.5</code> and <code>px-6</code>), it takes out the first one.</p>
+</div>
+
+<h2 id="merge">What tailwind-merge does</h2>
+<p>It understands Tailwind's class groups, so it knows which classes conflict:</p>
+<script type="text/plain" class="code" data-file="merge.mjs" data-node>
+import { twMerge } from "tailwind-merge";
+import { clsx } from "clsx";
+
+console.log(twMerge("px-2 py-1 bg-red-500", "p-3 bg-sky-500"));
+console.log(twMerge("text-sm text-slate-500", "text-lg"));
+console.log(twMerge("hover:bg-sky-600", "hover:bg-sky-800"));
+console.log(clsx("p-2", false && "hidden", { "font-bold": true, italic: false }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+p-3 bg-sky-500
+text-slate-500 text-lg
+hover:bg-sky-800
+p-2 font-bold
+</script>
+<p>Note the second line: <code>text-sm</code> (a size) and <code>text-lg</code> conflict, but <code>text-slate-500</code> (a colour) is kept. It's a small library (a few KB), and only needed in components that accept <code>className</code> from outside.</p>
+
+<h2 id="state">Styling state with attributes</h2>
+<p>Instead of computing classes from state in JavaScript, put the state in an attribute and let variants do the styling (Chapter 5). The markup stays static, accessibility attributes double as styling hooks, and the classes are easy to read:</p>
+<script type="text/plain" class="code" data-file="src/Tabs.tsx" data-app="tabs">
+import { useState } from "react";
+
+const tabs = ["Profile", "Billing", "Team"];
+
+export function Tabs() {
+  const [active, setActive] = useState("Profile");
+  return (
+    <div role="tablist" className="flex gap-1 rounded-lg bg-slate-100 p-1">
+      {tabs.map((t) => (
+        <button
+          key={t}
+          role="tab"
+          id={`tab-${t}`}
+          aria-selected={t === active}
+          onClick={() => setActive(t)}
+          className="rounded-md px-3 py-1.5 text-sm text-slate-600 aria-selected:bg-white aria-selected:text-slate-900 aria-selected:shadow-sm"
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+}
+</script>
+<script type="text/plain" class="code" data-file="src/main.tsx" data-app="tabs">
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import { Tabs } from "./Tabs";
+
+createRoot(document.getElementById("root")!).render(<div className="p-6"><Tabs /></div>);
+</script>
+<script type="text/plain" class="code" data-file="src/index.css" data-app="tabs">
+@import "tailwindcss";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="tabs">
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Tabs</title></head>
+  <body><div id="root"></div><script type="module" src="/src/main.tsx"><\/script></body>
+</html>
+</script>
+<script type="text/plain" class="code" data-file="vite.config.ts" data-app="tabs">
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({ plugins: [react(), tailwindcss()] });
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="c-tabs" data-url="" data-width="360" data-steps="click:#tab-Billing">A segmented control with three tabs on a grey track; "Billing" is selected and appears as a white raised pill.</script>
+
+<h2 id="tips">More tips</h2>
+<ul>
+  <li><strong>Never build class names from props</strong>: <code>`bg-${color}-500`</code> isn't detected (Chapter 11). Use lookup objects as above.</li>
+  <li><strong>Runtime values</strong> go through CSS variables: <code>style={{ "--progress": `${p}%` }}</code> with <code>w-(--progress)</code>.</li>
+  <li><strong>Editor support</strong>: add <code>"tailwindCSS.classFunctions": ["cn", "clsx"]</code> and Prettier's <code>"tailwindFunctions": ["cn"]</code> (Chapter 4).</li>
+  <li><strong>Many variants?</strong> Libraries such as <code>class-variance-authority</code> (<code>cva</code>) or <code>tailwind-variants</code> formalise the lookup pattern with typed variants, compound variants and defaults.</li>
+  <li><strong>Vue and Svelte</strong> work the same: <code>:class</code> bindings or <code>class:active={…}</code>; style blocks that use <code>@apply</code> need <code>@reference</code> (Chapter 10).</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A badge with a lookup and clsx</h3>
+<script type="text/plain" class="code" data-file="badge.mjs" data-node>
+import { clsx } from "clsx";
+
+const tones = { green: "bg-green-50 text-green-700", red: "bg-red-50 text-red-700" };
+const badge = (tone, { dot = false } = {}) =>
+  clsx("inline-flex items-center gap-1 rounded-full px-2 text-xs", tones[tone], dot && "before:size-1.5 before:rounded-full before:bg-current");
+
+console.log(badge("green"));
+console.log(badge("red", { dot: true }));
+</script>
+<script type="text/plain" class="code" data-lang="text">
+inline-flex items-center gap-1 rounded-full px-2 text-xs bg-green-50 text-green-700
+inline-flex items-center gap-1 rounded-full px-2 text-xs bg-red-50 text-red-700 before:size-1.5 before:rounded-full before:bg-current
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Vite + React: <code>@tailwindcss/vite</code> next to <code>@vitejs/plugin-react</code>; <code>@import "tailwindcss"</code> in the entry CSS.</li>
+  <li>Components hold markup and classes together; variants live in lookup objects with complete class names.</li>
+  <li><code>clsx</code> joins conditional classes; <code>tailwind-merge</code> drops earlier conflicting ones, so <code>className</code> overrides work.</li>
+  <li>Prefer <code>aria-*</code>/<code>data-*</code> attributes + variants over computing classes from state.</li>
+  <li>Runtime values via CSS variables; tell your editor and Prettier about <code>cn</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">JSX</span></h3>
+<p>Convert to JSX: <code>&lt;label for="email" class="text-sm font-medium"&gt;Email&lt;/label&gt;</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;label htmlFor="email" className="text-sm font-medium"&gt;Email&lt;/label&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">clsx</span></h3>
+<p>Add <code>opacity-50 cursor-not-allowed</code> only when a <code>disabled</code> prop is true, with <code>clsx</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>clsx("rounded-md px-3 py-2", disabled &amp;&amp; "cursor-not-allowed opacity-50")</code> (or use the <code>disabled:</code> variant on a real <code>&lt;button disabled&gt;</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">merge</span></h3>
+<p>What does <code>twMerge("p-4 rounded-lg", "rounded-none")</code> return?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"p-4 rounded-none"</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">bug</span></h3>
+<p>Why doesn't <code>&lt;div className={`text-${size}`}&gt;</code> work, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Tailwind never sees the full class names in the source. Use a lookup: <code>{ sm: "text-sm", lg: "text-lg" }[size]</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">component</span></h3>
+<p>Write a <code>Card</code> component with a <code>padding</code> prop (<code>"sm" | "lg"</code>) that accepts a <code>className</code> to override anything.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>const pads = { sm: "p-4", lg: "p-8" };</code> and <code>&lt;div className={cn("rounded-xl bg-white shadow-sm ring-1 ring-slate-900/5", pads[padding], className)} {...props} /&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">state</span></h3>
+<p>An accordion item has <code>open</code> state. Style its chevron to rotate when open using a <code>data-state</code> attribute.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div data-state={open ? "open" : "closed"} className="group"&gt;</code> and on the icon <code>transition-transform group-data-[state=open]:rotate-180</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>Create a React version of the playground in <code>chapters/appendix-c/</code> with <code>npm create vite</code>, and port the <code>Button</code> from this appendix. Add a <code>loading</code> prop that shows a spinner.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>loading?: boolean</code> to the props; render <code>{loading &amp;&amp; &lt;svg className="size-4 animate-spin" …/&gt;}</code> before <code>children</code>, set <code>disabled={loading || props.disabled}</code>, and add <code>inline-flex items-center gap-2</code> to the base classes.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">why</span></h3>
+<p>When does a component <em>not</em> need <code>tailwind-merge</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>When it doesn't accept <code>className</code> (or other class props) from callers, or when its own variant classes never conflict. Plain <code>clsx</code> is enough then.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">compound</span></h3>
+<p>The Button should have a special style when <code>variant="secondary"</code> <em>and</em> <code>size="sm"</code>: no shadow. Implement it without a third lookup table for every combination.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add a list of compound rules: <code>const compound = [{ variant: "secondary", size: "sm", className: "shadow-none" }];</code> and append the matching ones: <code>compound.filter((c) =&gt; c.variant === variant &amp;&amp; c.size === size).map((c) =&gt; c.className)</code>. <code>twMerge</code> then removes the base <code>shadow-xs</code>. (This is what <code>cva</code>'s <code>compoundVariants</code> does.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">custom theme</span></h3>
+<p>Your theme adds <code>--text-display</code> (a font size) and <code>--color-brand</code>. <code>twMerge("text-brand", "text-display")</code> drops <code>text-brand</code>. Why, and how do you fix it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>tailwind-merge doesn't read your CSS theme, so it doesn't know whether <code>text-brand</code> and <code>text-display</code> are sizes or colours, and treats both as the same group. Configure it with <code>extendTailwindMerge({ extend: { theme: { text: ["display"], color: ["brand"] } } })</code> so it knows <code>display</code> is a font size and <code>brand</code> a colour.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/installation/using-vite">Installation: Using Vite</a></li>
+  <li><a href="https://tailwindcss.com/docs/styling-with-utility-classes#using-components">Using components</a></li>
+  <li><a href="https://github.com/dcastil/tailwind-merge">tailwind-merge</a> · <a href="https://github.com/lukeed/clsx">clsx</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

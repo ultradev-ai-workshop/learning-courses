@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;❓&lt;/text&gt;&lt;/svg&gt;">
+<title>FAQ: Tailwind vs Regular CSS · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Reference</div>
+<h1>Frequently Asked Questions</h1>
+<p class="lead">Short, honest answers to the questions people ask before and during the course, starting with the big one: why use Tailwind instead of writing regular CSS? Each answer links to the chapter that goes deeper.</p>
+
+<div class="learn">
+<h2>Questions</h2>
+<ol>
+  <li><a href="#why">Why Tailwind CSS instead of regular CSS?</a></li>
+  <li><a href="#when-not">When is regular CSS the better choice?</a></li>
+  <li><a href="#inline">Isn't this just inline styles?</a></li>
+  <li><a href="#ugly">Doesn't it make the HTML ugly and hard to read?</a></li>
+  <li><a href="#css-first">Do I need to know CSS before learning Tailwind?</a></li>
+  <li><a href="#size">How big is the CSS file? Is it slow?</a></li>
+  <li><a href="#separation">What about separation of concerns?</a></li>
+  <li><a href="#bootstrap">Tailwind vs Bootstrap?</a></li>
+  <li><a href="#cssinjs">Tailwind vs CSS Modules, Sass and CSS-in-JS?</a></li>
+  <li><a href="#framework">Do I need React or another framework?</a></li>
+  <li><a href="#version">Why does this book use v4 when my tutorial uses v2 or v3?</a></li>
+  <li><a href="#components">Are there ready-made components?</a></li>
+  <li><a href="#dynamic">Why doesn't my dynamic class name work?</a></li>
+  <li><a href="#a11y">Is Tailwind good for accessibility?</a></li>
+  <li><a href="#teams">How do teams keep Tailwind code consistent?</a></li>
+  <li><a href="#time">How long does it take to learn?</a></li>
+</ol>
+</div>
+
+<h2 id="why">1. Why Tailwind CSS instead of regular CSS?</h2>
+<p><strong>Regular CSS asks you to name things and write rules in a separate file; Tailwind gives you a fixed vocabulary of small classes that you combine directly in the markup.</strong> That changes how a project feels after a few months more than on day one:</p>
+<div class="table-wrap"><table>
+<tr><th>Problem with hand-written CSS in a growing project</th><th>How Tailwind handles it</th></tr>
+<tr><td><strong>Naming</strong>: <code>.card</code>, <code>.card-inner</code>, <code>.card__title--large</code>… every element needs a name, and naming conventions drift.</td><td>No names for styling. You name <em>components</em> (in React, templates), not every element.</td></tr>
+<tr><td><strong>The stylesheet only grows</strong>: nobody dares delete a rule because something somewhere might use it.</td><td>CSS is generated from what's in your files. Delete the markup and its styles are gone in the next build (Chapter 1).</td></tr>
+<tr><td><strong>Changes have side effects</strong>: editing a shared class can break pages you didn't look at.</td><td>Classes are on the element. Changing them changes that element only.</td></tr>
+<tr><td><strong>Inconsistent values</strong>: 17 different greys and paddings of 13, 14 and 15&nbsp;px.</td><td>Values come from a theme scale by default (Chapter 8); one-offs are possible but stand out as <code>[13px]</code>.</td></tr>
+<tr><td><strong>Context switching</strong>: jumping between HTML and CSS files to style one button.</td><td>You style while you write markup; states, breakpoints and dark mode are prefixes (Chapters 5–7).</td></tr>
+<tr><td><strong>Responsive and state styles</strong> need separate media queries and selectors.</td><td><code>md:flex</code>, <code>hover:bg-sky-700</code>, <code>dark:text-white</code> on the element.</td></tr>
+</table></div>
+<p>Here is the same button both ways. Regular CSS:</p>
+<script type="text/plain" class="code" data-file="button.css" data-norun>
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: #0284c7;
+  color: white;
+  font-weight: 600;
+}
+.btn-primary:hover { background: #0369a1; }
+.btn-primary:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+@media (min-width: 640px) {
+  .btn-primary { padding: 0.75rem 1.5rem; }
+}
+</script>
+<p>Tailwind, with the same behaviour on one line:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<button class="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white hover:bg-sky-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 sm:px-6 sm:py-3">Save</button>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="400" data-eval="(() => { const s = getComputedStyle(document.querySelector('button')); return 'padding at 400px: ' + s.padding + ', radius ' + s.borderRadius + ', weight ' + s.fontWeight; })()">
+padding at 400px: 8px 16px, radius 8px, weight 600
+</script>
+<p>Both are fine for <em>one</em> button. The difference shows at scale: with Tailwind, the hundredth component doesn't make the CSS file bigger unless it uses utilities nobody used before.</p>
+
+<h2 id="when-not">2. When is regular CSS the better choice?</h2>
+<ul>
+  <li><strong>Content you can't add classes to</strong>: Markdown, CMS output, emails generated by other tools. (In a Tailwind project, the Typography plugin or a few element styles in <code>@layer base</code> cover this; Appendix B.)</li>
+  <li><strong>A tiny site</strong> with one stylesheet and no build step, where a build tool is more work than the CSS.</li>
+  <li><strong>Complex, one-of-a-kind visuals</strong>: an intricate animation, an art-directed landing page, a CSS drawing. Writing them in a CSS file (or a CSS module) is clearer than 40 utility classes.</li>
+  <li><strong>A team that already has a strong design system in CSS</strong> and no problems with it.</li>
+  <li><strong>Learning CSS itself</strong>: write plain CSS first, so you understand what the utilities do.</li>
+</ul>
+<p>It's not either/or. Every Tailwind project can contain normal CSS; the docs show how to mix them (Chapter 11).</p>
+
+<h2 id="inline">3. Isn't this just inline styles?</h2>
+<p>No. Inline styles (<code>style="…"</code>) can't do hover, focus, media queries, dark mode or pseudo-elements; they don't use a design scale; and the same declarations are repeated on every element. Utilities are real CSS classes, defined once, with variants for every state and breakpoint, and values from your theme. Chapter 1 compares them in the browser. That said, inline styles are still right for <em>runtime</em> values, set as CSS variables (Chapter 3).</p>
+
+<h2 id="ugly">4. Doesn't it make the HTML ugly and hard to read?</h2>
+<p>Long class lists look noisy at first, and that's a fair criticism. In practice:</p>
+<ul>
+  <li>You stop reading them as noise after a week, the same way you stopped seeing <code>&lt;div&gt;</code> soup.</li>
+  <li>Prettier sorts them in a standard order and wraps long lines (Chapter 4).</li>
+  <li>Repeated groups move into components, so most files contain short lists (Chapter 10).</li>
+  <li>The alternative isn't "clean HTML": it's clean HTML <em>plus</em> a CSS file you must keep in sync. Total complexity is usually lower with Tailwind.</li>
+</ul>
+
+<h2 id="css-first">5. Do I need to know CSS before learning Tailwind?</h2>
+<p>Yes, at least the basics: the box model, display and position, flexbox and grid, selectors and the cascade. Tailwind doesn't hide CSS; it gives you shorter names for it. <code>justify-between</code> only makes sense if you know <code>justify-content</code>. This book explains the CSS behind each utility, but if flexbox is new to you, spend a day with MDN's CSS layout guides first or alongside Chapter 13.</p>
+
+<h2 id="size">6. How big is the CSS file? Is it slow?</h2>
+<p>Small. Tailwind generates only the classes you use (Chapter 1), so a typical site ships 10–30&nbsp;KB of CSS before compression and a few KB after. The file grows with the number of <em>different</em> utilities, not the number of pages, so it levels off as the project grows. There's no runtime JavaScript (except the Play CDN, which is for experiments only). The capstone's two pages are fully static (Chapter 19).</p>
+
+<h2 id="separation">7. What about separation of concerns?</h2>
+<p>The classic advice was "HTML for structure, CSS for presentation". In component-based apps, the more useful split is by <em>component</em>: a button's markup, behaviour and styles belong together, and changing it shouldn't require editing three files. Tailwind follows that split. If you need the old separation (a theme that restyles the same HTML completely), you can still use semantic CSS variables (Chapter 7) or component classes (Chapter 10).</p>
+
+<h2 id="bootstrap">8. Tailwind vs Bootstrap?</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>Bootstrap</th><th>Tailwind CSS</th></tr>
+<tr><td>Main idea</td><td>Ready-made components (<code>.btn</code>, <code>.navbar</code>, <code>.modal</code>) plus some utilities</td><td>Low-level utilities; you build the components</td></tr>
+<tr><td>Look</td><td>Recognisably "Bootstrap" unless heavily customised</td><td>No default look; every site looks like its own design</td></tr>
+<tr><td>JavaScript</td><td>Includes JavaScript for dropdowns, modals…</td><td>None; use your framework or headless libraries</td></tr>
+<tr><td>Customising</td><td>Override Sass variables or CSS</td><td>Change the theme with <code>@theme</code></td></tr>
+<tr><td>CSS size</td><td>Whole framework unless you trim it</td><td>Only what you use</td></tr>
+<tr><td>Best for</td><td>Admin panels and prototypes that need components today</td><td>Custom designs, design systems, component-based apps</td></tr>
+</table></div>
+
+<h2 id="cssinjs">9. Tailwind vs CSS Modules, Sass and CSS-in-JS?</h2>
+<ul>
+  <li><strong>CSS Modules</strong> solve naming collisions by scoping class names per file, but you still write and maintain the CSS. They combine well with Tailwind for the occasional complex component.</li>
+  <li><strong>Sass</strong> adds variables, nesting and mixins to CSS. Modern CSS has variables and nesting built in, and Tailwind v4 isn't designed to be used with Sass preprocessors.</li>
+  <li><strong>CSS-in-JS</strong> (styled-components, Emotion) writes CSS in JavaScript, often at runtime. It has fallen out of favour with React Server Components, which can't use runtime style injection. Tailwind generates static CSS at build time and works everywhere.</li>
+</ul>
+
+<h2 id="framework">10. Do I need React or another framework?</h2>
+<p>No. Tailwind works with plain HTML (most of this book uses plain HTML and the CLI), server-side templates (Django, Rails, Laravel, Spring/Thymeleaf), and every front-end framework. A component system makes reuse easier, which is why Tailwind is especially popular with React, Vue and Svelte (Appendix C), but it isn't required.</p>
+
+<h2 id="version">11. Why does this book use v4 when my tutorial uses v2 or v3?</h2>
+<p>v4 is the current version (4.3 at the time of writing). It's much faster, configured in CSS, needs no content list, and uses modern CSS features. v2 is from 2020–2021 and no longer maintained; v3 gets security fixes only. Most class names are the same, but setup and some names changed. Appendix A translates old code, and the official upgrade tool migrates v3 projects automatically.</p>
+
+<h2 id="components">12. Are there ready-made components?</h2>
+<p>Tailwind itself ships no components. The Tailwind team sells <strong>Tailwind Plus</strong> (formerly Tailwind UI), a large set of professionally designed components and templates, and maintains <strong>Headless UI</strong>, free unstyled accessible components (menus, dialogs, tabs) for React and Vue that you style with utilities. Many free community libraries exist too (for example shadcn/ui for React, daisyUI as a plugin with Bootstrap-like class names). Building your own first, as this book does, teaches you what those libraries do.</p>
+
+<h2 id="dynamic">13. Why doesn't my dynamic class name work?</h2>
+<p>Because Tailwind reads your files as text at build time and never runs your code. <code>`bg-${color}-500`</code> never appears as a complete class name, so nothing is generated. Write complete names and choose between them (<code>{ red: "bg-red-500", green: "bg-green-500" }[color]</code>), use a CSS variable for truly dynamic values, or safelist with <code>@source inline()</code> (Chapter 11).</p>
+
+<h2 id="a11y">14. Is Tailwind good for accessibility?</h2>
+<p>Tailwind is neutral: it styles whatever HTML you write. It does make good practice easy: <code>sr-only</code> for screen-reader text, <code>focus-visible:</code> for keyboard focus, <code>motion-reduce:</code> for reduced motion, <code>forced-colors:</code> for high-contrast mode, and <code>aria-*</code> variants that style state from accessibility attributes (Chapters 5, 12, 17). You still need semantic HTML, labels, and enough colour contrast.</p>
+
+<h2 id="teams">15. How do teams keep Tailwind code consistent?</h2>
+<ul>
+  <li>One theme file with the design tokens; avoid arbitrary values in reviews (Chapter 8, 9).</li>
+  <li>Prettier with <code>prettier-plugin-tailwindcss</code> and a CI check (Chapter 4).</li>
+  <li>Shared components for buttons, inputs, cards (Chapter 10, Appendix C).</li>
+  <li>The IntelliSense extension for completion and linting (Chapter 4).</li>
+</ul>
+
+<h2 id="time">16. How long does it take to learn?</h2>
+<p>If you know CSS, you'll be productive in a day or two: learn the naming pattern, the spacing scale and variants (Chapters 1–6), and look up the rest as you go. Becoming fluent, so you think in utilities and know when to extract components or customise the theme, takes a few weeks of real use. This book's 19 chapters, 220 exercises and the capstone are designed to get you there.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Proof that unused styles don't ship</h3>
+<p>Two pages with the same three utilities generate the same rules, once:</p>
+<script type="text/plain" class="code" data-file="a.html" data-app="dedupe">
+<p class="p-4 font-bold text-sky-700">Page A</p>
+</script>
+<script type="text/plain" class="code" data-file="b.html" data-app="dedupe">
+<p class="p-4 font-bold text-sky-700">Page B</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.">
+  .p-4 {
+  .font-bold {
+  .text-sky-700 {
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

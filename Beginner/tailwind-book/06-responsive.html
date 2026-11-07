@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📱&lt;/text&gt;&lt;/svg&gt;">
+<title>6. Responsive Design · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 6 · Core Concepts</div>
+<h1>Responsive Design</h1>
+<p class="lead">A responsive page adapts its layout to the screen it's on. In Tailwind, every utility can take a <strong>breakpoint variant</strong>: <code>md:flex</code> means "<code>flex</code> from medium screens up". This chapter explains the mobile-first approach, the five default breakpoints, how to target a range, how to add your own breakpoints, and the difference between viewport and container breakpoints. The same page is shown at different widths, rendered by Chrome at that width.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The viewport meta tag and why responsive design needs it.</li>
+  <li>The default breakpoints and what <code>md:</code> compiles to.</li>
+  <li>Mobile-first thinking: unprefixed classes are for every size.</li>
+  <li>How to target one range with <code>md:max-lg:</code>, and use <code>max-*</code> variants.</li>
+  <li>How to add, change and remove breakpoints, and use one-off values like <code>min-[900px]:</code>.</li>
+  <li>The <code>container</code> class and a first look at container queries.</li>
+</ul>
+</div>
+
+<h2 id="meta">First: the viewport meta tag</h2>
+<p>Phones pretend to be about 980&nbsp;px wide unless the page tells them not to, so your breakpoints would never trigger. Every page needs this line in <code>&lt;head&gt;</code> (the examples in this book all have it):</p>
+<script type="text/plain" class="code" data-file="index.html" data-norun>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</script>
+
+<h2 id="breakpoints">Breakpoints</h2>
+<p>There are five default breakpoints, inspired by common device widths. Each is a theme variable:</p>
+<div class="table-wrap"><table>
+<tr><th>Prefix</th><th>Minimum width</th><th>CSS</th></tr>
+<tr><td><code>sm:</code></td><td>40rem (640&nbsp;px)</td><td><code>@media (width &gt;= 40rem) { … }</code></td></tr>
+<tr><td><code>md:</code></td><td>48rem (768&nbsp;px)</td><td><code>@media (width &gt;= 48rem) { … }</code></td></tr>
+<tr><td><code>lg:</code></td><td>64rem (1024&nbsp;px)</td><td><code>@media (width &gt;= 64rem) { … }</code></td></tr>
+<tr><td><code>xl:</code></td><td>80rem (1280&nbsp;px)</td><td><code>@media (width &gt;= 80rem) { … }</code></td></tr>
+<tr><td><code>2xl:</code></td><td>96rem (1536&nbsp;px)</td><td><code>@media (width &gt;= 96rem) { … }</code></td></tr>
+</table></div>
+<p>Here is a card that stacks on phones and goes side by side from <code>md</code>:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="mx-auto max-w-md overflow-hidden rounded-xl bg-white shadow-md md:max-w-2xl">
+  <div class="md:flex">
+    <div class="md:shrink-0">
+      <div class="h-40 w-full bg-linear-to-br from-sky-400 to-indigo-500 md:h-full md:w-48"></div>
+    </div>
+    <div class="p-8">
+      <div class="text-sm font-semibold tracking-wide text-indigo-500 uppercase">Company retreat</div>
+      <a href="#" class="mt-1 block text-lg leading-tight font-medium text-black hover:underline">Incredible accommodation for your team</a>
+      <p class="mt-2 text-slate-500">Looking for a place to take your team? Here are five ideas, from cabins in the woods to a castle by the sea.</p>
+    </div>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="06-card-sm" data-width="420">At 420px: the gradient image is a full-width band on top, the text below it.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="06-card-md" data-width="800">At 800px: the gradient image is a narrow column on the left, the text on the right.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="@media \(width|^    \.md">
+  @media (width >= 48rem) {
+    .md\:flex {
+    .md\:h-full {
+    .md\:w-48 {
+    .md\:max-w-2xl {
+    .md\:shrink-0 {
+</script>
+<p>Every <code>md:</code> class lives inside <code>@media (width &gt;= 48rem)</code>, and Tailwind groups them into one block. That's all a breakpoint is.</p>
+
+<h2 id="mobile-first">Mobile first</h2>
+<p>Tailwind is <strong>mobile-first</strong>: a class without a prefix applies at <em>every</em> width, and a prefixed class applies at that width <em>and wider</em>. So you style for small screens first, then add overrides for bigger ones.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="first">
+<!-- ✘ "sm:" does not mean "on small screens" -->
+<p id="wrong" class="sm:text-center">centred only from 640px up</p>
+<!-- ✔ centred on phones, left-aligned from 640px up -->
+<p id="right" class="text-center sm:text-left">centred on phones</p>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="390" data-eval="['wrong', 'right'].map((id) => id + ': ' + getComputedStyle(document.getElementById(id)).textAlign).join('\n')">
+wrong: start
+right: center
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="800" data-eval="['wrong', 'right'].map((id) => id + ': ' + getComputedStyle(document.getElementById(id)).textAlign).join('\n')">
+wrong: center
+right: left
+</script>
+<p>At 390&nbsp;px (a phone), <code>sm:text-center</code> does nothing. This is the most common beginner mistake with breakpoints.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> breakpoints are <strong>height marks at an amusement park</strong>: "you must be <em>at least</em> this tall to ride". <code>md:flex</code> is a ride for everyone 768&nbsp;px and taller. Unprefixed classes are rides with no height limit. There's no "maximum height" sign unless you add one with <code>max-*</code>.</p>
+</div>
+
+<h2 id="ranges">Targeting a range</h2>
+<p>Each breakpoint also has a <code>max-*</code> variant that applies <em>below</em> it. Combine them to target a range:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="range">
+<div id="box" class="md:max-lg:bg-amber-200 max-sm:bg-sky-200">box</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  @media (width < 40rem) {
+    .max-sm\:bg-sky-200 {
+      background-color: var(--color-sky-200);
+    }
+  }
+  @media (width >= 48rem) {
+    @media (width < 64rem) {
+      .md\:max-lg\:bg-amber-200 {
+        background-color: var(--color-amber-200);
+      }
+    }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:500; eval:document.body.dataset.a = getComputedStyle(box).backgroundColor; width:700; eval:document.body.dataset.b = getComputedStyle(box).backgroundColor; width:900; eval:document.body.dataset.c = getComputedStyle(box).backgroundColor; width:1100" data-eval="['500px ' + document.body.dataset.a, '700px ' + document.body.dataset.b, '900px ' + document.body.dataset.c, '1100px ' + getComputedStyle(box).backgroundColor].join('\n')">
+500px oklch(0.901 0.058 230.902)
+700px rgba(0, 0, 0, 0)
+900px oklch(0.924 0.12 95.746)
+1100px rgba(0, 0, 0, 0)
+</script>
+<p>Sky below 640&nbsp;px, amber between 768 and 1023&nbsp;px, nothing elsewhere. To target exactly one breakpoint's range, stack it with the next one's <code>max-</code>: <code>md:max-lg:</code> is "md only".</p>
+
+<h2 id="custom">Custom breakpoints</h2>
+<p>Breakpoints are theme variables named <code>--breakpoint-*</code>, so you change them in CSS with <code>@theme</code> (Chapter 8):</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="custom">
+@import "tailwindcss";
+
+@theme {
+  --breakpoint-xs: 30rem;
+  --breakpoint-2xl: 100rem;
+  --breakpoint-3xl: 120rem;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="custom">
+<div class="xs:p-1 sm:p-2 2xl:p-3 3xl:p-4"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="@media">
+  @media (width >= 30rem) {
+  @media (width >= 40rem) {
+  @media (width >= 100rem) {
+  @media (width >= 120rem) {
+</script>
+<p>Tailwind sorts breakpoints by size, so <code>xs</code> (new, 30&nbsp;rem) comes first and <code>3xl</code> last. To remove a default, set it to <code>initial</code>: <code>--breakpoint-2xl: initial;</code>. To start from nothing, <code>--breakpoint-*: initial;</code> removes them all, then define your own.</p>
+<div class="pitfall">
+<p>⚠️ Use <strong>rem</strong> for all breakpoints, as the defaults do. Tailwind can only sort breakpoints that use the same unit; mixing <code>px</code> and <code>rem</code> gives an unpredictable order.</p>
+</div>
+
+<h3 id="arbitrary">One-off breakpoints</h3>
+<p>For a value you need once, use <code>min-[…]:</code> and <code>max-[…]:</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="oneoff">
+<nav class="hidden min-[900px]:flex max-[1200px]:gap-2">…</nav>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .hidden {
+    display: none;
+  }
+  @media (width < 1200px) {
+    .max-\[1200px\]\:gap-2 {
+      gap: calc(var(--spacing) * 2);
+    }
+  }
+  @media (width >= 900px) {
+    .min-\[900px\]\:flex {
+      display: flex;
+    }
+  }
+}
+</script>
+
+<h2 id="container">The <code>container</code> class and container queries</h2>
+<p><code>container</code> sets <code>width: 100%</code> and a <code>max-width</code> equal to each breakpoint, so content snaps to fixed widths as the screen grows. It doesn't centre or pad itself; add <code>mx-auto px-4</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="cont">
+<div id="c" class="container mx-auto px-4">content</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:700; eval:document.body.dataset.a = getComputedStyle(c).maxWidth; width:1100" data-eval="'at 700px: max-width ' + document.body.dataset.a + '\nat 1100px: max-width ' + getComputedStyle(c).maxWidth">
+at 700px: max-width 640px
+at 1100px: max-width 1024px
+</script>
+<p>Breakpoints look at the <strong>viewport</strong> (the browser window). Sometimes a component should adapt to the space <em>it</em> has: the same card in a narrow sidebar and in a wide main column. That's what <strong>container queries</strong> do. Mark a parent with <code>@container</code> and use <code>@sm:</code>, <code>@md:</code>… on children; they respond to the parent's width. Chapter 18 covers them; here's a taste:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="cq">
+<div class="flex gap-4">
+  <div class="@container w-56 rounded-lg p-3 ring-1 ring-slate-200">
+    <div class="flex flex-col gap-2 @sm:flex-row"><b>Narrow</b><span>stacked</span></div>
+  </div>
+  <div class="@container w-96 rounded-lg p-3 ring-1 ring-slate-200">
+    <div class="flex flex-col gap-2 @sm:flex-row"><b>Wide</b><span>side by side</span></div>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="06-cq" data-width="760">Two boxes with identical markup on one page: the narrow one (224px) stacks its two words, the wide one (384px) puts them side by side.</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A responsive grid</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="grid">
+<div id="g" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  <div class="h-16 rounded bg-sky-200"></div><div class="h-16 rounded bg-sky-300"></div>
+  <div class="h-16 rounded bg-sky-400"></div><div class="h-16 rounded bg-sky-500"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:400; eval:document.body.dataset.a = getComputedStyle(g).gridTemplateColumns.split(' ').length; width:800; eval:document.body.dataset.b = getComputedStyle(g).gridTemplateColumns.split(' ').length; width:1200" data-eval="'columns at 400px: ' + document.body.dataset.a + '\ncolumns at 800px: ' + document.body.dataset.b + '\ncolumns at 1200px: ' + getComputedStyle(g).gridTemplateColumns.split(' ').length">
+columns at 400px: 1
+columns at 800px: 2
+columns at 1200px: 4
+</script>
+
+<h3>Show and hide</h3>
+<p>A common navigation pattern: a menu button on phones, links on wider screens.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="nav">
+<header class="flex items-center justify-between bg-slate-900 px-4 py-3 text-white">
+  <span class="font-bold">Acme</span>
+  <button class="md:hidden">☰ Menu</button>
+  <nav class="hidden gap-6 md:flex"><a href="#">Docs</a><a href="#">Blog</a><a href="#">About</a></nav>
+</header>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="06-nav-sm" data-width="380">At 380px: a dark bar with "Acme" and a "☰ Menu" button.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="06-nav-md" data-width="800">At 800px: the same bar with three links, Docs, Blog and About, instead of the button.</script>
+<div class="tip">
+<p>💡 <code>hidden md:flex</code> hides an element only visually. For content that screen-reader users should also skip on some sizes, this is fine (<code>display: none</code> hides it from them too). For content only screen readers should read, use <code>sr-only</code>.</p>
+</div>
+
+<h3>Responsive typography</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="type">
+<h1 class="text-3xl font-bold sm:text-4xl lg:text-6xl">Ship faster</h1>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:400; eval:document.body.dataset.a = getComputedStyle(document.querySelector('h1')).fontSize; width:700; eval:document.body.dataset.b = getComputedStyle(document.querySelector('h1')).fontSize; width:1100" data-eval="['400px → ' + document.body.dataset.a, '700px → ' + document.body.dataset.b, '1100px → ' + getComputedStyle(document.querySelector('h1')).fontSize].join('\n')">
+400px → 30px
+700px → 36px
+1100px → 60px
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Add <code>&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;</code> to every page.</li>
+  <li>Breakpoints: <code>sm</code> 40rem, <code>md</code> 48rem, <code>lg</code> 64rem, <code>xl</code> 80rem, <code>2xl</code> 96rem; each compiles to <code>@media (width &gt;= …)</code>.</li>
+  <li>Mobile first: unprefixed = all sizes; <code>md:</code> = md <em>and up</em>. Don't use <code>sm:</code> to mean "phones".</li>
+  <li><code>max-md:</code> applies below md; <code>md:max-lg:</code> targets one range.</li>
+  <li>Change breakpoints with <code>--breakpoint-*</code> in <code>@theme</code> (rem only); one-offs with <code>min-[900px]:</code>.</li>
+  <li><code>container</code> snaps to breakpoint widths; container queries (<code>@container</code>, <code>@md:</code>) respond to a parent's width.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">read</span></h3>
+<p>Describe what <code>class="w-full md:w-1/2 xl:w-1/3"</code> does at 500&nbsp;px, 900&nbsp;px and 1400&nbsp;px.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>500&nbsp;px: full width. 900&nbsp;px (≥ md): half width. 1400&nbsp;px (≥ xl): one third.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">fix</span></h3>
+<p>Someone wants a button full-width on phones and auto width from 640&nbsp;px. They wrote <code>sm:w-full w-auto</code>. Fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>w-full sm:w-auto</code>. Unprefixed is the phone style; <code>sm:</code> overrides from 640&nbsp;px up.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">values</span></h3>
+<p>Which media query does <code>lg:</code> compile to, and how many pixels is that?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@media (width &gt;= 64rem)</code>, 1024&nbsp;px with the default 16&nbsp;px root font size.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">show/hide</span></h3>
+<p>Show a "Download the app" banner only on screens narrower than 768&nbsp;px.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div class="md:hidden"&gt;</code> (visible by default, hidden from md up), or equivalently <code>class="hidden max-md:block"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">range</span></h3>
+<p>Make a sidebar 16&nbsp;rem wide only between <code>md</code> and <code>xl</code>, full width below md, and 20&nbsp;rem from xl.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>w-full md:w-64 xl:w-80</code>. Mobile first means you don't need <code>max-xl:</code> here: <code>xl:w-80</code> overrides <code>md:w-64</code> from xl up.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">theme</span></h3>
+<p>Your designer's breakpoints are 360, 768 and 1200 pixels, named <code>phone</code>, <code>tablet</code>, <code>desktop</code>, and no others. Write the <code>@theme</code> block.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme { --breakpoint-*: initial; --breakpoint-phone: 22.5rem; --breakpoint-tablet: 48rem; --breakpoint-desktop: 75rem; }</code>. Convert to rem (÷16) so they sort correctly. Use them as <code>tablet:flex</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/06/index.html</code>, build the "Show and hide" header, then add a third layout: from <code>lg</code> up, add a "Sign in" button on the right. Check it with the browser's device toolbar at 380, 800 and 1100&nbsp;px.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>&lt;a class="hidden rounded-md bg-white px-3 py-1 text-slate-900 lg:block"&gt;Sign in&lt;/a&gt;</code> after the <code>nav</code>. In Chrome open DevTools and press Ctrl/Cmd+Shift+M to resize the viewport.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>Why does <code>md:max-lg:flex</code> generate two nested media queries instead of one combined query?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each variant wraps the rule in its own condition, left to right: <code>md:</code> adds <code>@media (width &gt;= 48rem)</code>, then <code>max-lg:</code> adds <code>@media (width &lt; 64rem)</code> inside it. Nested media queries combine like "and", so the result is the same as one query with both conditions.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">layout</span></h3>
+<p>Build a pricing section: three cards stacked on phones, a row of three from <code>lg</code>, and between <code>sm</code> and <code>lg</code> two per row with the third card spanning both columns.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Container: <code>grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3</code>. Third card: <code>sm:max-lg:col-span-2</code> (or <code>sm:col-span-2 lg:col-span-1</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">viewport vs container</span></h3>
+<p>The same "user card" appears in a 300&nbsp;px sidebar and in a 900&nbsp;px main column on a 1440&nbsp;px screen. Why can't <code>md:flex-row</code> lay it out correctly in both places, and what do you use instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>md:</code> looks at the viewport, which is 1440&nbsp;px in both places, so both cards would be in a row, including the cramped sidebar one. Make each card's wrapper a container (<code>@container</code>) and use <code>@md:flex-row</code>, which looks at the wrapper's own width (Chapter 18).</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/responsive-design">Responsive design</a></li>
+  <li><a href="https://tailwindcss.com/docs/responsive-design#container-queries">Container queries</a></li>
+  <li><a href="https://tailwindcss.com/docs/theme#breakpoint">Theme: breakpoints</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

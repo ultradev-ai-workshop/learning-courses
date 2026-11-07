@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;✨&lt;/text&gt;&lt;/svg&gt;">
+<title>16. Backgrounds, Borders &amp; Effects · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 16 · Utilities in Depth</div>
+<h1>Backgrounds, Borders &amp; Effects</h1>
+<p class="lead">This chapter covers the docs' <em>Backgrounds</em>, <em>Borders</em>, <em>Effects</em> and <em>Filters</em> groups: gradients, background images, borders and dividers, rounded corners, outlines and rings, shadows, opacity, blur and masks. These are the utilities that give an interface depth and polish. Because they're visual, most examples come with a screenshot.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Linear, radial and conic gradients with <code>from-</code>, <code>via-</code>, <code>to-</code>, and angles.</li>
+  <li>Background images, size and position.</li>
+  <li>Borders, <code>divide-*</code>, <code>rounded-*</code>, outlines and rings, and the difference between them.</li>
+  <li>Shadows: sizes, coloured shadows, inset shadows.</li>
+  <li>Opacity, blend modes, filters, <code>backdrop-blur</code> and masks.</li>
+</ul>
+</div>
+
+<h2 id="gradients">Gradients</h2>
+<p>A gradient has a <em>shape</em> and <em>colour stops</em>. The shape is <code>bg-linear-to-r</code> (towards the right; also <code>-t</code>, <code>-br</code>…), an angle like <code>bg-linear-45</code>, <code>bg-radial</code> or <code>bg-conic</code>. The stops are <code>from-*</code>, an optional <code>via-*</code>, and <code>to-*</code>:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="space-y-2">
+  <div class="h-10 rounded-lg bg-linear-to-r from-cyan-500 to-blue-500"></div>
+  <div class="h-10 rounded-lg bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+  <div class="h-10 rounded-lg bg-linear-45 from-amber-300 from-20% to-rose-500 to-80%"></div>
+  <div class="h-10 rounded-lg bg-linear-to-r/oklch from-sky-500 to-lime-400"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-gradients" data-width="420">Four gradient bars: cyan to blue; indigo through purple to pink; amber to rose at a 45-degree angle with stops at 20% and 80%; sky to lime interpolated in OKLCH.</script>
+<ul>
+  <li><code>from-20%</code>, <code>to-80%</code> move the stops.</li>
+  <li>The <code>/oklch</code>, <code>/srgb</code>, <code>/hsl</code>… modifier picks the colour space the gradient travels through. The default is OKLab, which avoids the muddy grey middle that sRGB gradients often have.</li>
+  <li>Radial: <code>bg-radial-[at_25%_25%] from-white to-zinc-900</code>. Conic: <code>bg-conic from-sky-600 to-sky-400</code>.</li>
+</ul>
+<script type="text/plain" class="code" data-file="index.html" data-app="gcss">
+<div class="bg-linear-to-r from-cyan-500 to-blue-500"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.|--tw-gradient-position: to|@supports \(background|background-image">
+  .bg-linear-to-r {
+    --tw-gradient-position: to right;
+    @supports (background-image: linear-gradient(in lab, red, red)) {
+      --tw-gradient-position: to right in oklab;
+    background-image: linear-gradient(var(--tw-gradient-stops));
+  .from-cyan-500 {
+  .to-blue-500 {
+</script>
+
+<p>The plain <code>to right</code> is a fallback; browsers that support colour-space interpolation in gradients use <code>to right in oklab</code>. The stop utilities fill <code>--tw-gradient-stops</code>.</p>
+
+<h2 id="images">Background images</h2>
+<p>Use an arbitrary value for the image, then <code>bg-cover</code> or <code>bg-contain</code>, <code>bg-center</code>, <code>bg-no-repeat</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="bgimg">
+<div class="h-32 rounded-lg bg-[url(https://example.com/mountains.jpg)] bg-cover bg-center"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .h-32 {
+    height: calc(var(--spacing) * 32);
+  }
+  .rounded-lg {
+    border-radius: var(--radius-lg);
+  }
+  .bg-\[url\(https\:\/\/example\.com\/mountains\.jpg\)\] {
+    background-image: url(https://example.com/mountains.jpg);
+  }
+  .bg-cover {
+    background-size: cover;
+  }
+  .bg-center {
+    background-position: center;
+  }
+}
+</script>
+<p>For an image that changes per item (from data), use a variable: <code>style="--img: url(…)"</code> with <code>bg-(image:--img)</code>.</p>
+
+<h2 id="borders">Borders and dividers</h2>
+<p><code>border</code> is a 1&nbsp;px solid border (Preflight sets the style to solid and the colour to the current text colour); <code>border-2</code>, <code>border-4</code>, <code>border-x</code>, <code>border-t-2</code> set widths; <code>border-slate-200</code> the colour; <code>border-dashed</code>, <code>border-dotted</code> the style. <code>divide-y</code> adds borders <em>between</em> children:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="divide">
+<ul class="w-60 divide-y divide-slate-200 rounded-lg border border-slate-300 text-sm">
+  <li class="px-3 py-2">Inbox</li>
+  <li class="px-3 py-2">Sent</li>
+  <li class="px-3 py-2">Archive</li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-divide" data-width="300">A bordered rounded list of three items, Inbox, Sent and Archive, separated by thin light-grey lines.</script>
+
+<h3 id="rounded">Rounded corners</h3>
+<p><code>rounded-xs</code> (2&nbsp;px), <code>rounded-sm</code> (4), <code>rounded-md</code> (6), <code>rounded-lg</code> (8), <code>rounded-xl</code> (12), <code>rounded-2xl</code> (16), <code>rounded-3xl</code> (24), <code>rounded-4xl</code> (32), <code>rounded-full</code>, <code>rounded-none</code>. Per side or corner: <code>rounded-t-lg</code>, <code>rounded-br-xl</code>, <code>rounded-s-md</code> (logical start). In v4, <code>rounded</code> alone is 4&nbsp;px, the same as <code>rounded-sm</code>.</p>
+
+<h3 id="ring">Outline vs ring</h3>
+<div class="table-wrap"><table>
+<tr><th></th><th><code>outline-*</code></th><th><code>ring-*</code></th></tr>
+<tr><td>CSS</td><td><code>outline</code></td><td><code>box-shadow</code></td></tr>
+<tr><td>Follows <code>rounded-*</code></td><td>Yes (modern browsers)</td><td>Yes</td></tr>
+<tr><td>Shows in Windows high-contrast mode</td><td>Yes</td><td>No (shadows are removed)</td></tr>
+<tr><td>Combine with <code>shadow-*</code></td><td>Independent</td><td>Yes, Tailwind composes them</td></tr>
+<tr><td>Best for</td><td>Focus indicators</td><td>Decorative 1&nbsp;px borders that don't take space, "selected" states</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="ring">
+<div class="flex gap-4 p-2">
+  <button class="rounded-md bg-white px-3 py-1.5 outline-2 outline-offset-2 outline-sky-500">outline</button>
+  <button class="rounded-md bg-white px-3 py-1.5 ring-2 ring-sky-500">ring</button>
+  <button class="rounded-md bg-white px-3 py-1.5 inset-ring-2 inset-ring-sky-500">inset-ring</button>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-ring" data-width="380" data-clip=".flex">Three white buttons: one with a sky outline offset from its edge, one with a sky ring on its edge, one with the ring drawn inside the edge.</script>
+<p>In v4, <code>ring</code> alone is 1&nbsp;px and uses <code>currentColor</code> (in v3 it was 3&nbsp;px and blue). For focus states, the docs recommend <code>outline</code>.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a <strong>border</strong> is the frame of a picture: part of its size. A <strong>ring</strong> is a shadow painted to look like a frame: no space taken, but it disappears when shadows are turned off. An <strong>outline</strong> is a chalk line drawn around the picture: no space taken, and it's always drawn, which is why it's the safest focus indicator.</p>
+</div>
+
+<h2 id="shadows">Shadows</h2>
+<p><code>shadow-2xs</code>, <code>shadow-xs</code>, <code>shadow-sm</code>, <code>shadow-md</code>, <code>shadow-lg</code>, <code>shadow-xl</code>, <code>shadow-2xl</code> get progressively larger. Shadows take a colour and opacity (<code>shadow-sky-500/40</code>), and there are inset shadows:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="shadow">
+<div class="flex gap-6 bg-slate-50 p-6">
+  <div class="size-20 rounded-xl bg-white shadow-sm"></div>
+  <div class="size-20 rounded-xl bg-white shadow-xl"></div>
+  <div class="size-20 rounded-xl bg-sky-500 shadow-lg shadow-sky-500/50"></div>
+  <div class="size-20 rounded-xl bg-white inset-shadow-sm"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-shadows" data-width="460" data-clip=".flex">Four squares on a light grey background: one with a faint shadow, one with a large soft shadow, a sky-blue square with a glowing blue shadow, and one with a subtle inner shadow.</script>
+<p>v4 renamed the sizes: v3's <code>shadow-sm</code> is now <code>shadow-xs</code>, and v3's <code>shadow</code> is now <code>shadow-sm</code>. The same shift happened for <code>rounded</code>, <code>blur</code> and <code>drop-shadow</code> (Appendix A).</p>
+
+<h2 id="filters">Opacity, blend modes and filters</h2>
+<ul>
+  <li><code>opacity-50</code>, <code>opacity-0</code>: the whole element, including children.</li>
+  <li><code>mix-blend-multiply</code>, <code>bg-blend-overlay</code>: blend modes.</li>
+  <li><code>blur-sm</code>, <code>grayscale</code>, <code>brightness-110</code>, <code>contrast-125</code>, <code>sepia</code>, <code>drop-shadow-lg</code>: filters on the element.</li>
+  <li><code>backdrop-blur-md</code>, <code>backdrop-brightness-75</code>: filters on what's <em>behind</em> the element, for frosted glass.</li>
+</ul>
+<script type="text/plain" class="code" data-file="index.html" data-app="glass">
+<div class="relative h-40 overflow-hidden rounded-xl bg-linear-to-br from-fuchsia-500 to-sky-500 p-6">
+  <div class="absolute top-4 left-8 size-20 rounded-full bg-yellow-300"></div>
+  <div class="relative mt-8 rounded-lg bg-white/30 p-4 font-semibold text-white ring-1 ring-white/40 backdrop-blur-md">Frosted glass</div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-glass" data-width="400">A fuchsia-to-sky gradient card with a yellow circle; a translucent white panel over it blurs the circle behind it, labelled "Frosted glass".</script>
+
+<h3 id="masks">Masks (v4.1)</h3>
+<p>Mask utilities fade parts of an element out: <code>mask-b-from-50%</code> fades the bottom half, <code>mask-radial-from-40%</code> fades from the centre outwards. They compose: <code>mask-t-from-80% mask-b-from-80%</code> fades both ends.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="mask">
+<div class="flex gap-4">
+  <div class="h-24 w-32 bg-linear-to-r from-indigo-500 to-sky-400 mask-b-from-40%"></div>
+  <div class="h-24 w-32 bg-linear-to-r from-indigo-500 to-sky-400 mask-radial-from-30% mask-radial-to-70%"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-masks" data-width="340" data-clip=".flex">Two gradient rectangles: the first fades out towards the bottom, the second fades out from the centre to the edges in a soft ellipse.</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A gradient text heading</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="gtext">
+<h1 class="bg-linear-to-r from-pink-500 to-violet-600 bg-clip-text text-4xl font-extrabold text-transparent">Gradient text</h1>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-gradient-text" data-width="380">The words "Gradient text" in large bold letters filled with a pink-to-violet gradient.</script>
+<p><code>bg-clip-text</code> clips the background to the letters; <code>text-transparent</code> lets it show through.</p>
+
+<h3>A card with all the layers</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="card">
+<div class="bg-slate-100 p-6">
+  <div class="w-72 rounded-2xl bg-white p-6 shadow-lg ring-1 shadow-slate-900/5 ring-slate-900/5">
+    <div class="flex size-10 items-center justify-center rounded-lg bg-linear-to-br from-sky-400 to-indigo-500 text-white">⚡</div>
+    <h3 class="mt-4 font-semibold text-slate-900">Fast builds</h3>
+    <p class="mt-1 text-sm text-slate-600">Incremental builds finish in microseconds.</p>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="16-card" data-width="380">A white rounded card on a light grey background with a subtle shadow and hairline ring; a gradient icon tile with a lightning bolt, the title "Fast builds" and a grey description.</script>
+<p><code>ring-1 ring-slate-900/5</code> plus a soft <code>shadow-lg shadow-slate-900/5</code> is a classic "hairline border + soft shadow" combination.</p>
+
+<h3>Greyscale until hover</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="gray">
+<img id="logo" class="h-12 grayscale transition hover:grayscale-0" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%23ef4444'/%3E%3C/svg%3E" alt="Partner logo">
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="eval:document.body.dataset.a = getComputedStyle(logo).filter; hover:#logo; wait:300" data-eval="'normal: ' + document.body.dataset.a + '\nhover:  ' + getComputedStyle(logo).filter">
+normal: grayscale(1)
+hover:  grayscale(0)
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Gradients: shape (<code>bg-linear-to-r</code>, <code>bg-linear-45</code>, <code>bg-radial</code>, <code>bg-conic</code>) + <code>from-</code>/<code>via-</code>/<code>to-</code> stops; <code>/oklch</code> picks the interpolation space.</li>
+  <li>Images: <code>bg-[url(…)] bg-cover bg-center</code>.</li>
+  <li><code>border</code>, <code>divide-y</code>, <code>rounded-*</code>; <code>rounded</code> = <code>rounded-sm</code> = 4&nbsp;px in v4.</li>
+  <li>Outlines for focus; rings (box-shadow) for decorative borders; <code>ring</code> is 1&nbsp;px in v4.</li>
+  <li><code>shadow-*</code> with colour and opacity; <code>inset-shadow-*</code>; sizes shifted one step from v3.</li>
+  <li><code>opacity-*</code>, filters (<code>blur</code>, <code>grayscale</code>), <code>backdrop-blur</code>, masks (<code>mask-b-from-*</code>).</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">gradient</span></h3>
+<p>Write a top-to-bottom gradient from white to sky-100.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>bg-linear-to-b from-white to-sky-100</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">divide</span></h3>
+<p>A vertical list of settings rows should have a thin grey line between rows but not above the first or below the last.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>divide-y divide-slate-200</code> on the list.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">shadow</span></h3>
+<p>Give a primary button a soft glow in its own colour (indigo-600).</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>bg-indigo-600 shadow-lg shadow-indigo-600/40</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">pill</span></h3>
+<p>Make a fully rounded pill-shaped tag with a 1&nbsp;px emerald border that doesn't change the tag's size.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>rounded-full ring-1 ring-emerald-500 px-2 py-0.5</code> (a ring takes no space; <code>border</code> would add 1&nbsp;px on each side).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">focus</span></h3>
+<p>Why do the docs recommend <code>outline</code> rather than <code>ring</code> for focus indicators? Write a focus style for an input.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Rings are box-shadows, which Windows high-contrast (forced colours) mode removes, so keyboard users would lose the indicator. Outlines are kept. <code>focus:outline-2 focus:outline-offset-2 focus:outline-sky-500</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">upgrade</span></h3>
+<p>A v3 project has <code>shadow</code>, <code>rounded</code> and <code>ring</code>. What do they become in v4 to look the same?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>shadow-sm</code>, <code>rounded-sm</code>, and <code>ring-3 ring-blue-500</code> (v3's ring was 3&nbsp;px blue; v4's is 1&nbsp;px currentColor). The upgrade tool does this automatically (Appendix A).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/16/</code> build a sticky header with a frosted-glass effect over scrolling content.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;header class="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-900/10"&gt;</code>. Add enough content below to scroll; the content blurs as it passes under the header.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">gradient text</span></h3>
+<p>Explain the three classes that make gradient text work. What happens if you forget <code>text-transparent</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A gradient background (<code>bg-linear-to-r from-… to-…</code>), <code>bg-clip-text</code> to clip the background to the glyph shapes, and <code>text-transparent</code> so the text colour doesn't cover it. Without the last one, you see solid-coloured text and no gradient.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">compose</span></h3>
+<p>An element has <code>shadow-lg ring-2 ring-sky-500</code>. Both use <code>box-shadow</code>. How can both appear at once?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each utility only sets its own variable (<code>--tw-shadow</code>, <code>--tw-ring-shadow</code>), and every one of them writes the same <code>box-shadow</code> declaration listing all five layers: inset shadow, inset ring, ring offset, ring, shadow. Unused layers are transparent (Chapter 5 showed this in the browser).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">mask</span></h3>
+<p>A horizontally scrolling list of logos should fade out at both left and right edges. Write the classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>overflow-x-auto mask-x-from-90% mask-x-to-100%</code>, or with separate sides <code>mask-l-from-90% mask-r-from-90%</code>. The masks compose, so the content is fully visible in the middle and fades near each edge.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/background-image">background-image (gradients)</a> · <a href="https://tailwindcss.com/docs/background-size">background-size</a></li>
+  <li><a href="https://tailwindcss.com/docs/border-width">border-width</a> · <a href="https://tailwindcss.com/docs/border-radius">border-radius</a> · <a href="https://tailwindcss.com/docs/outline-style">outline</a></li>
+  <li><a href="https://tailwindcss.com/docs/box-shadow">box-shadow (and rings)</a> · <a href="https://tailwindcss.com/docs/backdrop-filter-blur">backdrop-blur</a> · <a href="https://tailwindcss.com/docs/mask-image">mask-image</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

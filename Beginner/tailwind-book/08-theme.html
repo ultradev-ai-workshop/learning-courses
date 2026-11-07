@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🎨&lt;/text&gt;&lt;/svg&gt;">
+<title>8. Theme Variables &amp; Colors · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 8 · Core Concepts</div>
+<h1>Theme Variables &amp; Colors</h1>
+<p class="lead">Every design decision behind Tailwind's utilities (colours, spacing, fonts, breakpoints, shadows) is a <strong>theme variable</strong> defined with the <code>@theme</code> directive. Adding a variable adds utilities; changing one changes every utility that uses it. This chapter covers the docs' <em>Theme variables</em> and <em>Colors</em> pages: namespaces, extending and overriding the theme, <code>inline</code> and <code>static</code>, sharing a theme between projects, and how colours and opacity work.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What <code>@theme</code> does that <code>:root</code> doesn't.</li>
+  <li>Theme namespaces: which variable prefix creates which utilities.</li>
+  <li>How to extend, override and replace the default theme.</li>
+  <li>The <code>inline</code> and <code>static</code> options, and sharing a theme across projects.</li>
+  <li>The default palette, OKLCH, opacity modifiers, and using colours in your own CSS.</li>
+</ul>
+</div>
+
+<h2 id="theme">The <code>@theme</code> directive</h2>
+<p>Add a colour to your theme, and Tailwind creates every colour utility for it:</p>
+<script type="text/plain" class="code" data-file="input.css">
+@import "tailwindcss";
+
+@theme {
+  --color-mint-500: oklch(0.72 0.11 178);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="bg-mint-500 p-4 text-white">bg-mint-500</div>
+<p class="text-mint-500">text-mint-500</p>
+<div class="border-4 border-mint-500/50 p-2">border-mint-500/50</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="08-mint" data-width="380">A mint-green block with white text, mint text below it, and a box with a half-transparent mint border.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="theme" data-grep="--color">
+    --color-white: #fff;
+    --color-mint-500: oklch(0.72 0.11 178);
+</script>
+<p>Those are the colour variables in the <code>theme</code> layer of the output (the layer also has the fonts and <code>--spacing</code>, which Preflight and the utilities use). Your variable is written to <code>:root</code> like the defaults, so you can use <code>var(--color-mint-500)</code> anywhere. So why not just write it in <code>:root</code> yourself? Because a plain CSS variable creates <strong>no utilities</strong>. <code>@theme</code> tells Tailwind "this is a design token; make classes for it". Use <code>@theme</code> for values you want utilities for, <code>:root</code> for other variables.</p>
+
+<h2 id="namespaces">Namespaces</h2>
+<p>The variable's name decides which utilities it creates. <code>--color-*</code> feeds every colour utility, <code>--font-*</code> the <code>font-</code> family utilities, and so on:</p>
+<div class="table-wrap"><table>
+<tr><th>Namespace</th><th>Utility classes</th></tr>
+<tr><td><code>--color-*</code></td><td><code>bg-red-500</code>, <code>text-sky-300</code>, <code>border-*</code>, <code>fill-*</code>, <code>shadow-*</code>…</td></tr>
+<tr><td><code>--font-*</code></td><td><code>font-sans</code>, <code>font-mono</code> (family)</td></tr>
+<tr><td><code>--text-*</code></td><td><code>text-xl</code> (font size)</td></tr>
+<tr><td><code>--font-weight-*</code></td><td><code>font-bold</code></td></tr>
+<tr><td><code>--tracking-*</code></td><td><code>tracking-wide</code> (letter spacing)</td></tr>
+<tr><td><code>--leading-*</code></td><td><code>leading-tight</code> (line height)</td></tr>
+<tr><td><code>--breakpoint-*</code></td><td><code>sm:*</code> and other responsive variants</td></tr>
+<tr><td><code>--container-*</code></td><td><code>@sm:*</code> container variants, <code>max-w-md</code></td></tr>
+<tr><td><code>--spacing</code></td><td><code>px-4</code>, <code>mt-8</code>, <code>w-12</code>… (all spacing and sizing)</td></tr>
+<tr><td><code>--radius-*</code></td><td><code>rounded-sm</code></td></tr>
+<tr><td><code>--shadow-*</code>, <code>--inset-shadow-*</code>, <code>--drop-shadow-*</code>, <code>--text-shadow-*</code></td><td><code>shadow-md</code>, <code>inset-shadow-xs</code>, <code>drop-shadow-lg</code>, <code>text-shadow-sm</code></td></tr>
+<tr><td><code>--blur-*</code></td><td><code>blur-md</code></td></tr>
+<tr><td><code>--perspective-*</code></td><td><code>perspective-near</code></td></tr>
+<tr><td><code>--aspect-*</code></td><td><code>aspect-video</code></td></tr>
+<tr><td><code>--ease-*</code></td><td><code>ease-out</code></td></tr>
+<tr><td><code>--animate-*</code></td><td><code>animate-spin</code></td></tr>
+</table></div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the theme is a <strong>paint shop's colour catalogue</strong>, and namespaces are its sections: paints, brushes, rollers. When you add "mint" to the <em>paints</em> section, every product that takes a paint (walls, doors, trims; <code>bg</code>, <code>text</code>, <code>border</code>) can now order it. A new entry in the <em>rollers</em> section (<code>--radius-*</code>) does nothing for paints.</p>
+</div>
+
+<h2 id="extend">Extending, overriding, replacing</h2>
+<h3>Extending</h3>
+<p>New names add to the defaults. A <code>--font-display</code> gives you a <code>font-display</code> class; the default <code>font-sans</code> and <code>font-mono</code> remain:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="extend">
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Georgia", serif;
+  --breakpoint-3xl: 120rem;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="extend">
+<h1 class="font-display 3xl:text-8xl">Display</h1>
+<p class="font-mono">still here</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="^  \.|^  @media|^    \.">
+  .font-display {
+  .font-mono {
+  @media (width >= 120rem) {
+    .\33 xl\:text-8xl {
+</script>
+<p>(<code>\33 xl</code> is how CSS escapes a class name starting with the digit 3.)</p>
+
+<h3>Overriding</h3>
+<p>Redefining an existing name changes it everywhere it's used:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="override">
+@import "tailwindcss";
+
+@theme {
+  --spacing: 0.5rem;
+  --radius-lg: 1rem;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="override">
+<div id="box" class="rounded-lg p-4">p-4 is now 2rem</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'padding ' + getComputedStyle(box).padding + ', radius ' + getComputedStyle(box).borderRadius">
+padding 32px, radius 16px
+</script>
+
+<h3>Replacing a namespace</h3>
+<p>To use <em>only</em> your own colours (so <code>bg-red-500</code> stops existing), reset the namespace with <code>initial</code>, then define yours:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="replace">
+@import "tailwindcss";
+
+@theme {
+  --color-*: initial;
+  --color-white: #fff;
+  --color-ink: #1b1b1f;
+  --color-brand: #ff4f00;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="replace">
+<p class="bg-brand text-white">brand</p>
+<p class="bg-red-500">red-500 is gone</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .bg-brand {
+    background-color: var(--color-brand);
+  }
+  .text-white {
+    color: var(--color-white);
+  }
+}
+</script>
+<p>To throw away the <em>whole</em> default theme and define everything yourself, use <code>--*: initial;</code>. That's for full custom design systems; most projects only extend.</p>
+
+<h2 id="inline">Referencing other variables: <code>@theme inline</code></h2>
+<p>When a theme variable points to another variable, the utility uses <code>var(--color-…)</code>, and CSS resolves the inner variable where the <em>theme</em> variable is defined (on <code>:root</code>), not where the utility is used. That can give surprising results when the inner variable changes on a child. <code>@theme inline</code> writes the value straight into the utility instead:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="inline">
+@import "tailwindcss";
+
+@theme inline {
+  --color-accent: var(--accent);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="inline">
+<div style="--accent: #e11d48">
+  <p id="p" class="text-accent">uses the nearest --accent</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-accent {
+    color: var(--accent);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="getComputedStyle(p).color">
+rgb(225, 29, 72)
+</script>
+<p>This is exactly the "semantic colours" pattern from Chapter 7: a <code>--surface</code> that changes in dark mode, registered with <code>@theme inline</code>.</p>
+
+<h2 id="static">Emitting all variables: <code>@theme static</code></h2>
+<p>By default only variables that are <em>used</em> end up in the CSS (Chapter 1). If JavaScript or a third-party widget reads <code>var(--color-…)</code> values that no class uses, ask for all of them:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="static">
+@import "tailwindcss";
+
+@theme static {
+  --color-primary: var(--color-sky-600);
+  --color-secondary: var(--color-amber-500);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="static">
+<p>No classes here at all.</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="theme" data-grep="primary|secondary">
+    --color-primary: var(--color-sky-600);
+    --color-secondary: var(--color-amber-500);
+</script>
+
+<h2 id="sharing">Sharing a theme</h2>
+<p>Theme variables are CSS, so put them in a file and import it from every project. Use <code>@import</code> for a file in your repository or a package from npm:</p>
+<script type="text/plain" class="code" data-file="brand.css" data-app="share">
+@theme {
+  --color-brand: oklch(0.6 0.2 30);
+  --font-display: "Georgia", serif;
+}
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="share">
+@import "tailwindcss";
+@import "./brand.css";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="share">
+<h1 class="font-display text-brand">Shared theme</h1>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .text-brand {
+    color: var(--color-brand);
+  }
+}
+</script>
+
+<h2 id="colors">Colours</h2>
+<p>The default palette has 26 colour names × 11 shades, defined in <strong>OKLCH</strong>: <code>oklch(lightness chroma hue)</code>. OKLCH is a colour space where equal steps in lightness <em>look</em> equal, and it can express the more vivid colours of modern P3 displays. You use colours by name, so the format rarely matters, except when you define your own: any CSS colour works (<code>#hex</code>, <code>rgb()</code>, <code>hsl()</code>, <code>oklch()</code>).</p>
+<script type="text/plain" class="code" data-lang="css" data-css="theme" data-app="palette" data-grep="sky">
+    --color-sky-50: oklch(97.7% 0.013 236.62);
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="palette">
+<i class="bg-sky-50"></i>
+</script>
+
+<h3 id="opacity">Opacity</h3>
+<p>Add <code>/</code> and a number to any colour utility for opacity. Values in steps of 5 are typical, but any number, an arbitrary value, or a variable works:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="alpha">
+<div class="bg-black/75"></div>
+<div class="bg-sky-500/[33%]"></div>
+<div class="text-red-600/(--my-alpha)"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="color-mix\(in oklab">
+      background-color: color-mix(in oklab, var(--color-black) 75%, transparent);
+      background-color: color-mix(in oklab, var(--color-sky-500) 33%, transparent);
+      color: color-mix(in oklab, var(--color-red-600) var(--my-alpha), transparent);
+</script>
+
+<h3 id="special">Special colours</h3>
+<ul>
+  <li><code>current</code>: the element's text colour (<code>currentColor</code>). <code>border-current</code> makes the border match the text.</li>
+  <li><code>transparent</code>, <code>inherit</code>: as in CSS.</li>
+  <li><code>black</code> and <code>white</code>: no shades.</li>
+</ul>
+
+<h3 id="in-css">Using theme values in your own CSS</h3>
+<p>In custom CSS, use the variables directly. Tailwind also provides two helper functions: <code>--alpha()</code> to add opacity to a colour, and <code>--spacing()</code> for multiples of the spacing unit:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="fn">
+@import "tailwindcss";
+
+.callout {
+  background: --alpha(var(--color-amber-400) / 20%);
+  border-left: 4px solid var(--color-amber-500);
+  padding: --spacing(3) --spacing(4);
+  border-radius: var(--radius-md);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="fn">
+<p class="callout">A custom class using theme values.</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="callout|background|padding|border">
+.callout {
+  background: color-mix(in srgb, oklch(82.8% 0.189 84.429) 20%, transparent);
+    background: color-mix(in oklab, var(--color-amber-400) 20%, transparent);
+  border-left: 4px solid var(--color-amber-500);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+  border-radius: var(--radius-md);
+</script>
+<p>The first <code>background</code> is a fallback with the colour written out, for browsers whose <code>color-mix()</code> only supports sRGB; the nested one (inside <code>@supports</code>) uses the variable.</p>
+<script type="text/plain" class="code" data-lang="shot" data-shot="08-callout" data-width="380">A pale amber box with a darker amber left border and the text "A custom class using theme values."</script>
+<p>In JavaScript, read them with <code>getComputedStyle(document.documentElement).getPropertyValue("--color-sky-500")</code>, for example to pass a brand colour to a charting library.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A brand palette with shades</h3>
+<script type="text/plain" class="code" data-file="input.css" data-app="brand">
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: oklch(0.97 0.02 300);
+  --color-brand-500: oklch(0.6 0.2 300);
+  --color-brand-900: oklch(0.3 0.12 300);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="brand">
+<div class="flex">
+  <div class="size-14 bg-brand-50"></div>
+  <div class="size-14 bg-brand-500"></div>
+  <div class="size-14 bg-brand-900"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="08-brand" data-width="300" data-clip=".flex">Three purple squares from very light to very dark.</script>
+
+<h3>A custom animation in the theme</h3>
+<p>Animation variables can include their <code>@keyframes</code> right inside <code>@theme</code>; the keyframes are only output when the class is used:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="anim">
+@import "tailwindcss";
+
+@theme {
+  --animate-fade-in: fade-in 0.3s ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="anim">
+<p class="animate-fade-in">Hello</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="rest" data-grep="fade|keyframes|animation|opacity">
+  .animate-fade-in {
+    animation: var(--animate-fade-in);
+@keyframes fade-in {
+    opacity: 0;
+    opacity: 1;
+</script>
+
+<h3>A tighter design</h3>
+<p>One variable controls the density of the whole UI:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="dense">
+@import "tailwindcss";
+@theme { --spacing: 0.2rem; }
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="dense">
+<div id="b" class="m-5 p-5 gap-5 w-20"></div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const s = getComputedStyle(b); return 'margin ' + s.margin + ', padding ' + s.padding + ', width ' + s.width; })()">
+margin 16px, padding 16px, width 64px
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>@theme</code> defines design tokens: CSS variables that also create utilities. Plain <code>:root</code> variables create none.</li>
+  <li>The namespace (<code>--color-*</code>, <code>--font-*</code>, <code>--breakpoint-*</code>…) decides which utilities a variable feeds.</li>
+  <li>New names extend the theme; existing names override; <code>--color-*: initial</code> clears a namespace; <code>--*: initial</code> clears everything.</li>
+  <li><code>@theme inline</code> for variables that reference other variables; <code>@theme static</code> to output every variable.</li>
+  <li>Share themes by importing a CSS file.</li>
+  <li>The palette is OKLCH; <code>/50</code>, <code>/[33%]</code>, <code>/(--var)</code> set opacity via <code>color-mix()</code>.</li>
+  <li>In custom CSS use <code>var(--color-…)</code>, <code>--alpha()</code> and <code>--spacing()</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">namespace</span></h3>
+<p>Which namespace would you use to add: (a) a <code>rounded-pill</code> radius, (b) a <code>font-brand</code> typeface, (c) a <code>shadow-glow</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>--radius-pill</code>; (b) <code>--font-brand</code>; (c) <code>--shadow-glow</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">add</span></h3>
+<p>Add a colour <code>tangerine</code> (<code>#f28500</code>) to the theme and use it as a button background.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme { --color-tangerine: #f28500; }</code> and <code>&lt;button class="bg-tangerine"&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">@theme vs :root</span></h3>
+<p>You put <code>--color-tangerine: #f28500;</code> inside <code>:root { }</code> instead. Does <code>bg-tangerine</code> work? Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No. Only <code>@theme</code> variables create utilities; a <code>:root</code> variable is just CSS. You could still write <code>bg-(--color-tangerine)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">opacity</span></h3>
+<p>Write a black overlay at 40% opacity that covers its parent.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div class="absolute inset-0 bg-black/40"&gt;&lt;/div&gt;</code> (the parent needs <code>relative</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">replace</span></h3>
+<p>A company allows only four colours: white, black, <code>#0047ab</code> (cobalt) and <code>#ffd700</code> (gold). Configure the theme so no other colour utilities exist.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme { --color-*: initial; --color-white: #fff; --color-black: #000; --color-cobalt: #0047ab; --color-gold: #ffd700; }</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">compute</span></h3>
+<p>With <code>--spacing: 0.2rem</code>, what are <code>p-10</code> and <code>w-50</code> in pixels? What about <code>w-1/2</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>p-10</code> = 2&nbsp;rem = 32&nbsp;px; <code>w-50</code> = 10&nbsp;rem = 160&nbsp;px. <code>w-1/2</code> is a fraction (50%) and doesn't use <code>--spacing</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">inline</span></h3>
+<p>Explain in your own words when you need <code>@theme inline</code> rather than <code>@theme</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>When a theme variable's value is another variable (<code>var(--accent)</code>) that can change on different elements (per theme, per component). With plain <code>@theme</code> the utility points to <code>--color-accent</code>, which was resolved once on <code>:root</code>; with <code>inline</code> the utility uses <code>var(--accent)</code> directly, so it picks up the nearest value.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/08/</code>, create <code>theme.css</code> with your own brand colour (three shades), a display font and a <code>--radius-card</code>. Import it from the main CSS and build a card that uses all of them.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>theme.css</code>: <code>@theme { --color-brand-100: …; --color-brand-500: …; --color-brand-900: …; --font-display: …; --radius-card: 1.25rem; }</code>. Main CSS: <code>@import "tailwindcss"; @import "./theme.css";</code>. Card: <code>class="rounded-card bg-brand-100 p-6"</code> with a <code>font-display text-brand-900</code> heading.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">debug</span></h3>
+<p>JavaScript reads <code>getComputedStyle(document.documentElement).getPropertyValue("--color-sky-500")</code> and gets an empty string, although Tailwind is installed. Why? Give two fixes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Only variables used by some utility are emitted, and no class uses <code>sky-500</code>. Fixes: use <code>@theme static { … }</code> for the variables JavaScript needs (or <code>@import "tailwindcss" theme(static);</code> for all), or define your own <code>:root</code> variable for JavaScript.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design system</span></h3>
+<p>Design a theme file for a design system with: a single brand hue in 5 shades, semantic <code>surface</code>/<code>ink</code> colours that change in dark mode, a 4-step type scale, and no default colours. Which parts go in <code>@theme</code>, which in <code>@theme inline</code>, and which in <code>:root</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme</code>: <code>--color-*: initial</code>, the five <code>--color-brand-*</code> shades, white/black, and the <code>--text-*</code> sizes (with <code>--text-*--line-height</code>). <code>:root</code> and a dark block: <code>--surface</code> and <code>--ink</code> raw values. <code>@theme inline</code>: <code>--color-surface: var(--surface); --color-ink: var(--ink);</code> so the utilities follow the mode.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/theme">Theme variables</a></li>
+  <li><a href="https://tailwindcss.com/docs/colors">Colors</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives">Functions and directives</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

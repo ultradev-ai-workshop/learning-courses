@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔤&lt;/text&gt;&lt;/svg&gt;">
+<title>15. Typography · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 15 · Utilities in Depth</div>
+<h1>Typography</h1>
+<p class="lead">Text is most of what people read on a page, so the <strong>Typography</strong> group is large: font family, size, weight, line height, letter spacing, colour, decoration, wrapping, truncation, lists and number formatting. This chapter covers the utilities you'll use every week, shows the type scale with its built-in line heights, and adds a custom web font the v4 way.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>The type scale (<code>text-xs</code> … <code>text-9xl</code>) and its paired line heights, and the <code>text-lg/7</code> shorthand.</li>
+  <li>Font family, weight, letter spacing (<code>tracking-*</code>) and line height (<code>leading-*</code>).</li>
+  <li>How to add a custom font with <code>@font-face</code> and <code>--font-*</code>.</li>
+  <li>Decoration, transforms, <code>truncate</code>, <code>line-clamp-*</code>, <code>text-balance</code>, <code>text-pretty</code>.</li>
+  <li>Lists, <code>tabular-nums</code>, <code>antialiased</code> and text shadows.</li>
+</ul>
+</div>
+
+<h2 id="scale">The type scale</h2>
+<p>Each <code>text-*</code> size sets <code>font-size</code> <em>and</em> a matching <code>line-height</code>, so text is readable without extra classes. Small sizes get roomier line heights; display sizes get a line height of 1:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<p class="text-xs">text-xs</p>
+<p class="text-sm">text-sm</p>
+<p class="text-base">text-base</p>
+<p class="text-lg">text-lg</p>
+<p class="text-2xl">text-2xl</p>
+<p class="text-4xl">text-4xl</p>
+<p class="text-6xl">text-6xl</p>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...document.querySelectorAll('p')].map((p) => p.textContent.padEnd(10) + getComputedStyle(p).fontSize.padStart(5) + ' / line-height ' + getComputedStyle(p).lineHeight).join('\n')">
+text-xs     12px / line-height 16px
+text-sm     14px / line-height 20px
+text-base   16px / line-height 24px
+text-lg     18px / line-height 28px
+text-2xl    24px / line-height 32px
+text-4xl    36px / line-height 40px
+text-6xl    60px / line-height 60px
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="15-scale" data-width="420">Seven lines of text growing from 12px to 60px, each labelled with its class name.</script>
+<p>To pick another line height in the same class, add a slash: <code>text-lg/7</code> is 18&nbsp;px text with a 1.75&nbsp;rem (28&nbsp;px) line height, <code>text-sm/loose</code> uses the named <code>leading-loose</code>. Or use <code>leading-*</code> separately:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="lh">
+<p id="a" class="text-lg/9">a</p>
+<p id="b" class="text-lg leading-tight">b</p>
+<p id="c" class="text-sm/[1.1]">c</p>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="['a', 'b', 'c'].map((id) => id + ': ' + getComputedStyle(document.getElementById(id)).lineHeight).join('\n')">
+a: 36px
+b: 22.5px
+c: 15.4px
+</script>
+
+<h2 id="family">Font family and custom fonts</h2>
+<p>There are three default families: <code>font-sans</code> (the system UI font, the page default), <code>font-serif</code> and <code>font-mono</code>. To add a web font, declare it with <code>@font-face</code> (or import it from a font service), then register it as a theme variable:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="font">
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Inter", "sans-serif";
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="font">
+<h1 class="font-display text-3xl font-bold">Inter for headings</h1>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="font-family">
+    font-family: var(--font-display);
+</script>
+<p>Put a remote <code>@import url(…)</code> <strong>before</strong> <code>@import "tailwindcss"</code>: CSS requires <code>@import</code> rules to come first. To change the default font of the whole page, override <code>--font-sans</code>. For self-hosted fonts, write the <code>@font-face</code> rule in your CSS and keep the font files in your project.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> <code>@font-face</code> is <strong>buying the typeface</strong> and putting it in the drawer; <code>--font-display</code> in <code>@theme</code> is <strong>labelling the drawer</strong> so everyone can ask for it by name (<code>font-display</code>). Without the label the font is there but there's no class; without the font the label points to an empty drawer and the browser falls back to the next font in the list.</p>
+</div>
+
+<h2 id="weight">Weight, spacing and style</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th></tr>
+<tr><td><code>font-thin</code> (100) … <code>font-normal</code> (400) … <code>font-bold</code> (700) … <code>font-black</code> (900)</td><td><code>font-weight</code></td></tr>
+<tr><td><code>tracking-tighter</code> (−0.05em) … <code>tracking-widest</code> (0.1em)</td><td><code>letter-spacing</code></td></tr>
+<tr><td><code>leading-none</code> (1), <code>leading-tight</code> (1.25), <code>leading-normal</code> (1.5), <code>leading-loose</code> (2), <code>leading-6</code></td><td><code>line-height</code></td></tr>
+<tr><td><code>italic</code>, <code>not-italic</code></td><td><code>font-style</code></td></tr>
+<tr><td><code>uppercase</code>, <code>lowercase</code>, <code>capitalize</code>, <code>normal-case</code></td><td><code>text-transform</code></td></tr>
+<tr><td><code>text-left</code>, <code>text-center</code>, <code>text-right</code>, <code>text-justify</code>, <code>text-start</code>, <code>text-end</code></td><td><code>text-align</code></td></tr>
+</table></div>
+<p>A common eyebrow label combines several: small, bold, uppercase, widely spaced.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="eyebrow">
+<p class="text-xs font-semibold tracking-widest text-sky-700 uppercase">New feature</p>
+<h2 class="mt-1 text-3xl font-bold tracking-tight text-balance text-slate-900">Container queries are here</h2>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="15-eyebrow" data-width="420">A small spaced-out uppercase label "NEW FEATURE" in sky blue above a bold heading "Container queries are here".</script>
+
+<h2 id="decoration">Underlines and decoration</h2>
+<p><code>underline</code>, <code>overline</code>, <code>line-through</code>, <code>no-underline</code> set the line; <code>decoration-*</code> its colour, thickness (<code>decoration-2</code>) and style (<code>decoration-wavy</code>, <code>decoration-dotted</code>); <code>underline-offset-*</code> its distance from the text:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="deco">
+<p class="text-lg">
+  <a class="underline decoration-sky-500 decoration-2 underline-offset-4 hover:decoration-4" href="#">styled link</a>,
+  <span class="underline decoration-pink-500 decoration-wavy">spelling</span>,
+  <span class="text-slate-400 line-through">$49</span> <b>$29</b>
+</p>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="15-deco" data-width="420">A link with a thick sky-blue underline offset below the text, a word with a pink wavy underline, and a crossed-out grey "$49" next to a bold "$29".</script>
+
+<h2 id="overflow">Long text: truncate, clamp, wrap</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>Effect</th></tr>
+<tr><td><code>truncate</code></td><td>One line, cut with an ellipsis (…)</td></tr>
+<tr><td><code>line-clamp-3</code></td><td>At most 3 lines, then an ellipsis</td></tr>
+<tr><td><code>text-balance</code></td><td>Balance line lengths in headings</td></tr>
+<tr><td><code>text-pretty</code></td><td>Avoid a single word on the last line of paragraphs</td></tr>
+<tr><td><code>text-nowrap</code>, <code>whitespace-pre</code>…</td><td>Control wrapping and spaces</td></tr>
+<tr><td><code>wrap-break-word</code>, <code>wrap-anywhere</code></td><td>Break long words or URLs that would overflow (v4.1)</td></tr>
+<tr><td><code>break-all</code>, <code>hyphens-auto</code></td><td>More aggressive breaking</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="long">
+<div class="w-56 space-y-3 text-sm">
+  <p class="truncate">This sentence is far too long for one line of this box.</p>
+  <p class="line-clamp-2">This paragraph is longer. It goes on and on with details nobody needs in a preview card, so after two lines it stops.</p>
+  <p class="wrap-break-word">https://example.com/a/very/long/url/that/would/overflow</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="15-long" data-width="300">Three text examples in a narrow box: a single line ending in an ellipsis, a paragraph cut after two lines with an ellipsis, and a long URL broken across lines.</script>
+
+<h2 id="numbers">Lists and numbers</h2>
+<p>Preflight removes list bullets; bring them back with <code>list-disc</code> or <code>list-decimal</code> and some left padding (<code>pl-5</code>), or <code>list-inside</code>. For tables and prices, <code>tabular-nums</code> makes every digit the same width, so columns of numbers line up:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="nums">
+<ul class="w-40 list-disc pl-5 text-right tabular-nums">
+  <li>1,111.11</li>
+  <li>888.88</li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="numeric|list-style">
+    list-style-type: disc;
+    --tw-numeric-spacing: tabular-nums;
+    font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
+</script>
+<p>Each number feature has its own variable so you can combine them (<code>tabular-nums slashed-zero</code>). Since v4.2, <code>font-features-["tnum","ss01"]</code> sets any OpenType feature directly.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Smoother text on macOS</h3>
+<p><code>antialiased</code> on <code>&lt;body&gt;</code> uses greyscale anti-aliasing, which makes light text on dark backgrounds look less heavy. Most Tailwind templates include it.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="aa">
+<p class="antialiased">smooth</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .antialiased {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+</script>
+
+<h3>Text shadow (v4.1)</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="shadow">
+<div class="bg-sky-500 p-6">
+  <p class="text-3xl font-bold text-white text-shadow-lg">Readable on colour</p>
+  <p class="mt-2 text-xl font-bold text-sky-950 text-shadow-sm text-shadow-white/50">Soft white glow</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="15-text-shadow" data-width="420">A sky-blue panel with large white text casting a soft dark shadow, and darker text with a faint white glow.</script>
+
+<h3>Truncation inside flex</h3>
+<p><code>truncate</code> in a flex row only works if the item can shrink: add <code>min-w-0</code> (Chapter 13).</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="tflex">
+<div class="flex w-56 gap-2">
+  <span id="t" class="min-w-0 truncate">a-really-long-filename-for-a-report.pdf</span>
+  <span class="shrink-0 text-slate-500">2 MB</span>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'text box ' + t.clientWidth + 'px, content ' + t.scrollWidth + 'px → truncated: ' + (t.scrollWidth > t.clientWidth)">
+text box …px, content …px → truncated: true
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>text-xs</code> … <code>text-9xl</code> set size and a matching line height; override with <code>text-lg/7</code> or <code>leading-*</code>.</li>
+  <li><code>font-sans/serif/mono</code>; add fonts with <code>@font-face</code> + <code>--font-name</code> in <code>@theme</code>; remote <code>@import url()</code> goes first.</li>
+  <li><code>font-*</code> weights, <code>tracking-*</code>, <code>uppercase</code>, <code>text-center</code>, <code>italic</code>.</li>
+  <li><code>underline decoration-* underline-offset-*</code> style links.</li>
+  <li><code>truncate</code>, <code>line-clamp-*</code>, <code>text-balance</code>, <code>text-pretty</code>, <code>wrap-break-word</code> handle long text.</li>
+  <li><code>list-disc pl-5</code> restores bullets; <code>tabular-nums</code> aligns digits; <code>antialiased</code> and <code>text-shadow-*</code> polish.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">scale</span></h3>
+<p>What font size and line height does <code>text-xl</code> give? And <code>text-xl/8</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>text-xl</code>: 20&nbsp;px with a 28&nbsp;px line height (1.75&nbsp;rem). <code>text-xl/8</code>: 20&nbsp;px with 32&nbsp;px (8 × 4&nbsp;px).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>Style a price: 2&nbsp;rem, extra bold, slate-900, digits aligned for a table.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>text-[2rem] font-extrabold text-slate-900 tabular-nums</code> (or <code>text-3xl</code>, which is 1.875&nbsp;rem, if close enough).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">bullets</span></h3>
+<p>Your <code>&lt;ul&gt;</code> has no bullets. Bring back round bullets with proper indentation.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;ul class="list-disc pl-5"&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">truncate</span></h3>
+<p>Show a product description in a card as at most three lines.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>line-clamp-3</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">font</span></h3>
+<p>Make "Lora" (a serif from Google Fonts) the font for <code>font-serif</code> and "Inter" the default for the whole page.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@import url("https://fonts.googleapis.com/css2?family=Inter&amp;family=Lora&amp;display=swap");</code> then <code>@import "tailwindcss";</code> and <code>@theme { --font-sans: "Inter", sans-serif; --font-serif: "Lora", serif; }</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">link</span></h3>
+<p>Style links in a paragraph: sky-700 text, a 1&nbsp;px sky-300 underline 3&nbsp;px below the text, which turns sky-700 and 2&nbsp;px on hover.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>text-sky-700 underline decoration-sky-300 decoration-1 underline-offset-3 hover:decoration-sky-700 hover:decoration-2</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/15/</code>, set a heading's text with and without <code>text-balance</code> in a 300&nbsp;px box. Describe the difference.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without it, the browser fills each line as much as possible and the last line may hold one word. With <code>text-balance</code>, the lines are roughly equal length, which looks better for headings. It's limited to short texts (a few lines) for performance.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A file name with <code>truncate</code> in a flex row overflows instead of showing "…". What's missing?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>min-w-0</code> on the flex item (or <code>flex-1 min-w-0</code>). Flex items don't shrink below their content's width by default, so there's never anything to truncate.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">order</span></h3>
+<p>You put <code>@import url("https://fonts.googleapis.com/…")</code> <em>after</em> <code>@import "tailwindcss"</code> and the font doesn't load. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In CSS, <code>@import</code> rules must come before all other rules. <code>@import "tailwindcss"</code> is replaced by Tailwind's whole stylesheet, so a later <code>@import url(…)</code> ends up after real rules, and browsers ignore it. Put remote imports first.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>Your design uses a 5-step type scale: 14, 16, 20, 28 and 40&nbsp;px, each with its own line height, and nothing else. Configure the theme.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@theme { --text-*: initial; --text-sm: 0.875rem; --text-sm--line-height: 1.5; --text-base: 1rem; --text-base--line-height: 1.6; --text-lg: 1.25rem; --text-lg--line-height: 1.5; --text-xl: 1.75rem; --text-xl--line-height: 1.3; --text-2xl: 2.5rem; --text-2xl--line-height: 1.1; }</code>. The <code>--text-NAME--line-height</code> variables pair a line height with each size.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/font-size">font-size</a> · <a href="https://tailwindcss.com/docs/font-family">font-family</a> · <a href="https://tailwindcss.com/docs/line-height">line-height</a></li>
+  <li><a href="https://tailwindcss.com/docs/text-decoration-line">text-decoration</a> · <a href="https://tailwindcss.com/docs/text-overflow">text-overflow</a> · <a href="https://tailwindcss.com/docs/line-clamp">line-clamp</a> · <a href="https://tailwindcss.com/docs/text-wrap">text-wrap</a></li>
+  <li><a href="https://tailwindcss.com/docs/font-variant-numeric">font-variant-numeric</a> · <a href="https://tailwindcss.com/docs/text-shadow">text-shadow</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

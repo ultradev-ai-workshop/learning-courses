@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧮&lt;/text&gt;&lt;/svg&gt;">
+<title>13. Flexbox &amp; Grid · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 13 · Utilities in Depth</div>
+<h1>Flexbox &amp; Grid</h1>
+<p class="lead">Almost every layout on the web today is built with two CSS systems. <strong>Flexbox</strong> arranges items in one direction, a row or a column, and is ideal for toolbars, navigation and cards. <strong>Grid</strong> arranges items in rows <em>and</em> columns at once, and is ideal for page layouts and galleries. This chapter covers the utilities for both, which map almost one to one to the CSS properties, with screenshots of each layout.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Flex containers: direction, wrapping, <code>gap</code>, and alignment with <code>justify-*</code> and <code>items-*</code>.</li>
+  <li>Flex items: <code>flex-1</code>, <code>shrink-0</code>, <code>grow</code>, <code>basis-*</code>, <code>order-*</code>.</li>
+  <li>Grid containers: <code>grid-cols-*</code>, <code>grid-rows-*</code>, <code>grid-flow-*</code>, <code>auto-cols-*</code>.</li>
+  <li>Grid items: <code>col-span-*</code>, <code>col-start-*</code>, <code>row-span-*</code>.</li>
+  <li>Subgrid, <code>place-*</code> shortcuts, and when to choose flex or grid.</li>
+</ul>
+</div>
+
+<h2 id="flex">Flexbox</h2>
+<p>Add <code>flex</code> to a container and its children line up in a row. A navigation bar in three classes: <code>flex</code>, <code>items-center</code> (vertical centring) and <code>justify-between</code> (push the groups to both ends):</p>
+<script type="text/plain" class="code" data-file="index.html">
+<nav class="flex items-center justify-between rounded-lg bg-slate-900 px-4 py-3 text-white">
+  <span class="font-bold">Acme</span>
+  <div class="flex gap-4 text-sm">
+    <a href="#">Docs</a><a href="#">Pricing</a><a href="#">Blog</a>
+  </div>
+  <button class="rounded-md bg-white px-3 py-1 text-sm text-slate-900">Sign in</button>
+</nav>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="13-nav" data-width="520">A dark navigation bar: "Acme" on the left, three links in the middle, a white "Sign in" button on the right, all vertically centred.</script>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th></tr>
+<tr><td><code>flex-row</code> (default), <code>flex-col</code>, <code>flex-row-reverse</code>, <code>flex-col-reverse</code></td><td><code>flex-direction</code></td></tr>
+<tr><td><code>flex-wrap</code>, <code>flex-nowrap</code></td><td><code>flex-wrap</code></td></tr>
+<tr><td><code>gap-4</code>, <code>gap-x-2</code>, <code>gap-y-6</code></td><td><code>gap</code>, <code>column-gap</code>, <code>row-gap</code></td></tr>
+<tr><td><code>justify-start/center/end/between/around/evenly</code></td><td><code>justify-content</code>: spacing along the main axis</td></tr>
+<tr><td><code>items-start/center/end/baseline/stretch</code></td><td><code>align-items</code>: alignment across the main axis</td></tr>
+<tr><td><code>self-*</code></td><td><code>align-self</code> on one item</td></tr>
+<tr><td><code>content-*</code></td><td><code>align-content</code>: spacing between wrapped lines</td></tr>
+</table></div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> flexbox is <strong>books on a shelf</strong>. <code>justify-*</code> decides how the books spread along the shelf (bunched left, centred, spaced out); <code>items-*</code> decides how they line up top to bottom (tops aligned, bottoms aligned, centred). <code>flex-col</code> turns the shelf on its side, so "along" becomes "up and down".</p>
+</div>
+
+<h3 id="items">Flex items: who grows, who shrinks</h3>
+<p>The most useful item classes are <code>flex-1</code> ("take the remaining space, and share it equally"), <code>shrink-0</code> ("never get smaller than your size") and <code>flex-none</code> ("don't grow or shrink"). A media object with a fixed avatar and text that fills the rest:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="media">
+<div id="row" class="flex w-80 items-start gap-3 rounded-lg p-3 ring-1 ring-slate-200">
+  <div id="avatar" class="size-10 shrink-0 rounded-full bg-sky-500"></div>
+  <p id="text" class="flex-1 text-sm">A long comment that wraps onto several lines without squeezing the avatar.</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'avatar ' + avatar.offsetWidth + 'px, text ' + text.offsetWidth + 'px of the ' + row.clientWidth + 'px row'">
+avatar 40px, text 244px of the 320px row
+</script>
+<p>320&nbsp;px minus 24&nbsp;px of padding, the 12&nbsp;px gap and the 40&nbsp;px avatar leaves 244&nbsp;px for the text.</p>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th><th>Meaning</th></tr>
+<tr><td><code>flex-1</code></td><td><code>flex: 1</code></td><td>Grow and shrink, ignore the content's size</td></tr>
+<tr><td><code>flex-auto</code></td><td><code>flex: auto</code></td><td>Grow and shrink, starting from the content's size</td></tr>
+<tr><td><code>flex-initial</code></td><td><code>flex: 0 auto</code></td><td>Shrink but don't grow</td></tr>
+<tr><td><code>flex-none</code></td><td><code>flex: none</code></td><td>Fixed</td></tr>
+<tr><td><code>grow</code>, <code>grow-0</code>, <code>shrink</code>, <code>shrink-0</code></td><td><code>flex-grow</code>, <code>flex-shrink</code></td><td>One part at a time</td></tr>
+<tr><td><code>basis-64</code>, <code>basis-1/3</code></td><td><code>flex-basis</code></td><td>Starting size</td></tr>
+<tr><td><code>order-first</code>, <code>order-last</code>, <code>order-2</code></td><td><code>order</code></td><td>Visual order (doesn't change reading order!)</td></tr>
+</table></div>
+
+<h2 id="grid">Grid</h2>
+<p>Add <code>grid</code> and say how many columns with <code>grid-cols-*</code>. Items flow into the cells, and <code>gap-*</code> spaces them:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="grid">
+<div class="grid grid-cols-3 gap-3">
+  <div class="rounded bg-sky-200 p-3">01</div>
+  <div class="rounded bg-sky-200 p-3">02</div>
+  <div class="rounded bg-sky-200 p-3">03</div>
+  <div class="col-span-2 rounded bg-indigo-300 p-3">04 · col-span-2</div>
+  <div class="row-span-2 rounded bg-amber-300 p-3">05 · row-span-2</div>
+  <div class="col-span-2 rounded bg-sky-200 p-3">06 · col-span-2</div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="grid-template|grid-column|grid-row">
+    grid-column: span 2 / span 2;
+    grid-row: span 2 / span 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="13-grid" data-width="460">A three-column grid: three equal cells, then a cell spanning two columns next to a tall amber cell spanning two rows, then another two-column cell.</script>
+<p><code>grid-cols-3</code> is <code>repeat(3, minmax(0, 1fr))</code>: three equal columns that never overflow because of long content (that's what the <code>minmax(0, …)</code> is for). Any number works: <code>grid-cols-7</code>, <code>grid-cols-16</code>. For other templates use brackets: <code>grid-cols-[200px_1fr]</code>, or <code>grid-cols-subgrid</code> (below).</p>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th></tr>
+<tr><td><code>grid-cols-N</code>, <code>grid-rows-N</code></td><td><code>grid-template-columns/rows: repeat(N, minmax(0, 1fr))</code></td></tr>
+<tr><td><code>col-span-N</code>, <code>col-span-full</code></td><td><code>grid-column: span N / span N</code>, <code>1 / -1</code></td></tr>
+<tr><td><code>col-start-2</code>, <code>col-end-4</code></td><td><code>grid-column-start/end</code></td></tr>
+<tr><td><code>row-span-N</code>, <code>row-start-*</code></td><td>the same for rows</td></tr>
+<tr><td><code>grid-flow-row</code>, <code>grid-flow-col</code>, <code>grid-flow-dense</code></td><td><code>grid-auto-flow</code></td></tr>
+<tr><td><code>auto-cols-fr</code>, <code>auto-rows-min</code></td><td><code>grid-auto-columns/rows</code></td></tr>
+<tr><td><code>place-items-center</code>, <code>place-content-*</code>, <code>place-self-*</code></td><td>both axes at once</td></tr>
+<tr><td><code>justify-items-*</code>, <code>justify-self-*</code></td><td>inline-axis alignment of grid items</td></tr>
+</table></div>
+
+<h3 id="page">A page layout</h3>
+<p>A classic "holy grail": header, sidebar, main and footer. Grid with a fixed sidebar column and <code>col-span-full</code> rows:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="page">
+<div class="grid min-h-60 grid-cols-[8rem_1fr] grid-rows-[auto_1fr_auto] gap-2 text-sm">
+  <header class="col-span-full rounded bg-slate-800 p-2 text-white">Header</header>
+  <aside class="rounded bg-slate-200 p-2">Sidebar</aside>
+  <main class="rounded bg-white p-2 ring-1 ring-slate-200">Main content</main>
+  <footer class="col-span-full rounded bg-slate-100 p-2">Footer</footer>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="13-page" data-width="480">A page layout: dark header across the top, a narrow grey sidebar and a wide white main area in the middle row, a light footer across the bottom.</script>
+
+<h3 id="subgrid">Subgrid</h3>
+<p><code>grid-cols-subgrid</code> lets a child grid use its <em>parent's</em> columns, so content in different cards lines up. Each card spans 3 rows of the parent and passes them to its children:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="sub">
+<div class="grid w-[30rem] grid-cols-2 gap-x-4">
+  <div class="row-span-3 grid grid-rows-subgrid gap-1 rounded-lg p-3 ring-1 ring-slate-200">
+    <h3 class="font-semibold">Starter</h3>
+    <p class="text-sm text-slate-600">For one person.</p>
+    <b>$9</b>
+  </div>
+  <div class="row-span-3 grid grid-rows-subgrid gap-1 rounded-lg p-3 ring-1 ring-slate-200">
+    <h3 class="font-semibold">Team</h3>
+    <p class="text-sm text-slate-600">For small teams that need shared projects and roles.</p>
+    <b>$29</b>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="13-subgrid" data-width="540">Two pricing cards side by side; the prices "$9" and "$29" sit on the same line even though the second card's description is two lines long.</script>
+
+<h2 id="choose">Flex or grid?</h2>
+<div class="table-wrap"><table>
+<tr><th>Use flexbox when…</th><th>Use grid when…</th></tr>
+<tr><td>Items flow in one line (toolbar, nav, button group, tags)</td><td>You need rows <em>and</em> columns that line up</td></tr>
+<tr><td>Item sizes come from their content</td><td>The layout defines the sizes (12-column page, gallery)</td></tr>
+<tr><td>You want "push this to the end" (<code>ml-auto</code>, <code>justify-between</code>)</td><td>Items span cells or overlap (<code>col-span</code>, <code>row-start</code>)</td></tr>
+</table></div>
+<p>They combine freely: a grid of cards, each card a flex column.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Push the last item to the end</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="push">
+<div class="flex w-80 gap-2 rounded bg-slate-100 p-2">
+  <span class="rounded bg-white px-2">Home</span>
+  <span class="rounded bg-white px-2">Files</span>
+  <span class="ml-auto rounded bg-sky-600 px-2 text-white">Upload</span>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="13-push" data-width="360">A bar with "Home" and "Files" on the left and a blue "Upload" pushed to the far right.</script>
+
+<h3>A sticky footer with a flex column</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="footer">
+<div id="page" class="flex h-48 flex-col">
+  <header class="bg-slate-200 p-2">Header</header>
+  <main class="flex-1 p-2">Short content</main>
+  <footer id="f" class="bg-slate-800 p-2 text-white">Footer</footer>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'footer bottom = page bottom: ' + (Math.round(f.getBoundingClientRect().bottom) === Math.round(page.getBoundingClientRect().bottom))">
+footer bottom = page bottom: true
+</script>
+<p>In a real page, use <code>min-h-dvh</code> instead of <code>h-48</code>: the footer stays at the bottom of the window even with little content.</p>
+
+<h3>An auto-fitting gallery without breakpoints</h3>
+<p><code>repeat(auto-fill, minmax(8rem, 1fr))</code> fits as many 8&nbsp;rem (128&nbsp;px) columns as the width allows: three at 400&nbsp;px (3 × 128 + 2 gaps of 8 = 400), six at 900&nbsp;px.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="fit">
+<div id="g" class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2">
+  <div class="h-12 bg-sky-300"></div><div class="h-12 bg-sky-300"></div><div class="h-12 bg-sky-300"></div>
+  <div class="h-12 bg-sky-300"></div><div class="h-12 bg-sky-300"></div><div class="h-12 bg-sky-300"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:400; eval:document.body.dataset.a = getComputedStyle(g).gridTemplateColumns.split(' ').length; width:900" data-eval="'columns at 400px: ' + document.body.dataset.a + '\ncolumns at 900px: ' + getComputedStyle(g).gridTemplateColumns.split(' ').length">
+columns at 400px: 3
+columns at 900px: 6
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>flex</code> + <code>flex-col</code>/<code>flex-wrap</code> + <code>gap-*</code> + <code>justify-*</code> (main axis) + <code>items-*</code> (cross axis).</li>
+  <li>Items: <code>flex-1</code> fills space, <code>shrink-0</code> protects a size, <code>basis-*</code> sets a start size, <code>ml-auto</code> pushes to the end.</li>
+  <li><code>grid grid-cols-N</code> makes N equal columns (<code>minmax(0, 1fr)</code>); <code>col-span-*</code>/<code>row-span-*</code> span cells.</li>
+  <li>Custom templates with brackets: <code>grid-cols-[8rem_1fr]</code>, <code>repeat(auto-fill,minmax(…))</code>.</li>
+  <li><code>grid-cols-subgrid</code>/<code>grid-rows-subgrid</code> align nested content to the parent grid.</li>
+  <li>Flex for one-dimensional flows, grid for two-dimensional layouts; combine them.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">centre</span></h3>
+<p>Centre a single child horizontally and vertically inside a 200&nbsp;px tall box, with flexbox.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>flex h-50 items-center justify-center</code> (or with grid: <code>grid h-50 place-items-center</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">gallery</span></h3>
+<p>A gallery: 2 columns on phones, 3 from <code>md</code>, 4 from <code>lg</code>, with 1&nbsp;rem gaps.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">read</span></h3>
+<p>What does <code>flex flex-col items-start gap-2</code> do to three buttons?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Stacks them vertically with 0.5&nbsp;rem between them, each as wide as its content and aligned to the left (instead of stretching to full width, which is the default <code>items-stretch</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">span</span></h3>
+<p>In a 12-column grid, make the main content 8 columns and the sidebar 4.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Container <code>grid grid-cols-12 gap-6</code>; main <code>col-span-8</code>; sidebar <code>col-span-4</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>In a flex row, a long URL in the text pushes the layout wider than the screen even though the text has <code>flex-1</code>. Why, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Flex items have <code>min-width: auto</code> by default, so they won't shrink below their longest unbreakable word. Add <code>min-w-0</code> to the text item (and <code>break-words</code> or <code>truncate</code> to the text).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">order</span></h3>
+<p>On phones an image should appear above the text; from <code>md</code> the image should be on the right of the text. The HTML has the text first. Write the classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Container <code>flex flex-col md:flex-row</code>; image <code>order-first md:order-last</code> (or use <code>flex-col-reverse md:flex-row</code> on the container). Remember that <code>order</code> changes only the visual order; keyboard and screen-reader order follow the HTML.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/13/</code> build the holy-grail layout, then make it responsive: below <code>md</code> the sidebar goes under the main content and everything is one column.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Container <code>grid grid-cols-1 md:grid-cols-[12rem_1fr]</code>; header and footer <code>md:col-span-full</code>; sidebar <code>order-last md:order-none</code> (or place it with <code>md:row-start-2</code> and keep it after main in the HTML).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>Why does <code>grid-cols-3</code> use <code>minmax(0, 1fr)</code> rather than just <code>1fr</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>1fr</code> alone has a minimum of <code>auto</code>: a column won't get narrower than its widest content, so a long word or a wide image makes columns unequal or overflow. <code>minmax(0, 1fr)</code> lets columns shrink to 0, keeping them equal.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">bento</span></h3>
+<p>Build a 4×2 "bento" grid: one big tile spanning 2 columns and 2 rows on the left, and four small tiles filling the rest.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Container <code>grid grid-cols-4 grid-rows-2 gap-3</code>; big tile <code>col-span-2 row-span-2</code>; four small tiles with no extra classes: auto-placement fills the remaining 2×2 cells.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">subgrid</span></h3>
+<p>Three product cards have an image, a title of varying length, and a button. Make all three buttons line up at the same height using subgrid.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Parent <code>grid grid-cols-3 gap-x-6 gap-y-2</code>; each card <code>row-span-3 grid grid-rows-subgrid</code>, with image, title and button as its three children. The parent's rows size to the tallest title, so all buttons share the third row.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/flex">flex</a> · <a href="https://tailwindcss.com/docs/flex-direction">flex-direction</a> · <a href="https://tailwindcss.com/docs/justify-content">justify-content</a> · <a href="https://tailwindcss.com/docs/align-items">align-items</a></li>
+  <li><a href="https://tailwindcss.com/docs/grid-template-columns">grid-template-columns</a> · <a href="https://tailwindcss.com/docs/grid-column">grid-column</a> · <a href="https://tailwindcss.com/docs/gap">gap</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_grid_layout/Subgrid">MDN: Subgrid</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

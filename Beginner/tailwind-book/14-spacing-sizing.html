@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📏&lt;/text&gt;&lt;/svg&gt;">
+<title>14. Spacing &amp; Sizing · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 14 · Utilities in Depth</div>
+<h1>Spacing &amp; Sizing</h1>
+<p class="lead">Padding, margin, width and height are the utilities you'll type most. They all share the <strong>spacing scale</strong> from Chapter 3 (multiples of <code>--spacing</code>, 4&nbsp;px by default), plus a few special values: fractions, <code>full</code>, <code>screen</code>, the dynamic viewport units, and named container sizes. This chapter covers the docs' <em>Spacing</em> and <em>Sizing</em> groups and the measurements behind them, checked in the browser.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Padding and margin on every side, including logical sides and negative margins.</li>
+  <li><code>space-x</code>/<code>space-y</code> versus <code>gap</code>, and <code>mx-auto</code>.</li>
+  <li>Widths and heights: the scale, fractions, <code>full</code>, <code>fit</code>, <code>min</code>, <code>max</code>, viewport units.</li>
+  <li><code>size-*</code>, <code>min-*</code>/<code>max-*</code>, and the named container sizes like <code>max-w-md</code>.</li>
+  <li>Why <code>h-dvh</code> is usually better than <code>h-screen</code> on phones.</li>
+</ul>
+</div>
+
+<h2 id="padding">Padding and margin</h2>
+<div class="table-wrap"><table>
+<tr><th>Prefix</th><th>Sides</th><th>Example</th></tr>
+<tr><td><code>p-</code>, <code>m-</code></td><td>all four</td><td><code>p-4</code></td></tr>
+<tr><td><code>px-</code>, <code>mx-</code></td><td>left and right (inline)</td><td><code>px-6</code></td></tr>
+<tr><td><code>py-</code>, <code>my-</code></td><td>top and bottom (block)</td><td><code>my-2</code></td></tr>
+<tr><td><code>pt-</code>, <code>pr-</code>, <code>pb-</code>, <code>pl-</code></td><td>one side</td><td><code>mt-8</code></td></tr>
+<tr><td><code>ps-</code>, <code>pe-</code></td><td>inline start/end (follow the text direction)</td><td><code>ms-2</code></td></tr>
+<tr><td><code>pbs-</code>, <code>pbe-</code></td><td>block start/end (v4.2)</td><td><code>mbs-4</code></td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html">
+<div id="box" class="mx-auto mt-6 w-64 px-6 py-3 bg-sky-100">box</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="600" data-eval="(() => { const s = getComputedStyle(box); return ['padding: ' + s.padding, 'margin-top: ' + s.marginTop, 'margin-left/right: ' + s.marginLeft + ' / ' + s.marginRight].join('\n'); })()">
+padding: 12px 24px
+margin-top: 24px
+margin-left/right: 172px / 172px
+</script>
+<p><code>mx-auto</code> centres a block that has a width: the 344&nbsp;px left over (600 − 256) is split equally. Margins also accept negative values (<code>-mt-4</code>) to pull an element over the one before it, and <code>m-px</code> is exactly 1&nbsp;px.</p>
+
+<h3 id="space">space-x / space-y vs gap</h3>
+<p><code>space-y-4</code> adds a margin between children: every child except the last gets a bottom margin. <code>gap-4</code> does the same for flex and grid containers without touching the children:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="space">
+<div class="space-y-4">
+  <p>one</p><p>two</p><p>three</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  :where(.space-y-4 > :not(:last-child)) {
+    --tw-space-y-reverse: 0;
+    margin-block-start: calc(calc(var(--spacing) * 4) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing) * 4) * calc(1 - var(--tw-space-y-reverse)));
+  }
+}
+</script>
+<div class="tip">
+<p>💡 Prefer <code>flex flex-col gap-4</code> or <code>grid gap-4</code>. <code>space-*</code> breaks when items wrap, when you hide a child with <code>hidden</code> (it still counts unless it's last), and when children set their own margins. <code>gap</code> has none of these problems.</p>
+</div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a box is a <strong>framed picture on a wall</strong>. <em>Padding</em> is the mat between the picture and the frame: it's inside, and the background colour fills it. <em>Margin</em> is the empty wall between frames: outside, always transparent. <em>Gap</em> is a rule the wall sets for all frames at once: "keep 16&nbsp;px between each".</p>
+</div>
+
+<h2 id="width">Width</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>Value</th></tr>
+<tr><td><code>w-0</code> … <code>w-96</code>, any number</td><td><code>calc(var(--spacing) * N)</code></td></tr>
+<tr><td><code>w-1/2</code>, <code>w-2/3</code>, <code>w-5/12</code>…</td><td>a percentage: <code>calc(1 / 2 * 100%)</code></td></tr>
+<tr><td><code>w-full</code></td><td><code>100%</code> of the parent</td></tr>
+<tr><td><code>w-screen</code>, <code>w-dvw</code>, <code>w-svw</code>, <code>w-lvw</code></td><td><code>100vw</code> and the dynamic/small/large viewport widths</td></tr>
+<tr><td><code>w-auto</code>, <code>w-fit</code>, <code>w-min</code>, <code>w-max</code></td><td><code>auto</code>, <code>fit-content</code>, <code>min-content</code>, <code>max-content</code></td></tr>
+<tr><td><code>w-3xs</code> … <code>w-7xl</code></td><td>container sizes: 16&nbsp;rem … 80&nbsp;rem (<code>--container-*</code>)</td></tr>
+<tr><td><code>w-px</code></td><td>1&nbsp;px</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="widths">
+<div id="wrap" class="w-96">
+  <div class="w-1/3 bg-sky-200">w-1/3</div>
+  <div class="w-fit bg-sky-300">w-fit</div>
+  <div class="w-xs bg-sky-400">w-xs</div>
+  <div class="w-full bg-sky-500">w-full</div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...wrap.children].map((c) => c.textContent + ': ' + c.offsetWidth + 'px').join('\n')">
+w-1/3: 128px
+w-fit: …
+w-xs: 320px
+w-full: 384px
+</script>
+<p><code>w-fit</code> is as wide as the text inside; the others don't depend on content.</p>
+
+<h3 id="size">size-*: width and height together</h3>
+<p>For squares (avatars, icons) use <code>size-10</code> instead of <code>w-10 h-10</code>. The <code>tailwindcss canonicalize</code> command (Chapter 4) suggests this.</p>
+
+<h2 id="height">Height and the viewport</h2>
+<p>Height utilities mirror width: <code>h-12</code>, <code>h-1/2</code>, <code>h-full</code>, <code>h-fit</code>. For "the whole screen" there are several units, because on phones the browser's address bar appears and disappears:</p>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th><th>Height</th></tr>
+<tr><td><code>h-screen</code></td><td><code>100vh</code></td><td>Classic viewport height; on mobile it can be taller than what's visible.</td></tr>
+<tr><td><code>h-dvh</code></td><td><code>100dvh</code></td><td><strong>Dynamic</strong>: changes as browser bars show and hide.</td></tr>
+<tr><td><code>h-svh</code></td><td><code>100svh</code></td><td><strong>Small</strong>: with the bars visible (never hidden behind them).</td></tr>
+<tr><td><code>h-lvh</code></td><td><code>100lvh</code></td><td><strong>Large</strong>: with the bars hidden.</td></tr>
+</table></div>
+<p>For a full-page layout, <code>min-h-dvh</code> on the outer wrapper is the usual choice: at least the visible screen, and taller if the content needs it.</p>
+
+<h2 id="minmax">Min and max</h2>
+<p><code>min-w-*</code>, <code>max-w-*</code>, <code>min-h-*</code>, <code>max-h-*</code> take the same values. The most common:</p>
+<ul>
+  <li><code>max-w-prose</code>: 65 characters wide, a comfortable reading width.</li>
+  <li><code>max-w-md</code>, <code>max-w-2xl</code>, <code>max-w-7xl</code>: named container widths (28&nbsp;rem, 42&nbsp;rem, 80&nbsp;rem).</li>
+  <li><code>min-w-0</code>: lets a flex or grid item shrink below its content (Chapter 13).</li>
+  <li><code>max-h-96 overflow-y-auto</code>: a scrollable list of limited height.</li>
+</ul>
+<script type="text/plain" class="code" data-file="index.html" data-app="prose">
+<article id="a" class="mx-auto max-w-prose">Long text…</article>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="max-width">
+    max-width: 65ch;
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A centred page container</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="container">
+<div id="c" class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">Page</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="1400" data-eval="'width ' + c.offsetWidth + 'px, left margin ' + getComputedStyle(c).marginLeft + ', padding ' + getComputedStyle(c).paddingLeft">
+width 1024px, left margin 188px, padding 32px
+</script>
+<p>This trio (<code>mx-auto</code>, <code>max-w-*</code>, responsive <code>px-*</code>) is how almost every Tailwind site centres its content.</p>
+
+<h3>Negative margin to overlap</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="overlap">
+<div class="flex">
+  <div class="size-10 rounded-full bg-sky-500 ring-2 ring-white"></div>
+  <div class="-ml-3 size-10 rounded-full bg-indigo-500 ring-2 ring-white"></div>
+  <div class="-ml-3 size-10 rounded-full bg-rose-500 ring-2 ring-white"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="14-stack" data-width="200" data-clip=".flex">Three coloured circles overlapping each other like a stack of avatars, separated by white rings.</script>
+
+<h3>Fractions in a flex row</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="frac">
+<div id="row" class="flex w-[600px]">
+  <div class="w-1/4 bg-slate-200">¼</div>
+  <div class="w-3/4 bg-slate-300">¾</div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...row.children].map((c) => c.textContent + ' ' + c.offsetWidth + 'px').join(', ')">
+¼ 150px, ¾ 450px
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>p-</code>/<code>m-</code> with <code>x</code>, <code>y</code>, <code>t</code>, <code>r</code>, <code>b</code>, <code>l</code>, <code>s</code>, <code>e</code>, <code>bs</code>, <code>be</code>; any number on the spacing scale; negative margins with <code>-</code>.</li>
+  <li><code>mx-auto</code> centres a block with a width; prefer <code>gap</code> over <code>space-*</code>.</li>
+  <li>Widths: scale, fractions (<code>w-1/3</code>), <code>full</code>, <code>fit</code>, container sizes (<code>w-md</code>), viewport units.</li>
+  <li><code>size-*</code> sets width and height together.</li>
+  <li><code>h-dvh</code>/<code>min-h-dvh</code> fit mobile screens better than <code>h-screen</code>.</li>
+  <li><code>max-w-prose</code> for reading; <code>min-w-0</code> to let flex items shrink.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">compute</span></h3>
+<p>What are <code>px-5</code>, <code>mt-0.5</code> and <code>w-60</code> in pixels?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>20&nbsp;px left and right; 2&nbsp;px; 240&nbsp;px.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>Make a 48&nbsp;px square, rounded, with 8&nbsp;px of space to its right.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>size-12 rounded-md me-2</code> (or <code>mr-2</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">reading width</span></h3>
+<p>A blog article is too wide on large screens. Limit it to a comfortable reading width and centre it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>mx-auto max-w-prose</code> (add <code>px-4</code> so it doesn't touch the screen edges on phones).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">viewport</span></h3>
+<p>Which class makes a hero section exactly the visible screen height on a phone, adjusting as the address bar hides?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>h-dvh</code> (or <code>min-h-dvh</code> if its content may be taller).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">space vs gap</span></h3>
+<p>A tag list uses <code>flex flex-wrap space-x-2</code>. When it wraps, the second line starts with an indent and there's no vertical space. Fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Replace <code>space-x-2</code> with <code>gap-2</code>: gap applies between items in both directions and doesn't add margins that misalign wrapped lines.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fit</span></h3>
+<p>A badge in a <code>flex-col</code> container stretches to full width. Make it only as wide as its text without changing the container.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>self-start</code> (stop stretching) or <code>w-fit</code> to the badge.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/14/</code>, wrap the page content in the centred container from "More examples". Measure its width at 800&nbsp;px and 1400&nbsp;px with DevTools and explain the numbers.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>At 800&nbsp;px the container is 800&nbsp;px wide (less than <code>max-w-5xl</code>'s 1024&nbsp;px). 800 is above <code>sm</code> but below <code>lg</code> (1024), so the padding is 24&nbsp;px from <code>sm:px-6</code>. At 1400&nbsp;px it's capped at 1024&nbsp;px, centred with 188&nbsp;px margins, and has 32&nbsp;px padding.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">scroll</span></h3>
+<p>Make a notifications list at most 20&nbsp;rem tall that scrolls when longer.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>max-h-80 overflow-y-auto</code> (80 × 0.25&nbsp;rem = 20&nbsp;rem).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">logical</span></h3>
+<p>Your app supports Arabic (right-to-left). An icon has <code>mr-2</code> to separate it from the text after it. What goes wrong in RTL, and which class fixes it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>In RTL the text is on the icon's left, but <code>mr-2</code> still adds space on the right, so the gap is on the wrong side. <code>me-2</code> (margin-inline-end) adds space after the icon in the reading direction, whatever it is.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Why does <code>space-y-4</code> generate <code>:where(.space-y-4 &gt; :not(:last-child))</code> with margins on both start and end, controlled by a <code>--tw-space-y-reverse</code> variable?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The selector targets every child of <code>.space-y-4</code> except the last. The two margins plus the reverse variable let the same utility work with <code>flex-col-reverse</code>: <code>space-y-reverse</code> sets the variable to 1, moving the margin from the end to the start. <code>:where()</code> keeps the specificity low so a child's own margin utility can still override it.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/padding">padding</a> · <a href="https://tailwindcss.com/docs/margin">margin</a></li>
+  <li><a href="https://tailwindcss.com/docs/width">width</a> · <a href="https://tailwindcss.com/docs/height">height</a> · <a href="https://tailwindcss.com/docs/max-width">max-width</a></li>
+  <li><a href="https://developer.mozilla.org/en-US/docs/Web/CSS/length#relative_length_units_based_on_viewport">MDN: viewport units (dvh, svh, lvh)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

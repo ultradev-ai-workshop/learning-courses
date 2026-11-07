@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌊&lt;/text&gt;&lt;/svg&gt;">
+<title>1. What Tailwind CSS Is · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 1 · Getting Started</div>
+<h1>What Tailwind CSS Is</h1>
+<p class="lead">Tailwind CSS is a CSS framework made of thousands of small classes, such as <code>flex</code>, <code>pt-4</code>, <code>text-center</code> and <code>rotate-90</code>. You style a page by putting these classes on your HTML elements instead of writing CSS rules in a separate file. A build tool scans your files, finds the class names you used, and writes a stylesheet that contains only those. This chapter shows what that looks like, what really ends up in the CSS file, and how this differs from writing regular CSS.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What "utility-first" means, with a first example.</li>
+  <li>How Tailwind turns class names in your HTML into a CSS file, and why the file stays small.</li>
+  <li>What a utility class really contains: theme variables, layers, and plain CSS.</li>
+  <li>The main differences between Tailwind and hand-written CSS, and where each one fits.</li>
+  <li>How the examples in this book are built and checked.</li>
+</ul>
+</div>
+
+<h2 id="first-look">A first look</h2>
+<p>Here is a small card. Every visual decision is a class in the <code>class</code> attribute: <code>p-6</code> is padding, <code>rounded-xl</code> rounds the corners, <code>shadow-lg</code> adds a shadow, <code>text-slate-500</code> picks a grey from the colour palette, and so on.</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="mx-auto flex max-w-sm items-center gap-x-4 rounded-xl bg-white p-6 shadow-lg outline outline-black/5">
+  <img class="size-12 shrink-0" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%2338bdf8'/%3E%3Cpath d='M15 27l6 6 12-14' stroke='white' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" alt="">
+  <div>
+    <div class="text-xl font-medium text-black">Reading List</div>
+    <p class="text-slate-500">3 books are due this week</p>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="01-card" data-width="480">A white card with rounded corners and a soft shadow. A round blue icon on the left; on the right the title "Reading List" and a grey line "3 books are due this week".</script>
+<p>No CSS file was written by hand. The book's checker saved that HTML as <code>index.html</code> next to a one-line <code>input.css</code>, ran the Tailwind CLI, opened the page in Chrome and took the screenshot. You will set up the same thing yourself in <a href="02-install.html">Chapter 2</a>.</p>
+<script type="text/plain" class="code" data-file="input.css" data-norun>
+@import "tailwindcss";
+</script>
+
+<h2 id="how-it-works">How it works: scan, generate, done</h2>
+<p>Tailwind is not a big stylesheet you download. It is a <strong>build step</strong>:</p>
+<ol>
+  <li>It <strong>scans</strong> your source files (HTML, JavaScript, templates…) for anything that looks like a class name.</li>
+  <li>For every name that matches a Tailwind utility, it <strong>generates</strong> the CSS rule.</li>
+  <li>It writes all of them, plus a small reset called <em>Preflight</em>, to one CSS file.</li>
+</ol>
+<p>Let's prove it with a page that uses exactly three classes:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="three">
+<h1 class="text-3xl font-bold underline">Hello world!</h1>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-3xl {
+    font-size: var(--text-3xl);
+    line-height: var(--tw-leading, var(--text-3xl--line-height));
+  }
+  .font-bold {
+    --tw-font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-bold);
+  }
+  .underline {
+    text-decoration-line: underline;
+  }
+}
+</script>
+<p>Three classes in, three rules out. Notice that the values are not written directly: <code>font-size: var(--text-3xl)</code>. They point to <strong>theme variables</strong>, plain CSS custom properties that Tailwind also writes into the file. Only the variables you use are included:</p>
+<script type="text/plain" class="code" data-lang="css" data-css="theme" data-grep="--text|--font-weight">
+    --text-3xl: 1.875rem;
+    --text-3xl--line-height: calc(2.25 / 1.875);
+    --font-weight-bold: 700;
+</script>
+<p>So <code>text-3xl</code> means a font size of 1.875&nbsp;rem (30&nbsp;px when the root font size is the default 16&nbsp;px) with a line height of 2.25&nbsp;rem. You can check the result in the browser:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const s = getComputedStyle(document.querySelector('h1')); return [s.fontSize, s.lineHeight, s.fontWeight, s.textDecorationLine].join(' | '); })()">
+30px | 36px | 700 | underline
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> a hand-written stylesheet is a <em>made-to-measure suit</em>: every rule is cut for one element, and you keep adding new suits. Tailwind is a <em>wardrobe of standard pieces</em> (a blue shirt, a grey jacket, size 4 shoes) that you combine on each person. The wardrobe is huge, but the build step only packs the pieces someone actually wears into your suitcase.</p>
+</div>
+
+<h2 id="the-file">What is in the whole file?</h2>
+<p>The generated <code>output.css</code> has a fixed structure. The CSS <code>@layer</code> rule names layers and fixes their order; later layers win over earlier ones, whatever the selectors:</p>
+<script type="text/plain" class="code" data-lang="css" data-css="full" data-grep="^(/\*|@layer)">
+/*! tailwindcss v4.3.5 | MIT License | https://tailwindcss.com */
+@layer properties;
+@layer theme, base, components, utilities;
+@layer theme {
+@layer base {
+@layer utilities {
+@layer properties {
+</script>
+<div class="table-wrap"><table>
+<tr><th>Layer</th><th>What's in it</th></tr>
+<tr><td><code>theme</code></td><td>The design tokens you used, as CSS variables on <code>:root</code>: colours, spacing, font sizes…</td></tr>
+<tr><td><code>base</code></td><td><strong>Preflight</strong>, a reset that removes browser default margins, heading sizes and list bullets so every browser starts from the same place. Your own base styles go here too.</td></tr>
+<tr><td><code>components</code></td><td>Empty by default; for your own reusable classes like <code>.card</code> (Chapter 10).</td></tr>
+<tr><td><code>utilities</code></td><td>One rule per class you used. Last layer, so a utility always beats base and component styles.</td></tr>
+<tr><td><code>properties</code></td><td>Fallback values for internal variables like <code>--tw-font-weight</code>, for browsers without <code>@property</code>.</td></tr>
+</table></div>
+<p>Because only used classes are generated, the file stays small. This tiny page produces about 6&nbsp;KB, most of it Preflight. A real site usually ends up between 10 and 30&nbsp;KB, and much less after compression.</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ wc -c < output.css
+…
+</script>
+
+<h2 id="vs-css">Tailwind vs writing regular CSS</h2>
+<p>Here is the same button written both ways. First, regular CSS: you invent a class name, then write its rules in a stylesheet.</p>
+<script type="text/plain" class="code" data-file="styles.css" data-norun>
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background-color: #0ea5e9;
+  color: white;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background-color: #0284c7;
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-norun>
+<button class="btn-primary">Save</button>
+</script>
+<p>Now with Tailwind: no name, no separate file. The <code>hover:</code> prefix applies a class only on hover (Chapter 5).</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="btn">
+<button id="save" class="rounded-lg bg-sky-500 px-4 py-2 font-semibold text-white hover:bg-sky-600">Save</button>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="01-button" data-width="320">A sky-blue rounded button with white bold text "Save".</script>
+<div class="table-wrap"><table>
+<tr><th></th><th>Regular CSS</th><th>Tailwind</th></tr>
+<tr><td>Where styles live</td><td>A separate <code>.css</code> file, linked by a class name you invent</td><td>In the markup, next to the element</td></tr>
+<tr><td>Naming</td><td>You name everything (<code>.card__title--large</code>)</td><td>No names needed for most things</td></tr>
+<tr><td>Values</td><td>Any value, anywhere; teams drift into 37 shades of grey</td><td>Picked from a theme scale by default; one-offs are possible but visible (<code>top-[117px]</code>)</td></tr>
+<tr><td>CSS file size</td><td>Grows with every new feature; dead rules are hard to find</td><td>Grows with the number of <em>different</em> utilities used, then flattens out</td></tr>
+<tr><td>Changing a design</td><td>Edit a rule; may break other pages that share it</td><td>Edit classes on one element; nothing else changes</td></tr>
+<tr><td>Reuse</td><td>Shared class names</td><td>Components (React, templates), loops, and only sometimes <code>@apply</code></td></tr>
+<tr><td>Learning</td><td>Just CSS</td><td>CSS <em>plus</em> Tailwind's names. You still need to understand CSS.</td></tr>
+</table></div>
+<p>The <a href="faq.html">FAQ</a> goes deeper: why this is not the same as inline styles, the "ugly HTML" objection, and when plain CSS is the better choice.</p>
+
+<div class="pitfall">
+<p>⚠️ <strong>Tailwind is still CSS.</strong> <code>flex</code> is <code>display: flex</code>; <code>justify-between</code> is <code>justify-content: space-between</code>. If you don't know what flexbox does, the class names won't save you. This book explains the CSS behind each utility as it goes.</p>
+</div>
+
+<h2 id="not-inline">Isn't this just inline styles?</h2>
+<p>It looks similar, but utility classes can do things the <code>style</code> attribute can't:</p>
+<ul>
+  <li><strong>States:</strong> <code>hover:bg-sky-600</code>, <code>focus:outline-2</code>. Inline styles have no hover.</li>
+  <li><strong>Responsive design:</strong> <code>md:flex</code> applies from a screen width up. Inline styles can't use media queries.</li>
+  <li><strong>A design system:</strong> <code>p-4</code> comes from a spacing scale; <code>style="padding: 17px"</code> comes from nowhere.</li>
+  <li><strong>Size:</strong> a class is defined once in the CSS file and reused everywhere it appears.</li>
+</ul>
+<script type="text/plain" class="code" data-file="index.html" data-app="inline">
+<p style="color: green">inline: always green</p>
+<p class="text-green-700 md:text-blue-700">utility: green on small screens, blue from 768px</p>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="500" data-eval="[...document.querySelectorAll('p')].map((p) => p.textContent.split(':')[0] + ' → ' + getComputedStyle(p).color).join('\n')">
+inline → rgb(0, 128, 0)
+utility → oklch(0.527 0.154 150.069)
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="900" data-eval="[...document.querySelectorAll('p')].map((p) => p.textContent.split(':')[0] + ' → ' + getComputedStyle(p).color).join('\n')">
+inline → rgb(0, 128, 0)
+utility → oklch(0.488 0.243 264.376)
+</script>
+<p>The colours come back as <code>oklch(…)</code> because Tailwind v4's palette is defined in the OKLCH colour space (Chapter 8). The browser reports the colour the way it was written.</p>
+
+<h2 id="versions">Versions: this book uses Tailwind CSS v4.3</h2>
+<p>Tailwind changed a lot in version 4 (January 2025). The biggest differences from v2 and v3:</p>
+<ul>
+  <li><strong>Configuration is in CSS.</strong> You write <code>@import "tailwindcss";</code> and customise with <code>@theme</code> in the same file. The <code>tailwind.config.js</code> file is optional and only for older projects.</li>
+  <li><strong>No <code>content</code> or <code>purge</code> list.</strong> Tailwind finds your source files automatically.</li>
+  <li><strong>A new engine</strong> that builds much faster, and modern CSS everywhere: cascade layers, <code>@property</code>, <code>color-mix()</code>, OKLCH colours, container queries.</li>
+</ul>
+<p>Many tutorials online still show v2 or v3 code. If you see <code>@tailwind base;</code> or a <code>tailwind.config.js</code> with <code>purge: [...]</code>, it's old. <a href="appendix-upgrade.html">Appendix A</a> maps old code to new. v4 needs a modern browser: Safari 16.4+, Chrome 111+, Firefox 128+.</p>
+
+<div class="tip">
+<p>💡 <strong>How this book checks itself.</strong> Every example is a real file. The checker (<code>tools/check-snippets.mjs</code>) builds it with Tailwind 4.3.5 and compares every output shown, whether it's generated CSS, values read from the browser, terminal output or build errors, against the real result. Screenshots come from the same run. If Tailwind changes, the checker fails and the page gets fixed.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Arbitrary values: when the scale doesn't have it</h3>
+<p>Square brackets let you use any value. Tailwind generates the rule on the fly (Chapter 9):</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="arb">
+<div class="top-[117px] bg-[#bada55]">Exactly 117px, exactly #bada55</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .top-\[117px\] {
+    top: 117px;
+  }
+  .bg-\[\#bada55\] {
+    background-color: #bada55;
+  }
+}
+</script>
+<p>The brackets and <code>#</code> are escaped with <code>\</code> in the selector because they are special characters in CSS. In your HTML you type them normally.</p>
+
+<h3>A class Tailwind doesn't know is ignored</h3>
+<p>If a word isn't a Tailwind utility, nothing is generated for it. A typo fails silently:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="typo">
+<p class="text-center txt-red-500 my-class">Centered, but not red</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-center {
+    text-align: center;
+  }
+}
+</script>
+<p>Editor IntelliSense (Chapter 4) catches these typos while you type.</p>
+
+<h3>Several classes, one element, any order</h3>
+<p>The order of classes in the attribute doesn't matter; the order of the rules in the CSS file does. Tailwind sorts its rules so the result is predictable:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="order">
+<p id="a" class="font-bold text-lg">a</p>
+<p id="b" class="text-lg font-bold">b</p>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="['a', 'b'].map((id) => { const s = getComputedStyle(document.getElementById(id)); return id + ': ' + s.fontSize + ' ' + s.fontWeight; }).join('\n')">
+a: 18px 700
+b: 18px 700
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Tailwind is a utility-first CSS framework: you style elements with small single-purpose classes in the markup.</li>
+  <li>It's a build step: it scans your files and generates CSS only for the classes you used.</li>
+  <li>The output has layers: <code>theme</code> (variables), <code>base</code> (Preflight), <code>components</code>, <code>utilities</code>. Utilities come last and win.</li>
+  <li>Utilities point to theme variables like <code>--text-3xl</code> and <code>--spacing</code>.</li>
+  <li>Unlike inline styles, utilities support states, breakpoints and a consistent scale.</li>
+  <li>This book uses Tailwind v4.3: configuration in CSS, automatic source detection, a modern-browser baseline.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">read</span></h3>
+<p>Say in plain words what each class does: <code>p-6</code>, <code>rounded-xl</code>, <code>text-slate-500</code>, <code>font-medium</code>, <code>shadow-lg</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>p-6</code>: padding on all sides (6 × 0.25&nbsp;rem = 1.5&nbsp;rem). <code>rounded-xl</code>: rounded corners (0.75&nbsp;rem radius). <code>text-slate-500</code>: text colour, a mid grey from the slate palette. <code>font-medium</code>: font weight 500. <code>shadow-lg</code>: a large box shadow.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">concept</span></h3>
+<p>You use the class <code>bg-red-500</code> in one HTML file, and nowhere else. Then you delete that element. What happens to the rule for <code>.bg-red-500</code> in the next build?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>It disappears. Tailwind only generates rules for class names it finds when it scans your files. No other file mentions <code>bg-red-500</code>, so the rule (and the <code>--color-red-500</code> variable) are not in the output.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">layers</span></h3>
+<p>Which layer of the generated CSS contains: (a) <code>--spacing: 0.25rem</code>, (b) the reset that removes <code>h1</code> margins, (c) <code>.underline</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>theme</code>; (b) <code>base</code> (Preflight); (c) <code>utilities</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">spot the old code</span></h3>
+<p>A tutorial starts with <code>@tailwind base; @tailwind components; @tailwind utilities;</code>. Is that Tailwind v4 syntax? What do you write instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No, that's v2/v3. In v4 you write one line: <code>@import "tailwindcss";</code> (Appendix A).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">translate</span></h3>
+<p>Rewrite this rule as Tailwind classes on a <code>&lt;div&gt;</code>: <code>display: flex; align-items: center; gap: 1rem; padding: 1rem; background: white; border-radius: 0.5rem;</code></p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div class="flex items-center gap-4 p-4 bg-white rounded-lg"&gt;</code>. 1&nbsp;rem is 4 steps of the 0.25&nbsp;rem spacing unit; <code>rounded-lg</code> is 0.5&nbsp;rem.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">inline vs utility</span></h3>
+<p>Give two things <code>class="..."</code> utilities can do that <code>style="..."</code> cannot, with an example class for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Any two of: states (<code>hover:bg-sky-600</code>, <code>focus:outline-2</code>), breakpoints (<code>md:flex</code>), dark mode (<code>dark:bg-black</code>), pseudo-elements (<code>before:content-['*']</code>), reusing one CSS rule across the whole page instead of repeating declarations.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">debug</span></h3>
+<p>A teammate wrote <code>class="text-blu-600 font-semibold"</code> and the text is not blue. No error appeared anywhere. Why, and how could the mistake have been caught?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>text-blu-600</code> is not a Tailwind utility, so Tailwind silently generates nothing for it (the "More examples" typo example shows this). The Tailwind CSS IntelliSense editor extension (Chapter 4) would have shown no colour preview and no completion for it; a linter or checking the computed colour in DevTools also reveals it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground (<a href="playground-howto.html">set it up first</a>), open <code>chapters/01/index.html</code>, add the Reading List card from this chapter, and build. Open <code>output.css</code> and find the rule for <code>shadow-lg</code>. Does it point to a theme variable the way <code>text-3xl</code> does? What does it set instead?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>No. With the default theme, the shadow values are written into the rule: it sets an internal variable <code>--tw-shadow: 0 10px 15px -3px var(--tw-shadow-color, rgb(0 0 0 / 0.1)), …</code>, then <code>box-shadow</code> combines <code>--tw-inset-shadow</code>, the ring variables and <code>--tw-shadow</code>. That composition is what lets <code>shadow-lg</code> work together with <code>ring-2</code> or <code>shadow-sky-500/50</code> on the same element.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">explain</span></h3>
+<p>Your HTML puts <code>class="underline"</code> on a link, and a stylesheet loaded <em>after</em> Tailwind has <code>a { text-decoration: none; }</code> without a layer. Which one wins, and why? What if the <code>a</code> rule were inside <code>@layer base</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The unlayered <code>a</code> rule wins. In the cascade, styles that are not in any layer beat all layered styles, whatever their specificity or order. If you put it in <code>@layer base</code>, the <code>utilities</code> layer is declared later in <code>@layer theme, base, components, utilities;</code>, so <code>underline</code> wins. This is why custom base styles belong in <code>@layer base</code> (Chapter 11).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">judgement</span></h3>
+<p>Describe one project where you would choose Tailwind and one where you would choose plain CSS. Give two reasons for each.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Tailwind: a product UI built from components (React, Vue, templates) by a team. Reasons: consistent spacing and colours from the theme; no naming or dead CSS; styles live with the component, so changes stay local. Plain CSS: a long-form document or a CMS where authors write content without classes; or a tiny static page with one stylesheet. Reasons: you can't put classes on generated markup; there's no build step to maintain; element selectors express the design more simply. (The Typography plugin in Appendix B covers the "content you can't add classes to" case for Tailwind projects.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/styling-with-utility-classes">Styling with utility classes</a></li>
+  <li><a href="https://tailwindcss.com/docs/preflight">Preflight</a></li>
+  <li><a href="https://tailwindcss.com/docs/compatibility">Compatibility (browser support)</a></li>
+  <li><a href="https://tailwindcss.com/blog/tailwindcss-v4">Tailwind CSS v4.0 announcement</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

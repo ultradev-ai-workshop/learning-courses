@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@source not "../../reference";
+
+/* Chapter 7: dark mode follows a .dark class on <html>, set by your toggle. */
+@custom-variant dark (&:where(.dark, .dark *));

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.DS_Store
+reference/.next/
+reference/node_modules/
+reference/next-env.d.ts

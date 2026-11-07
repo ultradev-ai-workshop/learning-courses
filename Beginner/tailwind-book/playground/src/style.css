@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* reference/ is a separate Next.js app (Chapter 19): don't scan it for this site's classes. */
+@source not "../reference";

@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🧱&lt;/text&gt;&lt;/svg&gt;">
+<title>3. Styling with Utility Classes · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 3 · Getting Started</div>
+<h1>Styling with Utility Classes</h1>
+<p class="lead">This chapter follows the docs' <em>Styling with utility classes</em> page. You'll learn how to read a utility's name, how the spacing scale and colour palette work, what Preflight changes, how to deal with conflicting classes and duplication, and when to reach for inline styles instead. These rules are the same for every utility in the rest of the book.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to build a component from utilities, step by step.</li>
+  <li>How utility names are made: property, value, and the spacing scale.</li>
+  <li>What variants (prefixes like <code>hover:</code> and <code>md:</code>) are, in a first look.</li>
+  <li>What Preflight resets, and why your <code>h1</code> looks like plain text.</li>
+  <li>Conflicting classes, the <code>!</code> important modifier and the <code>prefix()</code> option.</li>
+  <li>How to handle repetition and when to use inline styles.</li>
+</ul>
+</div>
+
+<h2 id="build">Building a component, one utility at a time</h2>
+<p>The usual way to work with Tailwind is to start with plain markup and add classes until it looks right. Here is a notification, first without any classes:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div>
+  <div>Build finished</div>
+  <p>Deployed to production in 42s.</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-step1" data-width="420">Two lines of plain black text with no spacing: "Build finished" and "Deployed to production in 42s."</script>
+<p>Now the same markup with utilities. Read the classes left to right: layout, spacing, shape, colour, shadow.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="step2">
+<div class="flex flex-col gap-1 rounded-lg border-l-4 border-emerald-500 bg-white p-4 shadow-md">
+  <div class="font-semibold text-slate-900">Build finished</div>
+  <p class="text-sm text-slate-600">Deployed to production in 42s.</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-step2" data-width="420">A white card with a green left border and a shadow. A bold dark title "Build finished" above smaller grey text "Deployed to production in 42s."</script>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th></tr>
+<tr><td><code>flex flex-col gap-1</code></td><td><code>display: flex; flex-direction: column; gap: 0.25rem</code></td></tr>
+<tr><td><code>rounded-lg</code></td><td><code>border-radius: 0.5rem</code></td></tr>
+<tr><td><code>border-l-4 border-emerald-500</code></td><td>a 4&nbsp;px left border in emerald green</td></tr>
+<tr><td><code>bg-white p-4 shadow-md</code></td><td>white background, 1&nbsp;rem padding, medium shadow</td></tr>
+<tr><td><code>font-semibold text-slate-900</code></td><td>weight 600, nearly-black slate text</td></tr>
+<tr><td><code>text-sm text-slate-600</code></td><td>0.875&nbsp;rem font size, mid-grey text</td></tr>
+</table></div>
+<p>You never left the HTML file, never invented a class name, and never worried that <code>.notification</code> might already be used somewhere else.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> utilities are <strong>LEGO bricks</strong>. Hand-written CSS is like carving a new piece of wood for every toy: possible, but each toy needs its own piece and its own name. With bricks, you build anything from a fixed set of standard shapes, and when you change your mind you move bricks around instead of carving again.</p>
+</div>
+
+<h2 id="names">How utility names work</h2>
+<p>Most names follow the pattern <strong>property-value</strong>, often with a side or axis in between:</p>
+<div class="table-wrap"><table>
+<tr><th>Pattern</th><th>Examples</th><th>Meaning</th></tr>
+<tr><td><code>{property}-{value}</code></td><td><code>p-4</code>, <code>text-lg</code>, <code>opacity-50</code></td><td>padding 4 steps, large text, 50% opacity</td></tr>
+<tr><td><code>{property}{side}-{value}</code></td><td><code>pt-2</code>, <code>mx-auto</code>, <code>border-b-2</code></td><td>padding-top, horizontal margin, bottom border</td></tr>
+<tr><td><code>{property}-{color}-{shade}</code></td><td><code>bg-sky-500</code>, <code>text-red-700</code></td><td>a palette colour, 50 (lightest) to 950 (darkest)</td></tr>
+<tr><td><code>{color}/{opacity}</code></td><td><code>bg-black/50</code></td><td>the colour at 50% opacity</td></tr>
+<tr><td>keyword</td><td><code>flex</code>, <code>hidden</code>, <code>italic</code>, <code>underline</code></td><td>one fixed declaration</td></tr>
+<tr><td>negative</td><td><code>-mt-2</code>, <code>-rotate-6</code></td><td>the negative value</td></tr>
+</table></div>
+<p>Sides use the same letters everywhere: <code>t</code> top, <code>r</code> right, <code>b</code> bottom, <code>l</code> left, <code>x</code> left and right, <code>y</code> top and bottom, <code>s</code> start and <code>e</code> end (which follow the text direction).</p>
+
+<h3 id="spacing">The spacing scale</h3>
+<p>Spacing utilities (padding, margin, gap, width, height, inset…) are multiples of one variable, <code>--spacing</code>, which is <code>0.25rem</code> (4&nbsp;px) by default. <strong>Any number works</strong>, including halves:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="scale">
+<div class="p-1">a</div>
+<div class="p-4">b</div>
+<div class="p-7">c</div>
+<div class="p-2.5">d</div>
+<div class="mt-px">e</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .mt-px {
+    margin-top: 1px;
+  }
+  .p-1 {
+    padding: var(--spacing);
+  }
+  .p-2\.5 {
+    padding: calc(var(--spacing) * 2.5);
+  }
+  .p-4 {
+    padding: calc(var(--spacing) * 4);
+  }
+  .p-7 {
+    padding: calc(var(--spacing) * 7);
+  }
+}
+</script>
+<p>So <code>p-4</code> is 1&nbsp;rem (16&nbsp;px) and <code>p-7</code> is 1.75&nbsp;rem (28&nbsp;px). In v3 there was a fixed list of steps; in v4 every number is allowed, because the value is computed from <code>--spacing</code>. Change that one variable (Chapter 8) and the whole layout gets tighter or looser.</p>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...document.querySelectorAll('div')].map((d) => d.textContent + ': ' + getComputedStyle(d).padding + ' / margin-top ' + getComputedStyle(d).marginTop).join('\n')">
+a: 4px / margin-top 0px
+b: 16px / margin-top 0px
+c: 28px / margin-top 0px
+d: 10px / margin-top 0px
+e: 0px / margin-top 1px
+</script>
+
+<h3 id="colors">The colour palette</h3>
+<p>The default theme has 26 colour names, each with 11 shades from <code>50</code> to <code>950</code>: <code>red</code>, <code>orange</code>, <code>amber</code>, <code>yellow</code>, <code>lime</code>, <code>green</code>, <code>emerald</code>, <code>teal</code>, <code>cyan</code>, <code>sky</code>, <code>blue</code>, <code>indigo</code>, <code>violet</code>, <code>purple</code>, <code>fuchsia</code>, <code>pink</code>, <code>rose</code>, five greys (<code>slate</code>, <code>gray</code>, <code>zinc</code>, <code>neutral</code>, <code>stone</code>) and four muted tones added in v4.2 (<code>mauve</code>, <code>olive</code>, <code>mist</code>, <code>taupe</code>), plus <code>black</code> and <code>white</code>. Any colour utility takes any of them: <code>bg-</code>, <code>text-</code>, <code>border-</code>, <code>outline-</code>, <code>fill-</code>, <code>stroke-</code>, <code>decoration-</code>, <code>shadow-</code>…</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="shades">
+<div class="flex">
+  <div class="size-10 bg-sky-50"></div>
+  <div class="size-10 bg-sky-100"></div>
+  <div class="size-10 bg-sky-200"></div>
+  <div class="size-10 bg-sky-300"></div>
+  <div class="size-10 bg-sky-400"></div>
+  <div class="size-10 bg-sky-500"></div>
+  <div class="size-10 bg-sky-600"></div>
+  <div class="size-10 bg-sky-700"></div>
+  <div class="size-10 bg-sky-800"></div>
+  <div class="size-10 bg-sky-900"></div>
+  <div class="size-10 bg-sky-950"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-sky" data-width="500" data-clip=".flex">Eleven squares in a row, from almost-white sky blue (50) to very dark navy (950).</script>
+<p>Chapter 8 covers the palette in detail, including opacity (<code>bg-sky-500/25</code>) and adding your own colours.</p>
+
+<h2 id="variants">A first look at variants</h2>
+<p>A <strong>variant</strong> is a prefix that makes a utility apply only in some condition. The syntax is <code>variant:utility</code>, and you can stack several:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="variants">
+<a href="#" class="text-sky-700 hover:underline md:text-lg dark:text-sky-300 md:hover:text-sky-900">Read more</a>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-sky-700 {
+    color: var(--color-sky-700);
+  }
+  @media (hover: hover) {
+    .hover\:underline:hover {
+      text-decoration-line: underline;
+    }
+  }
+  @media (width >= 48rem) {
+    .md\:text-lg {
+      font-size: var(--text-lg);
+      line-height: var(--tw-leading, var(--text-lg--line-height));
+    }
+    @media (hover: hover) {
+      .md\:hover\:text-sky-900:hover {
+        color: var(--color-sky-900);
+      }
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    .dark\:text-sky-300 {
+      color: var(--color-sky-300);
+    }
+  }
+}
+</script>
+<p>Each variant becomes plain CSS: a pseudo-class (<code>:hover</code>), a media query (<code>width &gt;= 48rem</code>), or both nested. Notice that <code>hover:</code> is wrapped in <code>@media (hover: hover)</code>, so touch screens, which have no real hover, don't get "stuck" hover styles after a tap. Chapters 5 to 7 cover states, breakpoints and dark mode.</p>
+
+<h2 id="preflight">Preflight: why everything looks plain</h2>
+<p>The first time you use Tailwind, headings and lists look like body text. That's <strong>Preflight</strong>, the reset in the <code>base</code> layer. It's built on <em>modern-normalize</em> and makes every element start from zero, so the only styles are the ones you add:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="preflight">
+<h1>A heading</h1>
+<ul><li>A list item</li></ul>
+<button>A button</button>
+<img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/%3E" alt="">
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const g = (s) => getComputedStyle(document.querySelector(s)); return ['h1 size/weight/margin: ' + g('h1').fontSize + ' ' + g('h1').fontWeight + ' ' + g('h1').margin, 'ul list-style: ' + g('ul').listStyleType + ', padding ' + g('ul').padding, 'button background: ' + g('button').backgroundColor + ', border ' + g('button').borderWidth, 'img display: ' + g('img').display, 'box-sizing: ' + g('h1').boxSizing].join('\n'); })()">
+h1 size/weight/margin: 16px 400 0px
+ul list-style: none, padding 0px
+button background: rgba(0, 0, 0, 0), border 0px
+img display: block
+box-sizing: border-box
+</script>
+<ul>
+  <li>Headings have no size or weight of their own: style them with <code>text-2xl font-bold</code>. The docs explain why: it stops you from picking a heading level for its looks instead of its meaning.</li>
+  <li>Lists have no bullets: add <code>list-disc pl-5</code> when you want them.</li>
+  <li>Images are <code>display: block</code> and never wider than their container (<code>max-width: 100%</code>).</li>
+  <li>Every element uses <code>box-sizing: border-box</code>, so padding and borders are included in the width you set.</li>
+  <li>Borders are reset to <code>0 solid</code>, so <code>border</code> alone gives a 1&nbsp;px solid line in the current text colour.</li>
+</ul>
+
+<h2 id="conflicts">Conflicting classes</h2>
+<p>What if one element has two classes that set the same property?</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="conflict">
+<div id="a" class="grid flex">a</div>
+<div id="b" class="flex grid">b</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="['a', 'b'].map((id) => id + ': ' + getComputedStyle(document.getElementById(id)).display).join('\n')">
+a: grid
+b: grid
+</script>
+<p>Both are <code>grid</code>. The order in the <code>class</code> attribute <em>never</em> matters in CSS; what matters is the order of the rules in the stylesheet, and Tailwind writes <code>.grid</code> after <code>.flex</code>. Don't rely on this: put only one of two conflicting classes on an element. If you need to switch between them, do it in your template logic (<code>{isGrid ? "grid" : "flex"}</code>) or with variants (<code>flex md:grid</code>).</p>
+
+<h3 id="important">The important modifier</h3>
+<p>When you really need a utility to win over other CSS, such as a third-party stylesheet, add <code>!</code> at the end of the class:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="bang">
+<style>
+  #widget p { color: red; }
+</style>
+<div id="widget">
+  <p class="text-sky-700">loses to the id selector</p>
+  <p class="text-sky-700!">wins with !</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="[...document.querySelectorAll('p')].map((p) => p.textContent + ': ' + getComputedStyle(p).color).join('\n')">
+loses to the id selector: rgb(255, 0, 0)
+wins with !: oklch(0.5 0.134 242.749)
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-sky-700 {
+    color: var(--color-sky-700);
+  }
+  .text-sky-700\! {
+    color: var(--color-sky-700) !important;
+  }
+}
+</script>
+<p>The first <code>p</code> loses for two reasons: the <code>&lt;style&gt;</code> rule is not in a layer (unlayered styles beat layered ones), and <code>#widget p</code> is more specific anyway. <code>!important</code> beats both. Use it rarely; it's a sign that two systems are fighting. (In v3 the <code>!</code> went at the start, <code>!text-sky-700</code>; v4 still accepts that but the docs now put it at the end.)</p>
+
+<h3 id="prefix">Prefixes for mixing with other CSS</h3>
+<p>If your project already has classes like <code>.hidden</code> or <code>.container</code> from another framework, give Tailwind's classes a prefix. In v4 the prefix looks like a variant and always comes first:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="prefix">
+@import "tailwindcss" prefix(tw);
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="prefix">
+<p class="tw:font-bold tw:hover:underline">prefixed</p>
+<p class="font-bold">not generated any more</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .tw\:font-bold {
+    --tw-font-weight: var(--tw-font-weight-bold);
+    font-weight: var(--tw-font-weight-bold);
+  }
+  @media (hover: hover) {
+    .tw\:hover\:underline:hover {
+      text-decoration-line: underline;
+    }
+  }
+}
+</script>
+<p>The theme variables get the prefix too (<code>--tw-font-weight-bold</code>), so they can't collide with your own variables either.</p>
+
+<h2 id="duplication">Managing duplication</h2>
+<p>The most common worry is repetition: "if I have ten buttons, do I repeat these eight classes ten times?" The docs' answer, in order of preference:</p>
+<ol>
+  <li><strong>Often it's fine.</strong> Repetition inside one file is easy to fix with multi-cursor editing or find-and-replace.</li>
+  <li><strong>Use a loop.</strong> A list of items rendered by a template loop or <code>.map()</code> has the classes written once.</li>
+  <li><strong>Use a component.</strong> In React, Vue, Svelte, Blade, Jinja… make a <code>Button</code> component; the classes live in one place (Appendix C).</li>
+  <li><strong>Use a custom class</strong> with <code>@apply</code> or plain CSS for small, truly global things that aren't components in your template language, like a <code>.btn</code> used in Markdown (Chapter 10).</li>
+</ol>
+<script type="text/plain" class="code" data-file="index.html" data-app="loop">
+<ul class="divide-y divide-slate-200">
+  <!-- generated by a loop: the classes appear once in the template -->
+  <li class="py-2 font-medium">Dune</li>
+  <li class="py-2 font-medium">Neuromancer</li>
+  <li class="py-2 font-medium">Hyperion</li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-loop" data-width="360">Three book titles, Dune, Neuromancer and Hyperion, separated by thin grey lines.</script>
+
+<h2 id="inline">When to use inline styles</h2>
+<p>Inline styles are still the right tool for values that come from data at runtime, such as a colour picked by a user or a progress percentage from an API. Tailwind can't generate a class for a value it never saw in your files. The cleanest pattern sets a <strong>CSS variable</strong> inline and uses it from a utility with the <code>(--var)</code> shorthand:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="inline">
+<div class="h-3 w-64 rounded-full bg-slate-200">
+  <div class="h-3 w-(--progress) rounded-full bg-(--brand)" style="--progress: 70%; --brand: #10b981"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .h-3 {
+    height: calc(var(--spacing) * 3);
+  }
+  .w-\(--progress\) {
+    width: var(--progress);
+  }
+  .w-64 {
+    width: calc(var(--spacing) * 64);
+  }
+  .rounded-full {
+    border-radius: calc(infinity * 1px);
+  }
+  .bg-\(--brand\) {
+    background-color: var(--brand);
+  }
+  .bg-slate-200 {
+    background-color: var(--color-slate-200);
+  }
+}
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-progress" data-width="320">A grey progress track with a green bar filled 70% of the way.</script>
+<p>The classes stay fixed (so Tailwind can find them), and only the values change.</p>
+
+<div class="pitfall">
+<p>⚠️ <strong>Never build class names from pieces.</strong> <code>class="bg-{{ color }}-500"</code> or <code>`text-${size}`</code> produce names that don't appear in your files, so Tailwind never generates them. Write the full names and pick one: <code>{ red: "bg-red-500", green: "bg-green-500" }[color]</code>. Chapter 11 explains how detection works.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Reading a class in reverse</h3>
+<p>To find a utility for a CSS property you know, search the docs for the property name. These are good to remember:</p>
+<div class="table-wrap"><table>
+<tr><th>CSS</th><th>Utility</th></tr>
+<tr><td><code>display: none</code></td><td><code>hidden</code></td></tr>
+<tr><td><code>position: absolute; inset: 0</code></td><td><code>absolute inset-0</code></td></tr>
+<tr><td><code>margin-left: auto; margin-right: auto</code></td><td><code>mx-auto</code></td></tr>
+<tr><td><code>width: 100%</code></td><td><code>w-full</code></td></tr>
+<tr><td><code>width: 3rem; height: 3rem</code></td><td><code>size-12</code></td></tr>
+<tr><td><code>text-transform: uppercase</code></td><td><code>uppercase</code></td></tr>
+<tr><td><code>cursor: pointer</code></td><td><code>cursor-pointer</code></td></tr>
+</table></div>
+
+<h3>Styling a child from its parent: <code>*:</code></h3>
+<p>Sometimes you can't put classes on the children (they come from a CMS or a library). The <code>*:</code> variant styles direct children:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="kids">
+<ul class="flex gap-2 *:rounded-full *:bg-sky-100 *:px-3 *:py-1 *:text-sm *:text-sky-800">
+  <li>html</li>
+  <li>css</li>
+  <li>tailwind</li>
+</ul>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="03-children" data-width="360">Three light-blue rounded pills in a row: html, css, tailwind.</script>
+
+<h3>Opacity on any colour</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="alpha">
+<div class="bg-sky-500/25 p-2">25% sky</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .bg-sky-500\/25 {
+    background-color: color-mix(in srgb, oklch(68.5% 0.169 237.323) 25%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-sky-500) 25%, transparent);
+    }
+  }
+  .p-2 {
+    padding: calc(var(--spacing) * 2);
+  }
+}
+</script>
+<p>Opacity is done with the CSS <code>color-mix()</code> function: mix the colour with <code>transparent</code>. The first line is a fallback with the colour written out for browsers that support only <code>srgb</code> mixing.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Build components by adding utilities to plain markup; read classes as property-value pairs.</li>
+  <li>Spacing utilities are multiples of <code>--spacing</code> (0.25&nbsp;rem); any number, including halves, works.</li>
+  <li>26 colour names × 11 shades (50–950), usable with any colour utility; <code>/50</code> sets opacity.</li>
+  <li>Variants (<code>hover:</code>, <code>md:</code>, <code>dark:</code>) apply a utility conditionally and can be stacked.</li>
+  <li>Preflight resets headings, lists, buttons and images; you style everything explicitly.</li>
+  <li>Avoid conflicting classes; use <code>!</code> sparingly; <code>prefix(tw)</code> avoids name clashes.</li>
+  <li>Remove duplication with loops and components first; use CSS variables + inline styles for runtime values; never build class names from pieces.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">compute</span></h3>
+<p>With the default <code>--spacing</code>, how many pixels are <code>p-3</code>, <code>mt-10</code>, <code>gap-0.5</code> and <code>w-72</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Each step is 4&nbsp;px: <code>p-3</code> = 12&nbsp;px, <code>mt-10</code> = 40&nbsp;px, <code>gap-0.5</code> = 2&nbsp;px, <code>w-72</code> = 288&nbsp;px.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">sides</span></h3>
+<p>Write classes for: padding on the left and right of 1.5&nbsp;rem; margin-bottom 0.5&nbsp;rem; a 2&nbsp;px border on the top only.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>px-6 mb-2 border-t-2</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">Preflight</span></h3>
+<p>You write <code>&lt;h2&gt;Settings&lt;/h2&gt;</code> and it looks like normal text. Is something broken? How do you make it look like a heading?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Nothing is broken: Preflight removes default heading styles. Add classes, for example <code>class="text-xl font-semibold mb-2"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">variants</span></h3>
+<p>Write a link that is <code>blue-600</code>, underlined on hover, and <code>blue-400</code> in dark mode.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;a class="text-blue-600 hover:underline dark:text-blue-400"&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">build</span></h3>
+<p>Build an "alert" box: rounded corners, a light red background, dark red text, 1&nbsp;rem padding, and a 1&nbsp;px red border. Use only utilities.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;div class="rounded-md border border-red-300 bg-red-50 p-4 text-red-800"&gt;Something went wrong.&lt;/div&gt;</code> Any shades that keep the text readable are fine.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">fix the bug</span></h3>
+<p>This React code doesn't colour the badges: <code>&lt;span className={`bg-${color}-100 text-${color}-800`}&gt;</code> with <code>color</code> being <code>"green"</code> or <code>"red"</code>. Why? Rewrite it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Tailwind scans the source text and never sees <code>bg-green-100</code>, only the template pieces, so it generates nothing. Use full names: <code>const styles = { green: "bg-green-100 text-green-800", red: "bg-red-100 text-red-800" };</code> then <code>className={styles[color]}</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">runtime values</span></h3>
+<p>A user picks their profile colour from a colour picker, and it's stored as a hex string. Show how to use it as the background of their avatar while keeping Tailwind classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Set a CSS variable inline and use it from a utility: <code>&lt;div class="size-10 rounded-full bg-(--avatar)" style="--avatar: #e11d48"&gt;</code> (in React: <code>style={{ "--avatar": user.color }}</code>).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/03/index.html</code> of the playground, build the "Build finished" notification step by step, adding one group of classes at a time (layout, spacing, shape, colour, shadow). Then add a second notification with an amber border for a warning.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Copy the chapter's markup; for the warning swap <code>border-emerald-500</code> for <code>border-amber-500</code> and change the text. If you find yourself copying it a third time, that's the moment to make it a component or a loop.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">cascade</span></h3>
+<p>Explain the result of the "important modifier" example: why does <code>#widget p { color: red }</code> beat <code>text-sky-700</code>, and why does <code>text-sky-700!</code> beat it? Would it still beat a <code>color: red !important</code> written in an unlayered stylesheet?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Normal declarations: unlayered styles beat layered ones, and the id selector is more specific, so red wins. <code>!important</code> declarations are a higher level of the cascade than normal ones, so <code>text-sky-700!</code> wins. Between two <code>!important</code> declarations the layer order is <em>reversed</em>: important declarations in layers beat unlayered important ones. So <code>text-sky-700!</code> (in the utilities layer) would still win against an unlayered <code>color: red !important</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>You have the same 12-class "primary button" in 40 places across a server-rendered site (Jinja templates). Describe two ways to remove the repetition and which one you'd choose.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) A Jinja macro or include, <code>{% macro button(label) %}&lt;button class="…"&gt;{{ label }}&lt;/button&gt;{% endmacro %}</code>: classes in one place, still utilities, and the macro can take variants. (2) A <code>.btn-primary</code> class defined with <code>@apply</code> in <code>@layer components</code> (Chapter 10). Prefer the macro: it's a real component that also holds the markup (icon, attributes, accessibility). Use <code>@apply</code> only when markup can't be shared, such as in Markdown content.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/styling-with-utility-classes">Styling with utility classes</a></li>
+  <li><a href="https://tailwindcss.com/docs/preflight">Preflight</a></li>
+  <li><a href="https://tailwindcss.com/docs/padding">Padding</a> · <a href="https://tailwindcss.com/docs/colors">Colors</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

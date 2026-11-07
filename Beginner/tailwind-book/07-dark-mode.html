@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌙&lt;/text&gt;&lt;/svg&gt;">
+<title>7. Dark Mode · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 7 · Core Concepts</div>
+<h1>Dark Mode</h1>
+<p class="lead">Most operating systems let people choose a dark theme, and many sites follow it. In Tailwind, <code>dark:</code> is a variant like <code>hover:</code>: <code>dark:bg-slate-900</code> applies only in dark mode. By default it follows the system setting. This chapter shows that default, how to switch to a manual toggle with a class or data attribute, how to remember the user's choice, and a cleaner way to theme large apps with CSS variables. The dark screenshots were taken with Chrome emulating a dark system theme.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How <code>dark:</code> works with the system's <code>prefers-color-scheme</code>.</li>
+  <li>How to switch to a class-based or data-attribute toggle with <code>@custom-variant</code>.</li>
+  <li>A three-way toggle (light, dark, system) with <code>localStorage</code> and no flash.</li>
+  <li>The <code>scheme-*</code> utilities for scrollbars and form controls.</li>
+  <li>Theming with semantic colour variables instead of <code>dark:</code> on every element.</li>
+</ul>
+</div>
+
+<h2 id="default">The default: follow the system</h2>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="w-80 rounded-lg bg-white px-6 py-8 shadow-xl ring-1 ring-slate-900/5 dark:bg-slate-800">
+  <span class="inline-flex rounded-md bg-indigo-500 p-2 text-white shadow-lg">✦</span>
+  <h3 class="mt-5 text-base font-medium tracking-tight text-slate-900 dark:text-white">Writes upside-down</h3>
+  <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">The zero-gravity pen can be used to write in any orientation, including upside-down. It even works in outer space.</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="07-light" data-width="380">The card in light mode: white background, dark title, grey text.</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="07-dark" data-width="380" data-scheme="dark">The same card with the system set to dark: slate-800 background, white title, light grey text.</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="prefers|dark">
+  @media (prefers-color-scheme: dark) {
+    .dark\:bg-slate-800 {
+    .dark\:text-slate-400 {
+    .dark\:text-white {
+</script>
+<p>Out of the box, <code>dark:</code> is <code>@media (prefers-color-scheme: dark)</code>. No JavaScript, and it switches the moment the user changes their system setting.</p>
+<div class="note">
+<p>📝 The page background in the dark screenshot is still white: the example only styled the card. For a full dark page, style <code>&lt;body&gt;</code> or <code>&lt;html&gt;</code> too, for example <code>&lt;body class="bg-white dark:bg-slate-950"&gt;</code>.</p>
+</div>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the default <code>dark:</code> is a <strong>light sensor on a streetlamp</strong>: it switches by itself when the environment changes. A class-based toggle is a <strong>light switch on the wall</strong>: your page decides, usually because the user flipped it. Many sites wire the switch to "auto" by default, so it behaves like the sensor until someone touches it.</p>
+</div>
+
+<h2 id="toggle">Toggling dark mode manually</h2>
+<p>To let users choose regardless of their system, redefine the <code>dark</code> variant with <code>@custom-variant</code> in your CSS. With a class:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="cls">
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="cls">
+<div id="box" class="bg-white p-4 text-slate-900 dark:bg-slate-900 dark:text-white">Theme me</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="dark|where">
+  .dark\:bg-slate-900:where(.dark, .dark *) {
+  .dark\:text-white:where(.dark, .dark *) {
+</script>
+<p>Now <code>dark:</code> means "this element has the class <code>dark</code>, or is inside one". The system setting is ignored; you add the class, usually on <code>&lt;html&gt;</code>:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark" data-steps="eval:document.body.dataset.before = getComputedStyle(box).backgroundColor; eval:document.documentElement.classList.add('dark')" data-eval="'system dark, no class: ' + document.body.dataset.before + '\nafter <html class=&quot;dark&quot;>: ' + getComputedStyle(box).backgroundColor">
+system dark, no class: rgb(255, 255, 255)
+after <html class="dark">: oklch(0.208 0.042 265.755)
+</script>
+<p>Prefer a data attribute? Use a different selector:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="attr">
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="attr">
+<html data-theme="dark">
+<head><link href="./output.css" rel="stylesheet"></head>
+<body>
+  <div id="box" class="bg-white dark:bg-black">dark via data-theme</div>
+</body>
+</html>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="getComputedStyle(box).backgroundColor">
+rgb(0, 0, 0)
+</script>
+<p><code>:where()</code> keeps the specificity of <code>dark:</code> utilities equal to normal utilities, so they override the light classes only because they come later in the CSS, not because the selector is stronger.</p>
+
+<h2 id="three-way">Light, dark, or system: a three-way toggle</h2>
+<p>A good toggle offers three choices and remembers them. The docs' approach: store <code>"light"</code> or <code>"dark"</code> in <code>localStorage</code>, or nothing for "system", and set the class <strong>in a script in <code>&lt;head&gt;</code></strong>, before the page is painted:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="toggle">
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // On page load or when changing themes. Inline in <head> to avoid a flash.
+    document.documentElement.classList.toggle(
+      "dark",
+      localStorage.theme === "dark" ||
+        (!("theme" in localStorage) && window.matchMedia("(prefers-color-scheme: dark)").matches),
+    );
+  <\/script>
+  <link href="./output.css" rel="stylesheet">
+</head>
+<body class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+  <div class="flex gap-2 p-4" role="group" aria-label="Theme">
+    <button id="light" class="rounded px-3 py-1 ring-1 ring-current">Light</button>
+    <button id="dark" class="rounded px-3 py-1 ring-1 ring-current">Dark</button>
+    <button id="system" class="rounded px-3 py-1 ring-1 ring-current">System</button>
+  </div>
+  <script>
+    const apply = () => document.documentElement.classList.toggle(
+      "dark",
+      localStorage.theme === "dark" ||
+        (!("theme" in localStorage) && matchMedia("(prefers-color-scheme: dark)").matches),
+    );
+    light.onclick = () => { localStorage.theme = "light"; apply(); };
+    dark.onclick = () => { localStorage.theme = "dark"; apply(); };
+    system.onclick = () => { localStorage.removeItem("theme"); apply(); };
+  <\/script>
+</body>
+</html>
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="toggle">
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="light" data-steps="eval:localStorage.clear(); click:#dark; eval:document.body.dataset.a = document.documentElement.className; click:#system; eval:document.body.dataset.b = document.documentElement.className || '(none)'; click:#light" data-eval="['after Dark: html class = ' + document.body.dataset.a, 'after System (light OS): ' + document.body.dataset.b, 'after Light: localStorage.theme = ' + localStorage.theme].join('\n')">
+after Dark: html class = dark
+after System (light OS): (none)
+after Light: localStorage.theme = light
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark" data-steps="eval:localStorage.theme = 'dark'; goto:index.html" data-eval="'reloaded with theme=dark: html class = ' + document.documentElement.className + ', body background ' + getComputedStyle(document.body).backgroundColor">
+reloaded with theme=dark: html class = dark, body background oklch(0.129 0.042 264.695)
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>Avoid the flash.</strong> If you set the class from a script at the end of <code>&lt;body&gt;</code> or after your framework loads, the page first paints in light mode, then flips: a white flash for dark-mode users. The small inline script in <code>&lt;head&gt;</code> runs before the first paint. Frameworks have helpers for this (for example <code>next-themes</code> for Next.js).</p>
+</div>
+
+<h2 id="color-scheme">Scrollbars and form controls: <code>scheme-*</code></h2>
+<p>Browsers draw scrollbars, checkboxes and date pickers themselves. The CSS <code>color-scheme</code> property tells them which palette to use. Tailwind's utilities are <code>scheme-light</code>, <code>scheme-dark</code>, <code>scheme-light-dark</code> (follow the system), and <code>scheme-normal</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="scheme">
+<html class="scheme-light dark:scheme-dark">
+<head><link href="./output.css" rel="stylesheet"></head>
+<body><input type="checkbox" checked> native controls follow the scheme</body>
+</html>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark" data-eval="'color-scheme: ' + getComputedStyle(document.documentElement).colorScheme">
+color-scheme: dark
+</script>
+
+<h2 id="variables">Theming with variables instead of <code>dark:</code> everywhere</h2>
+<p>Writing <code>bg-white dark:bg-slate-900</code> on hundreds of elements gets repetitive, and changing a dark colour means editing every one. Large apps usually define <strong>semantic colours</strong> (named for their role, not their look) as CSS variables that change in dark mode, then register them as theme colours with <code>@theme inline</code> (Chapter 8):</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="vars">
+@import "tailwindcss";
+
+:root {
+  --surface: #ffffff;
+  --ink: #0f172a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #0f172a;
+    --ink: #e2e8f0;
+  }
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="vars">
+<div id="box" class="bg-surface p-4 text-ink">No dark: classes needed</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark" data-eval="'dark: ' + getComputedStyle(box).backgroundColor + ' / ' + getComputedStyle(box).color">
+dark: rgb(15, 23, 42) / rgb(226, 232, 240)
+</script>
+<p>The markup says <code>bg-surface text-ink</code> once, and the CSS decides what those are in each mode. This is the pattern <code>create-next-app</code> uses for its <code>bg-background</code> and <code>text-foreground</code> colours, and the one the capstone uses.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Stacking dark with other variants</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="stack">
+<a href="#" id="l" class="text-sky-700 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300">link</a>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark" data-steps="hover:#l" data-eval="'hovered in dark mode: ' + getComputedStyle(l).color">
+hovered in dark mode: oklch(0.828 0.111 230.318)
+</script>
+
+<h3>Images for each mode</h3>
+<p>Show a different logo per mode with <code>dark:hidden</code> and <code>hidden dark:block</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="img">
+<span id="a" class="dark:hidden">☀️ light logo</span>
+<span id="b" class="hidden dark:inline">🌙 dark logo</span>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-scheme="dark">
+🌙 dark logo
+</script>
+<p>For real images, the HTML <code>&lt;picture&gt;</code> element with <code>&lt;source media="(prefers-color-scheme: dark)"&gt;</code> downloads only the image needed.</p>
+
+<h3>A full dark page</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="page">
+<div class="min-h-40 bg-slate-50 p-6 dark:bg-slate-950">
+  <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Settings</h2>
+  <p class="mt-1 text-slate-600 dark:text-slate-400">Manage your account.</p>
+  <button class="mt-4 rounded-md bg-slate-900 px-4 py-2 text-white dark:bg-white dark:text-slate-900">Save</button>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="07-page-dark" data-width="380" data-scheme="dark" data-clip="div">The settings panel in dark mode: near-black background, white heading, grey text, and an inverted white button.</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>dark:</code> is a variant; by default it's <code>@media (prefers-color-scheme: dark)</code>.</li>
+  <li>For a manual toggle, redefine it: <code>@custom-variant dark (&amp;:where(.dark, .dark *));</code> (or a <code>[data-theme=dark]</code> selector).</li>
+  <li>Set the class on <code>&lt;html&gt;</code> with an inline script in <code>&lt;head&gt;</code> that reads <code>localStorage</code>, to avoid a flash.</li>
+  <li>Offer light, dark and system; "system" removes the stored choice.</li>
+  <li><code>scheme-dark</code> makes native controls and scrollbars dark too.</li>
+  <li>For big apps, define semantic colour variables that change in dark mode and register them with <code>@theme inline</code>.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>Write classes for a card that is white with dark text in light mode, and <code>zinc-900</code> with <code>zinc-100</code> text in dark mode.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>bg-white text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">default</span></h3>
+<p>Without any configuration, what decides whether <code>dark:</code> classes apply?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The user's operating system or browser setting, through the media query <code>prefers-color-scheme: dark</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">config</span></h3>
+<p>Write the CSS line that makes <code>dark:</code> depend on a <code>dark</code> class instead.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@custom-variant dark (&amp;:where(.dark, .dark *));</code> after <code>@import "tailwindcss";</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">logos</span></h3>
+<p>Show <code>logo-dark.svg</code> only in dark mode and <code>logo.svg</code> otherwise, using two <code>&lt;img&gt;</code> tags and classes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;img src="logo.svg" class="dark:hidden"&gt;</code> and <code>&lt;img src="logo-dark.svg" class="hidden dark:block"&gt;</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">flash</span></h3>
+<p>A site sets the <code>dark</code> class in a React <code>useEffect</code>. Dark-mode users complain about a white flash on every page load. Explain why and fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>useEffect</code> runs after the first paint, so the page paints with light styles first. Move the decision into a small inline <code>&lt;script&gt;</code> in <code>&lt;head&gt;</code> (it runs before the body is painted), as shown in the three-way toggle.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/07/</code>, the CSS file uses the class strategy. Add the three-way toggle, choose Dark, reload, and check DevTools → Application → Local Storage. Then choose System. What changes in storage?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>After Dark, <code>theme</code> = <code>"dark"</code> is stored and the page stays dark after reload. After System, the <code>theme</code> key is removed and the page follows the OS setting again.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">semantic colours</span></h3>
+<p>Add a semantic colour <code>muted</code> (slate-500 in light, slate-400 in dark) to the "Theming with variables" example, so <code>text-muted</code> works.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>--muted: oklch(55.4% 0.046 257.417)</code> to <code>:root</code>, <code>--muted: oklch(70.4% 0.04 256.788)</code> in the dark block, and <code>--color-muted: var(--muted);</code> in <code>@theme inline</code>. (You can also write <code>var(--color-slate-500)</code> as the value, since the palette variables are available.)</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">specificity</span></h3>
+<p>Why does the class strategy use <code>&amp;:where(.dark, .dark *)</code> rather than <code>.dark &amp;</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Two reasons: <code>:where()</code> adds zero specificity, so <code>dark:</code> utilities don't become stronger than other utilities; and the list includes the element itself (<code>.dark</code>), so you can put <code>dark</code> on the very element that has <code>dark:</code> classes, not only on an ancestor.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">both</span></h3>
+<p>You want <code>dark:</code> to apply when the user picked dark explicitly (<code>data-theme="dark"</code> on <code>&lt;html&gt;</code>), or when no choice was made (<code>data-theme</code> missing) and the system is dark. Write the <code>@custom-variant</code> using a block with <code>@slot</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@custom-variant dark { &amp;:where([data-theme=dark], [data-theme=dark] *) { @slot; } @media (prefers-color-scheme: dark) { &amp;:where(:root:not([data-theme]), :root:not([data-theme]) *) { @slot; } } }</code>. <code>@slot</code> marks where the utility's declarations go; a block can contain several rules.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>A design system has 12 semantic colours, each with a light and dark value. Compare "use <code>dark:</code> on every element" with "semantic variables + <code>@theme inline</code>" for adding a third theme, "high contrast", later.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>With <code>dark:</code> everywhere, a third theme needs a new variant and a third class on every element (<code>hc:bg-black</code>…), touching all markup. With semantic variables, add one more CSS block (<code>[data-theme=hc] { --surface: #000; … }</code>) and no markup changes. Variables scale; per-element <code>dark:</code> is fine for small sites.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/dark-mode">Dark mode</a></li>
+  <li><a href="https://tailwindcss.com/docs/color-scheme">color-scheme</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives#custom-variant-directive">@custom-variant</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

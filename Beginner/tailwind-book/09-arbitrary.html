@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔣&lt;/text&gt;&lt;/svg&gt;">
+<title>9. Arbitrary Values &amp; Properties · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 9 · Core Concepts</div>
+<h1>Arbitrary Values &amp; Properties</h1>
+<p class="lead">The theme covers most needs, but sometimes a design needs an exact value: 117 pixels, a background image, a grid template. Square brackets let you put <strong>any</strong> value into a utility, any CSS property onto an element, and any selector into a variant, all without leaving your HTML. This chapter covers the bracket syntax from the docs' <em>Adding custom styles</em> page: arbitrary values, the CSS variable shorthand, type hints, arbitrary properties and arbitrary variants, and when to use them.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Arbitrary values: <code>top-[117px]</code>, <code>bg-[#bada55]</code>, <code>grid-cols-[200px_1fr]</code>.</li>
+  <li>How spaces and underscores work inside brackets.</li>
+  <li>The CSS variable shorthand <code>bg-(--brand)</code> and type hints.</li>
+  <li>Arbitrary properties: <code>[mask-type:luminance]</code>, <code>[--gap:2rem]</code>.</li>
+  <li>Arbitrary variants: <code>[&amp;.active]:</code>, <code>[&amp;_p]:</code>, <code>[@supports(…)]:</code>.</li>
+  <li>When to use them, and when to add a theme value instead.</li>
+</ul>
+</div>
+
+<h2 id="values">Arbitrary values</h2>
+<p>Put any value in square brackets after a utility's name:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<div class="top-[117px] bg-[#bada55] text-[22px] w-[calc(100%-2rem)] bg-[url(/img/hero.png)] before:content-['Hi'] lg:top-[344px]">…</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .top-\[117px\] {
+    top: 117px;
+  }
+  .w-\[calc\(100\%-2rem\)\] {
+    width: calc(100% - 2rem);
+  }
+  .bg-\[\#bada55\] {
+    background-color: #bada55;
+  }
+  .bg-\[url\(\/img\/hero\.png\)\] {
+    background-image: url(/img/hero.png);
+  }
+  .text-\[22px\] {
+    font-size: 22px;
+  }
+  .before\:content-\[\'Hi\'\]::before {
+    --tw-content: 'Hi';
+    content: var(--tw-content);
+  }
+  @media (width >= 64rem) {
+    .lg\:top-\[344px\] {
+      top: 344px;
+    }
+  }
+}
+</script>
+<p>Notice two things. First, <code>calc(100%-2rem)</code> became <code>calc(100% - 2rem)</code>: Tailwind adds the spaces that <code>calc()</code> needs around <code>+</code> and <code>-</code>. Second, arbitrary values work with variants (<code>lg:</code>) like any other utility.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the theme is a <strong>restaurant menu</strong>; arbitrary values are <strong>ordering off the menu</strong>. The kitchen can make it, and occasionally that's exactly right. But if you order the same off-menu dish every day, it should be on the menu: add it to the theme.</p>
+</div>
+
+<h2 id="whitespace">Spaces: use underscores</h2>
+<p>A class name can't contain spaces, so write an underscore where the CSS value needs one. Tailwind converts it:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="space">
+<div class="grid grid-cols-[200px_1fr_auto] shadow-[0_35px_35px_rgba(0,0,0,0.25)]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="grid-template|--tw-shadow: ">
+    grid-template-columns: 200px 1fr auto;
+    --tw-shadow: 0 35px 35px var(--tw-shadow-color, rgba(0,0,0,0.25));
+</script>
+<p>If the value needs a real underscore (in a URL, say), escape it with a backslash: <code>bg-[url('/what_a_rush.png')]</code> keeps underscores inside URLs automatically, and elsewhere <code>content-['hello\_world']</code> keeps it. In JSX, use <code>String.raw</code> so the backslash survives: <code>className={String.raw`before:content-['hello\_world']`}</code>.</p>
+
+<h2 id="variables">CSS variables: the <code>(--var)</code> shorthand</h2>
+<p>To use a CSS variable as a value, wrap its name in parentheses. Tailwind adds the <code>var()</code>:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="vars">
+<div class="fill-(--brand) p-(--card-pad) bg-[var(--surface,white)]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .bg-\[var\(--surface\,white\)\] {
+    background-color: var(--surface,white);
+  }
+  .fill-\(--brand\) {
+    fill: var(--brand);
+  }
+  .p-\(--card-pad\) {
+    padding: var(--card-pad);
+  }
+}
+</script>
+<p>The long form <code>[var(--x)]</code> is still allowed and is useful for fallbacks like <code>var(--surface,white)</code>. (In v3 the shorthand was <code>bg-[--brand]</code> with brackets; v4 uses parentheses.)</p>
+
+<h3 id="hints">Type hints for ambiguous utilities</h3>
+<p>Some prefixes map to more than one property. <code>text-</code> sets the font size <em>and</em> the colour: <code>text-lg</code> is a size, <code>text-red-500</code> a colour. With a literal value Tailwind can tell (<code>text-[22px]</code> is a size, <code>text-[#bada55]</code> a colour), but a variable could be either. Give a hint:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="hint">
+<p class="text-(length:--my-size) text-(color:--my-color)">hinted</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-\(length\:--my-size\) {
+    font-size: var(--my-size);
+  }
+  .text-\(color\:--my-color\) {
+    color: var(--my-color);
+  }
+}
+</script>
+<p>Without a hint, <code>text-(--my-size)</code> is treated as a colour.</p>
+
+<h2 id="properties">Arbitrary properties</h2>
+<p>For a CSS property Tailwind has no utility for, write the whole declaration in brackets: <code>[property:value]</code>. It works with variants too:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="props">
+<div class="[mask-type:luminance] hover:[mask-type:alpha] [scrollbar-gutter:stable_both-edges]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .\[scrollbar-gutter\:stable_both-edges\] {
+    scrollbar-gutter: stable both-edges;
+  }
+  .\[mask-type\:luminance\] {
+    mask-type: luminance;
+  }
+  @media (hover: hover) {
+    .hover\:\[mask-type\:alpha\]:hover {
+      mask-type: alpha;
+    }
+  }
+}
+</script>
+<p>This is also the tidiest way to set a <strong>CSS variable</strong> per element or per breakpoint, which other utilities then read:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="setvar">
+<div id="box" class="[--gutter:1rem] lg:[--gutter:3rem]">
+  <div id="inner" class="px-(--gutter)">padded by --gutter</div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="width:600; eval:document.body.dataset.a = getComputedStyle(inner).paddingLeft; width:1100" data-eval="'600px: ' + document.body.dataset.a + '\n1100px: ' + getComputedStyle(inner).paddingLeft">
+600px: 16px
+1100px: 48px
+</script>
+
+<h2 id="variants">Arbitrary variants</h2>
+<p>An arbitrary variant is a selector in brackets, where <code>&amp;</code> stands for the element. It's like writing nested CSS inline, and Tailwind flattens it into a normal selector:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="arbvar">
+<ul>
+  <li class="[&.is-active]:font-bold [&:nth-child(3)]:underline lg:[&:nth-child(3)]:hover:underline">item</li>
+</ul>
+<div class="[&_p]:mt-4 [&>a]:text-sky-700 [@supports(display:grid)]:grid">
+  <p>every p inside gets a top margin</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .\[\&_p\]\:mt-4 p {
+    margin-top: calc(var(--spacing) * 4);
+  }
+  .\[\&\.is-active\]\:font-bold.is-active {
+    --tw-font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-bold);
+  }
+  .\[\&\:nth-child\(3\)\]\:underline:nth-child(3) {
+    text-decoration-line: underline;
+  }
+  @media (width >= 64rem) {
+    @media (hover: hover) {
+      .lg\:\[\&\:nth-child\(3\)\]\:hover\:underline:nth-child(3):hover {
+        text-decoration-line: underline;
+      }
+    }
+  }
+  .\[\&\>a\]\:text-sky-700 > a {
+    color: var(--color-sky-700);
+  }
+  @supports (display:grid) {
+    .\[\@supports\(display\:grid\)\]\:grid {
+      display: grid;
+    }
+  }
+}
+</script>
+<ul>
+  <li><code>[&amp;.is-active]:</code> the element when it also has the class <code>is-active</code> (set by JavaScript).</li>
+  <li><code>[&amp;_p]:</code> every <code>p</code> <em>inside</em> it (the underscore is the descendant space).</li>
+  <li><code>[&amp;&gt;a]:</code> direct child links.</li>
+  <li><code>[@supports(display:grid)]:</code> an at-rule works too.</li>
+</ul>
+<p>If you write the same arbitrary variant often, register it once with <code>@custom-variant</code> (Chapter 11) and give it a name.</p>
+
+<h2 id="when">When to use brackets</h2>
+<div class="table-wrap"><table>
+<tr><th>Situation</th><th>Do</th></tr>
+<tr><td>A one-off value that matches a design exactly (a hero image's offset)</td><td>Arbitrary value: <code>top-[117px]</code></td></tr>
+<tr><td>The same value in several places</td><td>Add it to <code>@theme</code> so it gets a name</td></tr>
+<tr><td>A value from data at runtime</td><td>Inline CSS variable + <code>(--var)</code> (Chapter 3)</td></tr>
+<tr><td>A property Tailwind doesn't cover</td><td>Arbitrary property, or a custom utility (Chapter 11)</td></tr>
+<tr><td>Styling elements you can't add classes to</td><td>Arbitrary variant <code>[&amp;_p]:</code>, or the <code>*:</code> variant, or the Typography plugin (Appendix B)</td></tr>
+</table></div>
+<div class="pitfall">
+<p>⚠️ A codebase full of <code>[13px]</code>, <code>[#3a3a3a]</code> and <code>[0.37]</code> has lost the main benefit of a design system. If a reviewer sees many brackets, the theme is probably missing something. <code>tailwindcss canonicalize</code> (Chapter 4) also rewrites brackets that match a theme value.</p>
+</div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A hero with a background image</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="hero">
+<div class="flex h-40 items-end bg-[linear-gradient(135deg,#0ea5e9,#6366f1)] bg-cover p-4">
+  <h2 class="text-[clamp(1.25rem,4vw,2rem)] font-bold text-white">Fluid heading</h2>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="09-hero" data-width="480">A blue-to-indigo gradient banner with a bold white heading "Fluid heading" at the bottom left.</script>
+
+<h3>Arbitrary opacity and arbitrary colours together</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="op">
+<div class="bg-[#0ea5e9]/[0.37]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .bg-\[\#0ea5e9\]\/\[0\.37\] {
+    background-color: color-mix(in oklab, #0ea5e9 37%, transparent);
+  }
+}
+</script>
+
+<h3>Negative arbitrary values</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="neg">
+<div class="-mt-[3px] -rotate-[7deg]"></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="margin|rotate:">
+    margin-top: calc(3px * -1);
+    rotate: calc(7deg * -1);
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>utility-[value]</code> uses any value; Tailwind generates it on the fly and it works with variants.</li>
+  <li>Underscores stand for spaces; escape a real underscore with <code>\_</code>.</li>
+  <li><code>utility-(--var)</code> is short for <code>utility-[var(--var)]</code>.</li>
+  <li>Type hints (<code>length:</code>, <code>color:</code>…) resolve ambiguous prefixes like <code>text-</code>.</li>
+  <li><code>[property:value]</code> sets any CSS property, including CSS variables.</li>
+  <li><code>[&amp;…]:</code> and <code>[@…]:</code> are arbitrary variants: any selector or at-rule.</li>
+  <li>Use brackets for one-offs; repeated values belong in the theme.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">write</span></h3>
+<p>Write classes for: width exactly 342&nbsp;px, a background of <code>#1da1f2</code>, and a font size of 15&nbsp;px.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>w-[342px] bg-[#1da1f2] text-[15px]</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">spaces</span></h3>
+<p>Write a grid template with columns <code>1fr 2fr 1fr</code> as a class.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>grid grid-cols-[1fr_2fr_1fr]</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">shorthand</span></h3>
+<p>Rewrite with the v4 shorthand: <code>bg-[var(--brand)]</code> and <code>w-[var(--sidebar)]</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>bg-(--brand)</code> and <code>w-(--sidebar)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">property</span></h3>
+<p>Tailwind has no utility for <code>text-rendering: optimizeLegibility</code>. Apply it to a heading with a class.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;h1 class="[text-rendering:optimizeLegibility]"&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">hint</span></h3>
+<p>You have <code>style="--size: 1.5rem"</code> and want it as a font size. Why doesn't <code>text-(--size)</code> work, and what's the fix?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Without a hint, a variable after <code>text-</code> is treated as a colour, so it generates <code>color: var(--size)</code>. Use <code>text-(length:--size)</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">variant</span></h3>
+<p>A JavaScript library adds the class <code>is-dragging</code> to a card while it's being dragged. Make the card get <code>cursor-grabbing</code> and a <code>shadow-xl</code> then.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[&amp;.is-dragging]:cursor-grabbing [&amp;.is-dragging]:shadow-xl</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">CMS content</span></h3>
+<p>A <code>div</code> receives HTML from a CMS. Style every link inside it sky-blue and underlined, and every <code>h2</code> as <code>text-xl font-bold</code>, using classes on the <code>div</code> only.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>[&amp;_a]:text-sky-700 [&amp;_a]:underline [&amp;_h2]:text-xl [&amp;_h2]:font-bold</code>. For long-form content, the Typography plugin (Appendix B) is usually better.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/09/</code>, build a two-column layout where the sidebar is exactly 260&nbsp;px and the content takes the rest, using one grid class. Then switch the sidebar width to a variable set at the <code>lg</code> breakpoint.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>grid grid-cols-[260px_1fr]</code>; then <code>grid grid-cols-[var(--side)_1fr] [--side:200px] lg:[--side:260px]</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">review</span></h3>
+<p>A pull request contains <code>p-[16px] mt-[24px] text-[#64748b] rounded-[8px] gap-[13px]</code>. Write review comments: which should change and to what?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>p-[16px]</code> → <code>p-4</code>, <code>mt-[24px]</code> → <code>mt-6</code>, <code>text-[#64748b]</code> → <code>text-slate-500</code> (the v3 hex value of slate-500; check the design), <code>rounded-[8px]</code> → <code>rounded-lg</code>. <code>gap-[13px]</code> is off the 4&nbsp;px scale: ask whether 12&nbsp;px (<code>gap-3</code>) was intended; if 13&nbsp;px is really needed in many places, add it to the theme.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">predict</span></h3>
+<p>Predict the CSS for <code>md:[&amp;:has(input:checked)]:bg-sky-50</code>, then check it with the CLI.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A <code>@media (width &gt;= 48rem)</code> block containing <code>.md\:\[\&amp;\:has\(input\:checked\)\]\:bg-sky-50:has(input:checked) { background-color: var(--color-sky-50); }</code>: the <code>&amp;</code> is replaced by the class selector. (The built-in <code>md:has-checked:bg-sky-50</code> is shorter and does nearly the same.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/adding-custom-styles#using-arbitrary-values">Adding custom styles: arbitrary values</a></li>
+  <li><a href="https://tailwindcss.com/docs/adding-custom-styles#arbitrary-properties">Arbitrary properties</a> · <a href="https://tailwindcss.com/docs/adding-custom-styles#arbitrary-variants">Arbitrary variants</a></li>
+  <li><a href="https://tailwindcss.com/docs/hover-focus-and-other-states#using-arbitrary-variants">Using arbitrary variants</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

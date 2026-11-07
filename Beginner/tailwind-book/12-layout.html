@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📐&lt;/text&gt;&lt;/svg&gt;">
+<title>12. Layout &amp; Positioning · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 12 · Utilities in Depth</div>
+<h1>Layout &amp; Positioning</h1>
+<p class="lead">Part III goes through the utility groups in the docs' sidebar, starting with <strong>Layout</strong>: how an element is displayed, where it's positioned, how it stacks over others, what happens when content overflows, and how images and videos fit their boxes. Each section names the CSS property, so you can look up the details on MDN when you need them.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>Display utilities, including <code>hidden</code>, <code>contents</code> and <code>sr-only</code>.</li>
+  <li>Positioning with <code>relative</code>, <code>absolute</code>, <code>fixed</code>, <code>sticky</code> and the <code>inset</code> utilities.</li>
+  <li>Stacking with <code>z-*</code> and <code>isolate</code>.</li>
+  <li>Overflow, and scroll containers.</li>
+  <li><code>aspect-*</code>, <code>object-*</code> and <code>columns-*</code>.</li>
+</ul>
+</div>
+
+<h2 id="display">Display</h2>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>CSS</th><th>Typical use</th></tr>
+<tr><td><code>block</code>, <code>inline</code>, <code>inline-block</code></td><td><code>display: block</code>…</td><td>Change an element's flow, e.g. a link as a block</td></tr>
+<tr><td><code>flex</code>, <code>inline-flex</code></td><td><code>display: flex</code></td><td>One-dimensional layout (Chapter 13)</td></tr>
+<tr><td><code>grid</code>, <code>inline-grid</code></td><td><code>display: grid</code></td><td>Two-dimensional layout (Chapter 13)</td></tr>
+<tr><td><code>hidden</code></td><td><code>display: none</code></td><td>Remove from the page (and from screen readers)</td></tr>
+<tr><td><code>contents</code></td><td><code>display: contents</code></td><td>The element's box disappears; its children act as children of its parent</td></tr>
+<tr><td><code>table</code>, <code>table-row</code>, <code>table-cell</code>…</td><td>table display values</td><td>Rare: table layout without <code>&lt;table&gt;</code></td></tr>
+<tr><td><code>flow-root</code></td><td><code>display: flow-root</code></td><td>Contain floats</td></tr>
+</table></div>
+<p><code>sr-only</code> is the opposite of <code>hidden</code>: it hides content <em>visually</em> but keeps it for screen readers. Use it for labels on icon-only buttons:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<button class="rounded-full p-2 ring-1 ring-slate-300">
+  <span aria-hidden="true">✕</span>
+  <span class="sr-only">Close dialog</span>
+</button>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="sr-only|position|width: 1px|clip|white-space">
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    clip-path: inset(50%);
+    white-space: nowrap;
+</script>
+<p><code>not-sr-only</code> undoes it, e.g. <code>sr-only focus:not-sr-only</code> for a "Skip to content" link that appears when focused with the keyboard.</p>
+
+<h2 id="position">Position</h2>
+<p>The <code>position</code> utilities are <code>static</code>, <code>relative</code>, <code>absolute</code>, <code>fixed</code> and <code>sticky</code>. Offsets use the spacing scale: <code>top-0</code>, <code>-right-1</code>, <code>inset-0</code> (all four sides), <code>inset-x-4</code> (left and right). The most common pattern is a <strong>badge on an avatar</strong>: the parent is <code>relative</code>, the badge <code>absolute</code> and placed in a corner.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="badge">
+<div class="relative inline-block">
+  <div class="flex size-14 items-center justify-center rounded-full bg-indigo-500 text-xl font-bold text-white">AL</div>
+  <span class="absolute -top-1 -right-1 flex size-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white ring-2 ring-white">3</span>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="12-badge" data-width="200">An indigo circular avatar "AL" with a small red "3" badge overlapping its top-right corner.</script>
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> <code>relative</code> on the parent says "<strong>measure from me</strong>". An <code>absolute</code> child is a sticky note placed by measuring from the nearest such parent's edges: <code>-top-1 -right-1</code> means "4&nbsp;px above and 4&nbsp;px beyond my top-right corner". Without a <code>relative</code> parent, it measures from the whole page.</p>
+</div>
+
+<h3 id="sticky">Sticky and fixed</h3>
+<p><code>sticky top-0</code> keeps an element in the flow until it reaches the top of its scroll container, then it sticks. <code>fixed</code> takes it out of the flow and pins it to the viewport:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="sticky">
+<div id="scroller" class="h-40 overflow-y-auto">
+  <h3 id="head" class="sticky top-0 bg-white/90 px-3 py-1 font-semibold backdrop-blur">A</h3>
+  <p class="h-60 px-3">Anna, Alex, Aiden…</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-steps="eval:scroller.scrollTop = 100; wait:50" data-eval="'scrolled 100px, header offset from the box top: ' + Math.round(head.getBoundingClientRect().top - scroller.getBoundingClientRect().top) + 'px'">
+scrolled 100px, header offset from the box top: 0px
+</script>
+
+<h2 id="z">Stacking: <code>z-*</code> and <code>isolate</code></h2>
+<p>When positioned elements overlap, <code>z-*</code> sets the order: <code>z-0</code>, <code>z-10</code> … <code>z-50</code>, any number (<code>z-60</code>), <code>z-auto</code>, or negative (<code>-z-10</code>). Higher is on top.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="z">
+<div class="relative h-24">
+  <div class="absolute top-0 left-0 z-20 size-16 rounded bg-sky-500"></div>
+  <div class="absolute top-4 left-6 z-10 size-16 rounded bg-amber-400"></div>
+  <div class="absolute top-8 left-12 z-30 size-16 rounded bg-rose-500"></div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="12-z" data-width="200">Three overlapping squares: the rose one (z-30) on top, then sky (z-20), with amber (z-10) at the bottom even though it comes second in the HTML.</script>
+<p><code>isolate</code> creates a new stacking context, so the <code>z-index</code> values inside a component don't fight with the rest of the page. Put it on a card that uses <code>-z-10</code> for a background decoration, and the decoration stays inside the card.</p>
+
+<h2 id="overflow">Overflow</h2>
+<p><code>overflow-hidden</code> clips content; <code>overflow-auto</code> adds scrollbars only when needed; <code>overflow-x-auto</code> for horizontal scrolling only; <code>overflow-scroll</code> always shows them; <code>overflow-clip</code> clips without creating a scroll container. A wide table on a phone:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="over">
+<div id="wrap" class="w-64 overflow-x-auto rounded ring-1 ring-slate-200">
+  <table class="w-max text-sm"><tr><td class="px-3 py-2">A very wide table row that does not fit on small screens</td></tr></table>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'box ' + wrap.clientWidth + 'px wide, content ' + wrap.scrollWidth + 'px wide → scrolls: ' + (wrap.scrollWidth > wrap.clientWidth)">
+box … wide, content … wide → scrolls: true
+</script>
+<p>Related: <code>overscroll-contain</code> stops a scrolling panel from scrolling the page behind it when it reaches the end.</p>
+
+<h2 id="media">Images and video: <code>aspect-*</code> and <code>object-*</code></h2>
+<p><code>aspect-video</code> (16 / 9), <code>aspect-square</code> (1 / 1) or <code>aspect-[4/3]</code> give a box a fixed shape. <code>object-cover</code> makes an image fill the box, cropping what doesn't fit; <code>object-contain</code> shows all of it; <code>object-top</code> etc. choose which part to keep.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="img">
+<div class="flex gap-3">
+  <img class="aspect-square w-28 rounded-lg object-cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='150'%3E%3Crect width='300' height='150' fill='%230ea5e9'/%3E%3Ccircle cx='150' cy='75' r='50' fill='%23fde047'/%3E%3C/svg%3E" alt="">
+  <img class="aspect-square w-28 rounded-lg bg-slate-100 object-contain" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='150'%3E%3Crect width='300' height='150' fill='%230ea5e9'/%3E%3Ccircle cx='150' cy='75' r='50' fill='%23fde047'/%3E%3C/svg%3E" alt="">
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="12-object" data-width="320">The same wide image in two square boxes: left with object-cover, cropped to fill the square; right with object-contain, fully visible with grey bands above and below.</script>
+
+<h2 id="columns">Columns</h2>
+<p><code>columns-2</code>, <code>columns-3</code> split text into newspaper-style columns; <code>columns-3xs</code> … <code>columns-7xl</code> set a column <em>width</em> instead, so the number of columns adapts to the space. Add <code>break-inside-avoid</code> to items that shouldn't be split across columns (a masonry-style card grid).</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="cols">
+<div id="c" class="columns-xs gap-6">…</div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="columns|gap">
+  .columns-xs {
+    columns: var(--container-xs);
+  .gap-6 {
+    gap: calc(var(--spacing) * 6);
+</script>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A modal overlay</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="modal">
+<div class="relative h-56 bg-slate-100 p-4">
+  <p>Page content…</p>
+  <div class="absolute inset-0 z-40 bg-slate-900/50"></div>
+  <div class="absolute inset-x-6 top-10 z-50 rounded-lg bg-white p-5 shadow-xl">
+    <h3 class="font-semibold">Delete project?</h3>
+    <p class="mt-1 text-sm text-slate-600">This can't be undone.</p>
+  </div>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="12-modal" data-width="380">A grey page dimmed by a dark translucent overlay, with a white dialog box "Delete project?" on top.</script>
+<p>In a real page you'd use <code>fixed</code> instead of <code>absolute</code> so it covers the viewport, and a <code>&lt;dialog&gt;</code> element for accessibility (<code>backdrop:</code> styles its backdrop).</p>
+
+<h3>Centring anything</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="center">
+<div id="box" class="grid h-32 place-items-center bg-slate-100">
+  <span id="dot" class="size-6 rounded-full bg-emerald-500"></span>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const b = box.getBoundingClientRect(), d = dot.getBoundingClientRect(); return 'centre offset: ' + Math.round((d.x + d.width / 2) - (b.x + b.width / 2)) + ', ' + Math.round((d.y + d.height / 2) - (b.y + b.height / 2)); })()">
+centre offset: 0, 0
+</script>
+
+<h3>Logical insets</h3>
+<p>For right-to-left languages, <code>start-*</code>/<code>end-*</code> were replaced in v4.2 by <code>inset-s-*</code> and <code>inset-e-*</code>, which follow the text direction:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="logical">
+<div dir="rtl" class="relative h-8"><span id="s" class="absolute inset-s-0">start</span></div>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities" data-grep="inset">
+  .inset-s-0 {
+    inset-inline-start: 0px;
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li><code>block</code>, <code>flex</code>, <code>grid</code>, <code>hidden</code>, <code>contents</code> set <code>display</code>; <code>sr-only</code> hides visually but not from screen readers.</li>
+  <li><code>relative</code> parent + <code>absolute</code> child + <code>top/right/bottom/left/inset</code> places things precisely.</li>
+  <li><code>sticky top-0</code> sticks within its scroll container; <code>fixed</code> pins to the viewport.</li>
+  <li><code>z-*</code> orders overlapping elements; <code>isolate</code> keeps a component's stacking local.</li>
+  <li><code>overflow-hidden/auto/x-auto</code> control clipping and scrolling.</li>
+  <li><code>aspect-*</code> fixes a shape; <code>object-cover/contain</code> fits media inside it; <code>columns-*</code> makes text columns.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">a11y</span></h3>
+<p>An icon button shows only a 🔍. Add text for screen readers without showing it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;button&gt;&lt;span aria-hidden="true"&gt;🔍&lt;/span&gt;&lt;span class="sr-only"&gt;Search&lt;/span&gt;&lt;/button&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">position</span></h3>
+<p>Place a "NEW" ribbon in the top-left corner of a product card, 8&nbsp;px from each edge.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Card: <code>relative</code>. Ribbon: <code>absolute top-2 left-2</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">aspect</span></h3>
+<p>Make an embedded video always 16:9 and as wide as its container.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;iframe class="aspect-video w-full" …&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">overlay</span></h3>
+<p>Write the classes for a dark overlay at 60% opacity that covers its <code>relative</code> parent completely.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>absolute inset-0 bg-black/60</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">sticky</span></h3>
+<p>Your <code>sticky top-0</code> header doesn't stick. Its parent has <code>overflow-hidden</code>. Explain and fix.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>A sticky element sticks within its nearest scroll container (any ancestor with overflow other than visible). <code>overflow-hidden</code> makes the parent that container, but it doesn't scroll, so nothing happens. Remove <code>overflow-hidden</code>, use <code>overflow-clip</code> (which doesn't create a scroll container), or move the header out.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">skip link</span></h3>
+<p>Write a "Skip to content" link that's invisible until it gets keyboard focus, then appears in the top-left corner.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2"&gt;Skip to content&lt;/a&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/12/</code> build a hero image with a title on top: a 16:9 image with <code>object-cover</code>, a gradient overlay from transparent to black at the bottom, and white text at the bottom left.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Wrapper <code>relative aspect-video overflow-hidden rounded-xl</code>; image <code>absolute inset-0 size-full object-cover</code>; overlay <code>absolute inset-0 bg-linear-to-t from-black/70 to-transparent</code>; text <code>absolute bottom-4 left-4 text-2xl font-bold text-white</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">z-index</span></h3>
+<p>A dropdown (<code>z-50</code>) inside a card appears <em>under</em> the next card, which has <code>relative z-10</code>. The first card is also <code>relative z-10</code>. Why?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The first card's <code>z-10</code> creates a stacking context; the dropdown's <code>z-50</code> only counts <em>inside</em> it. Between the two cards, equal <code>z-10</code> means the later one in the HTML wins. Fix: remove <code>z-10</code> from the cards, raise the open card (e.g. <code>z-20</code> when its dropdown is open), or render the dropdown outside the card.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">contents</span></h3>
+<p>A list's <code>&lt;li&gt;</code> wrappers break your grid: each <code>&lt;li&gt;</code> contains an <code>&lt;a&gt;</code> that should be the grid item. Without changing the HTML structure, make the links the grid items.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Put <code>contents</code> on each <code>&lt;li&gt;</code> (or <code>*:contents</code> on the <code>&lt;ul class="grid …"&gt;</code>). The <code>&lt;li&gt;</code> boxes disappear and the links become direct grid items. Note: some browsers have had accessibility issues with <code>display: contents</code> on list items, so test with a screen reader.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">layout</span></h3>
+<p>Build a chat window: a fixed header, a message list that scrolls, and an input pinned at the bottom, all inside a box 400&nbsp;px tall.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Box: <code>flex h-100 flex-col</code>. Header: <code>shrink-0</code>. List: <code>flex-1 overflow-y-auto overscroll-contain</code>. Input bar: <code>shrink-0</code>. (Flexbox is Chapter 13; <code>h-100</code> is 100 × 4&nbsp;px = 400&nbsp;px.)</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/display">display</a> · <a href="https://tailwindcss.com/docs/position">position</a> · <a href="https://tailwindcss.com/docs/top-right-bottom-left">top / right / bottom / left</a></li>
+  <li><a href="https://tailwindcss.com/docs/z-index">z-index</a> · <a href="https://tailwindcss.com/docs/isolation">isolation</a> · <a href="https://tailwindcss.com/docs/overflow">overflow</a></li>
+  <li><a href="https://tailwindcss.com/docs/aspect-ratio">aspect-ratio</a> · <a href="https://tailwindcss.com/docs/object-fit">object-fit</a> · <a href="https://tailwindcss.com/docs/columns">columns</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

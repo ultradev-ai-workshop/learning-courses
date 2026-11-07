@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;▶️&lt;/text&gt;&lt;/svg&gt;">
+<title>Using the Playground · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Start here</div>
+<h1>Using the Playground</h1>
+<p class="lead">The <strong>playground</strong> is where you practise. It's a small Vite project with Tailwind CSS installed the recommended way and one page per chapter, where you do the exercises marked <em>playground</em>. Its <code>reference/</code> folder holds the finished capstone from Chapter 19, a Next.js app. This page shows how to get it, the everyday loop, and what to do when something goes wrong.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What's in the <a href="https://github.com/coderhop-learning/tailwindcss-playground">tailwindcss-playground</a> repository.</li>
+  <li>The one-time setup: Node.js, cloning, installing, editor extensions.</li>
+  <li>The everyday loop: <code>npm run dev</code>, edit a chapter page, <code>npm run format</code>.</li>
+  <li>How to run the reference solution.</li>
+  <li>Fixes for the problems beginners hit most often.</li>
+</ul>
+</div>
+
+<h2 id="what">What is the playground?</h2>
+<script type="text/plain" class="code" data-lang="text" data-title="tailwindcss-playground/" data-norun>
+tailwindcss-playground/
+├── index.html            ← links to every chapter page
+├── src/style.css         ← @import "tailwindcss"; used by the chapter pages
+├── chapters/
+│   ├── 01/index.html     ← one page per chapter: do the exercises here
+│   ├── …
+│   ├── 07/style.css      ← Chapter 7's own stylesheet (class-based dark mode)
+│   ├── appendix-a/       ← a v3 page to upgrade
+│   ├── appendix-b/       ← Markdown output to style with the Typography plugin
+│   └── appendix-c/       ← instructions for a React version
+├── vite.config.js        ← @tailwindcss/vite, and every page as a build input
+├── .prettierrc           ← prettier-plugin-tailwindcss
+├── package.json          ← tailwindcss, @tailwindcss/vite, vite, prettier, the official plugins
+└── reference/            ← Orbit, the finished capstone (Chapter 19): a Next.js app
+</script>
+<p>The starter follows Chapter 2's Vite setup exactly. The only extra: <code>src/style.css</code> has <code>@source not "../reference";</code>, so the capstone's files aren't scanned for the chapter pages (Chapter 11 explains <code>@source</code>).</p>
+
+<h2 id="setup">One-time setup</h2>
+<ol>
+  <li><strong>Install Node.js 20 or newer</strong> (the LTS version from <a href="https://nodejs.org/">nodejs.org</a>, or with a version manager such as <code>nvm</code>). Check it:</li>
+</ol>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --version
+v22.13.0
+</script>
+<ol start="2">
+  <li><strong>Clone the repository</strong> and install its dependencies:</li>
+</ol>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ git clone https://github.com/coderhop-learning/tailwindcss-playground.git
+$ cd tailwindcss-playground
+$ npm install
+</script>
+<ol start="3">
+  <li><strong>Set up your editor</strong>: install the <em>Tailwind CSS IntelliSense</em> and <em>Prettier</em> extensions, and associate <code>*.css</code> with the "tailwindcss" language (Chapter 4).</li>
+</ol>
+<div class="note">
+<p>📝 Prefer to start from scratch? Follow Chapter 2's Vite steps and create a <code>chapters/</code> folder yourself. You'd miss the reference capstone, so clone the repository anyway.</p>
+</div>
+
+<h2 id="loop">The everyday loop</h2>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>Command</th><th>Why</th></tr>
+<tr><td>1. Develop</td><td><code>npm run dev</code></td><td>Starts Vite at <a href="http://localhost:5173">localhost:5173</a>. Open <code>/chapters/05/</code> for Chapter 5. Saving a file updates the browser instantly.</td></tr>
+<tr><td>2. Inspect</td><td>DevTools → Elements → Styles / Computed</td><td>See which utility set which property, and the final values. Toggle <code>:hover</code> and other states in the Styles panel.</td></tr>
+<tr><td>3. Format</td><td><code>npm run format</code></td><td>Prettier sorts your classes in the standard order (Chapter 4).</td></tr>
+<tr><td>4. Build</td><td><code>npm run build</code></td><td>Builds every page into <code>dist/</code> with minified CSS. <code>npm run preview</code> serves it.</td></tr>
+</table></div>
+<div class="tip">
+<p>💡 Keep DevTools' device toolbar (Ctrl/Cmd+Shift+M in Chrome) open while you work on responsive chapters, and use its "prefers-color-scheme" emulation (Rendering panel) for dark mode.</p>
+</div>
+
+<h2 id="reference">Running the reference solution</h2>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ cd reference
+$ npm install
+$ npm run dev                 # http://localhost:3000 and /dashboard
+$ npm run build && npm start  # the production build
+</script>
+<p>It's a separate project with its own dependencies (Next.js 16.4.5, React 19.3, Tailwind 4.3 through PostCSS). Chapter 19 walks through every file.</p>
+
+<h2 id="capstone">How the exercises lead to the capstone</h2>
+<div class="table-wrap"><table>
+<tr><th>Chapters</th><th>You practise in the playground</th><th>Used in Orbit for</th></tr>
+<tr><td>1–4</td><td>Utility basics, setup, class sorting</td><td>Everything; <code>.prettierrc</code></td></tr>
+<tr><td>5–7</td><td>States, responsive layouts, dark mode</td><td>Hover/focus styles, mobile layouts, the theme toggle</td></tr>
+<tr><td>8–11</td><td>Theme, arbitrary values, components, custom utilities</td><td><code>globals.css</code>, <code>ButtonLink</code>, <code>container-page</code></td></tr>
+<tr><td>12–16</td><td>Layout, flex and grid, spacing, typography, effects</td><td>Header, hero, pricing subgrid, dashboard table</td></tr>
+<tr><td>17–18</td><td>Motion, container queries</td><td>Entry animation, adaptive stat cards</td></tr>
+</table></div>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="table-wrap"><table>
+<tr><th>Problem</th><th>Cause and fix</th></tr>
+<tr><td>A class does nothing</td><td>Typo (no IntelliSense colour swatch?), or a class name built from pieces in JavaScript (Chapter 11). Check DevTools: is the rule in the stylesheet at all?</td></tr>
+<tr><td>Headings and lists look like plain text</td><td>That's Preflight, not a bug: style them with utilities (Chapter 3), or use <code>prose</code> for articles (Appendix B).</td></tr>
+<tr><td>Styles don't change when I save</td><td>Is <code>npm run dev</code> still running? Is the page loaded from <code>localhost:5173</code> and not opened as a file? Reload once.</td></tr>
+<tr><td><code>dark:</code> classes don't react to the toggle</td><td>The page must use a stylesheet with <code>@custom-variant dark …</code> (Chapter 7 uses <code>chapters/07/style.css</code>). Without it, <code>dark:</code> follows the system setting.</td></tr>
+<tr><td><code>hover:</code> doesn't work on my phone</td><td>By design: <code>hover:</code> only applies on devices that can hover (Chapter 5). Use <code>active:</code> or <code>focus-visible:</code> for touch feedback.</td></tr>
+<tr><td>VS Code shows "Unknown at rule @theme"</td><td>Associate <code>*.css</code> with "tailwindcss" (Chapter 4).</td></tr>
+<tr><td><code>npm install</code> fails or <code>vite</code> isn't found</td><td>Node.js is too old: install 20 or newer, delete <code>node_modules</code>, and run <code>npm install</code> again.</td></tr>
+<tr><td>Port 5173 is busy</td><td>Vite picks the next free port automatically; read the address it prints.</td></tr>
+<tr><td>Code from a tutorial doesn't work</td><td>It's probably v2 or v3 (<code>@tailwind base</code>, <code>bg-opacity-50</code>…): see Appendix A.</td></tr>
+<tr><td>I can't clone the repository</td><td>Check the URL <code>https://github.com/coderhop-learning/tailwindcss-playground.git</code>, or download the ZIP from GitHub's "Code" button.</td></tr>
+</table></div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/installation/using-vite">Installation: Using Vite</a></li>
+  <li><a href="https://tailwindcss.com/docs/editor-setup">Editor setup</a></li>
+  <li><a href="https://vite.dev/guide/">Vite guide</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

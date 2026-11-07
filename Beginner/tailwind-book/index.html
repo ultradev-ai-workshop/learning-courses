@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🌊&lt;/text&gt;&lt;/svg&gt;">
+<title>Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Beginner · Tailwind CSS 4.3 · following the official Tailwind CSS docs</div>
+<h1><svg class="tw-mark" viewBox="0 0 54 33" aria-hidden="true"><path fill="#38bdf8" fill-rule="evenodd" clip-rule="evenodd" d="M27 0c-7.2 0-11.7 3.6-13.5 10.8 2.7-3.6 5.85-4.95 9.45-4.05 2.054.513 3.522 2.004 5.147 3.653C30.744 13.09 33.808 16.2 40.5 16.2c7.2 0 11.7-3.6 13.5-10.8-2.7 3.6-5.85 4.95-9.45 4.05-2.054-.513-3.522-2.004-5.147-3.653C36.756 3.11 33.692 0 27 0zM13.5 16.2C6.3 16.2 1.8 19.8 0 27c2.7-3.6 5.85-4.95 9.45-4.05 2.054.514 3.522 2.004 5.147 3.653C17.244 29.29 20.308 32.4 27 32.4c7.2 0 11.7-3.6 13.5-10.8-2.7 3.6-5.85 4.95-9.45 4.05-2.054-.513-3.522-2.004-5.147-3.653C23.256 19.31 20.192 16.2 13.5 16.2z"/></svg> Tailwind CSS Study Book</h1>
+<p class="lead"><em>Tailwind CSS is a utility-first CSS framework: you style pages by combining small classes like <code>flex</code>, <code>pt-4</code> and <code>text-center</code> right in your HTML.</em> This book teaches the current version, Tailwind CSS 4.3, chapter by chapter through the official docs: installation, the core concepts (states, responsive design, dark mode, theme variables, custom styles), and every utility group. It ends by installing Tailwind in a Next.js app the official way and building a complete landing page and dashboard.</p>
+
+<div class="learn">
+<h2>How to use this book</h2>
+<ul>
+  <li><strong>Read in order.</strong> The 19 chapters follow the docs' sidebar: Getting Started, Core Concepts, then the utility groups, then a capstone. Each chapter only uses ideas from earlier ones, or says where an idea is explained.</li>
+  <li><strong>Trust the outputs.</strong> Every example is a real file built with Tailwind CSS 4.3.5. <em>Generated CSS</em> blocks are copied from the real output, 🌐 <em>browser</em> blocks show values Chrome computed, terminal and error blocks were really run, and every 🖼 screenshot was taken by Chrome from the built page (at the width shown, with the mouse over or the field focused when the caption says so).</li>
+  <li><strong>Look at the CSS.</strong> Tailwind is CSS. The book shows what each utility generates, so you learn the CSS property behind every class.</li>
+  <li><strong>Do the exercises.</strong> Each chapter has 10 exercises marked 🟢 easy, 🟡 medium or 🔴 hard, with hidden solutions. <em>Playground</em> exercises are done in the practice project and lead to the capstone. 🧠 boxes give an everyday analogy for each hard idea.</li>
+  <li><strong>Test yourself.</strong> The <a href="assessment.html">Final Assessment</a> draws 50 random questions from a pool of 1000 and scores you per chapter.</li>
+  <li><strong>Questions?</strong> The <a href="faq.html">FAQ</a> answers "why Tailwind instead of regular CSS?", "isn't this just inline styles?" and more; the <a href="glossary.html">Glossary</a> defines every term.</li>
+</ul>
+</div>
+
+<div class="tip">
+<p>💡 <strong>Comes after:</strong> the <a href="../nextjs-book/index.html">Next.js Study Book</a>, whose capstone you'll recognise in Chapter 19. You need basic HTML and CSS (the box model, flexbox, selectors); React only matters for Chapter 19 and <a href="appendix-react.html">Appendix C</a>. New here? Start with <a href="playground-howto.html">Using the Playground</a> and <a href="01-what.html">Chapter 1</a>.</p>
+</div>
+
+<div class="tip">
+<p>🟩 <strong>Next step:</strong> the <a href="../../Intermediate/nodejs-book/index.html">Node.js Study Book</a> goes to the server side: modules, the event loop, streams, HTTP servers and testing.</p>
+</div>
+
+<div class="note">
+<p>📝 <strong>Setup:</strong> install Node.js 20 or newer (<code>node --version</code>), then clone the practice project, <a href="https://github.com/coderhop-learning/tailwindcss-playground">coderhop-learning/tailwindcss-playground</a>, with <code>git clone https://github.com/coderhop-learning/tailwindcss-playground.git</code>, run <code>npm install</code> and <code>npm run dev</code>. It's a Vite project with one page per chapter, plus the finished capstone in <code>reference/</code>.</p>
+</div>
+
+<div class="pitfall">
+<p>⚠️ <strong>Facts that change.</strong> Tailwind changed a lot in version 4 (January 2025) and keeps adding utilities in minor releases (text shadows and masks in 4.1, logical sizing and new colours in 4.2, scrollbars and <code>@container-size</code> in 4.3). Everything here was checked with Tailwind CSS 4.3.5 in November 2026. If you were sent to the v2 docs (<code>v2.tailwindcss.com</code>) or follow an older tutorial, read <a href="appendix-upgrade.html">Appendix A</a>: setup and several class names are different. Check the <a href="https://tailwindcss.com/blog">Tailwind blog</a> for newer releases.</p>
+</div>
+
+<div id="cards"></div>
+
+<h2>Keep practising</h2>
+<div class="cards">
+  <a class="card" href="../../problems/index.html"><div class="num">Problem Set · any language</div><h3>🧩 100 Practice Problems</h3><p>25 easy, 25 medium, 25 hard and 25 object-oriented problems with exact test cases, to keep your programming sharp alongside your CSS.</p></a>
+  <a class="card" href="https://play.tailwindcss.com"><div class="num">Official tool</div><h3>🎮 Tailwind Play</h3><p>The official online editor: try any class instantly in the browser and share links to your experiments.</p></a>
+</div>
+
+<script>
+window.BOOK_BLURBS = {
+  "playground-howto.html": "Clone the playground (a Vite project with a page per chapter, plus the finished capstone), the dev → format → build loop, and a troubleshooting table.",
+  "faq.html": "Why Tailwind instead of regular CSS, when not to use it, inline styles, ugly HTML, file size, Bootstrap, CSS-in-JS, versions, components.",
+  "01-what.html": "Utility-first in one example, how scanning generates only the CSS you use, the output's layers, Tailwind vs regular CSS and inline styles.",
+  "02-install.html": "Install with the Vite plugin, the CLI (watch, minify), PostCSS and the Play CDN; what @import \"tailwindcss\" contains; which one to pick.",
+  "03-utility-first.html": "Building a component from utilities, naming patterns, the spacing scale and palette, Preflight, conflicts, !important, prefixes, duplication.",
+  "04-editor.html": "Tailwind CSS IntelliSense, editor settings, sorting classes with prettier-plugin-tailwindcss, simplifying them with tailwindcss canonicalize.",
+  "05-states.html": "hover, focus-visible and active; first/odd/even; group and peer; has-; before/after and placeholder; form, ARIA and data variants (screenshots).",
+  "06-responsive.html": "Mobile first, the five breakpoints and their media queries, ranges with max-*, custom and one-off breakpoints, container and container queries.",
+  "07-dark-mode.html": "dark: with prefers-color-scheme, a class or data-attribute toggle, a three-way switch with no flash, scheme-*, semantic colour variables.",
+  "08-theme.html": "@theme and namespaces, extending, overriding and replacing the theme, inline and static, sharing a theme, OKLCH colours and opacity.",
+  "09-arbitrary.html": "Arbitrary values, underscores for spaces, the (--var) shorthand and type hints, arbitrary properties and variants, and when to use them.",
+  "10-reusing.html": "The reuse ladder: loops, components with lookup objects, @apply in @layer components, @reference for component style blocks.",
+  "11-custom.html": "Base styles, @utility with --value(), @custom-variant and @variant, how class detection works, and @source to add, exclude and safelist.",
+  "12-layout.html": "display and sr-only, positioning with inset, sticky and fixed, z-index and isolate, overflow, aspect ratio, object-fit and columns.",
+  "13-flex-grid.html": "Flexbox alignment and item sizing, grid columns and spans, a page layout, subgrid, auto-fill galleries, and when to use which.",
+  "14-spacing-sizing.html": "Padding and margin on every side, gap vs space-*, widths with fractions and container sizes, dvh vs vh, min and max.",
+  "15-typography.html": "The type scale and line heights, custom fonts, weights and tracking, decoration, truncate and line-clamp, text-balance, tabular numbers.",
+  "16-color-effects.html": "Gradients, background images, borders and divide, outlines vs rings, shadows, opacity, filters, frosted glass and masks (screenshots).",
+  "17-motion.html": "Transitions with duration and easing, independent transforms and 3D, built-in and custom animations, starting: entries, reduced motion.",
+  "18-modern.html": "Container queries with named containers and units, @container-size, form control styling, scroll snap, scrollbar and zoom utilities.",
+  "19-project.html": "Install Tailwind in Next.js the official way and build Orbit: a themed landing page and dashboard with dark mode and container queries.",
+  "appendix-upgrade.html": "Spotting v2/v3 code, moving tailwind.config.js into CSS, @config, the upgrade tool, renamed utilities and changed defaults.",
+  "appendix-plugins.html": "@plugin; the Typography plugin's prose classes, sizes, dark mode and element modifiers; the Forms plugin; writing a small plugin.",
+  "appendix-react.html": "Vite + React setup, a Button with variant lookups, clsx and tailwind-merge, styling state with aria-* and data-* attributes.",
+  "glossary.html": "Every Tailwind term in the book in plain words, from arbitrary value to variant, with links to the chapter that explains it.",
+  "assessment.html": "50 random multi-select questions from a 1000-question pool, with a per-chapter score."
+};
+</script>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

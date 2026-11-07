@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📦&lt;/text&gt;&lt;/svg&gt;">
+<title>2. Installing Tailwind · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 2 · Getting Started</div>
+<h1>Installing Tailwind</h1>
+<p class="lead">Tailwind runs as part of your build. The docs offer four ways to plug it in: a <strong>Vite plugin</strong> (the recommended one), the <strong>Tailwind CLI</strong>, a <strong>PostCSS plugin</strong>, and a <strong>Play CDN</strong> script for quick experiments. All four use the same engine and produce the same CSS. This chapter installs each one, shows what <code>@import "tailwindcss"</code> really imports, and explains the build commands you'll run every day.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to add Tailwind to a Vite project, and how to build it for production.</li>
+  <li>How to use the standalone Tailwind CLI, including watch mode and minification.</li>
+  <li>How to use the PostCSS plugin (the way frameworks like Next.js use it).</li>
+  <li>What the Play CDN is for, and why not to use it in production.</li>
+  <li>What <code>@import "tailwindcss"</code> expands to, and which install to pick.</li>
+</ul>
+</div>
+
+<h2 id="requirements">Before you start</h2>
+<p>You need <strong>Node.js</strong> (version 20 or newer) and a terminal. Check your version:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ node --version
+v22.13.0
+</script>
+<p>Any recent version is fine. The playground for this book (<a href="playground-howto.html">Using the Playground</a>) is already set up; this chapter shows how to set up a project yourself.</p>
+
+<h2 id="vite">Option 1: Vite (recommended)</h2>
+<p><a href="https://vite.dev">Vite</a> is a fast build tool and development server for front-end projects. Tailwind ships a Vite plugin, <code>@tailwindcss/vite</code>, which is the fastest and simplest way to use Tailwind with Vite and frameworks built on it (React, Vue, Svelte, Astro, SvelteKit…).</p>
+<p><strong>1. Create a Vite project</strong> and install Tailwind and its plugin:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm create vite@latest my-project -- --template vanilla
+$ cd my-project
+$ npm install tailwindcss @tailwindcss/vite
+</script>
+<p><strong>2. Add the plugin</strong> to <code>vite.config.ts</code> (create the file if the template doesn't have one; <code>vite.config.js</code> works the same):</p>
+<script type="text/plain" class="code" data-file="vite.config.ts">
+import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  plugins: [
+    tailwindcss(),
+  ],
+})
+</script>
+<p><strong>3. Import Tailwind</strong> in your main CSS file. This one line is all the CSS you need:</p>
+<script type="text/plain" class="code" data-file="src/style.css">
+@import "tailwindcss";
+</script>
+<p><strong>4. Use utility classes</strong> in your HTML. Vite turns the <code>&lt;link&gt;</code> to <code>/src/style.css</code> into a link to the built CSS file:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="/src/style.css" rel="stylesheet" />
+    <title>My project</title>
+  </head>
+  <body>
+    <h1 class="text-3xl font-bold underline">Hello world!</h1>
+  </body>
+</html>
+</script>
+<p><strong>5. Run the dev server</strong> with <code>npm run dev</code>. It prints a local address (usually <code>http://localhost:5173</code>); open it, and every time you save a file, the page updates. When you're ready to publish, <strong>build</strong>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npm run build
+
+> vite-example@0.0.0 build
+> vite build
+
+vite v8.3.6 building client environment for production...
+transforming...
+✓ 3 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                 0.35 kB │ gzip: 0.25 kB
+dist/assets/index-….css  4.77 kB │ gzip: 1.63 kB
+
+✓ built in …
+</script>
+<p>The <code>dist/</code> folder is your finished site: one HTML file and one CSS file with a content hash in its name, ready to upload to any static host. The heading is styled:</p>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const s = getComputedStyle(document.querySelector('h1')); return 'font-size ' + s.fontSize + ', weight ' + s.fontWeight + ', ' + s.textDecorationLine + '\n' + 'stylesheet: ' + document.querySelector('link[rel=stylesheet]').getAttribute('href').replace(/index-.*\.css/, 'index-<hash>.css'); })()">
+font-size 30px, weight 700, underline
+stylesheet: /assets/index-<hash>.css
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> the four install options are four ways to get the same coffee. The <strong>Vite plugin</strong> is a machine built into your kitchen counter (your build tool). The <strong>CLI</strong> is a standalone machine you switch on yourself. <strong>PostCSS</strong> is a pod that fits machines other brands already make (Next.js, webpack setups). The <strong>Play CDN</strong> is instant coffee: fine for a quick taste, not what you serve guests.</p>
+</div>
+
+<h2 id="cli">Option 2: the Tailwind CLI</h2>
+<p>The CLI needs no other build tool. It reads a CSS file, scans the folder for class names, and writes a CSS file. It's ideal for plain HTML sites, server-rendered templates (Django, Rails, Laravel, Spring), and for learning, which is why most examples in this book use it.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install tailwindcss @tailwindcss/cli
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="cli">
+@import "tailwindcss";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="cli">
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="./output.css" rel="stylesheet">
+</head>
+<body>
+  <h1 class="text-3xl font-bold underline">Hello world!</h1>
+</body>
+</html>
+</script>
+<p>Build once, and keep the generated file next to your HTML:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx @tailwindcss/cli -i ./input.css -o ./output.css
+≈ tailwindcss v4.3.5
+
+Done in …
+</script>
+<p>During development, add <code>--watch</code> (or <code>-w</code>): the CLI stays running and rebuilds every time you save a file. For production, add <code>--minify</code>:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx @tailwindcss/cli -i ./input.css -o ./output.css --silent
+$ wc -c < output.css
+5325
+$ npx @tailwindcss/cli -i ./input.css -o ./output.css --minify --silent
+$ wc -c < output.css
+4741
+</script>
+<p><code>--silent</code> (new in 4.3.1) hides the version and timing lines. The main options, from <code>npx @tailwindcss/cli --help</code>:</p>
+<div class="table-wrap"><table>
+<tr><th>Option</th><th>What it does</th></tr>
+<tr><td><code>-i, --input</code></td><td>The CSS file with <code>@import "tailwindcss"</code>.</td></tr>
+<tr><td><code>-o, --output</code></td><td>Where to write the result (default: print to the terminal).</td></tr>
+<tr><td><code>-w, --watch</code></td><td>Rebuild when files change.</td></tr>
+<tr><td><code>-m, --minify</code></td><td>Optimise and minify the output.</td></tr>
+<tr><td><code>--optimize</code></td><td>Optimise without minifying.</td></tr>
+<tr><td><code>--cwd</code></td><td>The folder to scan from (default: the current folder).</td></tr>
+<tr><td><code>--map</code></td><td>Write a source map.</td></tr>
+<tr><td><code>--silent</code></td><td>Print errors only.</td></tr>
+</table></div>
+<div class="tip">
+<p>💡 Put the commands in <code>package.json</code> scripts so nobody has to remember them: <code>"dev": "tailwindcss -i ./input.css -o ./output.css --watch"</code> and <code>"build": "tailwindcss -i ./input.css -o ./output.css --minify"</code>. Inside scripts you can drop <code>npx</code> and the package name: the installed command is called <code>tailwindcss</code>.</p>
+</div>
+<div class="note">
+<p>📝 No Node.js at all? Tailwind also publishes a <strong>standalone executable</strong> of the CLI for macOS, Linux and Windows on its GitHub releases page. It works the same way: <code>./tailwindcss -i input.css -o output.css</code>.</p>
+</div>
+
+<h2 id="postcss">Option 3: PostCSS</h2>
+<p><a href="https://postcss.org">PostCSS</a> is a tool that transforms CSS with plugins. Many frameworks already run PostCSS on your CSS, so Tailwind can plug in as one more plugin. This is the setup the Tailwind docs use for Next.js and Angular (and the one you'll use in the capstone).</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install tailwindcss @tailwindcss/postcss postcss
+</script>
+<script type="text/plain" class="code" data-file="postcss.config.mjs" data-norun>
+export default {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+</script>
+<p>Your framework reads <code>postcss.config.mjs</code> and runs the plugin for you. To see that it's the same engine, here is the plugin called directly from a Node script, on a CSS string with one <code>@import</code> and an HTML file with two classes:</p>
+<script type="text/plain" class="code" data-file="postcss-demo.mjs" data-node>
+import { writeFileSync } from "node:fs";
+import postcss from "postcss";
+import tailwindcss from "@tailwindcss/postcss";
+
+writeFileSync("page.html", '<p class="p-4 text-sky-700">Hi</p>');
+
+const result = await postcss([tailwindcss({ base: "." })]).process(
+  '@import "tailwindcss";',
+  { from: "./style.css" },
+);
+console.log(result.css.match(/@layer utilities \{[\s\S]*?\n\}/)[0]);
+</script>
+<script type="text/plain" class="code" data-lang="text">
+@layer utilities {
+  .p-4 {
+    padding: calc(var(--spacing) * 4);
+  }
+  .text-sky-700 {
+    color: var(--color-sky-700);
+  }
+}
+</script>
+<p><code>base: "."</code> tells the plugin where to start scanning for class names. In a framework you leave it out: it defaults to the current folder.</p>
+
+<h2 id="cdn">Option 4: the Play CDN</h2>
+<p>For a quick experiment in a single HTML file, with no install at all, add one script tag. It runs Tailwind <em>in the browser</em>: it watches the page and generates styles as classes appear.</p>
+<script type="text/plain" class="code" data-file="index.html" data-norun>
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"><\/script>
+</head>
+<body>
+  <h1 class="text-3xl font-bold underline">Hello world!</h1>
+</body>
+</html>
+</script>
+<div class="pitfall">
+<p>⚠️ <strong>The Play CDN is for development only.</strong> Every visitor downloads the whole Tailwind engine (hundreds of kilobytes of JavaScript) and generates the CSS on their own device, and the page flashes unstyled content while it loads. For anything you publish, use one of the build options above.</p>
+</div>
+<p>You can customise the CDN version with a <code>&lt;style type="text/tailwindcss"&gt;</code> block containing <code>@theme</code> and other directives (Chapter 8). The official <a href="https://play.tailwindcss.com">Tailwind Play</a> website is an online editor built on the same idea.</p>
+
+<h2 id="import">What <code>@import "tailwindcss"</code> imports</h2>
+<p>The line imports the package's <code>index.css</code>, which is the same as these four lines:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="expanded">
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="expanded">
+<h1 class="text-3xl font-bold underline">Hello world!</h1>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-3xl {
+    font-size: var(--text-3xl);
+    line-height: var(--tw-leading, var(--text-3xl--line-height));
+  }
+  .font-bold {
+    --tw-font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-bold);
+  }
+  .underline {
+    text-decoration-line: underline;
+  }
+}
+</script>
+<ul>
+  <li><code>theme.css</code> holds the default design tokens: 26 colour palettes, the spacing unit, font sizes, breakpoints, shadows… as <code>@theme</code> variables.</li>
+  <li><code>preflight.css</code> is the reset (base styles).</li>
+  <li><code>utilities.css</code> contains one line, <code>@tailwind utilities;</code>, the spot where generated utilities are inserted.</li>
+</ul>
+<p>Knowing this lets you leave parts out. For example, a project that already has its own reset can skip Preflight by writing the lines without <code>preflight.css</code>:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="nopre">
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="nopre">
+<h1 class="underline">Browser default heading</h1>
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="(() => { const s = getComputedStyle(document.querySelector('h1')); return 'font-size ' + s.fontSize + ', margin-top ' + s.marginTop; })()">
+font-size 32px, margin-top 21.44px
+</script>
+<p>Without Preflight the <code>h1</code> keeps the browser's default size (2&nbsp;em) and margins. With Preflight, headings have no margin and inherit the body's font size, as you'll see in Chapter 3.</p>
+
+<h2 id="choose">Which one should I use?</h2>
+<div class="table-wrap"><table>
+<tr><th>Your project</th><th>Use</th></tr>
+<tr><td>Vite, or a framework built on Vite (React, Vue, Svelte, Astro, SvelteKit, React Router, Nuxt…)</td><td><code>@tailwindcss/vite</code></td></tr>
+<tr><td>Next.js</td><td><code>@tailwindcss/postcss</code> (the Tailwind docs' guide), or the setup <code>create-next-app</code> generates</td></tr>
+<tr><td>Angular, webpack setups, anything that already runs PostCSS</td><td><code>@tailwindcss/postcss</code></td></tr>
+<tr><td>Plain HTML, server-side templates (Django, Rails, Laravel, Spring), no JavaScript build</td><td><code>@tailwindcss/cli</code> or the standalone executable</td></tr>
+<tr><td>Trying something out in one file</td><td>Play CDN or play.tailwindcss.com</td></tr>
+</table></div>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Printing the result to the terminal</h3>
+<p>Without <code>-o</code>, the CLI prints the CSS. Combined with a quick <code>grep</code>, that's a handy way to check what one class generates:</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="print">
+<p class="rounded-full">pill</p>
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx @tailwindcss/cli -i input.css --silent | grep -A 2 "^  .rounded-full"
+  .rounded-full {
+    border-radius: calc(infinity * 1px);
+  }
+</script>
+<p><code>calc(infinity * 1px)</code> is the largest possible length: whatever the element's size, the corners are fully round.</p>
+
+<h3>Scripts in package.json</h3>
+<script type="text/plain" class="code" data-file="package.json" data-norun>
+{
+  "scripts": {
+    "dev": "tailwindcss -i ./input.css -o ./output.css --watch",
+    "build": "tailwindcss -i ./input.css -o ./output.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.5",
+    "tailwindcss": "^4.3.5"
+  }
+}
+</script>
+<p>Then <code>npm run dev</code> while you work and <code>npm run build</code> before publishing.</p>
+
+<h3>A mistake in the CSS file</h3>
+<p>The build tells you when the CSS input is wrong. Here a theme function names a variable that doesn't exist:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="bad">
+@import "tailwindcss";
+
+.box {
+  padding: --spacing(4);
+  color: --theme(--color-sky-1000);
+}
+</script>
+<script type="text/plain" class="code" data-lang="errors">
+≈ tailwindcss v4.3.5
+
+Error:
+┌
+│ Error: Could not resolve value for theme function: `theme(--color-sky-1000)`. Consider checking if the variable name is correct or provide a fallback value to silence this error.
+└
+</script>
+<p>The colour scale goes from 50 to 950, so <code>sky-1000</code> doesn't exist. (Utilities with unknown values, like <code>class="text-sky-1000"</code>, are just skipped; only CSS you wrote yourself makes the build fail.)</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Every setup needs the <code>tailwindcss</code> package plus one integration: <code>@tailwindcss/vite</code>, <code>@tailwindcss/cli</code> or <code>@tailwindcss/postcss</code>.</li>
+  <li>Your CSS needs one line: <code>@import "tailwindcss";</code>.</li>
+  <li>Vite: add <code>tailwindcss()</code> to <code>plugins</code>; <code>npm run dev</code> while working, <code>npm run build</code> to publish.</li>
+  <li>CLI: <code>npx @tailwindcss/cli -i input.css -o output.css</code>, with <code>--watch</code> in development and <code>--minify</code> for production.</li>
+  <li>PostCSS: a <code>postcss.config.mjs</code> with <code>"@tailwindcss/postcss": {}</code>; your framework runs it.</li>
+  <li>The Play CDN runs Tailwind in the browser: for experiments only.</li>
+  <li><code>@import "tailwindcss"</code> = theme + Preflight + utilities, each in its layer.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">recall</span></h3>
+<p>Name the npm packages you install for (a) a Vite project, (b) the CLI, (c) PostCSS.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>tailwindcss @tailwindcss/vite</code>; (b) <code>tailwindcss @tailwindcss/cli</code>; (c) <code>tailwindcss @tailwindcss/postcss postcss</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">command</span></h3>
+<p>Write the CLI command that reads <code>src/input.css</code>, writes <code>src/output.css</code>, and rebuilds whenever you save.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>npx @tailwindcss/cli -i ./src/input.css -o ./src/output.css --watch</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">choose</span></h3>
+<p>Which install would you pick for: (a) a Svelte app made with Vite, (b) a Django site with server-rendered templates, (c) a Next.js app, (d) a one-off test page you'll delete tomorrow?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(a) <code>@tailwindcss/vite</code>; (b) the CLI (or standalone executable) with <code>--watch</code>; (c) <code>@tailwindcss/postcss</code> as in the Tailwind docs' Next.js guide; (d) the Play CDN.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">why</span></h3>
+<p>Give two reasons not to use the Play CDN on a public website.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Every visitor downloads the whole engine as JavaScript and builds the CSS on their device (slow, wasteful); the page shows unstyled content until the script runs; it needs JavaScript enabled; you depend on a third-party CDN at runtime.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In the playground, run <code>npm run dev</code> and open <code>/chapters/02/</code>. Change the heading's <code>text-3xl</code> to <code>text-5xl</code> and save. What happens in the browser, and did you rebuild anything yourself?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The heading grows immediately. Vite's dev server noticed the change, the Tailwind plugin generated the new <code>text-5xl</code> rule, and Vite pushed the updated CSS to the page (hot module replacement). No manual build.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">scripts</span></h3>
+<p>A CLI project has no scripts. Add <code>dev</code> and <code>build</code> scripts to its <code>package.json</code> for an input <code>css/app.css</code> and output <code>public/app.css</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"dev": "tailwindcss -i ./css/app.css -o ./public/app.css --watch"</code>, <code>"build": "tailwindcss -i ./css/app.css -o ./public/app.css --minify"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">expand</span></h3>
+<p>Write the four lines <code>@import "tailwindcss"</code> stands for. Which line would you remove to keep your own reset instead of Preflight?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@layer theme, base, components, utilities;</code>, <code>@import "tailwindcss/theme.css" layer(theme);</code>, <code>@import "tailwindcss/preflight.css" layer(base);</code>, <code>@import "tailwindcss/utilities.css" layer(utilities);</code>. Remove the <code>preflight.css</code> line.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">explain</span></h3>
+<p>The minified CSS in this chapter is about 600 bytes (11%) smaller than the normal one. Where does the saving come from, given that both contain the same rules?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Whitespace, line breaks, indentation and comments are removed, and values are written in their shortest form. The rules are the same; only the formatting changes. Compression on the server (gzip or Brotli) shrinks it much further.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">debug</span></h3>
+<p>Someone's Vite project shows unstyled HTML. Their <code>style.css</code> has <code>@import "tailwindcss";</code>, the classes are correct, and the package is installed. List three things to check, in order.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>(1) <code>vite.config</code> imports <code>@tailwindcss/vite</code> and has <code>tailwindcss()</code> in <code>plugins</code>. (2) The HTML (or the JavaScript entry) actually loads the CSS: a <code>&lt;link href="/src/style.css"&gt;</code> or <code>import './style.css'</code>. (3) The dev server was restarted after changing the config, and the browser DevTools Network tab shows the CSS loading. Also check the files are not in a folder ignored by <code>.gitignore</code> (Chapter 11).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">build it</span></h3>
+<p>Without looking, set up a new folder with the CLI from scratch: <code>package.json</code>, an input file, an HTML page with a blue rounded button, and <code>dev</code>/<code>build</code> scripts. Build it and confirm the button rule is in the output with a <code>grep</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>mkdir demo &amp;&amp; cd demo &amp;&amp; npm init -y &amp;&amp; npm install tailwindcss @tailwindcss/cli</code>; <code>input.css</code> with <code>@import "tailwindcss";</code>; <code>index.html</code> linking <code>./output.css</code> with <code>&lt;button class="rounded-lg bg-blue-600 px-4 py-2 text-white"&gt;</code>; scripts as in "More examples"; <code>npm run build</code>; <code>grep -c "bg-blue-600" output.css</code> prints <code>1</code> when minified (one line), or check with <code>grep -A2 "\.bg-blue-600"</code> before minifying.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/installation/using-vite">Installation: Using Vite</a></li>
+  <li><a href="https://tailwindcss.com/docs/installation/tailwind-cli">Installation: Tailwind CLI</a></li>
+  <li><a href="https://tailwindcss.com/docs/installation/using-postcss">Installation: Using PostCSS</a></li>
+  <li><a href="https://tailwindcss.com/docs/installation/play-cdn">Installation: Play CDN</a> · <a href="https://tailwindcss.com/docs/installation/framework-guides">Framework guides</a></li>
+  <li><a href="https://tailwindcss.com/docs/preflight">Preflight</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

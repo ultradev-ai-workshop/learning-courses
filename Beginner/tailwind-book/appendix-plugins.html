@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🔌&lt;/text&gt;&lt;/svg&gt;">
+<title>B. Plugins: Typography &amp; Forms · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Appendix B</div>
+<h1>Plugins: Typography &amp; Forms</h1>
+<p class="lead">Tailwind's core only has utilities. Two official plugins cover the common gaps: <strong>Typography</strong> styles long-form content you can't add classes to (Markdown, CMS output), and <strong>Forms</strong> gives form controls a clean, consistent base that's easy to restyle with utilities. In v4, you load a plugin with one line of CSS: <code>@plugin</code>. This appendix shows both, and how to write a tiny plugin of your own.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to load JavaScript plugins with <code>@plugin</code>.</li>
+  <li>How to style Markdown and CMS content with <code>prose</code>, size and colour modifiers, <code>dark:prose-invert</code> and <code>not-prose</code>.</li>
+  <li>How to customise prose elements with <code>prose-a:</code>, <code>prose-headings:</code> and friends.</li>
+  <li>What the Forms plugin does, and its <code>class</code> strategy.</li>
+  <li>When to write your own plugin, and when <code>@utility</code> is enough.</li>
+</ul>
+</div>
+
+<h2 id="typography">The Typography plugin</h2>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install -D @tailwindcss/typography
+</script>
+<script type="text/plain" class="code" data-file="input.css">
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+</script>
+<p>Now wrap content in <code>prose</code>. Every element inside gets sensible typography: heading sizes, paragraph spacing, list bullets, link and code styles, quotes and tables:</p>
+<script type="text/plain" class="code" data-file="index.html">
+<article class="prose prose-slate">
+  <h1>Garlic bread with cheese</h1>
+  <p class="lead">What the science tells us about a classic side dish.</p>
+  <p>For years parents have espoused the health benefits of eating garlic bread with cheese to their children. <a href="#">Read the study</a> or keep scrolling.</p>
+  <h2>What we found</h2>
+  <ul>
+    <li>It's <strong>delicious</strong>.</li>
+    <li>It pairs with <code>everything</code>.</li>
+  </ul>
+  <blockquote><p>Garlic bread is the future.</p></blockquote>
+</article>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="b-prose" data-width="560">An article with a large bold heading, a grey lead paragraph, body text with an underlined link, a second-level heading, a bulleted list with bold text and inline code, and an indented quote with a left border.</script>
+<p>None of those elements has a class. That's exactly the situation of HTML generated from Markdown.</p>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> Preflight strips every element bare, which is great for building UI but bad for reading an article. <code>prose</code> is a <strong>typesetter</strong> you hire for one region of the page: inside it, headings, paragraphs and lists get professional default typography; outside it, you're back to utilities.</p>
+</div>
+
+<h3 id="prose-modifiers">Size, colour, dark mode</h3>
+<div class="table-wrap"><table>
+<tr><th>Class</th><th>Effect</th></tr>
+<tr><td><code>prose-sm</code>, <code>prose-base</code>, <code>prose-lg</code>, <code>prose-xl</code>, <code>prose-2xl</code></td><td>Overall size (combine with breakpoints: <code>md:prose-lg</code>)</td></tr>
+<tr><td><code>prose-slate</code>, <code>prose-zinc</code>, <code>prose-neutral</code>, <code>prose-stone</code>, <code>prose-gray</code></td><td>Grey scale for text</td></tr>
+<tr><td><code>dark:prose-invert</code></td><td>Light text for dark backgrounds</td></tr>
+<tr><td><code>max-w-none</code></td><td>Remove the default 65ch maximum width</td></tr>
+<tr><td><code>not-prose</code></td><td>Opt a block out (a demo widget inside an article)</td></tr>
+</table></div>
+<script type="text/plain" class="code" data-file="index.html" data-app="invert">
+<div class="bg-slate-900 p-6">
+  <article class="prose prose-invert prose-sm">
+    <h2>Inverted</h2>
+    <p>Light text on a dark background, with a <a href="#">link</a>.</p>
+  </article>
+</div>
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="invert">
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="b-invert" data-width="420" data-clip="div">A dark panel with a white heading "Inverted" and light grey text containing a white underlined link.</script>
+
+<h3 id="element-modifiers">Element modifiers</h3>
+<p>To change one kind of element inside prose, use <code>prose-{element}:</code> variants: <code>prose-headings:</code>, <code>prose-a:</code>, <code>prose-p:</code>, <code>prose-li:</code>, <code>prose-img:</code>, <code>prose-code:</code>, <code>prose-blockquote:</code> and more.</p>
+<script type="text/plain" class="code" data-file="index.html" data-app="mods">
+<article class="prose prose-headings:font-serif prose-headings:text-indigo-900 prose-a:text-sky-700 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl">
+  <h2>Custom</h2>
+  <p>A <a id="l" href="#">link</a>.</p>
+</article>
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="mods">
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-eval="'h2 font: ' + getComputedStyle(document.querySelector('h2')).fontFamily.split(',')[0] + '\nlink colour: ' + getComputedStyle(l).color + '\nlink underline: ' + getComputedStyle(l).textDecorationLine">
+h2 font: ui-serif
+link colour: oklch(0.5 0.134 242.749)
+link underline: none
+</script>
+
+<h2 id="forms">The Forms plugin</h2>
+<p>Browsers draw form controls in their own style, and some of those styles are hard to override. <code>@tailwindcss/forms</code> resets inputs, selects, checkboxes and radios to a simple, consistent look that utilities can then change:</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="forms">
+@import "tailwindcss";
+@plugin "@tailwindcss/forms";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="forms">
+<form class="grid w-72 gap-3">
+  <input type="email" placeholder="you@example.com" class="rounded-md border-slate-300 focus:border-sky-500 focus:ring-sky-500">
+  <select class="rounded-md border-slate-300"><option>Monthly</option><option>Yearly</option></select>
+  <label class="flex items-center gap-2"><input type="checkbox" checked class="rounded text-sky-600"> Remember me</label>
+</form>
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-shot="b-forms" data-width="340">A neat email input with a light border, a select box with a custom chevron, and a sky-blue checked checkbox with slightly rounded corners labelled "Remember me".</script>
+<p>Note <code>text-sky-600</code> on the checkbox: the plugin draws checkboxes so their colour follows <code>currentColor</code>, and <code>focus:ring-*</code> styles the focus ring it adds.</p>
+<p>If you only want the plugin's styles on elements you choose, use the <code>class</code> strategy: <code>@plugin "@tailwindcss/forms" { strategy: "class"; }</code>, then add <code>form-input</code>, <code>form-select</code>, <code>form-checkbox</code> where you want them.</p>
+<script type="text/plain" class="code" data-file="input.css" data-app="strategy">
+@import "tailwindcss";
+@plugin "@tailwindcss/forms" {
+  strategy: "class";
+}
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="strategy">
+<input class="form-input">
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="full" data-grep="^\s*\.form-">
+  .form-input {
+</script>
+
+<p>Only the <code>.form-input</code> class gets the plugin's styles; plain inputs on the page are left alone.</p>
+
+<h2 id="own">Writing your own plugin</h2>
+<p>For most needs, <code>@utility</code> and <code>@custom-variant</code> in CSS are simpler (Chapter 11). A JavaScript plugin is useful when you generate many utilities from data, or share something as an npm package. The v3 plugin API still works; load a local file with a path:</p>
+<script type="text/plain" class="code" data-file="plugins/text-stroke.js" data-app="own">
+import plugin from "tailwindcss/plugin";
+
+export default plugin(function ({ matchUtilities, theme }) {
+  matchUtilities(
+    { "text-stroke": (value) => ({ "-webkit-text-stroke-width": value }) },
+    { values: { 1: "1px", 2: "2px", 3: "3px" } },
+  );
+});
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="own">
+@import "tailwindcss";
+@plugin "./plugins/text-stroke.js";
+</script>
+<script type="text/plain" class="code" data-file="index.html" data-app="own">
+<h1 class="text-stroke-2 md:text-stroke-3">Outline</h1>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .text-stroke-2 {
+    -webkit-text-stroke-width: 2px;
+  }
+  @media (width >= 48rem) {
+    .md\:text-stroke-3 {
+      -webkit-text-stroke-width: 3px;
+    }
+  }
+}
+</script>
+<p>The same thing in CSS is three lines: <code>@utility text-stroke-* { -webkit-text-stroke-width: --value([length]); -webkit-text-stroke-width: calc(--value(integer) * 1px); }</code>. Prefer CSS unless you're publishing a package.</p>
+
+<h2 id="more-examples">More examples</h2>
+<h3>Markdown article layout</h3>
+<script type="text/plain" class="code" data-file="index.html" data-app="md">
+<main class="mx-auto px-4 py-10">
+  <article class="prose mx-auto lg:prose-lg dark:prose-invert">
+    <!-- HTML rendered from Markdown goes here -->
+    <h1>Title</h1>
+    <div class="not-prose my-6 rounded-lg bg-sky-50 p-4 text-sm">A widget that keeps its own styles.</div>
+  </article>
+</main>
+</script>
+<script type="text/plain" class="code" data-file="input.css" data-app="md">
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+</script>
+<script type="text/plain" class="code" data-lang="text" data-url="index.html" data-width="1100" data-eval="'article max-width: ' + getComputedStyle(document.querySelector('article')).maxWidth + ', h1 size: ' + getComputedStyle(document.querySelector('h1')).fontSize">
+article max-width: 735.716px, h1 size: 48px
+</script>
+
+<p>The maximum width is <code>65ch</code>, which the browser reports in pixels: 65 character widths at <code>prose-lg</code>'s 18&nbsp;px font. The heading is <code>prose-lg</code>'s 3&nbsp;rem.</p>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Load plugins with <code>@plugin "package-or-path";</code> in your CSS.</li>
+  <li><code>prose</code> styles uncontrolled HTML; size with <code>prose-lg</code>, grey with <code>prose-slate</code>, dark with <code>dark:prose-invert</code>, opt out with <code>not-prose</code>.</li>
+  <li><code>prose-a:</code>, <code>prose-headings:</code>… customise individual elements.</li>
+  <li><code>@tailwindcss/forms</code> normalises inputs, selects and checkboxes; <code>strategy: "class"</code> limits it to <code>form-*</code> classes.</li>
+  <li>JavaScript plugins (<code>matchUtilities</code>, <code>addUtilities</code>) still work, but <code>@utility</code> is usually enough.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">setup</span></h3>
+<p>Write the two lines that add Tailwind and the Typography plugin to a CSS file.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@import "tailwindcss";</code> and <code>@plugin "@tailwindcss/typography";</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">prose</span></h3>
+<p>Style a blog post body: prose, large on desktop, zinc greys, light text in dark mode.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;article class="prose prose-zinc lg:prose-lg dark:prose-invert"&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">width</span></h3>
+<p>Your prose content should fill its container instead of stopping at 65 characters. Which class?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>max-w-none</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">not-prose</span></h3>
+<p>A newsletter sign-up box in the middle of an article picks up prose margins and link styles. Fix it.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>not-prose</code> to the box's wrapper and style it with utilities.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">modifiers</span></h3>
+<p>Inside prose, make links your brand colour without an underline (underline on hover), images rounded, and inline code have a light grey background.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>prose-a:text-brand prose-a:no-underline hover:prose-a:underline prose-img:rounded-lg prose-code:rounded prose-code:bg-slate-100 prose-code:px-1</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">forms</span></h3>
+<p>With the Forms plugin, style a text input: rounded, slate-300 border, and a sky focus border and ring.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>rounded-md border-slate-300 focus:border-sky-500 focus:ring-sky-500</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>In <code>chapters/appendix-b/</code> there's a Markdown file converted to HTML. Style it with <code>prose</code>, then add a dark-mode toggle and check <code>dark:prose-invert</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Wrap the content in <code>&lt;article class="prose dark:prose-invert"&gt;</code>, add <code>@plugin "@tailwindcss/typography";</code> to the page's CSS, and reuse the toggle from Chapter 7.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">strategy</span></h3>
+<p>Why might you choose the Forms plugin's <code>class</code> strategy in an existing app?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The default (base) strategy restyles <em>every</em> input on the site, which can break third-party widgets or forms that already have their own styles. With <code>strategy: "class"</code> nothing changes until you add <code>form-input</code> etc., so you can adopt it gradually.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">plugin vs utility</span></h3>
+<p>Rewrite the <code>text-stroke</code> plugin as a CSS <code>@utility</code> that accepts integers (pixels) and arbitrary lengths.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>@utility text-stroke-* { -webkit-text-stroke-width: calc(--value(integer) * 1px); -webkit-text-stroke-width: --value([length]); }</code>. Only the declaration whose <code>--value()</code> matches the class is kept.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">design</span></h3>
+<p>A documentation site has Markdown pages with custom "callout" boxes written as <code>&lt;div class="callout"&gt;</code>. How do you style the callouts and keep prose styles for everything else?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Keep <code>prose</code> on the wrapper and define <code>.callout</code> in <code>@layer components</code> with <code>@apply</code> or theme variables. Prose styles still apply to the paragraphs inside the callout; if you don't want that, add <code>not-prose</code> to the callout in the Markdown renderer's output.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://github.com/tailwindlabs/tailwindcss-typography">@tailwindcss/typography</a></li>
+  <li><a href="https://github.com/tailwindlabs/tailwindcss-forms">@tailwindcss/forms</a></li>
+  <li><a href="https://tailwindcss.com/docs/functions-and-directives#plugin-directive">@plugin</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

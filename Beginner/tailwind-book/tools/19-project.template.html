@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🚀&lt;/text&gt;&lt;/svg&gt;">
+<title>19. Capstone: Tailwind in Next.js · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+<!-- GENERATED from tools/19-project.template.html by tools/build-project-chapter.mjs: edit the template, not this file. -->
+
+<div class="eyebrow">Chapter 19 · Project</div>
+<h1>Capstone: Tailwind in Next.js</h1>
+<p class="lead">Time to put everything together. You'll install Tailwind CSS in a Next.js app <strong>the official way</strong>, following the Tailwind docs' Next.js guide, and build <strong>Orbit</strong>: a landing page and a dashboard for a fictional habit tracker. It uses a custom theme, semantic colours with a dark-mode toggle that never flashes, reusable components, responsive and container-query layouts, subgrid, gradients and Prettier class sorting. Every file below is the real code from <code>playground/reference/</code>, and every screenshot was taken from a production build of it.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>How to add Tailwind to a Next.js app with <code>@tailwindcss/postcss</code>, step by step.</li>
+  <li>How to organise a real theme: brand tokens, semantic colours, a custom utility.</li>
+  <li>How to build typed React components with variant lookups and a <code>cn()</code> helper.</li>
+  <li>How to combine the techniques from every chapter in one app, and check the result.</li>
+</ul>
+</div>
+
+<h2 id="setup">Step 1: create the app and install Tailwind</h2>
+<p>The Tailwind docs' Next.js guide starts from a plain Next.js app. Create one without Next's own Tailwind option, so you can see every piece being added:</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npx create-next-app@latest orbit --typescript --eslint --app --no-tailwind
+$ cd orbit
+$ npm install tailwindcss @tailwindcss/postcss postcss
+</script>
+<p>Then add the PostCSS configuration in the project root. Next.js reads it automatically and runs Tailwind on every CSS file:</p>
+<!--FILE postcss.config.mjs-->
+<p>And put Tailwind at the top of <code>app/globals.css</code>, which the root layout imports. That's the whole installation: <code>@import "tailwindcss";</code>. The rest of the file is Orbit's theme, explained in step 2.</p>
+<div class="note">
+<p>📝 If you let <code>create-next-app</code> add Tailwind for you (the default), it uses the <code>@tailwindcss/turbopack</code> loader in <code>next.config.ts</code> instead of PostCSS, as the <a href="../nextjs-book/11-css.html">Next.js Study Book</a> shows. Both use the same engine and produce the same CSS; the classes and <code>@theme</code> work identically.</p>
+</div>
+<p>The finished project looks like this:</p>
+<script type="text/plain" class="code" data-lang="text" data-title="playground/reference/" data-norun>
+app/
+  globals.css            Tailwind import, theme, semantic colours, base styles, container-page
+  layout.tsx             root layout + the no-flash theme script
+  page.tsx               the landing page
+  dashboard/page.tsx     the dashboard
+components/
+  button.tsx             ButtonLink with variant and size lookups
+  site-header.tsx        sticky header with frosted glass
+  theme-toggle.tsx       client component that flips .dark
+  status-badge.tsx       coloured status pills
+lib/
+  cn.ts                  joins class names
+  data.ts                plans, features and habits
+postcss.config.mjs       @tailwindcss/postcss
+.prettierrc              class sorting
+</script>
+
+<h2 id="theme">Step 2: the theme</h2>
+<p>All design decisions live in one CSS file. Read it top to bottom; each block uses a chapter's technique:</p>
+<!--FILE app/globals.css-->
+<ul>
+  <li><strong><code>@custom-variant dark</code></strong> switches <code>dark:</code> to a class on <code>&lt;html&gt;</code> (Chapter 7).</li>
+  <li><strong><code>@theme</code></strong> adds a brand palette, a display font and a <code>fade-up</code> animation with its keyframes (Chapter 8). Each creates utilities: <code>bg-brand-600</code>, <code>font-display</code>, <code>animate-fade-up</code>.</li>
+  <li><strong>Semantic colours</strong>: <code>--surface</code>, <code>--ink</code>, <code>--muted</code>, <code>--line</code> change value under <code>.dark</code>, and <code>@theme inline</code> turns them into <code>bg-surface</code>, <code>text-ink</code>, <code>border-line</code>… The components never need <code>dark:</code> for their basic colours.</li>
+  <li><strong><code>@layer base</code></strong> sets the page colours and native control scheme (Chapter 11).</li>
+  <li><strong><code>@utility container-page</code></strong> is the page container, with responsive padding written with <code>@variant</code> (Chapter 11). Because it's a utility, it would also work with variants.</li>
+</ul>
+
+<h2 id="layout">Step 3: the root layout and dark mode</h2>
+<!--FILE app/layout.tsx-->
+<p>The inline script runs in <code>&lt;head&gt;</code> before the page is painted, so dark-mode users never see a white flash (Chapter 7). <code>suppressHydrationWarning</code> tells React that the <code>class</code> on <code>&lt;html&gt;</code> may differ from the server HTML, which is expected here. The toggle is a small Client Component:</p>
+<!--FILE components/theme-toggle.tsx-->
+<p>Its icon switches with <code>dark:hidden</code> and <code>hidden dark:inline</code>, and the button has an <code>sr-only</code> label (Chapter 12).</p>
+
+<h2 id="components">Step 4: components</h2>
+<p>A tiny helper joins class names and skips <code>false</code> values, so conditions read naturally:</p>
+<!--FILE lib/cn.ts-->
+<p>The button keeps <em>complete</em> class names in lookup objects, so Tailwind finds every one of them when it scans the file (Chapters 3 and 10). Variants and sizes are typed: <code>variant="tertiary"</code> is a TypeScript error.</p>
+<!--FILE components/button.tsx-->
+<!--FILE components/status-badge.tsx-->
+<!--FILE components/site-header.tsx-->
+<p>The header is <code>sticky</code> with a translucent <code>bg-surface/80</code> and <code>backdrop-blur-md</code>: content blurs as it scrolls underneath (Chapters 12 and 16). The navigation links are <code>hidden md:flex</code>.</p>
+
+<h2 id="landing">Step 5: the landing page</h2>
+<!--FILE lib/data.ts-->
+<!--FILE app/page.tsx-->
+<p>Things to notice: gradient text with <code>bg-clip-text</code>, <code>text-balance</code> and <code>text-pretty</code>; an entry animation only for <code>motion-safe</code> users; buttons that stack on phones and sit side by side from <code>sm</code>; a feature grid that becomes three columns at <code>md</code>; pricing cards on a <strong>subgrid</strong> so prices line up even though the blurbs have different lengths; the featured card made taller with negative margins; and an FAQ built from <code>&lt;details&gt;</code> with a <code>group-open:rotate-45</code> icon.</p>
+<script type="text/plain" class="code" data-lang="text" data-app="capstone" data-url="/" data-eval="document.title + '\n' + document.querySelector('h1').textContent">
+Orbit · Small habits, big results
+Small habits, big results
+</script>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-home" data-url="/" data-width="1100" data-clip="viewport">The Orbit landing page on a desktop: a sticky header with the logo, links, a moon button and "Open app"; a centred hero with "Small habits, big results" where "big results" has a violet-to-sky gradient, a grey subtitle, and two buttons.</script>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-home-phone" data-url="/" data-width="390" data-clip="viewport">The landing page at 390px: the header shows only the logo, the theme button and "Open app"; the hero heading wraps over three lines and the buttons are stacked full width.</script>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-pricing" data-url="/" data-width="1100" data-clip="#pricing">Three pricing cards: Starter and Team are white with a thin border; Pro, in the middle, is violet with white text and slightly taller. The prices sit on one line across all three cards.</script>
+<script type="text/plain" class="code" data-lang="text" data-app="capstone" data-url="/" data-width="1100" data-eval="'price rows line up: ' + new Set([...document.querySelectorAll('#pricing .text-4xl')].map((p) => Math.round(p.getBoundingClientRect().top))).size + ' distinct top position(s)'">
+price rows line up: 1 distinct top position(s)
+</script>
+
+<h2 id="dark">Step 6: dark mode in action</h2>
+<p>Clicking the moon button adds <code>dark</code> to <code>&lt;html&gt;</code>. Every semantic colour switches at once:</p>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-home-dark" data-url="/" data-width="1100" data-clip="viewport" data-steps="eval:localStorage.clear(); click:#theme-toggle; wait:200">The same landing page after clicking the moon button: near-black background, light text, a sun icon in the header; the gradient heading and violet button are unchanged.</script>
+<script type="text/plain" class="code" data-lang="text" data-app="capstone" data-url="/" data-steps="eval:localStorage.theme = 'dark'; goto:/" data-eval="'after reload: html.class = ' + document.documentElement.className + ', body background = ' + getComputedStyle(document.body).backgroundColor">
+after reload: html.class = dark, body background = lab(1.76974 1.32743 -9.28855)
+</script>
+<p>The choice survives a reload, and the class is already there when the page first paints. (The colour is slate-950. It's reported in <code>lab()</code> because Next.js runs its CSS through an optimiser that rewrites <code>oklch()</code> colours, with the same result on screen.)</p>
+
+<h2 id="dashboard">Step 7: the dashboard</h2>
+<!--FILE app/dashboard/page.tsx-->
+<ul>
+  <li>The sidebar is <code>hidden md:flex</code>; the current link is styled with <code>aria-[current=page]:</code> variants, so the markup and the accessibility attribute can't drift apart (Chapter 5).</li>
+  <li>The stat cards use a <strong>container query</strong> (<code>@container</code> + <code>@lg:grid-cols-3</code>): they follow the width of the main column, which is narrower when the sidebar is shown (Chapter 18).</li>
+  <li>The table scrolls sideways on small screens (<code>overflow-x-auto</code> + <code>min-w-xl</code>), has <code>divide-y</code> rows and a hover colour.</li>
+  <li>Progress bars get their width from data through a CSS variable: <code>w-(--done)</code> with <code>style={{ "--done": "86%" }}</code> (Chapter 3).</li>
+</ul>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-dashboard" data-url="/dashboard" data-width="1100" data-clip="viewport" data-steps="eval:localStorage.clear(); goto:/dashboard">The dashboard on a desktop: a grey sidebar with Overview highlighted, three stat cards in a row, and a habits table with violet progress bars and green, amber and grey status pills.</script>
+<script type="text/plain" class="code" data-lang="shot" data-app="capstone" data-shot="19-dashboard-phone" data-url="/dashboard" data-width="390" data-clip="viewport" data-steps="eval:localStorage.clear(); goto:/dashboard">The dashboard at 390px: no sidebar, the three stat cards stacked, and the table starting below them.</script>
+<script type="text/plain" class="code" data-lang="text" data-app="capstone" data-url="/dashboard" data-steps="width:780; eval:document.body.dataset.a = getComputedStyle(document.querySelector('dl')).gridTemplateColumns.split(' ').length; width:1100" data-eval="'stat columns at 780px (sidebar shown, main column narrow): ' + document.body.dataset.a + '\nstat columns at 1100px: ' + getComputedStyle(document.querySelector('dl')).gridTemplateColumns.split(' ').length">
+stat columns at 780px (sidebar shown, main column narrow): 1
+stat columns at 1100px: 3
+</script>
+<p>At 780&nbsp;px the <em>screen</em> is wider than <code>md</code>, but after the 224&nbsp;px sidebar and 64&nbsp;px of padding the stats container is only 492&nbsp;px wide, below the <code>@lg</code> container size (32&nbsp;rem = 512&nbsp;px). A viewport breakpoint would have squeezed three cards into it.</p>
+<script type="text/plain" class="code" data-lang="text" data-app="capstone" data-url="/dashboard" data-eval="[...document.querySelectorAll('tbody tr')].map((r) => r.cells[0].textContent.padEnd(18) + Math.round(r.querySelector('.bg-brand-500').getBoundingClientRect().width) + 'px of 128px').join('\n')">
+Read 20 pages     110px of 128px
+Practice Tailwind 82px of 128px
+Walk 8,000 steps  49px of 128px
+Meditate          13px of 128px
+</script>
+
+<h2 id="format">Step 8: sorted classes and a production build</h2>
+<p>The project formats with Prettier and the Tailwind plugin. <code>tailwindFunctions</code> makes it sort classes inside <code>cn(…)</code> calls too:</p>
+<!--FILE .prettierrc-->
+<script type="text/plain" class="code" data-lang="shell" data-app="capstone" data-run>
+$ npx prettier --check app components lib
+Checking formatting...
+All matched files use Prettier code style!
+</script>
+<p>And the production build, where Next.js runs PostCSS and Tailwind generates one CSS file with only the classes the app uses:</p>
+<script type="text/plain" class="code" data-lang="shell" data-app="capstone" data-run>
+$ npx next build
+...
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+└ ○ /dashboard
+...
+</script>
+<p>Both pages are static (<code>○</code>): Tailwind adds no runtime JavaScript, so styling never slows down rendering.</p>
+
+<h2 id="more-examples">Make it yours</h2>
+<p>Ideas for extending Orbit, each practising a chapter:</p>
+<ul>
+  <li>A three-way theme switch (light, dark, system) instead of a toggle (Chapter 7).</li>
+  <li>A <code>Card</code> component with <code>padding</code> and <code>tone</code> variants, used by the features and stats (Chapter 10).</li>
+  <li>A mobile menu in the header with <code>&lt;details&gt;</code> or a popover and <code>starting:</code> animation (Chapters 5 and 17).</li>
+  <li>An "Insights" page with a bento grid (Chapter 13) and <code>animate-pulse</code> skeletons while data loads (Chapter 17).</li>
+  <li>Long-form "Blog" pages styled with the Typography plugin (Appendix B).</li>
+</ul>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Official Next.js setup: <code>npm install tailwindcss @tailwindcss/postcss postcss</code>, a <code>postcss.config.mjs</code>, and <code>@import "tailwindcss";</code> in <code>app/globals.css</code>.</li>
+  <li>Keep the design system in CSS: <code>@theme</code> tokens, semantic variables with <code>@theme inline</code>, <code>@layer base</code>, <code>@utility</code>.</li>
+  <li>Class-based dark mode with an inline head script avoids flashes; semantic colours avoid <code>dark:</code> everywhere.</li>
+  <li>Components hold complete class names in lookups; <code>cn()</code> joins conditional classes.</li>
+  <li>Container queries, subgrid, CSS-variable widths and ARIA variants solve real layout problems with no extra JavaScript.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">setup</span></h3>
+<p>List the three things you add to a fresh Next.js app to install Tailwind with PostCSS.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The packages (<code>tailwindcss @tailwindcss/postcss postcss</code>), a <code>postcss.config.mjs</code> with the plugin, and <code>@import "tailwindcss";</code> in the global CSS file imported by the root layout.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">brand</span></h3>
+<p>Change Orbit's brand colour from violet to teal by editing only <code>globals.css</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Change the hue of the <code>--color-brand-*</code> values (285 → about 185), e.g. <code>--color-brand-600: oklch(0.52 0.1 185)</code>, or point them at the palette: <code>--color-brand-600: var(--color-teal-600)</code>. No component changes, because they all use <code>brand-*</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">button</span></h3>
+<p>Add a <code>danger</code> variant to <code>ButtonLink</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Add <code>danger: "bg-red-600 text-white shadow-sm hover:bg-red-700"</code> to the <code>variants</code> object. The type <code>keyof typeof variants</code> picks it up automatically.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">semantic</span></h3>
+<p>Add a semantic colour <code>accent-soft</code> (brand-50 in light mode, brand-700 at 30% in dark mode) and use it for the feature icons instead of <code>bg-brand-50 dark:bg-brand-700/30</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>:root { --accent-soft: var(--color-brand-50); }</code>, <code>.dark { --accent-soft: --alpha(var(--color-brand-700) / 30%); }</code>, <code>@theme inline { --color-accent-soft: var(--accent-soft); }</code>, then <code>bg-accent-soft</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">mobile menu</span></h3>
+<p>The header hides the navigation below <code>md</code>. Add a mobile menu with <code>&lt;details&gt;</code> that shows the links in a dropdown panel.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>&lt;details className="relative md:hidden"&gt;&lt;summary className="list-none rounded-lg p-2 ring-1 ring-line"&gt;☰&lt;/summary&gt;&lt;nav className="absolute right-0 mt-2 flex w-48 flex-col rounded-lg bg-surface p-2 shadow-lg ring-1 ring-line"&gt;…links…&lt;/nav&gt;&lt;/details&gt;</code></p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">three-way</span></h3>
+<p>Replace <code>ThemeToggle</code> with a three-way switch (light, dark, system) using the logic from Chapter 7.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Three buttons in a <code>role="group"</code>; light and dark set <code>localStorage.theme</code>, system calls <code>localStorage.removeItem("theme")</code>; each then runs the same expression as the layout's <code>themeScript</code> to set the class. Highlight the active one with <code>aria-pressed</code> and <code>aria-pressed:bg-surface-muted</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">container</span></h3>
+<p>Make each stat card itself a container and show a small trend line ("+4%") next to the value only when the card is at least 16&nbsp;rem wide.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Card: add <code>@container</code>. Trend: <code>&lt;span className="hidden text-sm text-emerald-600 @3xs:inline"&gt;+4%&lt;/span&gt;</code> (<code>@3xs</code> = 16&nbsp;rem).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">loading</span></h3>
+<p>Add a <code>app/dashboard/loading.tsx</code> that shows a skeleton of the stat cards while the page loads.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>Return three <code>&lt;div className="h-24 animate-pulse rounded-xl bg-surface-muted ring-1 ring-line" /&gt;</code> in the same <code>grid gap-4 @lg:grid-cols-3</code> inside an <code>@container</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">tw-merge</span></h3>
+<p><code>&lt;ButtonLink className="px-8"&gt;</code> ends up with both <code>px-4</code> and <code>px-8</code>. Which wins, and why is that fragile? How would you make <code>className</code> reliably override the defaults?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The one generated later in the CSS, which here happens to be <code>px-8</code>, but that depends on Tailwind's internal order, not on the order in the attribute (Chapter 3). Use a merge helper such as the <code>tailwind-merge</code> package inside <code>cn()</code>: it removes conflicting earlier classes, so <code>cn("px-4", "px-8")</code> returns <code>"px-8"</code> (Appendix C).</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">your own</span></h3>
+<p>Design and build an "Insights" page: a bento grid of four tiles (a big chart tile, three small stat tiles), each adapting with container queries, in both themes.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>One approach: <code>grid gap-4 md:grid-cols-4 md:grid-rows-2</code>; chart tile <code>md:col-span-2 md:row-span-2 @container</code>; small tiles <code>@container</code> with <code>@xs:flex-row</code> layouts; all with <code>bg-surface ring-1 ring-line</code> so dark mode works without extra classes. Check it at 390, 800 and 1100&nbsp;px.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/installation/framework-guides/nextjs">Install Tailwind CSS with Next.js</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started/css">Next.js: CSS</a></li>
+  <li><a href="https://github.com/coderhop-learning/tailwindcss-playground">The playground repository (with this reference project)</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>

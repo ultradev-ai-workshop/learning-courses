@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🛠️&lt;/text&gt;&lt;/svg&gt;">
+<title>4. Editor Setup &amp; Class Order · Tailwind CSS Study Book</title>
+<link rel="stylesheet" href="book.css">
+<link rel="stylesheet" href="../../shared/site.css">
+<script src="../../shared/site.js"></script>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar"></nav>
+<main class="content">
+
+<div class="eyebrow">Chapter 4 · Getting Started</div>
+<h1>Editor Setup &amp; Class Order</h1>
+<p class="lead">You'll type thousands of class names, so a good editor setup pays off on day one. This chapter follows the docs' <em>Editor setup</em> page: the official IntelliSense extension that completes, previews and checks classes; the Prettier plugin that sorts them into a standard order; and the CLI's <code>canonicalize</code> command that rewrites classes into their simplest form. It ends with habits that keep long class lists readable.</p>
+
+<div class="learn">
+<h2>You will learn</h2>
+<ul>
+  <li>What the Tailwind CSS IntelliSense extension does and how to configure it.</li>
+  <li>How to make your editor understand Tailwind's CSS directives.</li>
+  <li>How <code>prettier-plugin-tailwindcss</code> sorts classes, and the order it uses.</li>
+  <li>How <code>tailwindcss canonicalize</code> simplifies class names.</li>
+  <li>Habits for long class lists.</li>
+</ul>
+</div>
+
+<h2 id="intellisense">Tailwind CSS IntelliSense</h2>
+<p>The official <strong>Tailwind CSS IntelliSense</strong> extension for VS Code (and editors that use the same extension format, such as Cursor and VSCodium) gives you:</p>
+<ul>
+  <li><strong>Autocomplete:</strong> suggestions for every utility, including your own theme colours and custom utilities, as you type in a <code>class</code> attribute.</li>
+  <li><strong>Hover previews:</strong> hover a class to see the CSS it generates, such as <code>.p-4 { padding: calc(var(--spacing) * 4); /* 1rem = 16px */ }</code>.</li>
+  <li><strong>Colour swatches</strong> next to colour classes.</li>
+  <li><strong>Linting:</strong> warnings for conflicting classes (<code>flex grid</code>) and mistakes in your CSS file.</li>
+  <li><strong>Suggestions to simplify:</strong> for example it offers to replace <code>w-12 h-12</code> with <code>size-12</code>.</li>
+</ul>
+<p>Install it from the Extensions view (search "Tailwind CSS IntelliSense", publisher <em>Tailwind Labs</em>). It finds your CSS file with <code>@import "tailwindcss"</code> automatically. JetBrains IDEs (WebStorm, IntelliJ), Zed and Neovim (through the Tailwind language server) have the same features built in or as plugins.</p>
+
+<h3 id="vscode-settings">Two settings worth adding</h3>
+<script type="text/plain" class="code" data-file=".vscode/settings.json" data-norun>
+{
+  // Treat .css files as Tailwind CSS: no warnings for @theme, @utility, @apply…
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  // Show suggestions inside strings too (useful for clsx(), cva(), etc.)
+  "editor.quickSuggestions": {
+    "strings": "on"
+  }
+}
+</script>
+<p>Without the first setting, the built-in CSS checker doesn't know Tailwind's at-rules and underlines <code>@theme</code> and <code>@utility</code> as unknown. The extension provides a "Tailwind CSS" language mode for CSS files that understands them.</p>
+<p>If you build class lists in JavaScript with helper functions, tell the extension where to look with <code>tailwindCSS.classFunctions</code>:</p>
+<script type="text/plain" class="code" data-file=".vscode/settings.json" data-norun>
+{
+  "tailwindCSS.classFunctions": ["clsx", "cva", "cn", "tw"]
+}
+</script>
+
+<div class="analogy">
+<p>🧠 <strong>Analogy:</strong> IntelliSense is a <strong>spell-checker with a dictionary of every utility</strong>. Without it, a typo like <code>txt-red-500</code> silently does nothing, like a misspelled word in a letter nobody proofreads. With it, you see suggestions as you type and a red squiggle when something is off.</p>
+</div>
+
+<h2 id="prettier">Sorting classes with Prettier</h2>
+<p><a href="https://prettier.io">Prettier</a> is a code formatter. The official plugin <code>prettier-plugin-tailwindcss</code> adds one thing: it sorts the classes in every <code>class</code> and <code>className</code> attribute into a <strong>standard order</strong>. Everyone on a team then writes the same element the same way, and diffs stay small.</p>
+<script type="text/plain" class="code" data-lang="shell" data-norun>
+$ npm install -D prettier prettier-plugin-tailwindcss
+</script>
+<script type="text/plain" class="code" data-file=".prettierrc">
+{
+  "plugins": ["prettier-plugin-tailwindcss"],
+  "tailwindStylesheet": "./input.css"
+}
+</script>
+<p><code>tailwindStylesheet</code> points to your main CSS file, so the plugin knows your theme and custom utilities. Here is a button with its classes in random order:</p>
+<script type="text/plain" class="code" data-file="button.html">
+<button class="text-white px-4 sm:px-8 py-2 sm:py-3 bg-sky-700 hover:bg-sky-800 my-btn rounded-lg">Save</button>
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx prettier button.html
+<button
+  class="my-btn rounded-lg bg-sky-700 px-4 py-2 text-white hover:bg-sky-800 sm:px-8 sm:py-3"
+>
+  Save
+</button>
+</script>
+<p>The order follows the generated CSS:</p>
+<ol>
+  <li><strong>Classes Tailwind doesn't know</strong> (your own, like <code>my-btn</code>, or other libraries') go first, so they stand out.</li>
+  <li>Then utilities in the order they appear in the stylesheet: layout and box model (<code>rounded-lg</code>, <code>bg-</code>, <code>px-</code>, <code>py-</code>) before typography and colour (<code>text-white</code>).</li>
+  <li><strong>Classes with variants</strong> go last, after the plain ones: <code>hover:</code> before responsive ones like <code>sm:</code>, which are ordered from the smallest breakpoint up.</li>
+</ol>
+<p>Because the order matches the CSS, a sorted list also tells you which class "wins" when two conflict: the later one. Run <code>npx prettier --write .</code> to sort a whole project, or enable "format on save" in your editor.</p>
+
+<div class="tip">
+<p>💡 Sorting also works inside JavaScript strings passed to functions such as <code>clsx</code> or <code>cn</code> when you list them in the plugin's <code>tailwindFunctions</code> option: <code>"tailwindFunctions": ["clsx", "cn"]</code>.</p>
+</div>
+
+<h2 id="canonicalize">Simplifying classes: <code>tailwindcss canonicalize</code></h2>
+<p>The CLI can rewrite classes into their <strong>canonical</strong> (simplest standard) form. It's useful after an upgrade, when cleaning up code written by many people, or to check what the "official" spelling of something is:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx tailwindcss canonicalize "w-12 h-12" "p-[1rem]" "bg-[#fff]" "w-[100%]" "bg-[var(--brand)]" "!font-bold"
+size-12
+p-4
+bg-white
+w-full
+bg-(--brand)
+font-bold!
+</script>
+<ul>
+  <li><code>w-12 h-12</code> becomes the shorthand <code>size-12</code> (width and height together).</li>
+  <li>Arbitrary values that equal a theme value become the theme utility: <code>p-[1rem]</code> is <code>p-4</code>; <code>bg-[#fff]</code> is <code>bg-white</code>.</li>
+  <li><code>[var(--brand)]</code> becomes the v4 shorthand <code>(--brand)</code>, and the v3-style leading <code>!</code> moves to the end.</li>
+</ul>
+<p>Values in pixels stay as they are, because whether <code>16px</code> equals <code>1rem</code> depends on the root font size:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx tailwindcss canonicalize "mt-[16px]" "top-[50%]"
+mt-[16px]
+top-[50%]
+</script>
+
+<h2 id="habits">Habits for long class lists</h2>
+<ul>
+  <li><strong>Let the formatter wrap lines.</strong> Prettier breaks long attributes for you; don't fight it.</li>
+  <li><strong>Read in the sorted order:</strong> layout → box → typography → colour → states → breakpoints. After a week it becomes automatic.</li>
+  <li><strong>Extract when it hurts, not before.</strong> If you copy the same 15 classes a third time, make a component (Chapter 10).</li>
+  <li><strong>Use DevTools.</strong> In the browser's Elements panel, the "Computed" tab shows the final value of every property and which rule set it.</li>
+</ul>
+
+<h2 id="more-examples">More examples</h2>
+<h3>A messy card, sorted</h3>
+<script type="text/plain" class="code" data-file="card.html">
+<div class="shadow-sm md:flex p-6 dark:bg-slate-800 bg-white rounded-xl gap-4 items-center md:p-8 card">
+  <p class="font-medium text-lg md:text-xl text-slate-700 hover:text-slate-900">Hello</p>
+</div>
+</script>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx prettier card.html
+<div
+  class="card items-center gap-4 rounded-xl bg-white p-6 shadow-sm md:flex md:p-8 dark:bg-slate-800"
+>
+  <p class="text-lg font-medium text-slate-700 hover:text-slate-900 md:text-xl">
+    Hello
+  </p>
+</div>
+</script>
+<p>Notice <code>dark:</code> comes after <code>md:</code>: <code>dark</code> is a media query too, and it's registered after the breakpoints.</p>
+
+<h3>Checking one class from the terminal</h3>
+<p>When you're not sure what a class generates, print it with the CLI (Chapter 2):</p>
+<script type="text/plain" class="code" data-file="check.html" data-app="one">
+<p class="line-clamp-2">…</p>
+</script>
+<script type="text/plain" class="code" data-lang="css" data-css="utilities">
+@layer utilities {
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+</script>
+
+<h3>JSON output from canonicalize</h3>
+<p>Tools and scripts can ask for JSON:</p>
+<script type="text/plain" class="code" data-lang="shell" data-run>
+$ npx tailwindcss canonicalize --format=json "h-10 w-10"
+[
+  {
+    "input": "h-10 w-10",
+    "output": "size-10",
+    "changed": true
+  }
+]
+</script>
+
+<div class="recap">
+<h2>Recap</h2>
+<ul>
+  <li>Install Tailwind CSS IntelliSense: completion, hover CSS previews, colour swatches, linting.</li>
+  <li>Associate <code>*.css</code> with the "tailwindcss" language so <code>@theme</code> and friends aren't flagged.</li>
+  <li><code>prettier-plugin-tailwindcss</code> sorts classes in the order of the generated CSS: unknown classes first, variants last.</li>
+  <li><code>tailwindcss canonicalize</code> rewrites classes into their simplest form (<code>w-12 h-12</code> → <code>size-12</code>).</li>
+  <li>Let the formatter wrap long lists; extract components when repetition really hurts.</li>
+</ul>
+</div>
+
+<h2 id="exercises">Exercises</h2>
+
+<div class="exercise">
+<h3>Exercise 1 <span class="lvl easy">🟢 easy</span> <span class="kind">setup</span></h3>
+<p>Install Tailwind CSS IntelliSense in your editor and open the playground. Hover <code>rounded-lg</code> in any file. What does the tooltip show?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The generated CSS: <code>.rounded-lg { border-radius: var(--radius-lg); /* 0.5rem (8px) */ }</code>, the value of the theme variable in a comment.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 2 <span class="lvl easy">🟢 easy</span> <span class="kind">settings</span></h3>
+<p>VS Code underlines <code>@theme</code> in your CSS with "Unknown at rule". Which setting fixes it?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>"files.associations": { "*.css": "tailwindcss" }</code>, which uses the extension's Tailwind CSS language mode for CSS files.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 3 <span class="lvl easy">🟢 easy</span> <span class="kind">sort by hand</span></h3>
+<p>Without running Prettier, put these in the plugin's order: <code>hover:bg-sky-600 p-4 my-card bg-sky-500 md:p-6</code>.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>my-card bg-sky-500 p-4 hover:bg-sky-600 md:p-6</code>: unknown class first, then plain utilities, then <code>hover:</code>, then breakpoints.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 4 <span class="lvl easy">🟢 easy</span> <span class="kind">canonical</span></h3>
+<p>What is the canonical form of <code>h-8 w-8</code>, <code>p-[0.5rem]</code> and <code>text-[#000]</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>size-8</code>, <code>p-2</code> (0.5&nbsp;rem = 2 × 0.25&nbsp;rem) and <code>text-black</code>. Check with <code>npx tailwindcss canonicalize "h-8 w-8" "p-[0.5rem]" "text-[#000]"</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 5 <span class="lvl medium">🟡 medium</span> <span class="kind">playground</span></h3>
+<p>The playground already has Prettier and the plugin. Scramble the classes of three elements in <code>chapters/04/index.html</code>, run <code>npm run format</code>, and compare with what you expected.</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The plugin restores the same order every time, whatever the starting order. If your guess differed, look at where each utility appears in the generated CSS; that is the order.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 6 <span class="lvl medium">🟡 medium</span> <span class="kind">why</span></h3>
+<p>Why does the plugin put classes it doesn't recognise first rather than last?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>They usually carry meaning (a component class like <code>card</code>, a JavaScript hook, another library's class) and would get lost at the end of a long list. At the front you see them at a glance.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 7 <span class="lvl medium">🟡 medium</span> <span class="kind">canonical px</span></h3>
+<p>Why does <code>canonicalize</code> turn <code>p-[1rem]</code> into <code>p-4</code> but leave <code>mt-[16px]</code> alone?</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>p-4</code> is <code>calc(var(--spacing) * 4)</code> = 1&nbsp;rem exactly, so the two are always equal. 16&nbsp;px equals 1&nbsp;rem only if the root font size is 16&nbsp;px, which the user or the page can change; the tool doesn't assume it.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 8 <span class="lvl medium">🟡 medium</span> <span class="kind">functions</span></h3>
+<p>Your React code uses a helper <code>cn("px-4", isActive &amp;&amp; "bg-sky-600")</code>. Which two settings make autocomplete and sorting work inside <code>cn(...)</code>?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>IntelliSense: <code>"tailwindCSS.classFunctions": ["cn"]</code> in VS Code settings. Prettier: <code>"tailwindFunctions": ["cn"]</code> in <code>.prettierrc</code>.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 9 <span class="lvl hard">🔴 hard</span> <span class="kind">conflicts</span></h3>
+<p>After sorting, an element reads <code>class="flex … grid"</code> with <code>grid</code> later. What does this tell you about which display value applies, and what should you do?</p>
+<details class="solution"><summary>Show solution</summary>
+<p>The sorted order follows the CSS, so the later class (<code>grid</code>) wins. Two classes for the same property is almost always a mistake: remove one, or make one conditional (<code>flex md:grid</code>). IntelliSense also flags it as a conflict.</p>
+</details>
+</div>
+
+<div class="exercise">
+<h3>Exercise 10 <span class="lvl hard">🔴 hard</span> <span class="kind">team setup</span></h3>
+<p>Write the files a team should commit so every developer gets the same Tailwind editing experience, and the CI fails when classes aren't sorted.</p>
+<details class="solution"><summary>Show solution</summary>
+<p><code>.vscode/extensions.json</code> recommending <code>bradlc.vscode-tailwindcss</code> and <code>esbenp.prettier-vscode</code>; <code>.vscode/settings.json</code> with the file association and <code>"editor.formatOnSave": true</code>; <code>.prettierrc</code> with the plugin and <code>tailwindStylesheet</code>; a <code>package.json</code> script <code>"format:check": "prettier --check ."</code> that CI runs. <code>prettier --check</code> exits with an error when any file would change.</p>
+</details>
+</div>
+
+<h2 id="docs">Official docs</h2>
+<ul class="doclinks">
+  <li><a href="https://tailwindcss.com/docs/editor-setup">Editor setup</a></li>
+  <li><a href="https://github.com/tailwindlabs/tailwindcss-intellisense">Tailwind CSS IntelliSense</a></li>
+  <li><a href="https://github.com/tailwindlabs/prettier-plugin-tailwindcss">prettier-plugin-tailwindcss</a></li>
+</ul>
+
+<nav id="pager"></nav>
+</main>
+</div>
+<script src="book.js"></script>
+</body>
+</html>
