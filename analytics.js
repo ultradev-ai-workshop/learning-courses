@@ -2,7 +2,7 @@
    Paste your measurement ID below (Google Analytics → Admin → Data streams → Web → Measurement ID). */
 (function () {
   'use strict';
-  var MEASUREMENT_ID = 'G-XXXXXXXXXX';
+  var MEASUREMENT_ID = 'G-N2XMFWXV14';
 
   if (!/^G-[A-Z0-9]+$/.test(MEASUREMENT_ID) || MEASUREMENT_ID === 'G-XXXXXXXXXX') return;  // not configured yet
   if (location.hostname !== 'learn.coderhop.com') return;  // don't count local copies, file:// or previews
